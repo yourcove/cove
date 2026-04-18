@@ -1,0 +1,2052 @@
+@import "tailwindcss";
+
+@theme {
+  /* Default dark theme — overridden at runtime by ExtensionLoader CSS variable injection */
+  --color-background: #202b33;
+  --color-surface: #283540;
+  --color-card: #30404d;
+  --color-card-hover: #394b59;
+  --color-border: #394b59;
+  --color-input: rgba(16, 22, 26, 0.3);
+  --color-foreground: #f5f8fa;
+  --color-secondary: #bfccd6;
+  --color-muted: #8a9ba8;
+  --color-accent: #137cbd;
+  --color-accent-hover: #48aff0;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-nav: #1a2329;
+  --color-nav-active: #137cbd;
+}
+
+/* Base */
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsla(0, 0%, 100%, 0.15); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: hsla(0, 0%, 100%, 0.25); }
+* { scrollbar-color: hsla(0, 0%, 100%, 0.15) transparent; scrollbar-width: thin; }
+
+/* Selection */
+::selection { background: rgba(204, 123, 25, 0.4); }
+
+/* Transitions */
+a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, opacity 0.15s; }
+
+/* Prevent pinch-to-zoom on mobile (iOS ignores viewport meta).
+ * "pan-x pan-y" allows scrolling but disables pinch-zoom — unlike
+ * "manipulation" which still permits pinch-zoom gestures.
+ * Applied to * so no element can initiate a pinch-zoom gesture. */
+* { touch-action: pan-x pan-y; }
+
+/* Detail page hero section */
+.detail-hero-gradient {
+  background: linear-gradient(180deg, var(--color-surface), var(--color-background));
+}
+
+/* Theater mode */
+html.theater-mode nav.cove-navbar { display: none; }
+html.theater-mode main { max-width: none !important; padding: 0 !important; }
+
+/* Hide scrollbar for horizontal carousels */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Scene card preview video */
+.scene-card-preview-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-out;
+}
+.scene-card:hover .scene-card-preview-video,
+.scene-card:active .scene-card-preview-video {
+  opacity: 1;
+  transition-delay: 0.2s;
+}
+
+.extra-scene-info { display: none; }
+
+/* Scene specs overlay — fade out on hover */
+.scene-card:hover .scene-specs-overlay,
+.scene-card:hover .rating-banner-container {
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+.rating-banner-container { transition: opacity 0.5s; }
+
+/* Card zoom levels */
+.scene-card { --card-min-width: 240px; }
+
+/* Card title typography */
+.card-title {
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+.entity-card { min-width: 0; }
+
+@container (max-width: 200px) {
+  .card-title { font-size: 0.75rem; }
+  .card-popovers { display: none; }
+}
+
+@media (max-width: 480px) {
+  .card-title { font-size: 0.75rem; }
+}
+
+/* Style native select dropdowns */
+select option {
+  background-color: var(--color-card);
+  color: var(--color-foreground);
+  padding: 4px 8px;
+}
+select option:hover,
+select option:checked {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a9ba8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px !important;
+  cursor: pointer;
+}
+
+/* Custom dropdown panel styling (StyledSelect) */
+.styled-dropdown-panel {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.styled-dropdown-item {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--color-foreground);
+  transition: background-color 0.1s;
+}
+.styled-dropdown-item:hover { background-color: var(--color-card-hover); }
+.styled-dropdown-item.selected { background-color: var(--color-accent); color: #fff; }
+
+.filter-dialog select {
+  background-color: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+/* ===== Layer 2: Component Styles ===== */
+/* Selectors use [data-component-style*="X"] for composable multi-styles.
+ * IMPORTANT: Use only single-function backdrop-filter values (blur only) because
+ * Lightning CSS strips spaces between chained functions like blur(x) saturate(y). */
+
+/* --- Component Style: Glass --- */
+/* Glass opacity is controlled by --sv-surface-opacity (0-100, default 40). */
+html[data-component-style*="glass"] {
+  --_glass-alpha: calc(var(--sv-surface-opacity, 40) / 100);
+  --color-nav: rgb(18 18 24 / var(--_glass-alpha));
+  --color-surface: rgb(28 28 36 / calc(var(--_glass-alpha) * 0.75));
+  --color-card: rgb(36 36 46 / calc(var(--_glass-alpha) * 0.625));
+  --color-card-hover: rgb(48 48 58 / calc(var(--_glass-alpha) * 0.875));
+  --color-input: rgba(12, 12, 18, 0.25);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-overlay: rgba(0, 0, 0, 0.4);
+}
+
+/* Light color scheme glass — uses data-color-scheme="light" set by ExtensionLoader */
+html[data-color-scheme="light"][data-component-style*="glass"] {
+  --color-nav: rgba(255, 255, 255, 0.6);
+  --color-surface: rgba(255, 255, 255, 0.45);
+  --color-card: rgba(255, 255, 255, 0.4);
+  --color-card-hover: rgba(255, 255, 255, 0.55);
+  --color-input: rgba(255, 255, 255, 0.3);
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-overlay: rgba(0, 0, 0, 0.2);
+}
+
+/* Glass: major surfaces get frosted blur — controlled by --sv-surface-blur (0-100, default 50 → 20px) */
+html[data-component-style*="glass"] .bg-surface,
+html[data-component-style*="glass"] .bg-surface\/50 {
+  -webkit-backdrop-filter: blur(calc(var(--sv-surface-blur, 50) * 0.4px));
+  backdrop-filter: blur(calc(var(--sv-surface-blur, 50) * 0.4px));
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+html[data-component-style*="glass"] .detail-hero-gradient {
+  -webkit-backdrop-filter: blur(calc(var(--sv-surface-blur, 50) * 0.4px));
+  backdrop-filter: blur(calc(var(--sv-surface-blur, 50) * 0.4px));
+}
+
+html[data-component-style*="glass"] .rounded-xl.border.border-border.bg-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+html[data-component-style*="glass"] .bg-nav {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+html[data-component-style*="glass"] .bg-input {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Glass: entity cards — blur controlled by --sv-card-blur (0-100, default 27 → ~8px) */
+html[data-component-style*="glass"] .entity-card,
+html[data-component-style*="glass"] .scene-card {
+  contain: style;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(calc(var(--sv-card-blur, 27) * 0.3px));
+  backdrop-filter: blur(calc(var(--sv-card-blur, 27) * 0.3px));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
+
+html[data-component-style*="glass"] .entity-card:hover,
+html[data-component-style*="glass"] .scene-card:hover {
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Glass: dropdowns/dialogs — semi-transparent frosted background */
+html[data-component-style*="glass"] .styled-dropdown-panel,
+html[data-component-style*="glass"] .filter-dialog,
+html[data-component-style*="glass"] .global-search-dropdown,
+html[data-component-style*="glass"] [role="dialog"] {
+  background: rgba(20, 22, 28, 0.72) !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+/* Glass: settings style option cards */
+html[data-component-style*="glass"] .settings-style-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+html[data-component-style*="glass"] .settings-style-card.active {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+/* Glass: exclude certain buttons from blur */
+html[data-component-style*="glass"] button.no-glass,
+html[data-component-style*="glass"] button[class*="border-b-2"],
+html[data-component-style*="glass"] button[class*="text-accent transition-transform"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-component-style*="glass"] section.rounded-2xl {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+html[data-component-style*="glass"] .rounded-full {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* PERF: Video player — never apply glass blur */
+html[data-component-style*="glass"] .bg-black {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+html[data-component-style*="glass"] .bg-black * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* PERF: CSS containment on card grids */
+.entity-card, .scene-card { contain: style; }
+
+/* PERF: Prefer reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  html[data-component-style*="animated"] .entity-card,
+  html[data-component-style*="animated"] .scene-card,
+  html[data-component-style*="animated"] nav.cove-navbar {
+    animation: none !important;
+  }
+  html[data-component-style*="gradient"] body,
+  html[data-theme-bg-animation] body {
+    animation: none !important;
+    background-size: 100% 100% !important;
+  }
+  html[data-theme-bg-animation] body::before {
+    animation: none !important;
+  }
+}
+
+/* Job drawer: always readable with glass/animated themes — force opaque bg + contrasting text */
+html[data-component-style*="glass"] .job-drawer,
+html[data-theme-bg-animation] .job-drawer {
+  background: rgba(20, 22, 28, 0.95) !important;
+  color: #f5f8fa !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  --color-card: #30404d;
+  --color-card-hover: #394b59;
+  --color-surface: #252a31;
+  --color-input: #1a1f25;
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-foreground: #f5f8fa;
+  --color-muted: #8a9ba8;
+  --color-secondary: #a0aab2;
+  --color-accent: var(--color-accent);
+}
+html[data-component-style*="glass"] .job-drawer .text-foreground,
+html[data-theme-bg-animation] .job-drawer .text-foreground { color: #f5f8fa !important; }
+html[data-component-style*="glass"] .job-drawer .text-muted,
+html[data-theme-bg-animation] .job-drawer .text-muted { color: #8a9ba8 !important; }
+html[data-component-style*="glass"] .job-drawer .text-secondary,
+html[data-theme-bg-animation] .job-drawer .text-secondary { color: #a0aab2 !important; }
+html[data-color-scheme="light"][data-component-style*="glass"] .job-drawer {
+  background: rgba(245, 248, 250, 0.95) !important;
+  color: #111827 !important;
+  --color-card: #e5e7eb;
+  --color-card-hover: #d1d5db;
+  --color-surface: #f3f4f6;
+  --color-input: #e5e7eb;
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-foreground: #111827;
+  --color-muted: #6b7280;
+  --color-secondary: #4b5563;
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .job-drawer .text-foreground { color: #111827 !important; }
+html[data-color-scheme="light"][data-component-style*="glass"] .job-drawer .text-muted { color: #6b7280 !important; }
+html[data-color-scheme="light"][data-component-style*="glass"] .job-drawer .text-secondary { color: #4b5563 !important; }
+
+/* Keyboard shortcuts dialog */
+html[data-component-style*="glass"] .shortcuts-dialog {
+  background: rgba(20, 22, 28, 0.72) !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-component-style*="glass"] .shortcuts-dialog-header {
+  background: transparent !important;
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .shortcuts-dialog {
+  background: rgba(245, 248, 250, 0.92) !important;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .shortcuts-dialog-header {
+  background: rgba(245, 248, 250, 0.92) !important;
+}
+/* Gradient style: accent header border */
+html[data-component-style*="gradient"] .shortcuts-dialog-header {
+  border-image: linear-gradient(90deg,
+    color-mix(in srgb, var(--color-accent) 30%, transparent),
+    color-mix(in srgb, var(--color-accent-hover) 30%, transparent),
+    transparent
+  ) 1;
+}
+
+/* Glass: soften border dividers */
+html[data-component-style*="glass"] .border-b { border-color: rgba(255, 255, 255, 0.06); }
+html[data-component-style*="glass"] .border-l { border-color: rgba(255, 255, 255, 0.06); }
+html[data-component-style*="glass"] .border-t { border-color: rgba(255, 255, 255, 0.06); }
+
+/* ===================================================================
+ * THEME BACKGROUND ANIMATION
+ * Any theme with BackgroundAnimation set gets animated gradient blobs
+ * on body::before. Colors are derived from the theme's CSS variables
+ * (accent, accent-hover, nav-active) so they work with ANY palette.
+ *
+ * Applied via data-theme-bg-animation attribute by ExtensionLoader.
+ * PERF: Uses CSS transform-based animation (GPU-composited).
+ * =================================================================== */
+
+/* BG Animation + Glass: extra translucent surfaces so blobs show through */
+html[data-theme-bg-animation][data-component-style*="glass"] {
+  --color-background: transparent;
+  --color-nav: rgba(20, 20, 30, 0.12);
+  --color-surface: rgba(24, 24, 36, 0.08);
+  --color-card: rgba(30, 30, 42, 0.08);
+  --color-card-hover: rgba(40, 40, 55, 0.15);
+  --color-input: rgba(10, 10, 18, 0.12);
+  --color-border: rgba(255, 255, 255, 0.2);
+  --color-overlay: rgba(0, 0, 0, 0.25);
+}
+
+/* BG Animation: dark base so gradient blobs show.
+ * isolation: isolate creates a stacking context so body::before (z-index: -1)
+ * sits above body's background but below all child content.
+ * The .bg-background wrapper must also be transparent so ::before shows through. */
+html[data-theme-bg-animation] .min-h-screen.bg-background {
+  background-color: transparent;
+}
+html[data-theme-bg-animation] body {
+  background: #0a0a12;
+  isolation: isolate;
+}
+
+/* BG Animation: gradient blobs via body::before using theme CSS variables.
+ * Intensity controlled by --sv-bg-intensity (0-100, default 100). */
+html[data-theme-bg-animation] body::before {
+  content: "";
+  position: fixed;
+  inset: -25%;
+  width: 150%;
+  height: 150%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 55% 50% at 15% 80%, color-mix(in srgb, var(--color-accent) 55%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 45% at 85% 15%, color-mix(in srgb, var(--color-accent-hover) 45%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 55% at 50% 45%, color-mix(in srgb, var(--color-nav-active) 55%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 45% at 25% 25%, color-mix(in srgb, var(--color-nav-active) 40%, #200040) 0%, transparent 45%),
+    radial-gradient(ellipse 35% 40% at 75% 70%, color-mix(in srgb, var(--color-accent-hover) 35%, #004040) 0%, transparent 42%);
+  opacity: calc(var(--sv-bg-intensity, 100) / 100);
+  will-change: transform;
+  animation: none;
+}
+
+@keyframes liquid-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(5%, -5%) scale(1.02); }
+  50% { transform: translate(-3%, 5%) scale(0.98); }
+  75% { transform: translate(-5%, -3%) scale(1.01); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+/* BG Animation speed — continuous, controlled by --sv-bg-anim-speed (0-100).
+ * Uses quadratic curve: duration = 8 + (100-speed)² × 0.0112 seconds.
+ * speed=0 → off, 25→~71s, 50→~36s, 75→~15s, 100→8s */
+html[data-theme-bg-animation="liquid-drift"] body::before {
+  --_inv: calc(100 - var(--sv-bg-anim-speed, 55));
+  animation: liquid-drift calc((8 + var(--_inv) * var(--_inv) * 0.0112) * 1s) ease-in-out infinite;
+}
+/* Speed OFF (user set to 0) */
+html[data-style-theme-bgspeed="0"][data-theme-bg-animation] body::before {
+  animation: none;
+}
+
+/* BG Animation: scrollbar */
+html[data-theme-bg-animation] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* BG Animation + Glass: enhanced blur for surfaces (higher default than base glass) */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-surface,
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-surface\/50 {
+  -webkit-backdrop-filter: blur(calc(var(--sv-surface-blur, 60) * 0.4px));
+  backdrop-filter: blur(calc(var(--sv-surface-blur, 60) * 0.4px));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* BG Animation + Glass: navbar */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-nav {
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* BG Animation + Glass: entity cards — softer borders */
+html[data-theme-bg-animation][data-component-style*="glass"] .entity-card,
+html[data-theme-bg-animation][data-component-style*="glass"] .scene-card {
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+/* BG Animation + Glass: card hover — soft glow, no harsh borders */
+html[data-theme-bg-animation][data-component-style*="glass"] .entity-card:hover,
+html[data-theme-bg-animation][data-component-style*="glass"] .scene-card:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+/* BG Animation + Glass: dropdowns/dialogs */
+html[data-theme-bg-animation][data-component-style*="glass"] .styled-dropdown-panel,
+html[data-theme-bg-animation][data-component-style*="glass"] .filter-dialog,
+html[data-theme-bg-animation][data-component-style*="glass"] .global-search-dropdown,
+html[data-theme-bg-animation][data-component-style*="glass"] [role="dialog"] {
+  background: rgba(14, 14, 22, 0.65) !important;
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+/* BG Animation + Glass: settings sections */
+html[data-theme-bg-animation][data-component-style*="glass"] section.rounded-2xl {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* BG Animation + Glass: fixed panels */
+html[data-theme-bg-animation][data-component-style*="glass"] .fixed.right-0 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* BG Animation + Glass: inputs */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-input {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* BG Animation + Glass: button hover blur — only for nav buttons */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-nav button:not(.no-glass):hover {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* BG Animation + Glass: pills/badges */
+html[data-theme-bg-animation][data-component-style*="glass"] .rounded-full {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* BG Animation + Glass: popovers */
+html[data-theme-bg-animation][data-component-style*="glass"] .fixed.right-0.shadow-2xl {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.12);
+}
+
+/* BG Animation: all borders become subtle glass edges */
+html[data-theme-bg-animation] .border-b,
+html[data-theme-bg-animation] .border-l,
+html[data-theme-bg-animation] .border-t,
+html[data-theme-bg-animation] .border-r {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* BG Animation: internal card borders — nearly invisible */
+html[data-theme-bg-animation] .entity-card .border-t,
+html[data-theme-bg-animation] .scene-card .border-t,
+html[data-theme-bg-animation] .entity-card hr,
+html[data-theme-bg-animation] .scene-card hr {
+  border-color: rgba(255, 255, 255, 0.03);
+}
+
+/* BG Animation + Glass: border artifact fix */
+html[data-theme-bg-animation][data-component-style*="glass"] .border-border,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-t,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-b,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-l,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-r {
+  border-color: rgba(255, 255, 255, 0.04);
+}
+html[data-theme-bg-animation][data-component-style*="glass"] section.rounded-2xl {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* BG Animation + Glass: detail page hero sections */
+html[data-theme-bg-animation][data-component-style*="glass"] .relative.overflow-hidden.border-b {
+  background: rgba(10, 10, 18, 0.15) !important;
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+}
+
+/* BG Animation: detail page hero gradient overlays — more translucent */
+html[data-theme-bg-animation] .bg-gradient-to-t {
+  opacity: 0.5;
+}
+
+/* BG Animation + Glass: detail page metadata cards */
+html[data-theme-bg-animation][data-component-style*="glass"] .rounded-xl.border.border-border {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* BG Animation: shortcuts dialog — frosted */
+html[data-theme-bg-animation] .shortcuts-dialog {
+  background: rgba(14, 14, 22, 0.65) !important;
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+html[data-theme-bg-animation] .shortcuts-dialog-header {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* BG Animation: select styling */
+html[data-theme-bg-animation] select {
+  background-color: var(--color-input);
+  color: var(--color-foreground);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* BG Animation: ensure select option backgrounds are opaque dark */
+html[data-theme-bg-animation] select option {
+  background-color: #14141e;
+  color: var(--color-foreground);
+}
+
+/* BG Animation standalone: when no glass style, still provide translucent surfaces */
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) {
+  --color-nav: rgba(14, 14, 24, 0.6);
+  --color-surface: rgba(16, 16, 26, 0.5);
+  --color-card: rgba(20, 20, 30, 0.45);
+  --color-card-hover: rgba(28, 28, 40, 0.55);
+  --color-border: rgba(255, 255, 255, 0.12);
+}
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .bg-nav {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .bg-surface {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .entity-card,
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .scene-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* BG Animation + Gradient: body stays dark with stacking context */
+html[data-theme-bg-animation][data-component-style*="gradient"] body {
+  background: #0a0a12;
+  isolation: isolate;
+}
+
+/* --- Component Style: Gradient --- */
+/* Uses color-mix() with accent colors so gradients work with ANY theme palette automatically. */
+
+/* Gradient direction defaults */
+html[data-component-style*="gradient"] {
+  --gd-cards: 180deg;
+  --gd-bg: 180deg;
+  --gd-surfaces: 180deg;
+}
+html[data-style-gradient-carddir="horizontal"] { --gd-cards: 90deg; }
+html[data-style-gradient-bgdir="horizontal"] { --gd-bg: 90deg; }
+html[data-style-gradient-surfacedir="horizontal"] { --gd-surfaces: 90deg; }
+html[data-style-gradient-carddir="diagonal"] { --gd-cards: 135deg; }
+html[data-style-gradient-bgdir="diagonal"] { --gd-bg: 135deg; }
+html[data-style-gradient-surfacedir="diagonal"] { --gd-surfaces: 135deg; }
+
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  25% { background-position: 50% 0%; }
+  50% { background-position: 100% 50%; }
+  75% { background-position: 50% 100%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Gradient background — uses accent + accent-hover + nav-active from active palette.
+ * Intensity controlled by --sv-bg-intensity (0-100, default 45).
+ * Only applies when there's no bg-animation (bg-animation themes use body::before).
+ * The .bg-background wrapper must be transparent so body gradient shows through. */
+html[data-component-style*="gradient"]:not([data-theme-bg-animation]) .min-h-screen.bg-background {
+  background-color: transparent;
+}
+html[data-component-style*="gradient"]:not([data-theme-bg-animation]) body {
+  background-color: var(--color-background);
+  background-image:
+    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--color-accent) calc(var(--sv-bg-intensity, 45) * 1%), transparent) 0%, transparent 55%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--color-accent-hover) calc(var(--sv-bg-intensity, 45) * 0.78 * 1%), transparent) 0%, transparent 55%),
+    radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--color-nav-active, var(--color-accent)) calc(var(--sv-bg-intensity, 45) * 0.56 * 1%), transparent) 0%, transparent 50%);
+  background-attachment: fixed;
+  animation: none;
+}
+
+/* Animated gradient speed — continuous, uses same --sv-anim-speed as bg-animation */
+html[data-style-gradient-animated]:not([data-style-gradient-animated="0"])[data-component-style*="gradient"]:not([data-theme-bg-animation]) body {
+  --_inv: calc(100 - var(--sv-anim-speed, 50));
+  background-size: 200% 200%;
+  animation: gradient-flow calc((8 + var(--_inv) * var(--_inv) * 0.0112) * 1s) ease-in-out infinite;
+}
+html[data-style-gradient-animated="0"][data-component-style*="gradient"]:not([data-theme-bg-animation]) body {
+  animation: none;
+}
+
+/* Disable background animation on video player pages */
+body.has-video-player {
+  animation: none !important;
+  background-size: 100% 100% !important;
+}
+body.has-video-player::before {
+  animation: none !important;
+}
+
+/* Gradient navbar */
+html[data-component-style*="gradient"] nav.cove-navbar {
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--color-accent) 18%, transparent) 0%,
+      transparent 30%,
+      transparent 70%,
+      color-mix(in srgb, var(--color-accent-hover) 12%, transparent) 100%
+    ),
+    var(--color-nav);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+/* Gradient cards: position relative for ::after overlay */
+html[data-component-style*="gradient"] .entity-card,
+html[data-component-style*="gradient"] .scene-card {
+  position: relative;
+}
+
+/* Full-card gradient overlay */
+html[data-component-style*="gradient"] .entity-card::after,
+html[data-component-style*="gradient"] .scene-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  /* Card gradient intensity controlled by --sv-card-gradient (0-100, default 50) */
+  opacity: calc(var(--sv-card-gradient, 50) / 100);
+  background: linear-gradient(
+    var(--gd-cards, 180deg),
+    color-mix(in srgb, var(--color-accent) 15%, transparent) 0%,
+    transparent 40%,
+    color-mix(in srgb, var(--color-accent-hover) 10%, transparent) 100%
+  );
+}
+html[data-style-gradient-cards="0"][data-component-style*="gradient"] .entity-card::after,
+html[data-style-gradient-cards="0"][data-component-style*="gradient"] .scene-card::after {
+  display: none;
+}
+
+/* Gradient card bodies — intensity via --sv-card-gradient */
+html[data-component-style*="gradient"] .card-body {
+  background:
+    linear-gradient(var(--gd-cards, 180deg),
+      color-mix(in srgb, var(--color-accent) calc(var(--sv-card-gradient, 50) * 0.3 * 1%), transparent) 0%,
+      transparent 60%,
+      color-mix(in srgb, var(--color-accent-hover) calc(var(--sv-card-gradient, 50) * 0.2 * 1%), transparent) 100%
+    );
+}
+html[data-style-gradient-cards="0"][data-component-style*="gradient"] .card-body {
+  background: transparent;
+}
+
+/* Background gradient strength is now controlled continuously by --sv-bg-intensity
+ * in the main gradient body rule above. These legacy rules are no longer needed. */
+
+/* Card popover footers */
+html[data-component-style*="gradient"] .card-popovers {
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--color-accent) 6%, transparent) 0%,
+      transparent 100%
+    );
+}
+
+/* Gradient toolbar/filter bar */
+html[data-component-style*="gradient"] .bg-surface.border-b {
+  background:
+    linear-gradient(var(--gd-surfaces, 180deg),
+      color-mix(in srgb, var(--color-accent) 8%, transparent) 0%,
+      transparent 100%
+    ),
+    var(--color-surface);
+}
+
+/* Ensure inputs are NOT gradient-tinted */
+html[data-component-style*="gradient"] input,
+html[data-component-style*="gradient"] textarea {
+  background-color: var(--color-input);
+  background-image: none;
+}
+
+/* --- Component Style: Animated --- */
+
+@keyframes card-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-accent) 12%, transparent); }
+  50% { box-shadow: 0 0 18px 4px color-mix(in srgb, var(--color-accent) 16%, transparent); }
+}
+
+@keyframes border-breathe {
+  0%, 100% { border-color: color-mix(in srgb, var(--color-accent) 15%, transparent); }
+  50% { border-color: color-mix(in srgb, var(--color-accent) 40%, transparent); }
+}
+
+/* Animated: card image zoom on hover */
+html[data-component-style*="animated"] .entity-card img,
+html[data-component-style*="animated"] .scene-card img,
+html[data-component-style*="animated"] .group img {
+  transition: transform 0.3s ease;
+}
+html[data-component-style*="animated"] .entity-card:hover img,
+html[data-component-style*="animated"] .scene-card:hover img,
+html[data-component-style*="animated"] .group:hover img {
+  transform: scale(1.05);
+}
+
+/* Animated hover: pulse glow — continuous via --sv-hover-glow (0-100, default 67) */
+html[data-component-style*="animated"] .entity-card:hover,
+html[data-component-style*="animated"] .scene-card:hover {
+  --_hover-dur: calc(max(1, 4 - var(--sv-hover-glow, 67) * 0.03) * 1s);
+  animation: pulse-glow var(--_hover-dur) ease-in-out infinite;
+  border-color: transparent !important;
+  outline: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+  outline-offset: -1px;
+}
+html[data-style-animated-hover="0"] .entity-card:hover,
+html[data-style-animated-hover="0"] .scene-card:hover {
+  animation: none;
+  box-shadow: none;
+}
+
+html[data-component-style*="animated"] nav.cove-navbar {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent) 6%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: card-shimmer 6s linear infinite;
+}
+
+html[data-style-animated-shimmer="off"] nav.cove-navbar {
+  background-image: none;
+  animation: none;
+}
+
+html[data-component-style*="animated"] button:hover:not(.no-glass) {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 0 8px 0 color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* BG Animation + Animated: softer button glow (avoid stacking context issues) */
+html[data-theme-bg-animation][data-component-style*="animated"] button:hover:not(.no-glass) {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  box-shadow: 0 0 8px 0 color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+/* --- Component Style: Minimal --- */
+html[data-component-style*="minimal"] .entity-card,
+html[data-component-style*="minimal"] .scene-card {
+  box-shadow: none;
+  border-radius: 4px;
+}
+html[data-component-style*="minimal"] button { border-radius: 4px; }
+html[data-component-style*="minimal"] .rounded-xl,
+html[data-component-style*="minimal"] .rounded-2xl { border-radius: 4px; }
+
+/* --- Component Style: Rounded --- */
+html[data-component-style*="rounded"] button { border-radius: 9999px; }
+html[data-component-style*="rounded"] .entity-card,
+html[data-component-style*="rounded"] .scene-card {
+  border-radius: 16px;
+  overflow: hidden;
+}
+html[data-component-style*="rounded"] input,
+html[data-component-style*="rounded"] select { border-radius: 9999px; }
+html[data-component-style*="rounded"] .styled-dropdown-panel { border-radius: 16px; }
+
+/* ===== Layer 3: Layout Styles ===== */
+
+html[data-layout="compact"] .scene-card { --card-min-width: 180px; }
+html[data-layout="compact"] .card-title { font-size: 0.75rem; }
+html[data-layout="compact"] .card-popovers { display: none; }
+
+/* ===== Text Readability ===== */
+html[data-component-style*="glass"] .text-foreground,
+html[data-component-style*="glass"] .card-title {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+html[data-component-style*="glass"] .text-secondary {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Light color scheme text readability */
+html[data-color-scheme="light"][data-component-style*="glass"] .text-foreground,
+html[data-color-scheme="light"][data-component-style*="glass"] .card-title {
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.5);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .text-secondary {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
+}
+
+/* Light color scheme: dark glass borders */
+html[data-color-scheme="light"][data-component-style*="glass"] .border-b { border-color: rgba(0, 0, 0, 0.08); }
+html[data-color-scheme="light"][data-component-style*="glass"] .border-l { border-color: rgba(0, 0, 0, 0.08); }
+html[data-color-scheme="light"][data-component-style*="glass"] .border-t { border-color: rgba(0, 0, 0, 0.08); }
+
+html[data-component-style*="glass"] .scene-card > div.bg-card,
+html[data-component-style*="glass"] .entity-card > div:last-of-type {
+  position: relative;
+}
+
+/* Light color scheme gradient: softer, lighter */
+html[data-color-scheme="light"][data-component-style*="gradient"]:not([data-theme-bg-animation]) body {
+  background:
+    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--color-accent) 15%, transparent) 0%, transparent 60%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--color-accent-hover) 12%, transparent) 0%, transparent 60%),
+    var(--color-background);
+  background-attachment: fixed;
+}
+
+/* Light color scheme glass cards */
+html[data-color-scheme="light"][data-component-style*="glass"] .scene-card,
+html[data-color-scheme="light"][data-component-style*="glass"] .entity-card {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* ===== Light color scheme scrollbar + selection ===== */
+html[data-color-scheme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); }
+html[data-color-scheme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.25); }
+html[data-color-scheme="light"] * { scrollbar-color: rgba(0, 0, 0, 0.15) transparent; }
+html[data-color-scheme="light"] ::selection { background: rgba(37, 99, 235, 0.25); }
+
+/* ===== Native Select/Option Styling ===== */
+select,
+select option {
+  background-color: var(--color-card);
+  color: var(--color-foreground);
+}
+
+/* Glass: ensure dropdown options have opaque background */
+html[data-component-style*="glass"] select option {
+  background-color: #1a1a24;
+  color: var(--color-foreground);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] select option {
+  background-color: #ffffff;
+  color: var(--color-foreground);
+}
+
+/* ===== Cursor: pointer for interactive elements ===== */
+nav a, nav button { cursor: pointer; }
+button, [role="button"] { cursor: pointer; }
+select, [role="combobox"], [role="listbox"], [role="option"] { cursor: pointer; }
+label:has(input[type="checkbox"]) { cursor: pointer; }
+
+/* ===== Detail Page Enhancements ===== */
+html[data-component-style*="gradient"] .detail-hero-gradient {
+  background:
+    linear-gradient(var(--gd-surfaces, 180deg),
+      color-mix(in srgb, var(--color-accent) 6%, transparent) 0%,
+      var(--color-surface) 50%,
+      var(--color-background) 100%
+    );
+}
+
+html[data-component-style*="gradient"] aside.bg-surface {
+  background:
+    linear-gradient(var(--gd-surfaces, 180deg),
+      color-mix(in srgb, var(--color-accent) 4%, var(--color-surface)) 0%,
+      var(--color-surface) 100%
+    );
+}
+
+/* ===== Detail Page Tabs ===== */
+html[data-component-style*="gradient"] .border-b > .flex.gap-1 button[class*="border-b-2"],
+html[data-component-style*="glass"] .border-b > .flex.gap-1 button[class*="border-b-2"] {
+  position: relative;
+}
+html[data-component-style*="gradient"] button[class*="border-b-2"][class*="border-accent"] {
+  border-image: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover)) 1;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+html[data-component-style*="glass"] button[class*="border-b-2"] .rounded-full {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ===== Filter Bar & Toolbar Polish ===== */
+html[data-component-style*="gradient"] .bg-surface.border-b {
+  border-color: color-mix(in srgb, var(--color-accent) 15%, var(--color-border));
+}
+html[data-component-style*="glass"] .bg-surface.border-b {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-component-style*="rounded"] .bg-surface select,
+html[data-component-style*="rounded"] .bg-surface input,
+html[data-component-style*="rounded"] .bg-surface button {
+  border-radius: 9999px;
+}
+
+/* ===== Settings UI: Hover on Theme/Style Cards ===== */
+section.rounded-2xl .rounded-xl.border {
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+section.rounded-2xl .rounded-xl.border:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+section.rounded-2xl .rounded-xl.border-accent:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+/* ===== More Animation Effects ===== */
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+html[data-component-style*="animated"] .entity-card,
+html[data-component-style*="animated"] .scene-card {
+  animation: card-enter 0.3s ease-out both;
+}
+
+@keyframes tab-slide {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+html[data-component-style*="animated"] button[class*="border-b-2"][class*="border-accent"] {
+  position: relative;
+}
+html[data-component-style*="animated"] button[class*="border-b-2"][class*="border-accent"]::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-accent);
+  animation: tab-slide 0.2s ease-out;
+  transform-origin: left;
+}
+
+@keyframes button-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 20%, transparent); }
+  50% { box-shadow: 0 0 12px 2px color-mix(in srgb, var(--color-accent) 15%, transparent); }
+}
+html[data-component-style*="animated"] .bg-accent:hover {
+  animation: button-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes page-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+html[data-component-style*="animated"] main {
+  animation: page-enter 0.2s ease-out;
+}
+
+html[data-component-style*="animated"] nav a:hover {
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+@keyframes border-shimmer {
+  0% { border-color: color-mix(in srgb, var(--color-accent) 6%, var(--color-border)); }
+  50% { border-color: color-mix(in srgb, var(--color-accent) 14%, var(--color-border)); }
+  100% { border-color: color-mix(in srgb, var(--color-accent) 6%, var(--color-border)); }
+}
+html[data-component-style*="animated"] nav.bg-nav > div > .border-b {
+  animation: border-shimmer 6s ease-in-out infinite;
+}
+
+/* Animated off options */
+html[data-style-animated-entrance="off"] .entity-card,
+html[data-style-animated-entrance="off"] .scene-card { animation: none; }
+html[data-style-animated-entrance="off"] main { animation: none; }
+html[data-style-animated-surfaceshimmer="off"] nav.bg-nav > div > .border-b { animation: none; }
+html[data-style-animated-buttonglow="off"] .bg-accent:hover { animation: none; }
+@import "tailwindcss";
+
+@theme {
+  /* Dark theme */
+  --color-plex-bg: #202b33;
+  --color-plex-surface: #283540;
+  --color-plex-card: #30404d;
+  --color-plex-card-hover: #394b59;
+  --color-plex-border: #394b59;
+  --color-plex-input: rgba(16, 22, 26, 0.3);
+  --color-plex-text: #f5f8fa;
+  --color-plex-text-secondary: #bfccd6;
+  --color-plex-text-muted: #8a9ba8;
+  --color-plex-accent: #137cbd;
+  --color-plex-accent-hover: #48aff0;
+  --color-plex-overlay: rgba(0, 0, 0, 0.6);
+  --color-plex-nav: #1a2329;
+  --color-plex-nav-active: #137cbd;
+}
+
+/* Base */
+body {
+  background-color: var(--color-plex-bg);
+  color: var(--color-plex-text);
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsla(0, 0%, 100%, 0.15); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: hsla(0, 0%, 100%, 0.25); }
+* { scrollbar-color: hsla(0, 0%, 100%, 0.15) transparent; scrollbar-width: thin; }
+
+/* Selection */
+::selection { background: rgba(204, 123, 25, 0.4); }
+
+/* Transitions */
+a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, opacity 0.15s; }
+
+/* Detail page hero section — theme-aware background that respects glass/gradient */
+.detail-hero-gradient {
+  background: linear-gradient(180deg, var(--color-plex-surface), var(--color-plex-bg));
+}
+
+/* Theater mode */
+html.theater-mode nav.cove-navbar { display: none; }
+html.theater-mode main { max-width: none !important; padding: 0 !important; }
+
+/* Hide scrollbar for horizontal carousels */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Scene card preview video — CSS-driven hover: hidden off-screen by default, shown on hover via position change.
+   IntersectionObserver in JS detects when video becomes visible and calls play(). */
+.scene-card-preview-video {
+  position: absolute;
+  top: -9999px;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: top 0s;
+  transition-delay: 0s;
+}
+.scene-card:hover .scene-card-preview-video,
+.scene-card:active .scene-card-preview-video {
+  top: 0;
+  transition-delay: 0.2s;
+}
+
+/* Hide extra scene info (filesize, file path) by default — default styling */
+.extra-scene-info {
+  display: none;
+}
+
+/* Scene specs overlay — fade out on hover to avoid cluttering the preview */
+.scene-card:hover .scene-specs-overlay,
+.scene-card:hover .rating-banner-container {
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+.rating-banner-container {
+  transition: opacity 0.5s;
+}
+
+/* Card zoom levels */
+.scene-card { --card-min-width: 240px; }
+
+/* Card title typography — scales with card zoom */
+.card-title {
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+/* Entity card responsive sizing — prevent breakage at small zoom levels */
+.entity-card {
+  min-width: 0;
+}
+
+/* Small cards (zoom 0-1, <200px) — tighter spacing, smaller text */
+@container (max-width: 200px) {
+  .card-title { font-size: 0.75rem; }
+  .card-popovers { display: none; }
+}
+
+/* At the smallest widths we rely on container queries if available,
+   but also provide grid-aware helpers here */
+@media (max-width: 480px) {
+  .card-title { font-size: 0.75rem; }
+}
+
+/* Larger cards (zoom 2-3, >280px) — bigger title */
+
+/* Style native select dropdowns to match dark theme */
+select option {
+  background-color: var(--color-plex-card);
+  color: var(--color-plex-text);
+  padding: 4px 8px;
+}
+select option:hover,
+select option:checked {
+  background-color: var(--color-plex-accent);
+  color: #fff;
+}
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a9ba8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px !important;
+}
+
+/* Custom dropdown panel styling (used by StyledSelect) */
+.styled-dropdown-panel {
+  background: var(--color-plex-card);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.styled-dropdown-item {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--color-plex-text);
+  transition: background-color 0.1s;
+}
+.styled-dropdown-item:hover {
+  background-color: var(--color-plex-card-hover);
+}
+.styled-dropdown-item.selected {
+  background-color: var(--color-plex-accent);
+  color: #fff;
+}
+
+/* Dialog/modal overlay styling */
+.filter-dialog select {
+  background-color: var(--color-plex-input);
+  border-color: var(--color-plex-border);
+  color: var(--color-plex-text);
+}
+
+/* ===== Layer 2: Component Styles ===== */
+/* Selectors use [data-component-style*="X"] to support composable multi-styles.
+ * IMPORTANT: Use only single-function backdrop-filter values (blur only) because
+ * Lightning CSS minification strips spaces between chained functions like
+ * blur(x) saturate(y), producing invalid CSS. */
+
+/* --- Component Style: Glass --- */
+
+/*
+ * Strategy: Override the CSS color variables to be translucent when glass is active,
+ * then add backdrop-filter: blur() to elements that use these backgrounds.
+ * This makes glass apply EVERYWHERE consistently without per-element selectors.
+ */
+html[data-component-style*="glass"] {
+  --color-plex-nav: rgba(18, 18, 24, 0.4);
+  --color-plex-surface: rgba(28, 28, 36, 0.3);
+  --color-plex-card: rgba(36, 36, 46, 0.25);
+  --color-plex-card-hover: rgba(48, 48, 58, 0.35);
+  --color-plex-input: rgba(12, 12, 18, 0.25);
+  --color-plex-border: rgba(255, 255, 255, 0.12);
+  --color-plex-overlay: rgba(0, 0, 0, 0.4);
+}
+
+/* Light theme glass: use light translucent values instead */
+html[data-theme="light"][data-component-style*="glass"] {
+  --color-plex-nav: rgba(255, 255, 255, 0.6);
+  --color-plex-surface: rgba(255, 255, 255, 0.45);
+  --color-plex-card: rgba(255, 255, 255, 0.4);
+  --color-plex-card-hover: rgba(255, 255, 255, 0.55);
+  --color-plex-input: rgba(255, 255, 255, 0.3);
+  --color-plex-border: rgba(0, 0, 0, 0.1);
+  --color-plex-overlay: rgba(0, 0, 0, 0.2);
+}
+
+/* Global glass: major surfaces get frosted glass blur.
+ * PERF: Only apply blur to key structural elements. Blur is GPU-expensive;
+ * limit to navigation, surfaces, and detail page panels. */
+html[data-component-style*="glass"] .bg-plex-surface,
+html[data-component-style*="glass"] .bg-plex-surface\/50 {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Detail page: hero sections — only one blur layer, not stacked */
+html[data-component-style*="glass"] .detail-hero-gradient {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+/* Detail page: metadata and info cards — no blur, just tinted translucent bg */
+html[data-component-style*="glass"] .rounded-xl.border.border-plex-border.bg-plex-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Navbar — one fixed element, OK to blur */
+html[data-component-style*="glass"] .bg-plex-nav {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Input fields — no blur, translucent bg is sufficient */
+html[data-component-style*="glass"] .bg-plex-input {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Entity cards — specular highlight edge + hover lift.
+ * Card blur is configurable via glass settings (data-style-glass-cardblur).
+ * Default: light (8px) for nice visual effect. Can be turned off for performance. */
+html[data-component-style*="glass"] .entity-card,
+html[data-component-style*="glass"] .scene-card {
+  contain: layout style paint;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.25);
+  transition: box-shadow 0.3s, border-color 0.3s, transform 0.3s;
+}
+
+/* Glass card blur: off */
+html[data-style-glass-cardblur="off"][data-component-style*="glass"] .entity-card,
+html[data-style-glass-cardblur="off"][data-component-style*="glass"] .scene-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Glass card blur: full */
+html[data-style-glass-cardblur="full"][data-component-style*="glass"] .entity-card,
+html[data-style-glass-cardblur="full"][data-component-style*="glass"] .scene-card {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+/* Glass surface blur: configurable via data-style-glass-surfaceblur */
+html[data-style-glass-surfaceblur="low"][data-component-style*="glass"] .bg-plex-surface,
+html[data-style-glass-surfaceblur="low"][data-component-style*="glass"] .bg-plex-surface\/50 {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+html[data-style-glass-surfaceblur="high"][data-component-style*="glass"] .bg-plex-surface,
+html[data-style-glass-surfaceblur="high"][data-component-style*="glass"] .bg-plex-surface\/50 {
+  -webkit-backdrop-filter: blur(32px);
+  backdrop-filter: blur(32px);
+}
+
+/* Glass opacity: light (more see-through) */
+html[data-style-glass-opacity="light"][data-component-style*="glass"] {
+  --color-plex-nav: rgba(18, 18, 24, 0.25);
+  --color-plex-surface: rgba(28, 28, 36, 0.15);
+  --color-plex-card: rgba(36, 36, 46, 0.12);
+  --color-plex-card-hover: rgba(48, 48, 58, 0.2);
+}
+/* Glass opacity: heavy (more opaque) */
+html[data-style-glass-opacity="heavy"][data-component-style*="glass"] {
+  --color-plex-nav: rgba(18, 18, 24, 0.65);
+  --color-plex-surface: rgba(28, 28, 36, 0.55);
+  --color-plex-card: rgba(36, 36, 46, 0.5);
+  --color-plex-card-hover: rgba(48, 48, 58, 0.6);
+}
+
+html[data-component-style*="glass"] .entity-card:hover,
+html[data-component-style*="glass"] .scene-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 16px 48px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+}
+
+/* Dropdowns / dialogs — moderate blur (only a few on screen at once) */
+html[data-component-style*="glass"] .styled-dropdown-panel,
+html[data-component-style*="glass"] .filter-dialog,
+html[data-component-style*="glass"] [role="dialog"] {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+/* Glass buttons — PERF: only blur on hover, not all buttons at rest.
+ * Also exclude tab buttons, rating stars, and interactive inline buttons. */
+html[data-component-style*="glass"] button.no-glass,
+html[data-component-style*="glass"] button[class*="border-b-2"],
+html[data-component-style*="glass"] button[class*="text-plex-accent transition-transform"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* Settings section cards — one blur per page section */
+html[data-component-style*="glass"] section.rounded-2xl {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Stat badges, filter pills, tag chips — PERF: no blur on small elements; just tint */
+html[data-component-style*="glass"] .rounded-full {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* PERF: Video player area — never apply glass blur. The bg-black container
+ * that wraps <video> must not get any backdrop-filter or its children choke. */
+html[data-component-style*="glass"] .bg-black {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+html[data-component-style*="glass"] .bg-black * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* PERF: CSS containment on card grids for layout thrashing reduction */
+.entity-card,
+.scene-card {
+  contain: layout style paint;
+}
+
+/* PERF: Prefer reduced-motion — disable all glass/gradient/animated effects */
+@media (prefers-reduced-motion: reduce) {
+  html[data-component-style*="animated"] .entity-card,
+  html[data-component-style*="animated"] .scene-card,
+  html[data-component-style*="animated"] nav.cove-navbar {
+    animation: none !important;
+  }
+  html[data-component-style*="gradient"] body,
+  html[data-theme="liquid-glass"] body {
+    animation: none !important;
+    background-size: 100% 100% !important;
+  }
+}
+
+/* Border dividers — soften them */
+html[data-component-style*="glass"] .border-b {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-component-style*="glass"] .border-l {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-component-style*="glass"] .border-t {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ===================================================================
+ * LIQUID GLASS — True Apple-style liquid glass experience
+ * When data-theme="liquid-glass" is active, every surface becomes
+ * dramatically translucent with heavy blur. A vivid multi-color
+ * gradient background shows through all glass panels.
+ *
+ * PERF: Uses CSS transform-based animation instead of background-position.
+ * Transform animations are GPU-composited and don't trigger repaints.
+ * The gradient layers are on a pseudo-element that animates via translate.
+ * =================================================================== */
+
+/* Liquid Glass: extremely translucent surfaces */
+html[data-theme="liquid-glass"][data-component-style*="glass"] {
+  --color-plex-bg: transparent;
+  --color-plex-nav: rgba(20, 20, 30, 0.12);
+  --color-plex-surface: rgba(24, 24, 36, 0.08);
+  --color-plex-card: rgba(30, 30, 42, 0.08);
+  --color-plex-card-hover: rgba(40, 40, 55, 0.15);
+  --color-plex-input: rgba(10, 10, 18, 0.12);
+  --color-plex-border: rgba(255, 255, 255, 0.2);
+  --color-plex-overlay: rgba(0, 0, 0, 0.25);
+}
+
+/* Liquid Glass: static gradient background (no animation by default) */
+html[data-theme="liquid-glass"] body {
+  background: #0a0a12;
+  position: relative;
+  overflow-x: hidden;
+}
+html[data-theme="liquid-glass"] body::before {
+  content: "";
+  position: fixed;
+  inset: -25%;
+  width: 150%;
+  height: 150%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 60% 60% at 15% 85%, rgba(0, 122, 255, 0.6) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 55% at 85% 15%, rgba(168, 85, 247, 0.55) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 50% at 50% 50%, rgba(6, 182, 212, 0.4) 0%, transparent 60%);
+  opacity: calc(var(--sv-bg-intensity, 100) / 100);
+  will-change: transform;
+  animation: none;
+}
+
+/* PERF: GPU-composited transform animation instead of background-position.
+ * Only activated when gradient animation is explicitly enabled. */
+@keyframes liquid-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(5%, -5%) scale(1.02); }
+  50% { transform: translate(-3%, 5%) scale(0.98); }
+  75% { transform: translate(-5%, -3%) scale(1.01); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+html[data-theme="liquid-glass"][data-theme-bg-animation="liquid-drift"] body::before {
+  --_inv: calc(100 - var(--sv-bg-anim-speed, 50));
+  animation: liquid-drift calc((8 + var(--_inv) * var(--_inv) * 0.0112) * 1s) ease-in-out infinite;
+}
+/* Liquid Glass: scrollbar */
+html[data-theme="liquid-glass"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: dramatically increased blur + bright glass edges */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .bg-plex-surface,
+html[data-theme="liquid-glass"][data-component-style*="glass"] .bg-plex-surface\/50 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: navbar */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .bg-plex-nav {
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: entity cards — no blur on cards (PERF), just visual edges */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .entity-card,
+html[data-theme="liquid-glass"][data-component-style*="glass"] .scene-card {
+  contain: layout style paint;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme="liquid-glass"][data-component-style*="glass"] .entity-card:hover,
+html[data-theme="liquid-glass"][data-component-style*="glass"] .scene-card:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+    0 20px 60px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  transform: translateY(-3px) scale(1.01);
+}
+
+/* Liquid Glass: dropdowns/dialogs */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .styled-dropdown-panel,
+html[data-theme="liquid-glass"][data-component-style*="glass"] .filter-dialog,
+html[data-theme="liquid-glass"][data-component-style*="glass"] [role="dialog"] {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 24px 80px rgba(0, 0, 0, 0.15);
+}
+
+/* Liquid Glass: settings sections */
+html[data-theme="liquid-glass"][data-component-style*="glass"] section.rounded-2xl {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: fixed panels — moderate blur */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .fixed.right-0 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: inputs */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .bg-plex-input {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Liquid Glass: buttons have glass tint */
+html[data-theme="liquid-glass"][data-component-style*="glass"] button:not(.no-glass):not(:empty):not([class*="border-b-2"]):not([class*="transition-transform"]):hover {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: pills/badges — no blur, just tint */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .rounded-full {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: popovers */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .fixed.right-0.shadow-2xl {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 16px 64px rgba(0, 0, 0, 0.12);
+}
+
+/* Liquid Glass: all borders become glass edges */
+html[data-theme="liquid-glass"] .border-b {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="liquid-glass"] .border-l {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="liquid-glass"] .border-t {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="liquid-glass"] .border-r {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Liquid Glass: detail page hero sections — let gradient show through */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .relative.overflow-hidden.border-b {
+  background: rgba(10, 10, 18, 0.15) !important;
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+}
+
+/* Liquid Glass: detail page hero gradient overlays — make them more translucent */
+html[data-theme="liquid-glass"] .bg-gradient-to-t {
+  opacity: 0.5;
+}
+
+/* Liquid Glass: detail page metadata cards — no blur */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .rounded-xl.border.border-plex-border {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: tab navigation bar */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .border-b.border-plex-border {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Liquid Glass: detail page sidebar */
+html[data-theme="liquid-glass"][data-component-style*="glass"] .border-r.border-plex-border {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Liquid Glass: gradient overrides (vivid, high opacity) */
+html[data-theme="liquid-glass"][data-component-style*="gradient"] {
+  --gradient-r1: 0; --gradient-g1: 122; --gradient-b1: 255;
+  --gradient-r2: 168; --gradient-g2: 85; --gradient-b2: 247;
+  --gradient-r3: 6; --gradient-g3: 182; --gradient-b3: 212;
+}
+
+/* --- Component Style: Gradient --- */
+/* Bold animated gradient background that transforms the entire app */
+
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  25% { background-position: 50% 0%; }
+  50% { background-position: 100% 50%; }
+  75% { background-position: 50% 100%; }
+  100% { background-position: 0% 50%; }
+}
+
+html[data-component-style*="gradient"] body {
+  background:
+    radial-gradient(ellipse 140% 100% at 10% 90%, rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.45) 0%, transparent 55%),
+    radial-gradient(ellipse 120% 90% at 90% 10%, rgba(var(--gradient-r2, 72), var(--gradient-g2, 175), var(--gradient-b2, 240), 0.35) 0%, transparent 50%),
+    var(--color-plex-bg);
+  background-size: 200% 200%;
+  background-attachment: fixed;
+  animation: gradient-flow 30s ease-in-out infinite;
+}
+
+/* Disable gradient animation when option is off (default) */
+html[data-style-gradient-animated="off"][data-component-style*="gradient"] body,
+html:not([data-style-gradient-animated])[data-component-style*="gradient"] body {
+  animation: none;
+  background-size: 100% 100%;
+}
+
+/* Default gradient colors derive from theme accent */
+html[data-component-style*="gradient"] {
+  --gradient-r1: 19; --gradient-g1: 124; --gradient-b1: 189;
+  --gradient-r2: 72; --gradient-g2: 175; --gradient-b2: 240;
+  --gradient-r3: 100; --gradient-g3: 60; --gradient-b3: 200;
+}
+
+/* Per-theme gradient color overrides */
+html[data-theme="dark-midnight"][data-component-style*="gradient"] {
+  --gradient-r1: 139; --gradient-g1: 92; --gradient-b1: 246;
+  --gradient-r2: 99; --gradient-g2: 60; --gradient-b2: 255;
+  --gradient-r3: 59; --gradient-g3: 130; --gradient-b3: 246;
+}
+html[data-theme="dark-emerald"][data-component-style*="gradient"] {
+  --gradient-r1: 16; --gradient-g1: 185; --gradient-b1: 129;
+  --gradient-r2: 5; --gradient-g2: 150; --gradient-b2: 105;
+  --gradient-r3: 52; --gradient-g3: 211; --gradient-b3: 153;
+}
+html[data-theme="dark-rose"][data-component-style*="gradient"] {
+  --gradient-r1: 244; --gradient-g1: 63; --gradient-b1: 94;
+  --gradient-r2: 225; --gradient-g2: 29; --gradient-b2: 72;
+  --gradient-r3: 190; --gradient-g3: 50; --gradient-b3: 100;
+}
+html[data-theme="dark-ocean"][data-component-style*="gradient"] {
+  --gradient-r1: 14; --gradient-g1: 165; --gradient-b1: 233;
+  --gradient-r2: 2; --gradient-g2: 132; --gradient-b2: 199;
+  --gradient-r3: 56; --gradient-g3: 189; --gradient-b3: 248;
+}
+html[data-theme="pornhub"][data-component-style*="gradient"] {
+  --gradient-r1: 255; --gradient-g1: 144; --gradient-b1: 0;
+  --gradient-r2: 255; --gradient-g2: 182; --gradient-b2: 72;
+  --gradient-r3: 200; --gradient-g3: 100; --gradient-b3: 0;
+}
+html[data-theme="plex"][data-component-style*="gradient"] {
+  --gradient-r1: 229; --gradient-g1: 160; --gradient-b1: 13;
+  --gradient-r2: 204; --gradient-g2: 123; --gradient-b2: 25;
+  --gradient-r3: 180; --gradient-g3: 130; --gradient-b3: 20;
+}
+html[data-theme="reddit"][data-component-style*="gradient"] {
+  --gradient-r1: 255; --gradient-g1: 69; --gradient-b1: 0;
+  --gradient-r2: 255; --gradient-g2: 103; --gradient-b2: 51;
+  --gradient-r3: 200; --gradient-g3: 50; --gradient-b3: 0;
+}
+html[data-theme="neon-glow"][data-component-style*="gradient"] {
+  --gradient-r1: 139; --gradient-g1: 92; --gradient-b1: 246;
+  --gradient-r2: 0; --gradient-g2: 122; --gradient-b2: 255;
+  --gradient-r3: 244; --gradient-g3: 63; --gradient-b3: 94;
+}
+html[data-theme="sunset-gradient"][data-component-style*="gradient"] {
+  --gradient-r1: 251; --gradient-g1: 146; --gradient-b1: 60;
+  --gradient-r2: 244; --gradient-g2: 63; --gradient-b2: 94;
+  --gradient-r3: 168; --gradient-g3: 85; --gradient-b3: 247;
+}
+html[data-theme="aurora"][data-component-style*="gradient"] {
+  --gradient-r1: 16; --gradient-g1: 185; --gradient-b1: 129;
+  --gradient-r2: 56; --gradient-g2: 189; --gradient-b2: 248;
+  --gradient-r3: 139; --gradient-g3: 92; --gradient-b3: 246;
+}
+html[data-theme="rainbow"][data-component-style*="gradient"] {
+  --gradient-r1: 255; --gradient-g1: 0; --gradient-b1: 128;
+  --gradient-r2: 0; --gradient-g2: 200; --gradient-b2: 255;
+  --gradient-r3: 128; --gradient-g3: 0; --gradient-b3: 255;
+}
+
+/* Rainbow theme: vivid multi-hue gradient — uses bg-intensity for opacity control */
+html[data-theme="rainbow"][data-component-style*="gradient"] body {
+  --_ri: calc(var(--sv-bg-intensity, 45) / 100);
+  background:
+    radial-gradient(circle at 0% 100%, rgba(255, 0, 80, calc(0.7 * var(--_ri))) 0%, transparent 35%),
+    radial-gradient(circle at 50% 0%, rgba(0, 180, 255, calc(0.65 * var(--_ri))) 0%, transparent 35%),
+    radial-gradient(circle at 100% 100%, rgba(168, 85, 247, calc(0.7 * var(--_ri))) 0%, transparent 35%),
+    radial-gradient(circle at 50% 50%, rgba(100, 0, 255, calc(0.3 * var(--_ri))) 0%, transparent 40%),
+    #08080f;
+  background-size: 200% 200%;
+  background-attachment: fixed;
+  animation: gradient-flow 30s ease-in-out infinite;
+}
+html[data-style-gradient-animated="0"][data-theme="rainbow"][data-component-style*="gradient"] body,
+html:not([data-style-gradient-animated])[data-theme="rainbow"][data-component-style*="gradient"] body {
+  animation: none;
+  background-size: 100% 100%;
+}
+
+/* Rainbow glow variables */
+html[data-theme="rainbow"] {
+  --glow-r: 168; --glow-g: 85; --glow-b: 247;
+}
+
+/* Gradient navbar: accent-tinted top bar with bottom glow */
+html[data-component-style*="gradient"] nav.cove-navbar {
+  background:
+    linear-gradient(90deg,
+      rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.18) 0%,
+      transparent 30%,
+      transparent 70%,
+      rgba(var(--gradient-r2, 72), var(--gradient-g2, 175), var(--gradient-b2, 240), 0.12) 100%
+    ),
+    var(--color-plex-nav);
+  border-bottom: 1px solid rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.2);
+}
+
+/* Gradient cards: accent-tinted top edge */
+html[data-component-style*="gradient"] .entity-card,
+html[data-component-style*="gradient"] .scene-card {
+  border-top: 2px solid rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.3);
+}
+
+/* Gradient card bodies: subtle accent-tinted background on card text areas.
+ * Targets .card-body (entity cards) and .bg-plex-card inside scene cards. */
+html[data-component-style*="gradient"] .entity-card .card-body,
+html[data-component-style*="gradient"] .scene-card > div.bg-plex-card {
+  background:
+    linear-gradient(135deg,
+      rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), var(--card-gradient-opacity, 0.08)) 0%,
+      transparent 60%,
+      rgba(var(--gradient-r2, 72), var(--gradient-g2, 175), var(--gradient-b2, 240), var(--card-gradient-opacity2, 0.06)) 100%
+    );
+}
+
+/* Gradient card strength: subtle */
+html[data-style-gradient-cardstrength="subtle"][data-component-style*="gradient"] {
+  --card-gradient-opacity: 0.04;
+  --card-gradient-opacity2: 0.03;
+}
+/* Gradient card strength: medium (default) */
+html[data-style-gradient-cardstrength="medium"][data-component-style*="gradient"],
+html:not([data-style-gradient-cardstrength])[data-component-style*="gradient"] {
+  --card-gradient-opacity: 0.08;
+  --card-gradient-opacity2: 0.06;
+}
+/* Gradient card strength: strong */
+html[data-style-gradient-cardstrength="strong"][data-component-style*="gradient"] {
+  --card-gradient-opacity: 0.16;
+  --card-gradient-opacity2: 0.12;
+}
+
+/* Gradient cards: disable card gradients when turned off */
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .entity-card .card-body,
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .scene-card > div.bg-plex-card {
+  background: transparent;
+}
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .entity-card,
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .scene-card {
+  border-top-color: var(--color-plex-border);
+}
+
+/* Gradient background strength: subtle */
+html[data-style-gradient-bgstrength="subtle"][data-component-style*="gradient"] body {
+  background:
+    radial-gradient(ellipse 140% 100% at 10% 90%, rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 120% 90% at 90% 10%, rgba(var(--gradient-r2, 72), var(--gradient-g2, 175), var(--gradient-b2, 240), 0.15) 0%, transparent 50%),
+    var(--color-plex-bg);
+  background-size: 200% 200%;
+  background-attachment: fixed;
+}
+/* Gradient background strength: strong */
+html[data-style-gradient-bgstrength="strong"][data-component-style*="gradient"] body {
+  background:
+    radial-gradient(ellipse 140% 100% at 10% 90%, rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.7) 0%, transparent 55%),
+    radial-gradient(ellipse 120% 90% at 90% 10%, rgba(var(--gradient-r2, 72), var(--gradient-g2, 175), var(--gradient-b2, 240), 0.55) 0%, transparent 50%),
+    var(--color-plex-bg);
+  background-size: 200% 200%;
+  background-attachment: fixed;
+}
+
+/* Card popover footers also get subtle gradient */
+html[data-component-style*="gradient"] .card-popovers {
+  background:
+    linear-gradient(90deg,
+      rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.06) 0%,
+      transparent 100%
+    );
+}
+
+/* Gradient toolbar/filter bar: subtle accent wash */
+html[data-component-style*="gradient"] .bg-plex-surface {
+  background:
+    linear-gradient(135deg,
+      rgba(var(--gradient-r1, 19), var(--gradient-g1, 124), var(--gradient-b1, 189), 0.1) 0%,
+      transparent 100%
+    ),
+    var(--color-plex-surface);
+}
+
+/* Liquid Glass + Gradient combined: vivid fixed background.
+ * PERF: Uses transform-animated pseudo-element like base liquid glass. */
+html[data-theme="liquid-glass"][data-component-style*="gradient"] body::before {
+  background:
+    radial-gradient(circle at 15% 80%, rgba(0, 122, 255, 0.8) 0%, transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(168, 85, 247, 0.7) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.5) 0%, transparent 50%);
+}
+html[data-style-gradient-animated]:not([data-style-gradient-animated="0"])[data-theme="liquid-glass"][data-component-style*="gradient"] body::before {
+  --_inv: calc(100 - var(--sv-anim-speed, 50));
+  animation: liquid-drift calc((8 + var(--_inv) * var(--_inv) * 0.0112) * 1s) ease-in-out infinite;
+}
+
+/* --- Component Style: Minimal --- */
+html[data-component-style*="minimal"] .entity-card,
+html[data-component-style*="minimal"] .scene-card {
+  box-shadow: none;
+  border-radius: 4px;
+}
+html[data-component-style*="minimal"] button {
+  border-radius: 4px;
+}
+html[data-component-style*="minimal"] .rounded-xl,
+html[data-component-style*="minimal"] .rounded-2xl {
+  border-radius: 4px;
+}
+
+/* --- Component Style: Rounded --- */
+html[data-component-style*="rounded"] button {
+  border-radius: 9999px;
+}
+html[data-component-style*="rounded"] .entity-card,
+html[data-component-style*="rounded"] .scene-card {
+  border-radius: 16px;
+  overflow: hidden;
+}
+html[data-component-style*="rounded"] input,
+html[data-component-style*="rounded"] select {
+  border-radius: 9999px;
+}
+html[data-component-style*="rounded"] .styled-dropdown-panel {
+  border-radius: 16px;
+}
+
+/* ===== Layer 3: Layout Styles ===== */
+
+/* --- Layout: Compact --- */
+html[data-layout="compact"] .scene-card {
+  --card-min-width: 180px;
+}
+html[data-layout="compact"] .card-title {
+  font-size: 0.75rem;
+}
+html[data-layout="compact"] .card-popovers {
+  display: none;
+}
+
+/* ===== Text Readability: ensure text is always legible over glass/gradients ===== */
+html[data-component-style*="glass"] .text-plex-text,
+html[data-component-style*="glass"] .card-title {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html[data-component-style*="glass"] .text-plex-text-secondary {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Light theme text readability: use white shadow instead */
+html[data-theme="light"][data-component-style*="glass"] .text-plex-text,
+html[data-theme="light"][data-component-style*="glass"] .card-title {
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.5);
+}
+
+html[data-theme="light"][data-component-style*="glass"] .text-plex-text-secondary {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
+}
+
+/* Light theme glass borders: use dark borders */
+html[data-theme="light"][data-component-style*="glass"] .border-b {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+html[data-theme="light"][data-component-style*="glass"] .border-l {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+html[data-theme="light"][data-component-style*="glass"] .border-t {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Ensure card text areas have enough contrast even with glass */
+html[data-component-style*="glass"] .scene-card > div.bg-plex-card,
+html[data-component-style*="glass"] .entity-card > div:last-of-type {
+  position: relative;
+}
+
+/* Light theme gradient: softer, lighter gradients */
+html[data-theme="light"][data-component-style*="gradient"] {
+  --gradient-r1: 37; --gradient-g1: 99; --gradient-b1: 235;
+  --gradient-r2: 59; --gradient-g2: 130; --gradient-b2: 246;
+  --gradient-r3: 99; --gradient-g3: 102; --gradient-b3: 241;
+}
+html[data-theme="light"][data-component-style*="gradient"] body {
+  background:
+    radial-gradient(ellipse 140% 100% at 10% 90%, rgba(var(--gradient-r1), var(--gradient-g1), var(--gradient-b1), 0.15) 0%, transparent 55%),
+    radial-gradient(ellipse 120% 90% at 90% 10%, rgba(var(--gradient-r2), var(--gradient-g2), var(--gradient-b2), 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse 100% 80% at 50% 50%, rgba(var(--gradient-r3), var(--gradient-g3), var(--gradient-b3), 0.1) 0%, transparent 60%),
+    var(--color-plex-bg);
+  background-size: 200% 200%;
+  animation: gradient-flow 20s ease-in-out infinite;
+}
+html[data-style-gradient-animated="off"][data-theme="light"][data-component-style*="gradient"] body,
+html:not([data-style-gradient-animated])[data-theme="light"][data-component-style*="gradient"] body {
+  animation: none;
+  background-size: 100% 100%;
+}
+
+/* Light theme glass card/entity overrides */
+html[data-theme="light"][data-component-style*="glass"] .scene-card,
+html[data-theme="light"][data-component-style*="glass"] .entity-card {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* ===== Light Theme scrollbar + selection overrides ===== */
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+html[data-theme="light"] * {
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+html[data-theme="light"] ::selection {
+  background: rgba(37, 99, 235, 0.25);
+}
+
+/* ===== Animated Theme Enhancements ===== */
+/* These themes auto-apply glass+gradient+animated component styles via backend config.
+   The CSS here just adds theme-specific color touches beyond what the generic
+   component styles provide. */
+
+/* Theme: Neon Glow — purple tinted glow variables */
+html[data-theme="neon-glow"] {
+  --glow-r: 139; --glow-g: 92; --glow-b: 246;
+}
+
+/* Theme: Sunset Gradient — warm glow variables */
+html[data-theme="sunset-gradient"] {
+  --glow-r: 249; --glow-g: 115; --glow-b: 22;
+}
+
+/* Theme: Aurora — teal glow variables */
+html[data-theme="aurora"] {
+  --glow-r: 16; --glow-g: 185; --glow-b: 129;
+}

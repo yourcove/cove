@@ -1,0 +1,1346 @@
+@import "tailwindcss";
+
+@theme {
+  /* Dark theme */
+  --color-background: #202b33;
+  --color-surface: #283540;
+  --color-card: #30404d;
+  --color-card-hover: #394b59;
+  --color-border: #394b59;
+  --color-input: rgba(16, 22, 26, 0.3);
+  --color-foreground: #f5f8fa;
+  --color-secondary: #bfccd6;
+  --color-muted: #8a9ba8;
+  --color-accent: #137cbd;
+  --color-accent-hover: #48aff0;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-nav: #1a2329;
+  --color-nav-active: #137cbd;
+}
+
+/* Base */
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsla(0, 0%, 100%, 0.15); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: hsla(0, 0%, 100%, 0.25); }
+* { scrollbar-color: hsla(0, 0%, 100%, 0.15) transparent; scrollbar-width: thin; }
+
+/* Selection */
+::selection { background: rgba(204, 123, 25, 0.4); }
+
+/* Transitions */
+a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, opacity 0.15s; }
+
+/* Detail page hero section â€” theme-aware background that respects glass/gradient */
+.detail-hero-gradient {
+  background: linear-gradient(180deg, var(--color-surface), var(--color-background));
+}
+
+/* Theater mode */
+html.theater-mode nav.cove-navbar { display: none; }
+html.theater-mode main { max-width: none !important; padding: 0 !important; }
+
+/* Hide scrollbar for horizontal carousels */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Scene card preview video â€” CSS-driven hover: hidden off-screen by default, shown on hover via position change.
+   IntersectionObserver in JS detects when video becomes visible and calls play(). */
+.scene-card-preview-video {
+  position: absolute;
+  top: -9999px;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: top 0s;
+  transition-delay: 0s;
+}
+.scene-card:hover .scene-card-preview-video,
+.scene-card:active .scene-card-preview-video {
+  top: 0;
+  transition-delay: 0.2s;
+}
+
+/* Hide extra scene info (filesize, file path) by default â€” default styling */
+.extra-scene-info {
+  display: none;
+}
+
+/* Scene specs overlay â€” fade out on hover to avoid cluttering the preview */
+.scene-card:hover .scene-specs-overlay,
+.scene-card:hover .rating-banner-container {
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+.rating-banner-container {
+  transition: opacity 0.5s;
+}
+
+/* Card zoom levels */
+.scene-card { --card-min-width: 240px; }
+
+/* Card title typography â€” scales with card zoom */
+.card-title {
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+/* Entity card responsive sizing â€” prevent breakage at small zoom levels */
+.entity-card {
+  min-width: 0;
+}
+
+/* Small cards (zoom 0-1, <200px) â€” tighter spacing, smaller text */
+@container (max-width: 200px) {
+  .card-title { font-size: 0.75rem; }
+  .card-popovers { display: none; }
+}
+
+/* At the smallest widths we rely on container queries if available,
+   but also provide grid-aware helpers here */
+@media (max-width: 480px) {
+  .card-title { font-size: 0.75rem; }
+}
+
+/* Larger cards (zoom 2-3, >280px) â€” bigger title */
+
+/* Style native select dropdowns to match dark theme */
+select option {
+  background-color: var(--color-card);
+  color: var(--color-foreground);
+  padding: 4px 8px;
+}
+select option:hover,
+select option:checked {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a9ba8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px !important;
+}
+
+/* Custom dropdown panel styling (used by StyledSelect) */
+.styled-dropdown-panel {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.styled-dropdown-item {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--color-foreground);
+  transition: background-color 0.1s;
+}
+.styled-dropdown-item:hover {
+  background-color: var(--color-card-hover);
+}
+.styled-dropdown-item.selected {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+
+/* Dialog/modal overlay styling */
+.filter-dialog select {
+  background-color: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+/* ===== Layer 2: Component Styles ===== */
+/* Selectors use [data-component-style*="X"] to support composable multi-styles.
+ * IMPORTANT: Use only single-function backdrop-filter values (blur only) because
+ * Lightning CSS minification strips spaces between chained functions like
+ * blur(x) saturate(y), producing invalid CSS. */
+
+/* --- Component Style: Glass --- */
+
+/*
+ * Strategy: Override the CSS color variables to be translucent when glass is active,
+ * then add backdrop-filter: blur() to elements that use these backgrounds.
+ * This makes glass apply EVERYWHERE consistently without per-element selectors.
+ */
+html[data-component-style*="glass"] {
+  --color-nav: rgba(18, 18, 24, 0.4);
+  --color-surface: rgba(28, 28, 36, 0.3);
+  --color-card: rgba(36, 36, 46, 0.25);
+  --color-card-hover: rgba(48, 48, 58, 0.35);
+  --color-input: rgba(12, 12, 18, 0.25);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-overlay: rgba(0, 0, 0, 0.4);
+}
+
+/* Light theme glass: use light translucent values instead */
+html[data-color-scheme="light"][data-component-style*="glass"] {
+  --color-nav: rgba(255, 255, 255, 0.6);
+  --color-surface: rgba(255, 255, 255, 0.45);
+  --color-card: rgba(255, 255, 255, 0.4);
+  --color-card-hover: rgba(255, 255, 255, 0.55);
+  --color-input: rgba(255, 255, 255, 0.3);
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-overlay: rgba(0, 0, 0, 0.2);
+}
+
+/* Global glass: major surfaces get frosted glass blur.
+ * PERF: Only apply blur to key structural elements. Blur is GPU-expensive;
+ * limit to navigation, surfaces, and detail page panels. */
+html[data-component-style*="glass"] .bg-surface,
+html[data-component-style*="glass"] .bg-surface\/50 {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Detail page: hero sections â€” only one blur layer, not stacked */
+html[data-component-style*="glass"] .detail-hero-gradient {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+/* Detail page: metadata and info cards â€” no blur, just tinted translucent bg */
+html[data-component-style*="glass"] .rounded-xl.border.border-border.bg-card {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Navbar â€” one fixed element, OK to blur */
+html[data-component-style*="glass"] .bg-nav {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Input fields â€” no blur, translucent bg is sufficient */
+html[data-component-style*="glass"] .bg-input {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Entity cards â€” specular highlight edge + hover lift.
+ * Card blur is configurable via glass settings (data-style-glass-cardblur).
+ * Default: light (8px) for nice visual effect. Can be turned off for performance. */
+html[data-component-style*="glass"] .entity-card,
+html[data-component-style*="glass"] .scene-card {
+  contain: style;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.25);
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
+
+/* Glass card blur: off */
+html[data-style-glass-cardblur="off"][data-component-style*="glass"] .entity-card,
+html[data-style-glass-cardblur="off"][data-component-style*="glass"] .scene-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Glass card blur: full */
+html[data-style-glass-cardblur="full"][data-component-style*="glass"] .entity-card,
+html[data-style-glass-cardblur="full"][data-component-style*="glass"] .scene-card {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+/* Glass surface blur: configurable via data-style-glass-surfaceblur */
+html[data-style-glass-surfaceblur="low"][data-component-style*="glass"] .bg-surface,
+html[data-style-glass-surfaceblur="low"][data-component-style*="glass"] .bg-surface\/50 {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+html[data-style-glass-surfaceblur="high"][data-component-style*="glass"] .bg-surface,
+html[data-style-glass-surfaceblur="high"][data-component-style*="glass"] .bg-surface\/50 {
+  -webkit-backdrop-filter: blur(32px);
+  backdrop-filter: blur(32px);
+}
+
+/* Glass opacity: light (more see-through) */
+html[data-style-glass-opacity="light"][data-component-style*="glass"] {
+  --color-nav: rgba(18, 18, 24, 0.25);
+  --color-surface: rgba(28, 28, 36, 0.15);
+  --color-card: rgba(36, 36, 46, 0.12);
+  --color-card-hover: rgba(48, 48, 58, 0.2);
+}
+/* Glass opacity: heavy (more opaque) */
+html[data-style-glass-opacity="heavy"][data-component-style*="glass"] {
+  --color-nav: rgba(18, 18, 24, 0.65);
+  --color-surface: rgba(28, 28, 36, 0.55);
+  --color-card: rgba(36, 36, 46, 0.5);
+  --color-card-hover: rgba(48, 48, 58, 0.6);
+}
+
+html[data-component-style*="glass"] .entity-card:hover,
+html[data-component-style*="glass"] .scene-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 16px 48px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Dropdowns / dialogs â€” moderate blur (only a few on screen at once) */
+html[data-component-style*="glass"] .styled-dropdown-panel,
+html[data-component-style*="glass"] .filter-dialog,
+html[data-component-style*="glass"] [role="dialog"] {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+/* Glass buttons â€” PERF: only blur on hover, not all buttons at rest.
+ * Also exclude tab buttons, rating stars, and interactive inline buttons. */
+html[data-component-style*="glass"] button.no-glass,
+html[data-component-style*="glass"] button[class*="border-b-2"],
+html[data-component-style*="glass"] button[class*="text-accent transition-transform"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* Settings section cards â€” one blur per page section */
+html[data-component-style*="glass"] section.rounded-2xl {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Stat badges, filter pills, tag chips â€” PERF: no blur on small elements; just tint */
+html[data-component-style*="glass"] .rounded-full {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* PERF: Video player area â€” never apply glass blur. The bg-black container
+ * that wraps <video> must not get any backdrop-filter or its children choke. */
+html[data-component-style*="glass"] .bg-black {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+html[data-component-style*="glass"] .bg-black * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* PERF: CSS containment on card grids for layout thrashing reduction. */
+.entity-card,
+.scene-card {
+  contain: style;
+}
+
+/* PERF: Prefer reduced-motion â€” disable all glass/gradient/animated effects */
+@media (prefers-reduced-motion: reduce) {
+  html[data-component-style*="animated"] .entity-card,
+  html[data-component-style*="animated"] .scene-card,
+  html[data-component-style*="animated"] nav.cove-navbar {
+    animation: none !important;
+  }
+  html[data-component-style*="gradient"] body,
+  html[data-theme-bg-animation] body,
+  html[data-theme-bg-animation] body {
+    animation: none !important;
+    background-size: 100% 100% !important;
+  }
+  html[data-theme-bg-animation] body::before {
+    animation: none !important;
+  }
+}
+
+/* Job drawer: ensure it's always readable with glass themes */
+html[data-component-style*="glass"] .job-drawer {
+  background: rgba(20, 22, 28, 0.92) !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .job-drawer {
+  background: rgba(245, 248, 250, 0.88) !important;
+}
+
+/* Keyboard shortcuts dialog: ensure readable with glass themes */
+html[data-component-style*="glass"] .shortcuts-dialog {
+  background: rgba(20, 22, 28, 0.92) !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-component-style*="glass"] .shortcuts-dialog-header {
+  background: rgba(20, 22, 28, 0.92) !important;
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .shortcuts-dialog {
+  background: rgba(245, 248, 250, 0.92) !important;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .shortcuts-dialog-header {
+  background: rgba(245, 248, 250, 0.92) !important;
+}
+/* Liquid glass: frosted glass dialog */
+html[data-theme-bg-animation] .shortcuts-dialog {
+  background: rgba(20, 22, 28, 0.7) !important;
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+html[data-theme-bg-animation] .shortcuts-dialog-header {
+  background: rgba(20, 22, 28, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+/* Gradient style: subtle accent header border */
+html[data-component-style*="gradient"] .shortcuts-dialog-header {
+  border-image: linear-gradient(90deg,
+    color-mix(in srgb, var(--color-accent) 30%, transparent),
+    color-mix(in srgb, var(--color-accent-hover) 30%, transparent),
+    transparent
+  ) 1;
+}
+
+/* Border dividers â€” soften them */
+html[data-component-style*="glass"] .border-b {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-component-style*="glass"] .border-l {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-component-style*="glass"] .border-t {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ===================================================================
+ * LIQUID GLASS â€” True Apple-style liquid glass experience
+ * When data-theme="liquid-glass" is active, every surface becomes
+ * dramatically translucent with heavy blur. A vivid multi-color
+ * gradient background shows through all glass panels.
+ *
+ * PERF: Uses CSS transform-based animation instead of background-position.
+ * Transform animations are GPU-composited and don't trigger repaints.
+ * The gradient layers are on a pseudo-element that animates via translate.
+ * =================================================================== */
+
+/* Liquid Glass: extremely translucent surfaces */
+html[data-theme-bg-animation][data-component-style*="glass"] {
+  --color-background: transparent;
+  --color-nav: rgba(20, 20, 30, 0.12);
+  --color-surface: rgba(24, 24, 36, 0.08);
+  --color-card: rgba(30, 30, 42, 0.08);
+  --color-card-hover: rgba(40, 40, 55, 0.15);
+  --color-input: rgba(10, 10, 18, 0.12);
+  --color-border: rgba(255, 255, 255, 0.2);
+  --color-overlay: rgba(0, 0, 0, 0.25);
+}
+
+/* Liquid Glass: static gradient background (no animation by default).
+ * Uses color-mix with accent colors so the blobs adapt to any palette.
+ * Five distinct blobs for rich color variety: blue, cyan, purple, deep purple, teal. */
+html[data-theme-bg-animation] body {
+  background: #0a0a12;
+  position: relative;
+  overflow-x: hidden;
+}
+html[data-theme-bg-animation] body::before {
+  content: "";
+  position: fixed;
+  inset: -25%;
+  width: 150%;
+  height: 150%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 55% 50% at 15% 80%, color-mix(in srgb, var(--color-accent) 55%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 45% at 85% 15%, color-mix(in srgb, var(--color-accent-hover) 45%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 55% at 50% 45%, color-mix(in srgb, var(--color-nav-active) 55%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 45% at 25% 25%, color-mix(in srgb, var(--color-nav-active) 40%, #200040) 0%, transparent 45%),
+    radial-gradient(ellipse 35% 40% at 75% 70%, color-mix(in srgb, var(--color-accent-hover) 35%, #004040) 0%, transparent 42%);
+  will-change: transform;
+  animation: none;
+}
+
+/* PERF: GPU-composited transform animation instead of background-position.
+ * Only activated when gradient animation is explicitly enabled. */
+@keyframes liquid-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(5%, -5%) scale(1.02); }
+  50% { transform: translate(-3%, 5%) scale(0.98); }
+  75% { transform: translate(-5%, -3%) scale(1.01); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+/* Liquid Glass: scrollbar */
+html[data-theme-bg-animation] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: dramatically increased blur + subtle glass edges */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-surface,
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-surface\/50 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: navbar */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-nav {
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: entity cards â€” soften borders, no harsh outlines */
+html[data-theme-bg-animation][data-component-style*="glass"] .entity-card,
+html[data-theme-bg-animation][data-component-style*="glass"] .scene-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme-bg-animation][data-component-style*="glass"] .entity-card:hover,
+html[data-theme-bg-animation][data-component-style*="glass"] .scene-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 20px 60px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+/* Liquid Glass: dropdowns/dialogs */
+html[data-theme-bg-animation][data-component-style*="glass"] .styled-dropdown-panel,
+html[data-theme-bg-animation][data-component-style*="glass"] .filter-dialog,
+html[data-theme-bg-animation][data-component-style*="glass"] [role="dialog"] {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 24px 80px rgba(0, 0, 0, 0.15);
+}
+
+/* Liquid Glass: settings sections */
+html[data-theme-bg-animation][data-component-style*="glass"] section.rounded-2xl {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: fixed panels â€” moderate blur */
+html[data-theme-bg-animation][data-component-style*="glass"] .fixed.right-0 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: inputs */
+html[data-theme-bg-animation][data-component-style*="glass"] .bg-input {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Liquid Glass: buttons have glass tint */
+html[data-theme-bg-animation][data-component-style*="glass"] button:not(.no-glass):not(:empty):not([class*="border-b-2"]):not([class*="transition-transform"]):hover {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: pills/badges â€” no blur, just tint */
+html[data-theme-bg-animation][data-component-style*="glass"] .rounded-full {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Liquid Glass: popovers */
+html[data-theme-bg-animation][data-component-style*="glass"] .fixed.right-0.shadow-2xl {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 16px 64px rgba(0, 0, 0, 0.12);
+}
+
+/* Liquid Glass: all borders become subtle glass edges */
+html[data-theme-bg-animation] .border-b,
+html[data-theme-bg-animation] .border-l,
+html[data-theme-bg-animation] .border-t,
+html[data-theme-bg-animation] .border-r {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Liquid Glass: detail page hero sections â€” let gradient show through */
+html[data-theme-bg-animation][data-component-style*="glass"] .relative.overflow-hidden.border-b {
+  background: rgba(10, 10, 18, 0.15) !important;
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+}
+
+/* Liquid Glass: detail page hero gradient overlays â€” make them more translucent */
+html[data-theme-bg-animation] .bg-gradient-to-t {
+  opacity: 0.5;
+}
+
+/* Liquid Glass: detail page metadata cards */
+html[data-theme-bg-animation][data-component-style*="glass"] .rounded-xl.border.border-border {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Liquid Glass: gradient overrides â€” pseudo-element uses accent colors via color-mix */
+
+/* --- Component Style: Gradient --- */
+/* Bold gradient background that transforms the entire app.
+ * Uses color-mix() with --color-accent so it works with ANY color palette automatically. */
+
+/* Gradient direction defaults â€” configurable via settings */
+html[data-component-style*="gradient"] {
+  --gd-cards: 180deg;
+  --gd-bg: 180deg;
+  --gd-surfaces: 180deg;
+}
+/* Gradient direction: horizontal */
+html[data-style-gradient-carddir="horizontal"] { --gd-cards: 90deg; }
+html[data-style-gradient-bgdir="horizontal"] { --gd-bg: 90deg; }
+html[data-style-gradient-surfacedir="horizontal"] { --gd-surfaces: 90deg; }
+/* Gradient direction: diagonal */
+html[data-style-gradient-carddir="diagonal"] { --gd-cards: 135deg; }
+html[data-style-gradient-bgdir="diagonal"] { --gd-bg: 135deg; }
+html[data-style-gradient-surfacedir="diagonal"] { --gd-surfaces: 135deg; }
+
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  25% { background-position: 50% 0%; }
+  50% { background-position: 100% 50%; }
+  75% { background-position: 50% 100%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Gradient background â€” uses accent + accent-hover + nav-active from active palette.
+ * Using three distinct color sources creates a more interesting multi-color gradient. */
+html[data-component-style*="gradient"] body {
+  background:
+    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--color-accent) 30%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--color-accent-hover) 22%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--color-nav-active, var(--color-accent)) 15%, transparent) 0%, transparent 50%),
+    var(--color-background);
+  background-attachment: fixed;
+  animation: none;
+}
+
+/* Animated background speed â€” needs 200% size for background-position animation */
+html[data-style-gradient-animated="slow"][data-component-style*="gradient"] body {
+  background-size: 200% 200%;
+  animation: gradient-flow 60s ease-in-out infinite;
+}
+html[data-style-gradient-animated="medium"][data-component-style*="gradient"] body {
+  background-size: 200% 200%;
+  animation: gradient-flow 30s ease-in-out infinite;
+}
+html[data-style-gradient-animated="fast"][data-component-style*="gradient"] body {
+  background-size: 200% 200%;
+  animation: gradient-flow 15s ease-in-out infinite;
+}
+
+/* Disable background animation on video player pages for performance */
+/* Controlled by gradient > "Pause on Scene Player" setting in SceneDetailPage.tsx */
+body.has-video-player {
+  animation: none !important;
+  background-size: 100% 100% !important;
+}
+body.has-video-player::before {
+  animation: none !important;
+}
+
+/* Gradient colors for specific themes that need explicit values (e.g. liquid glass pseudo-element) */
+
+/* Gradient navbar: accent-tinted top bar with bottom glow */
+html[data-component-style*="gradient"] nav.cove-navbar {
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--color-accent) 18%, transparent) 0%,
+      transparent 30%,
+      transparent 70%,
+      color-mix(in srgb, var(--color-accent-hover) 12%, transparent) 100%
+    ),
+    var(--color-nav);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+/* Gradient cards: position relative for ::after overlay */
+html[data-component-style*="gradient"] .entity-card,
+html[data-component-style*="gradient"] .scene-card {
+  position: relative;
+}
+
+/* Full-card gradient overlay â€” subtle accent wash that covers the entire card including image */
+html[data-component-style*="gradient"] .entity-card::after,
+html[data-component-style*="gradient"] .scene-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  background: linear-gradient(
+    var(--gd-cards, 180deg),
+    color-mix(in srgb, var(--color-accent) 8%, transparent) 0%,
+    transparent 40%,
+    color-mix(in srgb, var(--color-accent-hover) 5%, transparent) 100%
+  );
+}
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .entity-card::after,
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .scene-card::after {
+  display: none;
+}
+html[data-style-gradient-cards="subtle"][data-component-style*="gradient"] .entity-card::after,
+html[data-style-gradient-cards="subtle"][data-component-style*="gradient"] .scene-card::after {
+  background: linear-gradient(
+    var(--gd-cards, 180deg),
+    color-mix(in srgb, var(--color-accent) 4%, transparent) 0%,
+    transparent 40%,
+    color-mix(in srgb, var(--color-accent-hover) 3%, transparent) 100%
+  );
+}
+html[data-style-gradient-cards="strong"][data-component-style*="gradient"] .entity-card::after,
+html[data-style-gradient-cards="strong"][data-component-style*="gradient"] .scene-card::after {
+  background: linear-gradient(
+    var(--gd-cards, 180deg),
+    color-mix(in srgb, var(--color-accent) 15%, transparent) 0%,
+    transparent 35%,
+    color-mix(in srgb, var(--color-accent-hover) 10%, transparent) 100%
+  );
+}
+
+/* Gradient card bodies: subtle accent-tinted background on card text areas.
+ * Each strength level sets explicit percentages for browser compatibility.
+ * A top border separates the image/preview area from the gradient body. */
+
+/* Default (medium) card gradient */
+html[data-component-style*="gradient"] .card-body {
+  background:
+    linear-gradient(var(--gd-cards, 180deg),
+      color-mix(in srgb, var(--color-accent) 15%, transparent) 0%,
+      transparent 60%,
+      color-mix(in srgb, var(--color-accent-hover) 10%, transparent) 100%
+    ),
+    var(--color-card);
+}
+
+/* Gradient card strength: off */
+html[data-style-gradient-cards="off"][data-component-style*="gradient"] .card-body {
+  background: var(--color-card);
+}
+/* Gradient card strength: subtle */
+html[data-style-gradient-cards="subtle"][data-component-style*="gradient"] .card-body {
+  background:
+    linear-gradient(var(--gd-cards, 180deg),
+      color-mix(in srgb, var(--color-accent) 6%, transparent) 0%,
+      transparent 60%,
+      color-mix(in srgb, var(--color-accent-hover) 4%, transparent) 100%
+    ),
+    var(--color-card);
+}
+/* Gradient card strength: medium (default â€” same as base rule) */
+/* Gradient card strength: strong */
+html[data-style-gradient-cards="strong"][data-component-style*="gradient"] .card-body {
+  background:
+    linear-gradient(var(--gd-cards, 180deg),
+      color-mix(in srgb, var(--color-accent) 25%, transparent) 0%,
+      transparent 60%,
+      color-mix(in srgb, var(--color-accent-hover) 18%, transparent) 100%
+    ),
+    var(--color-card);
+}
+
+/* Background gradient strength: off (no gradient) */
+html[data-style-gradient-background="off"][data-component-style*="gradient"] body {
+  background: var(--color-background);
+}
+/* Background gradient strength: subtle */
+html[data-style-gradient-background="subtle"][data-component-style*="gradient"] body {
+  background:
+    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--color-accent) 12%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--color-accent-hover) 8%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--color-nav-active, var(--color-accent)) 6%, transparent) 0%, transparent 50%),
+    var(--color-background);
+  background-attachment: fixed;
+}
+/* Background gradient strength: strong */
+html[data-style-gradient-background="strong"][data-component-style*="gradient"] body {
+  background:
+    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--color-accent) 50%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--color-accent-hover) 40%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--color-nav-active, var(--color-accent)) 30%, transparent) 0%, transparent 50%),
+    var(--color-background);
+  background-attachment: fixed;
+}
+
+/* Liquid glass: body always stays dark when gradient is on, regardless of background strength.
+ * Must come AFTER strength rules to win same-specificity cascade via source order. */
+html[data-theme-bg-animation][data-component-style*="gradient"] body {
+  background: #0a0a12;
+}
+html[data-theme-bg-animation][data-style-gradient-background="off"][data-component-style*="gradient"] body {
+  background: #0a0a12;
+}
+html[data-theme-bg-animation][data-style-gradient-background="subtle"][data-component-style*="gradient"] body {
+  background: #0a0a12;
+}
+html[data-theme-bg-animation][data-style-gradient-background="strong"][data-component-style*="gradient"] body {
+  background: #0a0a12;
+}
+
+/* Card popover footers also get subtle gradient */
+html[data-component-style*="gradient"] .card-popovers {
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--color-accent) 6%, transparent) 0%,
+      transparent 100%
+    ),
+    var(--color-card);
+}
+
+/* Gradient toolbar/filter bar: subtle accent wash (only top-level surface bars) */
+html[data-component-style*="gradient"] .bg-surface.border-b {
+  background:
+    linear-gradient(var(--gd-surfaces, 180deg),
+      color-mix(in srgb, var(--color-accent) 8%, transparent) 0%,
+      transparent 100%
+    ),
+    var(--color-surface);
+}
+
+/* Ensure inputs and selects are NOT gradient-tinted */
+html[data-component-style*="gradient"] input,
+html[data-component-style*="gradient"] textarea {
+  background-color: var(--color-input);
+  background-image: none;
+}
+
+/* Liquid Glass + Gradient combined: gradient background strength does NOT affect
+ * the theme's own body::before blobs. The blobs always use the theme's accent colors. */
+
+/* ===== Theme Background Animation =====
+ * Controlled by BackgroundAnimation property on themes (not component styles).
+ * Applied via data-theme-bg-animation attribute by ExtensionLoader.
+ * Speed controlled by --sv-bg-anim-speed (0-100) CSS variable. */
+html[data-theme-bg-animation="liquid-drift"] body::before {
+  --_inv: calc(100 - var(--sv-bg-anim-speed, 55));
+  animation: liquid-drift calc((8 + var(--_inv) * var(--_inv) * 0.0112) * 1s) ease-in-out infinite;
+}
+html[data-style-theme-bgspeed="0"][data-theme-bg-animation] body::before {
+  animation: none;
+}
+
+/* --- Component Style: Animated --- */
+/* Visible animations on interactive elements */
+
+@keyframes card-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px 0 color-mix(in srgb, var(--color-accent) 15%, transparent); }
+  50% { box-shadow: 0 0 24px 6px color-mix(in srgb, var(--color-accent) 20%, transparent); }
+}
+
+@keyframes border-breathe {
+  0%, 100% { border-color: color-mix(in srgb, var(--color-accent) 15%, transparent); }
+  50% { border-color: color-mix(in srgb, var(--color-accent) 40%, transparent); }
+}
+
+/* Animated: card image zoom on hover â€” only when animated style is active */
+html[data-component-style*="animated"] .entity-card img,
+html[data-component-style*="animated"] .scene-card img,
+html[data-component-style*="animated"] .group img {
+  transition: transform 0.3s ease;
+}
+html[data-component-style*="animated"] .entity-card:hover img,
+html[data-component-style*="animated"] .scene-card:hover img,
+html[data-component-style*="animated"] .group:hover img {
+  transform: scale(1.05);
+}
+
+/* Animated hover: pulse glow + slight zoom. Only when 'animated' style is active. */
+html[data-component-style*="animated"] .entity-card:hover,
+html[data-component-style*="animated"] .scene-card:hover {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Animated hover intensity options */
+html[data-style-animated-hover="subtle"] .entity-card:hover,
+html[data-style-animated-hover="subtle"] .scene-card:hover {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+html[data-style-animated-hover="off"] .entity-card:hover,
+html[data-style-animated-hover="off"] .scene-card:hover {
+  animation: none;
+  box-shadow: none;
+}
+
+html[data-component-style*="animated"] nav.cove-navbar {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent) 6%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: card-shimmer 6s linear infinite;
+}
+
+/* Navbar shimmer off option */
+html[data-style-animated-shimmer="off"] nav.cove-navbar {
+  background-image: none;
+  animation: none;
+}
+
+html[data-component-style*="animated"] button:hover:not(.no-glass) {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 0 8px 0 color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* Fix animated button clash with liquid glass â€” scale creates stacking context issues with backdrop-filter */
+html[data-theme-bg-animation][data-component-style*="animated"] button:hover:not(.no-glass) {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  box-shadow: 0 0 8px 0 color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+/* --- Component Style: Minimal --- */
+html[data-component-style*="minimal"] .entity-card,
+html[data-component-style*="minimal"] .scene-card {
+  box-shadow: none;
+  border-radius: 4px;
+}
+html[data-component-style*="minimal"] button {
+  border-radius: 4px;
+}
+html[data-component-style*="minimal"] .rounded-xl,
+html[data-component-style*="minimal"] .rounded-2xl {
+  border-radius: 4px;
+}
+
+/* --- Component Style: Rounded --- */
+html[data-component-style*="rounded"] button {
+  border-radius: 9999px;
+}
+html[data-component-style*="rounded"] .entity-card,
+html[data-component-style*="rounded"] .scene-card {
+  border-radius: 16px;
+  overflow: hidden;
+}
+html[data-component-style*="rounded"] input,
+html[data-component-style*="rounded"] select {
+  border-radius: 9999px;
+}
+html[data-component-style*="rounded"] .styled-dropdown-panel {
+  border-radius: 16px;
+}
+
+/* ===== Layer 3: Layout Styles ===== */
+
+/* --- Layout: Compact --- */
+html[data-layout="compact"] .scene-card {
+  --card-min-width: 180px;
+}
+html[data-layout="compact"] .card-title {
+  font-size: 0.75rem;
+}
+html[data-layout="compact"] .card-popovers {
+  display: none;
+}
+
+/* ===== Text Readability: ensure text is always legible over glass/gradients ===== */
+html[data-component-style*="glass"] .text-foreground,
+html[data-component-style*="glass"] .card-title {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html[data-component-style*="glass"] .text-secondary {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Light theme text readability: use white shadow instead */
+html[data-color-scheme="light"][data-component-style*="glass"] .text-foreground,
+html[data-color-scheme="light"][data-component-style*="glass"] .card-title {
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.5);
+}
+
+html[data-color-scheme="light"][data-component-style*="glass"] .text-secondary {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
+}
+
+/* Light theme glass borders: use dark borders */
+html[data-color-scheme="light"][data-component-style*="glass"] .border-b {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .border-l {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] .border-t {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Ensure card text areas have enough contrast even with glass */
+html[data-component-style*="glass"] .scene-card > div.bg-card,
+html[data-component-style*="glass"] .entity-card > div:last-of-type {
+  position: relative;
+}
+
+/* Light theme gradient: softer, lighter gradients */
+html[data-color-scheme="light"][data-component-style*="gradient"] body {
+  background:
+    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--color-accent) 15%, transparent) 0%, transparent 60%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--color-accent-hover) 12%, transparent) 0%, transparent 60%),
+    var(--color-background);
+  background-attachment: fixed;
+}
+
+/* Light theme glass card/entity overrides */
+html[data-color-scheme="light"][data-component-style*="glass"] .scene-card,
+html[data-color-scheme="light"][data-component-style*="glass"] .entity-card {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* ===== Light Theme scrollbar + selection overrides ===== */
+html[data-color-scheme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+html[data-color-scheme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+html[data-color-scheme="light"] * {
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+html[data-color-scheme="light"] ::selection {
+  background: rgba(37, 99, 235, 0.25);
+}
+
+/* ===== Animated Theme Enhancements ===== */
+/* These themes auto-apply glass+gradient+animated component styles via backend config.
+   The CSS uses color-mix() with --color-accent so no per-theme overrides are needed. */
+
+/* ===== Native Select/Option Styling ===== */
+/* Ensure native dropdowns match the current theme */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+select,
+select option {
+  background-color: var(--color-card);
+  color: var(--color-foreground);
+}
+
+/* Glass + gradient: ensure dropdown options have opaque background.
+ * Native <option> elements need opaque colors since they render outside the page. */
+html[data-component-style*="glass"] select option {
+  background-color: #1a1a24;
+  color: var(--color-foreground);
+}
+html[data-color-scheme="light"][data-component-style*="glass"] select option {
+  background-color: #ffffff;
+  color: var(--color-foreground);
+}
+/* Per-theme option backgrounds for better matching */
+html[data-theme-bg-animation] select option { background-color: #14141e; }
+
+/* ===== Cursor: pointer for interactive elements ===== */
+/* Settings sidebar tabs */
+nav a, nav button {
+  cursor: pointer;
+}
+/* Theme/style/layout cards and palette buttons */
+button, [role="button"] {
+  cursor: pointer;
+}
+/* Filter bar controls, sort selects, page size */
+select, [role="combobox"], [role="listbox"], [role="option"] {
+  cursor: pointer;
+}
+/* Checkbox labels */
+label:has(input[type="checkbox"]) {
+  cursor: pointer;
+}
+
+/* ===== Liquid Glass border artifact fix ===== */
+/* Prevent visible border lines between glass surfaces */
+html[data-theme-bg-animation][data-component-style*="glass"] .border-border,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-t,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-b,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-l,
+html[data-theme-bg-animation][data-component-style*="glass"] .border-r {
+  border-color: rgba(255, 255, 255, 0.04);
+}
+/* Deep override for settings sections */
+html[data-theme-bg-animation][data-component-style*="glass"] section.rounded-2xl {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+/* Internal card borders (between image and card body) â€” nearly invisible */
+html[data-theme-bg-animation] .entity-card .border-t,
+html[data-theme-bg-animation] .scene-card .border-t,
+html[data-theme-bg-animation] .entity-card hr,
+html[data-theme-bg-animation] .scene-card hr {
+  border-color: rgba(255, 255, 255, 0.03);
+}
+/* Glass entity card outer borders â€” soft glow instead of hard edge */
+html[data-theme-bg-animation][data-component-style*="glass"] .entity-card,
+html[data-theme-bg-animation][data-component-style*="glass"] .scene-card {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ===== Liquid Glass standalone (no component styles required) ===== */
+/* When liquid-glass is active without glass/gradient/animated styles,
+ * still provide core visual identity â€” translucent surfaces + body bg */
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) {
+  --color-nav: rgba(14, 14, 24, 0.6);
+  --color-surface: rgba(16, 16, 26, 0.5);
+  --color-card: rgba(20, 20, 30, 0.45);
+  --color-card-hover: rgba(28, 28, 40, 0.55);
+  --color-border: rgba(255, 255, 255, 0.12);
+}
+
+/* ===== Detail Page Enhancements ===== */
+/* Extend theme presence to content areas below hero sections.
+ * These rules add subtle gradient washes to detail page structural elements. */
+
+/* Detail hero gradient â€” enhanced with gradient style */
+html[data-component-style*="gradient"] .detail-hero-gradient {
+  background:
+    linear-gradient(var(--gd-surfaces, 180deg),
+      color-mix(in srgb, var(--color-accent) 6%, transparent) 0%,
+      var(--color-surface) 50%,
+      var(--color-background) 100%
+    );
+}
+
+/* Detail page sidebar â€” subtle gradient wash for consistency with themed pages */
+html[data-component-style*="gradient"] aside.bg-surface {
+  background:
+    linear-gradient(var(--gd-surfaces, 180deg),
+      color-mix(in srgb, var(--color-accent) 4%, var(--color-surface)) 0%,
+      var(--color-surface) 100%
+    );
+}
+
+/* Image detail sidebar â€” no extra gradient, keep clean */
+
+/* Detail page tab bar â€” no gradient override, let theme colors handle it */
+
+/* ===== Detail Page Tabs Enhancement ===== */
+/* Tab bar: subtle background to separate from content when glass/gradient is active */
+html[data-component-style*="gradient"] .border-b > .flex.gap-1 button[class*="border-b-2"],
+html[data-component-style*="glass"] .border-b > .flex.gap-1 button[class*="border-b-2"] {
+  position: relative;
+}
+/* Active tab with gradient: accent-tinted underline glow */
+html[data-component-style*="gradient"] button[class*="border-b-2"][class*="border-accent"] {
+  border-image: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover)) 1;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+/* Tab count badges with glass: softer background */
+html[data-component-style*="glass"] button[class*="border-b-2"] .rounded-full {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ===== Filter Bar & Toolbar Polish ===== */
+/* Softer borders between filter bar and page content */
+html[data-component-style*="gradient"] .bg-surface.border-b {
+  border-color: color-mix(in srgb, var(--color-accent) 15%, var(--color-border));
+}
+html[data-component-style*="glass"] .bg-surface.border-b {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Filter bar inner elements: rounder corners for a polished look */
+html[data-component-style*="rounded"] .bg-surface select,
+html[data-component-style*="rounded"] .bg-surface input,
+html[data-component-style*="rounded"] .bg-surface button {
+  border-radius: 9999px;
+}
+
+/* ===== Settings UI: Hover on Theme/Style Cards ===== */
+/* Ensure the entire card area is interactive, not just the inner button */
+section.rounded-2xl .rounded-xl.border {
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+section.rounded-2xl .rounded-xl.border:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+/* Active cards get subtle glow on hover */
+section.rounded-2xl .rounded-xl.border-accent:hover {
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+/* ===== More Animation Effects ===== */
+
+/* Card entrance animation â€” staggered fade-in when grid loads */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+html[data-component-style*="animated"] .entity-card,
+html[data-component-style*="animated"] .scene-card {
+  animation: card-enter 0.3s ease-out both;
+}
+
+/* Tab underline slide animation */
+@keyframes tab-slide {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+html[data-component-style*="animated"] button[class*="border-b-2"][class*="border-accent"] {
+  position: relative;
+}
+html[data-component-style*="animated"] button[class*="border-b-2"][class*="border-accent"]::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-accent);
+  animation: tab-slide 0.2s ease-out;
+  transform-origin: left;
+}
+
+/* Button hover glow effect */
+@keyframes button-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 20%, transparent); }
+  50% { box-shadow: 0 0 12px 2px color-mix(in srgb, var(--color-accent) 15%, transparent); }
+}
+
+html[data-component-style*="animated"] .bg-accent:hover {
+  animation: button-glow 1.5s ease-in-out infinite;
+}
+
+/* Page transition fade */
+@keyframes page-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+html[data-component-style*="animated"] main {
+  animation: page-enter 0.2s ease-out;
+}
+
+/* Navbar link hover glow */
+html[data-component-style*="animated"] nav a:hover {
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* Border shimmer on surfaces â€” optional effect */
+@keyframes border-shimmer {
+  0% { border-color: color-mix(in srgb, var(--color-accent) 10%, var(--color-border)); }
+  50% { border-color: color-mix(in srgb, var(--color-accent) 25%, var(--color-border)); }
+  100% { border-color: color-mix(in srgb, var(--color-accent) 10%, var(--color-border)); }
+}
+
+html[data-component-style*="animated"] .bg-surface.border-b {
+  animation: border-shimmer 4s ease-in-out infinite;
+}
+
+/* Animated card entrance: off option */
+html[data-style-animated-entrance="off"] .entity-card,
+html[data-style-animated-entrance="off"] .scene-card {
+  animation: none;
+}
+html[data-style-animated-entrance="off"] main {
+  animation: none;
+}
+
+/* Animated surface shimmer: off option */
+html[data-style-animated-surfaceshimmer="off"] .bg-surface.border-b {
+  animation: none;
+}
+
+/* Animated button glow: off option */
+html[data-style-animated-buttonglow="off"] .bg-accent:hover {
+  animation: none;
+}
+
+/* ===== Liquid Glass Select Fix ===== */
+/* Ensure select dropdowns in liquid-glass don't have white backgrounds */
+html[data-theme-bg-animation] select {
+  background-color: var(--color-input);
+  color: var(--color-foreground);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+html[data-theme-bg-animation] select option {
+  background-color: #14141e;
+  color: var(--color-foreground);
+}
+
+/* ===== Liquid Glass: Standalone Glass Surface Effects ===== */
+/* When liquid-glass is active WITHOUT glass style, add light blur to key surfaces */
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .bg-nav {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .bg-surface {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .entity-card,
+html[data-theme-bg-animation]:not([data-component-style*="glass"]) .scene-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
