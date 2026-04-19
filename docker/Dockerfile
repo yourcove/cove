@@ -4,7 +4,7 @@ WORKDIR /build/ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY ui/ ./
-COPY src/Cove.Api/wwwroot/ /build/src/Cove.Api/wwwroot/ 2>/dev/null || true
+RUN mkdir -p /build/src/Cove.Api/wwwroot
 RUN npm run build
 
 # ── Stage 2: Build backend ────────────────────────────────────────
