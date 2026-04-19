@@ -122,7 +122,7 @@ Each produces a single executable (~50-80MB) with the .NET runtime, backend, and
 docker build -f docker/Dockerfile -t cove:local .
 
 # App-only (requires external PostgreSQL)
-docker build -f docker/Dockerfile.app -t cove-app:local .
+docker build -f docker/Dockerfile.app -t yourcove:local .
 ```
 
 Both images use BtbN FFmpeg static builds with full hardware acceleration support.

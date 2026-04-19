@@ -125,5 +125,5 @@ From the repository root:
 docker build -f docker/Dockerfile -t cove:local .
 
 # App-only
-docker build -f docker/Dockerfile.app -t cove-app:local .
+docker build -f docker/Dockerfile.app -t yourcove:local .
 ```
