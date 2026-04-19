@@ -284,7 +284,7 @@ public class PluginsController(
 
             var name = id;
             var description = $"Python plugin: {id}";
-            var version = "1.0.0";
+            var version = "0.0.1";
             string? url = null;
             var tasks = new List<PluginTaskDto> { new("run", $"Run {id}") };
             var settingsSchema = new List<PluginSettingSchemaDto>();

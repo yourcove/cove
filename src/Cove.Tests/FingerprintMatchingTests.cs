@@ -109,11 +109,12 @@ public class ThemeSystemTests
         var ext = new ThemeCollectionExtension();
         var manifest = ext.GetUIManifest();
 
-        // Should have 18 themes total
-        Assert.Equal(18, manifest.Themes.Count);
+        // Keep this in sync with ThemeCollectionExtension built-ins.
+        Assert.Equal(19, manifest.Themes.Count);
     }
 
     [Theory]
+    [InlineData("default")]
     [InlineData("legacy")]
     [InlineData("light")]
     [InlineData("dark-midnight")]

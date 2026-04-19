@@ -1,10 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Cove.Core\Cove.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
@@ -16,6 +12,14 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Cove.Plugins</PackageId>
+    <Title>Cove Plugins Contracts</Title>
+    <Description>Extension contracts and runtime primitives for the Cove plugin system (UI, API, jobs, events, data, middleware, and manifest contributions).</Description>
+    <Authors>Cove</Authors>
+    <RepositoryUrl>https://github.com/yourcove/cove</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/yourcove/cove</PackageProjectUrl>
+    <PackageTags>cove;plugins;extensions;contracts</PackageTags>
   </PropertyGroup>
 
 </Project>

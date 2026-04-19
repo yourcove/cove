@@ -350,6 +350,9 @@ public class ExtensionManager
             manifest.Pages.AddRange(extManifest.Pages);
             manifest.Slots.AddRange(extManifest.Slots);
             manifest.Tabs.AddRange(extManifest.Tabs);
+            manifest.Panes.AddRange(extManifest.Panes);
+            manifest.ComponentOverrides.AddRange(extManifest.ComponentOverrides);
+            manifest.SelectorOverrides.AddRange(extManifest.SelectorOverrides);
             manifest.Themes.AddRange(extManifest.Themes);
             manifest.ComponentStyles.AddRange(extManifest.ComponentStyles);
             manifest.LayoutStyles.AddRange(extManifest.LayoutStyles);
@@ -369,6 +372,9 @@ public class ExtensionManager
         manifest.Pages.Sort((a, b) => a.NavOrder.CompareTo(b.NavOrder));
         manifest.Slots.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Tabs.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.Panes.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.ComponentOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+        manifest.SelectorOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
         return manifest;
     }

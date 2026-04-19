@@ -1368,7 +1368,7 @@ export function SettingsPage() {
             <SectionCard title="Changelog" description="What's new in this version.">
               <div className="space-y-6">
                 <div className="border-l-2 border-accent pl-4">
-                  <h3 className="text-lg font-semibold text-foreground">v1.0.0 — Cove</h3>
+                  <h3 className="text-lg font-semibold text-foreground">v0.0.1 — Cove</h3>
                   <p className="text-xs text-muted mt-1">A modern media library organizer</p>
                   <ul className="mt-3 space-y-2 text-sm text-secondary">
                     <li className="flex items-start gap-2"><span className="text-emerald-400 mt-0.5">•</span> New React 19 frontend with Tailwind CSS</li>

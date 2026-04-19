@@ -18,8 +18,8 @@ public class RemoteIdMappingTests
         Assert.Equal("StudioRemoteId", GetEntityType(context, typeof(StudioRemoteId)).GetTableName());
     }
 
-    private static IMutableEntityType GetEntityType(CoveContext context, Type entityType)
-        => Assert.IsAssignableFrom<IMutableEntityType>(context.Model.FindEntityType(entityType));
+    private static IEntityType GetEntityType(CoveContext context, Type entityType)
+        => Assert.IsAssignableFrom<IEntityType>(context.Model.FindEntityType(entityType));
 
     private static CoveContext CreateContext()
     {

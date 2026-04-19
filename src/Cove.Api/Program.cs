@@ -94,7 +94,7 @@ try
     {
         Configuration = builder.Configuration,
         DataDirectory = extensionsDataDir,
-        CoveVersion = "1.0.0"
+        CoveVersion = "0.0.1"
     };
     var extensionManager = new ExtensionManager(extensionContext);
     // Discover .NET plugin DLLs from extensions directory
@@ -102,6 +102,7 @@ try
     // Register built-in extensions
     extensionManager.Register(new Cove.Api.Extensions.ThemeCollectionExtension());
     extensionManager.Register(new Cove.Api.Extensions.AuditLogExtension());
+    CoveContext.SetDataExtensions(extensionManager.Extensions.OfType<IDataExtension>());
     builder.Services.AddSingleton(extensionManager);
     builder.Services.AddSingleton<IExtensionStoreFactory>(sp => new Cove.Data.Repositories.EfExtensionStoreFactory(sp));
     builder.Services.AddSingleton<IExtensionRegistry>(sp =>

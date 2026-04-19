@@ -318,6 +318,9 @@ public class UIManifest
     public List<UIPageDefinition> Pages { get; set; } = [];
     public List<UISlotContribution> Slots { get; set; } = [];
     public List<UITabContribution> Tabs { get; set; } = [];
+    public List<UIPaneContribution> Panes { get; set; } = [];
+    public List<UIComponentOverride> ComponentOverrides { get; set; } = [];
+    public List<UISelectorOverride> SelectorOverrides { get; set; } = [];
     public List<UIThemeDefinition> Themes { get; set; } = [];
     public List<UIComponentStyleDef> ComponentStyles { get; set; } = [];
     public List<UILayoutStyleDef> LayoutStyles { get; set; } = [];
@@ -368,6 +371,37 @@ public record UITabContribution(
     string ExtensionId,
     string ComponentName,
     int Order = 100
+);
+
+/// <summary>Add a panel/pane region contribution to a page layout.</summary>
+public record UIPaneContribution(
+    string Id,
+    /// <summary>"scene", "performer", "studio", "tag", "gallery", "image", "group", "settings", "home"</summary>
+    string PageType,
+    /// <summary>Host-defined zone key where this pane should render (e.g. "sidebar-right", "hero", "details").</summary>
+    string Zone,
+    string ExtensionId,
+    string ComponentName,
+    string? Label = null,
+    int Order = 100
+);
+
+/// <summary>Override a host component by stable key (selectors, cards, toolbars, list rows, etc.).</summary>
+public record UIComponentOverride(
+    /// <summary>Host-defined component key (e.g. "scene.selector", "performer.card", "search.bar").</summary>
+    string TargetComponent,
+    string ExtensionId,
+    string ComponentName,
+    int Priority = 100
+);
+
+/// <summary>Replace a host selector implementation with an extension selector component.</summary>
+public record UISelectorOverride(
+    /// <summary>Host-defined selector key (e.g. "tag-selector", "performer-selector").</summary>
+    string SelectorKey,
+    string ExtensionId,
+    string ComponentName,
+    int Priority = 100
 );
 
 /// <summary>Theme definition with CSS variable overrides and optional style/layout layers.</summary>
@@ -441,6 +475,9 @@ public class UIRegistry
     private readonly List<UIPageDefinition> _pages = [];
     private readonly List<UISlotContribution> _slots = [];
     private readonly List<UITabContribution> _tabs = [];
+    private readonly List<UIPaneContribution> _panes = [];
+    private readonly List<UIComponentOverride> _componentOverrides = [];
+    private readonly List<UISelectorOverride> _selectorOverrides = [];
     private readonly List<UIThemeDefinition> _themes = [];
     private readonly List<UIComponentStyleDef> _componentStyles = [];
     private readonly List<UILayoutStyleDef> _layoutStyles = [];
@@ -452,6 +489,9 @@ public class UIRegistry
     public IReadOnlyList<UIPageDefinition> Pages => _pages;
     public IReadOnlyList<UISlotContribution> Slots => _slots;
     public IReadOnlyList<UITabContribution> Tabs => _tabs;
+    public IReadOnlyList<UIPaneContribution> Panes => _panes;
+    public IReadOnlyList<UIComponentOverride> ComponentOverrides => _componentOverrides;
+    public IReadOnlyList<UISelectorOverride> SelectorOverrides => _selectorOverrides;
     public IReadOnlyList<UIThemeDefinition> Themes => _themes;
     public IReadOnlyList<UIComponentStyleDef> ComponentStyles => _componentStyles;
     public IReadOnlyList<UILayoutStyleDef> LayoutStyles => _layoutStyles;
@@ -463,6 +503,9 @@ public class UIRegistry
     public void RegisterPage(UIPageDefinition page) => _pages.Add(page);
     public void RegisterSlot(UISlotContribution slot) => _slots.Add(slot);
     public void RegisterTab(UITabContribution tab) => _tabs.Add(tab);
+    public void RegisterPane(UIPaneContribution pane) => _panes.Add(pane);
+    public void RegisterComponentOverride(UIComponentOverride ov) => _componentOverrides.Add(ov);
+    public void RegisterSelectorOverride(UISelectorOverride ov) => _selectorOverrides.Add(ov);
     public void RegisterTheme(UIThemeDefinition theme) => _themes.Add(theme);
     public void RegisterComponentStyle(UIComponentStyleDef style) => _componentStyles.Add(style);
     public void RegisterLayoutStyle(UILayoutStyleDef layout) => _layoutStyles.Add(layout);
@@ -476,6 +519,9 @@ public class UIRegistry
         Pages = [.. _pages],
         Slots = [.. _slots],
         Tabs = [.. _tabs],
+        Panes = [.. _panes],
+        ComponentOverrides = [.. _componentOverrides],
+        SelectorOverrides = [.. _selectorOverrides],
         Themes = [.. _themes],
         ComponentStyles = [.. _componentStyles],
         LayoutStyles = [.. _layoutStyles],

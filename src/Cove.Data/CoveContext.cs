@@ -1,10 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
+using Cove.Plugins;
 
 namespace Cove.Data;
 
 public class CoveContext : DbContext
 {
+    private static IReadOnlyList<IDataExtension> _dataExtensions = [];
+
+    public static void SetDataExtensions(IEnumerable<IDataExtension> extensions)
+    {
+        _dataExtensions = extensions.ToList();
+    }
+
     public CoveContext(DbContextOptions<CoveContext> options) : base(options) { }
 
     // Core entities
@@ -68,6 +76,11 @@ public class CoveContext : DbContext
             .WithOne(c => c.File)
             .HasForeignKey(c => c.FileId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        foreach (var ext in _dataExtensions)
+        {
+            ext.ConfigureModel(modelBuilder);
+        }
     }
 
     public override int SaveChanges()

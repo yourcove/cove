@@ -1,0 +1,62 @@
+name: Publish Cove.Plugins Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (semver). If omitted on tag runs, uses the tag without leading v.'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            echo "No version provided" >&2
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Using package version ${VERSION}"
+
+      - name: Restore
+        run: dotnet restore src/Cove.Plugins/Cove.Plugins.csproj
+
+      - name: Pack
+        run: >
+          dotnet pack src/Cove.Plugins/Cove.Plugins.csproj
+          -c Release
+          --no-restore
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+          -o artifacts/nuget
+
+      - name: Push package to GitHub Packages
+        run: >
+          dotnet nuget push "artifacts/nuget/*.nupkg"
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --skip-duplicate
