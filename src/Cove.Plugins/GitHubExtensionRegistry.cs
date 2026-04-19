@@ -276,31 +276,37 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         var actualChecksum = await ComputeSha256Async(zipPath, ct);
         if (!string.Equals(expectedChecksum, actualChecksum, StringComparison.OrdinalIgnoreCase))
         {
-            System.IO.File.Delete(zipPath);
+            TryDeleteFileWithRetries(zipPath, ct);
             throw new InvalidOperationException(
                 $"Checksum validation failed for {extensionId} v{version}. Expected {expectedChecksum}, got {actualChecksum}.");
         }
 
         // Extract the zip
-        using var stream = System.IO.File.OpenRead(zipPath);
-        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-
-        foreach (var entry in archive.Entries)
+        try
         {
-            if (string.IsNullOrEmpty(entry.Name)) continue; // skip directory entries
+            using (var stream = System.IO.File.OpenRead(zipPath))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                foreach (var entry in archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Name)) continue; // skip directory entries
 
-            var destPath = Path.Combine(extensionDir, entry.FullName);
-            var destDir = Path.GetDirectoryName(destPath)!;
+                    var destPath = Path.Combine(extensionDir, entry.FullName);
+                    var destDir = Path.GetDirectoryName(destPath)!;
 
-            // Security: prevent path traversal
-            if (!Path.GetFullPath(destPath).StartsWith(Path.GetFullPath(extensionDir), StringComparison.OrdinalIgnoreCase))
-                continue;
+                    // Security: prevent path traversal
+                    if (!Path.GetFullPath(destPath).StartsWith(Path.GetFullPath(extensionDir), StringComparison.OrdinalIgnoreCase))
+                        continue;
 
-            Directory.CreateDirectory(destDir);
-            entry.ExtractToFile(destPath, overwrite: true);
+                    Directory.CreateDirectory(destDir);
+                    entry.ExtractToFile(destPath, overwrite: true);
+                }
+            }
         }
-
-        System.IO.File.Delete(zipPath);
+        finally
+        {
+            TryDeleteFileWithRetries(zipPath, ct);
+        }
 
         return extensionDir;
     }
@@ -420,6 +426,38 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         await using var fs = System.IO.File.OpenRead(filePath);
         var hash = await SHA256.HashDataAsync(fs, ct);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void TryDeleteFileWithRetries(string filePath, CancellationToken ct)
+    {
+        if (!System.IO.File.Exists(filePath))
+            return;
+
+        IOException? ioError = null;
+        UnauthorizedAccessException? authError = null;
+
+        for (var attempt = 1; attempt <= 8; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                System.IO.File.Delete(filePath);
+                return;
+            }
+            catch (IOException ex)
+            {
+                ioError = ex;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                authError = ex;
+            }
+
+            Thread.Sleep(50 * attempt);
+        }
+
+        if (ioError != null) throw ioError;
+        if (authError != null) throw authError;
     }
 
     private static Version ParseSemverOrFallback(string? version)

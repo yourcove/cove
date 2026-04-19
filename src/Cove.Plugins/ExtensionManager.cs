@@ -19,6 +19,7 @@ public class ExtensionManager
     private readonly Dictionary<string, IExtension> _extensionMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly ExtensionContext _context;
     private readonly Dictionary<string, AssemblyLoadContext> _loadContexts = [];
+    private readonly Dictionary<string, string> _shadowDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExtensionManifestFile> _manifestFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExtensionInstallation> _installations = new(StringComparer.OrdinalIgnoreCase);
     private IServiceProvider? _lastServiceProvider;
@@ -88,8 +89,10 @@ public class ExtensionManager
                     if (!File.Exists(dll)) continue;
                     try
                     {
-                        var loadContext = new AssemblyLoadContext(Path.GetFileNameWithoutExtension(dll), isCollectible: true);
-                        var assembly = loadContext.LoadFromAssemblyPath(dll);
+                        var shadowDir = CreateShadowCopy(dir);
+                        var shadowDll = Path.Combine(shadowDir, Path.GetFileName(dll));
+                        var loadContext = new ExtensionLoadContext(shadowDll);
+                        var assembly = loadContext.LoadFromAssemblyPath(shadowDll);
                         var extensionTypes = assembly.GetTypes()
                             .Where(t => typeof(IExtension).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface);
 
@@ -110,6 +113,7 @@ public class ExtensionManager
                                 _extensions.Add(ext);
                                 _extensionMap[ext.Id] = ext;
                                 _loadContexts[ext.Id] = loadContext;
+                                _shadowDirectories[ext.Id] = shadowDir;
                                 _initOrder = null;
 
                                 var source = manifestFile?.RegistryUrl != null ? "registry" : "local";
@@ -835,6 +839,12 @@ public class ExtensionManager
                 // Best-effort unload; file handles may still be released after GC.
             }
         }
+
+        if (_shadowDirectories.TryGetValue(id, out var shadowDir))
+        {
+            _shadowDirectories.Remove(id);
+            TryDeleteDirectory(shadowDir);
+        }
     }
 
     // ========================================================================
@@ -914,6 +924,75 @@ public class ExtensionManager
         var dashIdx = s.IndexOf('-');
         if (dashIdx >= 0) s = s[..dashIdx];
         return Version.TryParse(s, out version!);
+    }
+
+    private string CreateShadowCopy(string sourceDir)
+    {
+        var cacheRoot = Path.Combine(_context.DataDirectory, ".load-cache");
+        Directory.CreateDirectory(cacheRoot);
+
+        var safeName = Path.GetFileName(sourceDir);
+        var shadowDir = Path.Combine(cacheRoot, safeName, Guid.NewGuid().ToString("N"));
+        CopyDirectory(sourceDir, shadowDir);
+        return shadowDir;
+    }
+
+    private static void CopyDirectory(string sourceDir, string destinationDir)
+    {
+        var source = new DirectoryInfo(sourceDir);
+        Directory.CreateDirectory(destinationDir);
+
+        foreach (var file in source.GetFiles())
+        {
+            var targetPath = Path.Combine(destinationDir, file.Name);
+            file.CopyTo(targetPath, overwrite: true);
+        }
+
+        foreach (var directory in source.GetDirectories())
+        {
+            CopyDirectory(directory.FullName, Path.Combine(destinationDir, directory.Name));
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch
+        {
+            // Best-effort cleanup only; stale shadow copies are safe.
+        }
+    }
+}
+
+internal sealed class ExtensionLoadContext : AssemblyLoadContext
+{
+    private readonly AssemblyDependencyResolver _resolver;
+
+    public ExtensionLoadContext(string mainAssemblyPath)
+        : base($"extension:{Path.GetFileNameWithoutExtension(mainAssemblyPath)}:{Guid.NewGuid():N}", isCollectible: true)
+    {
+        _resolver = new AssemblyDependencyResolver(mainAssemblyPath);
+    }
+
+    protected override Assembly? Load(AssemblyName assemblyName)
+    {
+        var defaultAssembly = AssemblyLoadContext.Default.Assemblies
+            .FirstOrDefault(a => AssemblyName.ReferenceMatchesDefinition(a.GetName(), assemblyName));
+        if (defaultAssembly != null)
+            return defaultAssembly;
+
+        var path = _resolver.ResolveAssemblyToPath(assemblyName);
+        return path != null ? LoadFromAssemblyPath(path) : null;
+    }
+
+    protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+    {
+        var path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+        return path != null ? LoadUnmanagedDllFromPath(path) : IntPtr.Zero;
     }
 }
 
