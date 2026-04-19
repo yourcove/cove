@@ -97,17 +97,31 @@ public class ExtensionManager
                         {
                             if (Activator.CreateInstance(type) is IExtension ext)
                             {
+                                if (_extensionMap.TryGetValue(ext.Id, out var existing))
+                                {
+                                    var existingSource = _installations.GetValueOrDefault(existing.Id)?.Source;
+                                    // Preserve built-ins when IDs collide; skip discovered duplicate.
+                                    if (string.Equals(existingSource, "builtin", StringComparison.OrdinalIgnoreCase))
+                                        continue;
+
+                                    RemoveExtensionFromMemory(existing.Id);
+                                }
+
                                 _extensions.Add(ext);
                                 _extensionMap[ext.Id] = ext;
                                 _loadContexts[ext.Id] = loadContext;
+                                _initOrder = null;
 
                                 var source = manifestFile?.RegistryUrl != null ? "registry" : "local";
+                                var existingInstall = _installations.GetValueOrDefault(ext.Id);
                                 _installations[ext.Id] = new ExtensionInstallation
                                 {
                                     ExtensionId = ext.Id,
                                     Version = ext.Version,
                                     Enabled = true,
                                     Source = source,
+                                    InstalledAt = existingInstall?.InstalledAt ?? DateTime.UtcNow,
+                                    UpdatedAt = DateTime.UtcNow,
                                     ManifestJson = manifestFile != null ? File.ReadAllText(manifestPath) : null,
                                     Categories = ext.Categories.Count > 0 ? string.Join(",", ext.Categories) : null,
                                 };
@@ -333,6 +347,101 @@ public class ExtensionManager
                 _logger?.LogError(ex, "Error shutting down extension {Id}", ext.Id);
             }
         }
+    }
+
+    /// <summary>
+    /// Initialize a newly discovered extension without restarting the host process.
+    /// </summary>
+    public async Task<bool> InitializeExtensionAsync(string id, IServiceProvider services, CancellationToken ct = default)
+    {
+        if (!_extensionMap.TryGetValue(id, out var ext)) return false;
+
+        _lastServiceProvider = services;
+        _logger ??= services.GetService<ILogger<ExtensionManager>>();
+
+        if (ext is IStatefulExtension stateful)
+        {
+            var factory = services.GetService<IExtensionStoreFactory>();
+            if (factory != null)
+                stateful.SetStore(factory.CreateStore(ext.Id));
+        }
+
+        if (!IsEnabled(ext.Id))
+            return true;
+
+        try
+        {
+            await ext.OnInstallAsync(services, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "OnInstall failed for extension {Id}", ext.Id);
+        }
+
+        try
+        {
+            await ext.InitializeAsync(services, ct);
+            if (_installations.TryGetValue(ext.Id, out var install))
+            {
+                install.Version = ext.Version;
+                install.UpdatedAt = DateTime.UtcNow;
+            }
+            await PersistInstallationStateAsync(ext.Id, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to hot-initialize extension {Id}", ext.Id);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Shutdown and unload a discovered extension. Returns false when extension cannot be removed.
+    /// </summary>
+    public async Task<bool> UnloadExtensionAsync(string id, IServiceProvider services, CancellationToken ct = default)
+    {
+        _lastServiceProvider = services;
+        _logger ??= services.GetService<ILogger<ExtensionManager>>();
+
+        if (!_extensionMap.TryGetValue(id, out var ext))
+        {
+            // It may still exist as a stale installation record.
+            _installations.Remove(id);
+            await RemoveInstallationStateAsync(id, ct);
+            return false;
+        }
+
+        if (_installations.TryGetValue(id, out var inst))
+            inst.Enabled = false;
+
+        try
+        {
+            await ext.OnUninstallAsync(services, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "OnUninstall failed for extension {Id}", id);
+        }
+
+        try
+        {
+            await ext.ShutdownAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Shutdown failed for extension {Id}", id);
+        }
+
+        RemoveExtensionFromMemory(id);
+        _installations.Remove(id);
+        await RemoveInstallationStateAsync(id, ct);
+
+        // Encourage collectible AssemblyLoadContext cleanup on Windows to release file handles.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        return true;
     }
 
     // ========================================================================
@@ -681,6 +790,51 @@ public class ExtensionManager
         if (_lastServiceProvider == null) return;
         if (!_extensionMap.TryGetValue(extensionId, out var ext)) return;
         await SaveInstallationAsync(_lastServiceProvider, ext, ct);
+    }
+
+    private async Task RemoveInstallationStateAsync(string extensionId, CancellationToken ct)
+    {
+        if (_lastServiceProvider == null) return;
+
+        try
+        {
+            using var scope = _lastServiceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetService<DbContext>();
+            if (db?.Database is null) return;
+
+            await db.Database.ExecuteSqlRawAsync(
+                "DELETE FROM extension_installations WHERE extension_id = {0}",
+                extensionId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Could not remove extension installation state for {Id}", extensionId);
+        }
+    }
+
+    private void RemoveExtensionFromMemory(string id)
+    {
+        if (_extensionMap.TryGetValue(id, out var existing))
+        {
+            _extensions.Remove(existing);
+            _extensionMap.Remove(id);
+        }
+
+        _manifestFiles.Remove(id);
+        _initOrder = null;
+
+        if (_loadContexts.TryGetValue(id, out var context))
+        {
+            _loadContexts.Remove(id);
+            try
+            {
+                context.Unload();
+            }
+            catch
+            {
+                // Best-effort unload; file handles may still be released after GC.
+            }
+        }
     }
 
     // ========================================================================

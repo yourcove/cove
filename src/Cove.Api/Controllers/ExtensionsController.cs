@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Cove.Plugins;
+using System.IO;
 
 namespace Cove.Api.Controllers;
 
@@ -322,8 +323,17 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
 
         var installPath = await registry.DownloadAsync(request.ExtensionId, request.Version, extensionsDir, ct);
 
-        // Reload extensions to pick up the newly installed one
+        // Reload discovered extensions and hot-initialize the newly installed one.
         extensionManager.DiscoverExtensions(extensionsDir);
+        var initialized = await extensionManager.InitializeExtensionAsync(request.ExtensionId, HttpContext.RequestServices, ct);
+        if (!initialized)
+        {
+            return StatusCode(500, new
+            {
+                message = $"Extension '{request.ExtensionId}' was downloaded but failed to initialize.",
+                path = installPath,
+            });
+        }
 
         return Ok(new { message = $"Extension '{request.ExtensionId}' v{request.Version} installed.", path = installPath });
     }
@@ -334,11 +344,9 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
         [FromBody] RegistryUninstallRequest request,
         CancellationToken ct = default)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == request.ExtensionId);
-        if (ext == null) return NotFound($"Extension '{request.ExtensionId}' not found.");
-
-        // Shut down the extension first
-        await extensionManager.DisableExtensionAsync(request.ExtensionId, ct);
+        var unloaded = await extensionManager.UnloadExtensionAsync(request.ExtensionId, HttpContext.RequestServices, ct);
+        if (!unloaded)
+            return NotFound($"Extension '{request.ExtensionId}' not found.");
 
         // Remove the extension directory
         var extensionsDir = Path.Combine(extensionManager.Context.DataDirectory, "..", "extensions");
@@ -346,9 +354,50 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
         var extDir = Path.Combine(extensionsDir, request.ExtensionId);
 
         if (Directory.Exists(extDir))
-            Directory.Delete(extDir, true);
+        {
+            const int maxAttempts = 8;
+            Exception? lastError = null;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    RemoveReadOnlyAttributes(extDir);
+                    Directory.Delete(extDir, recursive: true);
+                    lastError = null;
+                    break;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    lastError = ex;
+                    await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt), ct);
+                }
+            }
+
+            if (lastError != null && Directory.Exists(extDir))
+            {
+                return Conflict(new
+                {
+                    message = $"Extension '{request.ExtensionId}' was unloaded but files are still locked by another process.",
+                    extensionId = request.ExtensionId,
+                    path = extDir,
+                    detail = lastError.Message,
+                });
+            }
+        }
 
         return Ok(new { message = $"Extension '{request.ExtensionId}' uninstalled." });
+    }
+
+    private static void RemoveReadOnlyAttributes(string rootPath)
+    {
+        var rootInfo = new DirectoryInfo(rootPath);
+        foreach (var directory in rootInfo.EnumerateDirectories("*", SearchOption.AllDirectories))
+            directory.Attributes = FileAttributes.Normal;
+
+        foreach (var file in rootInfo.EnumerateFiles("*", SearchOption.AllDirectories))
+            file.Attributes = FileAttributes.Normal;
+
+        rootInfo.Attributes = FileAttributes.Normal;
     }
 }
 

@@ -1,6 +1,8 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Cove.Plugins;
 
@@ -79,12 +81,55 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         }
     }
 
+    private async Task<RegistryExtensionMetadata?> GetResolvedMetadataAsync(string extensionId, CancellationToken ct)
+    {
+        var meta = await GetMetadataAsync(extensionId, ct);
+        if (meta == null) return null;
+
+        if (string.IsNullOrWhiteSpace(meta.SourceManifestUrl))
+            return meta;
+
+        try
+        {
+            var response = await _http.GetAsync(meta.SourceManifestUrl, ct);
+            if (!response.IsSuccessStatusCode)
+                return meta;
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var source = JsonSerializer.Deserialize<ExtensionSourceManifest>(json, JsonOpts);
+            if (source == null)
+                return meta;
+
+            meta.Name ??= source.Name;
+            meta.Description ??= source.Description;
+            meta.Author ??= source.Author;
+            meta.Url ??= source.Url;
+            meta.IconUrl ??= source.IconUrl;
+            meta.Categories ??= source.Categories;
+            meta.MinCoveVersion ??= source.MinCoveVersion;
+            meta.Dependencies ??= source.Dependencies;
+
+            if (meta.Versions != null)
+            {
+                foreach (var version in meta.Versions)
+                {
+                    version.MinCoveVersion ??= source.MinCoveVersion;
+                }
+            }
+        }
+        catch
+        {
+            // Metadata remains usable even if source manifest is unavailable.
+        }
+
+        return meta;
+    }
+
     public async Task<RegistrySearchResult> SearchAsync(RegistrySearchRequest request, CancellationToken ct = default)
     {
-        var index = await GetIndexAsync(ct);
-        var items = index.Extensions.AsEnumerable();
+        var summaries = await ResolveSummariesAsync(ct);
+        IEnumerable<RegistryExtensionSummary> items = summaries;
 
-        // Filter by query
         if (!string.IsNullOrWhiteSpace(request.Query))
         {
             var q = request.Query.Trim();
@@ -95,7 +140,6 @@ public class GitHubExtensionRegistry : IExtensionRegistry
                 (e.Author?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
-        // Filter by categories
         if (request.Categories is { Count: > 0 })
         {
             items = items.Where(e =>
@@ -121,7 +165,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
 
         return new RegistrySearchResult
         {
-            Items = paged.Select(ToSummary).ToList(),
+            Items = paged,
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
@@ -130,8 +174,19 @@ public class GitHubExtensionRegistry : IExtensionRegistry
 
     public async Task<RegistryExtensionDetail?> GetExtensionAsync(string extensionId, CancellationToken ct = default)
     {
-        var meta = await GetMetadataAsync(extensionId, ct);
+        var meta = await GetResolvedMetadataAsync(extensionId, ct);
         if (meta == null) return null;
+
+        var validVersions = (meta.Versions ?? [])
+            .Where(v => IsInstallableVersion(v))
+            .ToList();
+        if (validVersions.Count == 0)
+            return null;
+
+        var latestVersion = validVersions
+            .OrderByDescending(v => ParseSemverOrFallback(v.Version))
+            .ThenByDescending(v => v.ReleasedAt ?? DateTime.MinValue)
+            .First();
 
         // Try to load README
         string? readme = null;
@@ -148,32 +203,32 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         {
             Id = meta.Id ?? extensionId,
             Name = meta.Name ?? extensionId,
-            Version = meta.Version ?? "0.0.0",
+            Version = latestVersion.Version ?? "0.0.0",
             Description = meta.Description,
             Author = meta.Author,
             IconUrl = meta.IconUrl,
             Url = meta.Url,
             Categories = meta.Categories ?? [],
-            UpdatedAt = meta.UpdatedAt,
-            MinCoveVersion = meta.MinCoveVersion,
+            UpdatedAt = validVersions.Max(v => v.ReleasedAt) ?? meta.UpdatedAt,
+            MinCoveVersion = latestVersion.MinCoveVersion ?? meta.MinCoveVersion,
             Dependencies = meta.Dependencies ?? [],
             Readme = readme,
-            Changelog = meta.Changelog,
+            Changelog = latestVersion.Changelog ?? meta.Changelog,
             Screenshots = meta.Screenshots ?? [],
-            Versions = meta.Versions?.Select(v => new RegistryVersionInfo
+            Versions = validVersions.Select(v => new RegistryVersionInfo
             {
                 Version = v.Version ?? "0.0.0",
                 ReleasedAt = v.ReleasedAt,
                 Changelog = v.Changelog,
                 MinCoveVersion = v.MinCoveVersion,
                 Checksum = v.Checksum,
-            }).ToList() ?? [],
+            }).ToList(),
         };
     }
 
     public async Task<string> DownloadAsync(string extensionId, string version, string targetDir, CancellationToken ct = default)
     {
-        var meta = await GetMetadataAsync(extensionId, ct);
+        var meta = await GetResolvedMetadataAsync(extensionId, ct);
         if (meta == null)
             throw new InvalidOperationException($"Extension '{extensionId}' not found in registry.");
 
@@ -181,8 +236,14 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         var versionInfo = meta.Versions?.FirstOrDefault(v =>
             string.Equals(v.Version, version, StringComparison.OrdinalIgnoreCase));
 
+        if (versionInfo == null)
+            throw new InvalidOperationException($"Version '{version}' not found for extension '{extensionId}'.");
+
+        if (!IsInstallableVersion(versionInfo))
+            throw new InvalidOperationException($"Registry entry for {extensionId} v{version} is not installable: missing or invalid checksum/downloadUrl.");
+
         string downloadUrl;
-        if (versionInfo?.DownloadUrl != null)
+        if (versionInfo.DownloadUrl != null)
         {
             downloadUrl = versionInfo.DownloadUrl;
         }
@@ -201,10 +262,27 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         response.EnsureSuccessStatusCode();
 
         var extensionDir = Path.Combine(targetDir, extensionId);
+        if (Directory.Exists(extensionDir))
+            Directory.Delete(extensionDir, recursive: true);
         Directory.CreateDirectory(extensionDir);
 
+        var zipPath = Path.Combine(targetDir, $".{extensionId}-{version}.zip");
+        await using (var fileStream = System.IO.File.Create(zipPath))
+        {
+            await response.Content.CopyToAsync(fileStream, ct);
+        }
+
+        var expectedChecksum = NormalizeChecksum(versionInfo.Checksum!);
+        var actualChecksum = await ComputeSha256Async(zipPath, ct);
+        if (!string.Equals(expectedChecksum, actualChecksum, StringComparison.OrdinalIgnoreCase))
+        {
+            System.IO.File.Delete(zipPath);
+            throw new InvalidOperationException(
+                $"Checksum validation failed for {extensionId} v{version}. Expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
         // Extract the zip
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var stream = System.IO.File.OpenRead(zipPath);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
         foreach (var entry in archive.Entries)
@@ -222,6 +300,8 @@ public class GitHubExtensionRegistry : IExtensionRegistry
             entry.ExtractToFile(destPath, overwrite: true);
         }
 
+        System.IO.File.Delete(zipPath);
+
         return extensionDir;
     }
 
@@ -229,22 +309,21 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         IEnumerable<(string Id, string Version)> installed,
         CancellationToken ct = default)
     {
-        var index = await GetIndexAsync(ct);
+        var summaries = await ResolveSummariesAsync(ct);
+        var byId = summaries.ToDictionary(s => s.Id, s => s, StringComparer.OrdinalIgnoreCase);
         var updates = new List<RegistryUpdateInfo>();
 
         foreach (var (id, currentVersion) in installed)
         {
-            var entry = index.Extensions.FirstOrDefault(e =>
-                string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
-            if (entry == null) continue;
+            if (!byId.TryGetValue(id, out var entry)) continue;
 
-            if (IsNewerVersion(entry.Version ?? "0.0.0", currentVersion))
+            if (IsNewerVersion(entry.Version, currentVersion))
             {
                 updates.Add(new RegistryUpdateInfo
                 {
                     ExtensionId = id,
                     CurrentVersion = currentVersion,
-                    LatestVersion = entry.Version ?? "0.0.0",
+                    LatestVersion = entry.Version,
                 });
             }
         }
@@ -254,26 +333,53 @@ public class GitHubExtensionRegistry : IExtensionRegistry
 
     public async Task<List<string>> GetCategoriesAsync(CancellationToken ct = default)
     {
-        var index = await GetIndexAsync(ct);
-        return index.Extensions
-            .SelectMany(e => e.Categories ?? [])
+        var summaries = await ResolveSummariesAsync(ct);
+        return summaries
+            .SelectMany(e => e.Categories)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(c => c)
             .ToList();
     }
 
-    private static RegistryExtensionSummary ToSummary(RegistryIndexEntry e) => new()
+    private async Task<List<RegistryExtensionSummary>> ResolveSummariesAsync(CancellationToken ct)
     {
-        Id = e.Id ?? "",
-        Name = e.Name ?? e.Id ?? "",
-        Version = e.Version ?? "0.0.0",
-        Description = e.Description,
-        Author = e.Author,
-        IconUrl = e.IconUrl,
-        Categories = e.Categories ?? [],
-        UpdatedAt = e.UpdatedAt,
-        MinCoveVersion = e.MinCoveVersion,
-    };
+        var index = await GetIndexAsync(ct);
+        var summaries = new List<RegistryExtensionSummary>();
+
+        foreach (var entry in index.Extensions)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Id))
+                continue;
+
+            var meta = await GetResolvedMetadataAsync(entry.Id, ct);
+            if (meta?.Versions == null)
+                continue;
+
+            var validVersions = meta.Versions.Where(IsInstallableVersion).ToList();
+            if (validVersions.Count == 0)
+                continue;
+
+            var latest = validVersions
+                .OrderByDescending(v => ParseSemverOrFallback(v.Version))
+                .ThenByDescending(v => v.ReleasedAt ?? DateTime.MinValue)
+                .First();
+
+            summaries.Add(new RegistryExtensionSummary
+            {
+                Id = meta.Id ?? entry.Id,
+                Name = meta.Name ?? entry.Id,
+                Version = latest.Version ?? "0.0.0",
+                Description = meta.Description,
+                Author = meta.Author,
+                IconUrl = meta.IconUrl,
+                Categories = meta.Categories ?? [],
+                UpdatedAt = latest.ReleasedAt ?? meta.UpdatedAt,
+                MinCoveVersion = latest.MinCoveVersion ?? meta.MinCoveVersion,
+            });
+        }
+
+        return summaries;
+    }
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -289,6 +395,40 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         return string.Compare(candidate, current, StringComparison.OrdinalIgnoreCase) > 0;
     }
 
+    private static bool IsInstallableVersion(RegistryVersionEntry? version)
+    {
+        if (version == null) return false;
+        if (string.IsNullOrWhiteSpace(version.Version)) return false;
+        if (string.IsNullOrWhiteSpace(version.DownloadUrl)) return false;
+        if (string.IsNullOrWhiteSpace(version.Checksum)) return false;
+
+        var normalized = NormalizeChecksum(version.Checksum);
+        return Regex.IsMatch(normalized, "^[a-fA-F0-9]{64}$");
+    }
+
+    private static string NormalizeChecksum(string checksum)
+    {
+        const string shaPrefix = "sha256:";
+        var trimmed = checksum.Trim();
+        if (trimmed.StartsWith(shaPrefix, StringComparison.OrdinalIgnoreCase))
+            return trimmed[shaPrefix.Length..];
+        return trimmed;
+    }
+
+    private static async Task<string> ComputeSha256Async(string filePath, CancellationToken ct)
+    {
+        await using var fs = System.IO.File.OpenRead(filePath);
+        var hash = await SHA256.HashDataAsync(fs, ct);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static Version ParseSemverOrFallback(string? version)
+    {
+        if (!string.IsNullOrWhiteSpace(version) && Version.TryParse(version.Trim().TrimStart('v'), out var parsed))
+            return parsed;
+        return new Version(0, 0, 0, 0);
+    }
+
     // ===== Internal DTOs for registry JSON files =====
 
     private class RegistryIndex
@@ -301,19 +441,12 @@ public class GitHubExtensionRegistry : IExtensionRegistry
     private class RegistryIndexEntry
     {
         public string? Id { get; set; }
-        public string? Name { get; set; }
-        public string? Version { get; set; }
-        public string? Description { get; set; }
-        public string? Author { get; set; }
-        public string? IconUrl { get; set; }
-        public List<string>? Categories { get; set; }
-        public DateTime? UpdatedAt { get; set; }
-        public string? MinCoveVersion { get; set; }
     }
 
     private class RegistryExtensionMetadata
     {
         public string? Id { get; set; }
+        public string? SourceManifestUrl { get; set; }
         public string? Name { get; set; }
         public string? Version { get; set; }
         public string? Description { get; set; }
@@ -328,6 +461,20 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         public string? Changelog { get; set; }
         public List<string>? Screenshots { get; set; }
         public List<RegistryVersionEntry>? Versions { get; set; }
+    }
+
+    private class ExtensionSourceManifest
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Version { get; set; }
+        public string? Description { get; set; }
+        public string? Author { get; set; }
+        public string? Url { get; set; }
+        public string? IconUrl { get; set; }
+        public string? MinCoveVersion { get; set; }
+        public List<string>? Categories { get; set; }
+        public Dictionary<string, string>? Dependencies { get; set; }
     }
 
     private class RegistryVersionEntry
