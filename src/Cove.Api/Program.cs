@@ -92,12 +92,13 @@ try
     var extensionContext = new ExtensionContext
     {
         Configuration = builder.Configuration,
-        DataDirectory = extensionsDataDir
+        DataDirectory = extensionsDataDir,
+        CoveVersion = "1.0.0"
     };
     var extensionManager = new ExtensionManager(extensionContext);
     // Discover .NET plugin DLLs from extensions directory
     extensionManager.DiscoverExtensions(extensionsDataDir);
-    // Register built-in extensions (POC demonstrations)
+    // Register built-in extensions
     extensionManager.Register(new Cove.Api.Extensions.ThemeCollectionExtension());
     extensionManager.Register(new Cove.Api.Extensions.SceneAnalyticsExtension());
     extensionManager.Register(new Cove.Api.Extensions.CustomHomeExtension());
@@ -107,12 +108,16 @@ try
     extensionManager.Register(new Cove.Api.Extensions.AuditLogExtension());
     builder.Services.AddSingleton(extensionManager);
     builder.Services.AddSingleton<IExtensionStoreFactory>(sp => new Cove.Data.Repositories.EfExtensionStoreFactory(sp));
+    builder.Services.AddSingleton<IExtensionRegistry, StubExtensionRegistry>();
     extensionManager.ConfigureServices(builder.Services);
 
-    // Managed PostgreSQL â€” auto-downloads and runs a local PG instance
+    // Managed PostgreSQL — auto-downloads and runs a local PG instance
     var pgManaged = pgSection.GetValue<bool?>("Managed") ?? true;
     if (pgManaged)
         builder.Services.AddHostedService<PostgresManagerService>();
+
+    // FFmpeg — auto-downloads if not found in PATH or configured path
+    builder.Services.AddHostedService<FfmpegManagerService>();
 
     // SignalR
     builder.Services.AddSignalR()
@@ -212,6 +217,9 @@ try
     app.UseCors();
     app.UseOutputCache();
 
+    // Extension middleware (runs before auth, after CORS)
+    extensionManager.ConfigureMiddleware(app);
+
     if (authEnabled)
     {
         app.UseAuthentication();
@@ -250,10 +258,103 @@ try
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await db.Database.EnsureCreatedAsync();
 
-        // Add columns that may not exist in older databases
-        await EnsureColumnsAsync(db);
+        // Determine if this is a brand-new database or an existing one that predates migrations.
+        var canConnect = await db.Database.CanConnectAsync();
+        var hasMigrationHistory = false;
+        if (canConnect)
+        {
+            // Check if __EFMigrationsHistory table exists (indicates migrations-aware DB)
+            var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='__EFMigrationsHistory'";
+            hasMigrationHistory = await cmd.ExecuteScalarAsync() != null;
+            await conn.CloseAsync();
+        }
+
+        var hasTables = false;
+        if (canConnect && !hasMigrationHistory)
+        {
+            // Check if core tables exist (pre-migration database)
+            var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='scenes'";
+            hasTables = await cmd.ExecuteScalarAsync() != null;
+            await conn.CloseAsync();
+        }
+
+        if (hasTables && !hasMigrationHistory)
+        {
+            // Existing database created with EnsureCreatedAsync — baseline it.
+            // Mark the initial migration as already applied so MigrateAsync only runs future migrations.
+            Log.Information("Existing database detected — baselining migration history");
+            var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync();
+
+            await using var createHistory = conn.CreateCommand();
+            createHistory.CommandText = """
+                CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
+                    "MigrationId" character varying(150) NOT NULL,
+                    "ProductVersion" character varying(32) NOT NULL,
+                    CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
+                )
+            """;
+            await createHistory.ExecuteNonQueryAsync();
+
+            await using var insertBaseline = conn.CreateCommand();
+            insertBaseline.CommandText = """
+                INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+                VALUES ('20260419000753_InitialCreate', '10.0.5')
+                ON CONFLICT DO NOTHING
+            """;
+            await insertBaseline.ExecuteNonQueryAsync();
+            await conn.CloseAsync();
+
+            // Still run compatibility patches for pre-migration databases
+            await EnsureColumnsAsync(db);
+
+            Log.Information("Migration history baselined — future migrations will apply automatically");
+        }
+
+        // Check for pending migrations
+        var pendingMigrations = (await db.Database.GetPendingMigrationsAsync()).ToArray();
+
+        if (pendingMigrations.Length > 0)
+        {
+            Log.Information("Applying {Count} pending migration(s): {Migrations}",
+                pendingMigrations.Length, string.Join(", ", pendingMigrations));
+
+            // Automatic backup before migration
+            try
+            {
+                var backupSvc = scope.ServiceProvider.GetRequiredService<IBackupService>();
+                var backupJobId = backupSvc.StartBackup();
+                Log.Information("Pre-migration backup started (job {JobId})", backupJobId);
+                // Give the backup a moment to begin (it runs as a background job)
+                await Task.Delay(500);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Pre-migration backup failed — proceeding with migration anyway. " +
+                    "Manual backup recommended.");
+            }
+
+            await db.Database.MigrateAsync();
+            Log.Information("Database migrations applied successfully");
+        }
+        else if (!hasTables && !hasMigrationHistory)
+        {
+            // Brand new database — apply all migrations from scratch
+            Log.Information("New database detected — applying all migrations");
+            await db.Database.MigrateAsync();
+            Log.Information("Database created via migrations");
+        }
+        else
+        {
+            Log.Information("Database is up to date");
+        }
 
         // Fix oshash values: Go uses %016x (zero-padded 16 chars), ensure all values match
         await NormalizeOshashValuesAsync(db);
@@ -320,6 +421,55 @@ static async Task EnsureColumnsAsync(CoveContext db)
     await AddColumnIfMissing("galleries", "ImageBlobId", "text");
     await AddColumnIfMissing("galleries", "CoverImageId", "integer");
 
+    // Remote ID support added after the initial database schema.
+    await EnsureTableExists("SceneRemoteId", """
+        CREATE TABLE IF NOT EXISTS "SceneRemoteId" (
+            "Id" integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            "SceneId" integer NOT NULL REFERENCES "scenes"("Id") ON DELETE CASCADE,
+            "Endpoint" text NOT NULL,
+            "RemoteId" text NOT NULL
+        )
+    """);
+    await EnsureTableExists("PerformerRemoteId", """
+        CREATE TABLE IF NOT EXISTS "PerformerRemoteId" (
+            "Id" integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            "PerformerId" integer NOT NULL REFERENCES "performers"("Id") ON DELETE CASCADE,
+            "Endpoint" text NOT NULL,
+            "RemoteId" text NOT NULL
+        )
+    """);
+    await EnsureTableExists("TagRemoteId", """
+        CREATE TABLE IF NOT EXISTS "TagRemoteId" (
+            "Id" integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            "TagId" integer NOT NULL REFERENCES "tags"("Id") ON DELETE CASCADE,
+            "Endpoint" text NOT NULL,
+            "RemoteId" text NOT NULL
+        )
+    """);
+    await EnsureTableExists("StudioRemoteId", """
+        CREATE TABLE IF NOT EXISTS "StudioRemoteId" (
+            "Id" integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            "StudioId" integer NOT NULL REFERENCES "studios"("Id") ON DELETE CASCADE,
+            "Endpoint" text NOT NULL,
+            "RemoteId" text NOT NULL
+        )
+    """);
+
+    var remoteIdIndexCommands = new[]
+    {
+        "CREATE INDEX IF NOT EXISTS \"IX_SceneRemoteId_SceneId\" ON \"SceneRemoteId\" (\"SceneId\")",
+        "CREATE INDEX IF NOT EXISTS \"IX_PerformerRemoteId_PerformerId\" ON \"PerformerRemoteId\" (\"PerformerId\")",
+        "CREATE INDEX IF NOT EXISTS \"IX_TagRemoteId_TagId\" ON \"TagRemoteId\" (\"TagId\")",
+        "CREATE INDEX IF NOT EXISTS \"IX_StudioRemoteId_StudioId\" ON \"StudioRemoteId\" (\"StudioId\")",
+    };
+
+    foreach (var sql in remoteIdIndexCommands)
+    {
+        await using var indexCommand = conn.CreateCommand();
+        indexCommand.CommandText = sql;
+        await indexCommand.ExecuteNonQueryAsync();
+    }
+
     // Extension key-value storage (added after initial schema)
     await EnsureTableExists("extension_data", """
         CREATE TABLE IF NOT EXISTS "extension_data" (
@@ -350,6 +500,19 @@ static async Task EnsureColumnsAsync(CoveContext db)
     """);
 
     await AddColumnIfMissing("VideoCaptions", "Id", "integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY");
+
+    // FK indexes on the files table for faster lookups (e.g. streaming by SceneId)
+    var fileIndexCommands = new[]
+    {
+        """CREATE INDEX IF NOT EXISTS "IX_files_SceneId" ON "files" ("SceneId")""",
+        """CREATE INDEX IF NOT EXISTS "IX_files_ImageId" ON "files" ("ImageId")""",
+    };
+    foreach (var sql in fileIndexCommands)
+    {
+        await using var indexCmd = conn.CreateCommand();
+        indexCmd.CommandText = sql;
+        await indexCmd.ExecuteNonQueryAsync();
+    }
 
     await conn.CloseAsync();
 }

@@ -23,6 +23,7 @@ import type {
   ExtensionSettingsPanel,
   ExtensionComponentStyleDef,
   ExtensionLayoutStyleDef,
+  ExtensionAction,
 } from "../api/types";
 
 // ============================================================================
@@ -82,6 +83,10 @@ interface ExtensionState {
   getDialogOverride: (dialogId: string) => ExtensionDialogOverride | undefined;
   /** Settings panels contributed by extensions */
   settingsPanels: ExtensionSettingsPanel[];
+  /** Actions contributed by extensions (toolbar, context menu, bulk) */
+  actions: ExtensionAction[];
+  /** Get actions applicable to a given context */
+  getActionsForContext: (entityType?: string, page?: string, actionType?: string) => ExtensionAction[];
   /** Resolve a React component by name */
   resolveComponent: (name: string) => FC<any> | undefined;
 }
@@ -104,6 +109,8 @@ const ExtensionContext = createContext<ExtensionState>({
   getPageOverride: () => undefined,
   getDialogOverride: () => undefined,
   settingsPanels: [],
+  actions: [],
+  getActionsForContext: () => [],
   resolveComponent: () => undefined,
 });
 
@@ -233,6 +240,22 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
                 order: slot.order,
               });
             }
+          }
+        }
+
+        // Dynamically load external JS bundles (ESM modules from third-party extensions)
+        if (m.jsBundleUrl) {
+          try {
+            const mod = await import(/* @vite-ignore */ m.jsBundleUrl);
+            if (mod.default?.components) {
+              for (const [name, component] of Object.entries(mod.default.components)) {
+                if (typeof component === "function") {
+                  registerComponent(name, component as FC<any>);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("[ExtensionLoader] Failed to load JS bundle:", m.jsBundleUrl, err);
           }
         }
 
@@ -399,6 +422,19 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
   const availableComponentStyles = manifest?.componentStyles ?? [];
   const availableLayoutStyles = manifest?.layoutStyles ?? [];
   const settingsPanels = manifest?.settingsPanels ?? [];
+  const actions = manifest?.actions ?? [];
+
+  const getActionsForContext = useCallback(
+    (entityType?: string, page?: string, actionType?: string) => {
+      return actions.filter((a) => {
+        if (actionType && a.actionType !== actionType) return false;
+        if (entityType && a.entityTypes.length > 0 && !a.entityTypes.includes(entityType)) return false;
+        if (page && a.pages && a.pages.length > 0 && !a.pages.includes(page)) return false;
+        return true;
+      }).sort((a, b) => a.order - b.order);
+    },
+    [actions]
+  );
 
   return (
     <ExtensionContext.Provider
@@ -421,6 +457,8 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
         getPageOverride,
         getDialogOverride,
         settingsPanels,
+        actions,
+        getActionsForContext,
         resolveComponent,
       }}
     >

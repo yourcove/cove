@@ -21,7 +21,7 @@ public class PluginsController(
     public ActionResult<List<PluginDto>> ListPlugins()
     {
         var manifest = extensionManager.GetAggregatedManifest();
-        var plugins = extensionManager.GetAllExtensions()
+        var plugins = extensionManager.Extensions
             .Select(ext => new PluginDto(
                 ext.Id,
                 ext.Name,
@@ -46,7 +46,7 @@ public class PluginsController(
     public ActionResult<List<PluginTaskDto>> ListTasks()
     {
         var tasks = new List<PluginTaskDto>();
-        foreach (var ext in extensionManager.GetAllExtensions())
+        foreach (var ext in extensionManager.Extensions)
             tasks.AddRange(GetPluginTasks(ext));
 
         // Python plugin tasks
@@ -92,7 +92,7 @@ public class PluginsController(
         }
 
         // Check .NET extensions
-        var ext = extensionManager.GetAllExtensions().FirstOrDefault(e => e.Id == dto.PluginId);
+        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == dto.PluginId);
         if (ext == null) return NotFound($"Plugin '{dto.PluginId}' not found");
 
         var netJobId = jobService.Enqueue($"plugin:{dto.PluginId}", $"Running {dto.PluginId}/{dto.TaskName}", async (progress, ct) =>
@@ -113,12 +113,12 @@ public class PluginsController(
         {
             if (enabled)
             {
-                extensionManager.EnableExtension(pluginId);
+                await extensionManager.EnableExtensionAsync(pluginId);
                 config.DisabledPlugins.Remove(pluginId);
             }
             else
             {
-                extensionManager.DisableExtension(pluginId);
+                await extensionManager.DisableExtensionAsync(pluginId);
                 config.DisabledPlugins.Add(pluginId);
             }
         }
@@ -146,7 +146,7 @@ public class PluginsController(
     [HttpPost("reload")]
     public async Task<IActionResult> ReloadPlugins()
     {
-        await extensionManager.ReloadAllAsync();
+        await extensionManager.InitializeAllAsync(HttpContext.RequestServices);
         return Ok(new { message = "Plugins reloaded" });
     }
 

@@ -1,0 +1,14 @@
+# Docker build context — exclude heavy/unnecessary directories
+**/node_modules
+**/bin
+**/obj
+**/.git
+**/artifacts
+**/gitignored
+**/.vs
+**/.vscode
+**/generated
+**/cache
+**/*.user
+**/*.suo
+**/TestResults

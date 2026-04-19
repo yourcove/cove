@@ -45,6 +45,10 @@ import type {
   Package,
   ExtensionManifest,
   ExtensionInfo,
+  DependencyProblem,
+  RegistrySearchResult,
+  RegistryExtensionDetail,
+  RegistryUpdateInfo,
 } from "./types";
 
 const API_BASE = "/api";
@@ -552,7 +556,8 @@ export const plugins = {
 // ===== Extensions =====
 export const extensions = {
   getManifest: () => request<ExtensionManifest>("/extensions/manifest"),
-  list: () => request<ExtensionInfo[]>("/extensions"),
+  list: (category?: string) =>
+    request<ExtensionInfo[]>(category ? `/extensions?category=${encodeURIComponent(category)}` : "/extensions"),
   enable: (id: string) => request<void>(`/extensions/${encodeURIComponent(id)}/enable`, { method: "POST" }),
   disable: (id: string) => request<void>(`/extensions/${encodeURIComponent(id)}/disable`, { method: "POST" }),
   getData: (id: string) => request<Record<string, string>>(`/extensions/${encodeURIComponent(id)}/data`),
@@ -567,4 +572,28 @@ export const extensions = {
       body: JSON.stringify(parameters ?? null),
     }),
   assetUrl: (extensionId: string, path: string) => `${API_BASE}/extensions/assets/${encodeURIComponent(extensionId)}/${path}`,
+  /** Get all available extension categories. */
+  getCategories: () => request<string[]>("/extensions/categories"),
+  /** Validate all extension dependencies. */
+  validateDependencies: () => request<DependencyProblem[]>("/extensions/dependencies/validate"),
+  /** Get missing dependencies for a specific extension. */
+  getMissingDependencies: (id: string) =>
+    request<string[]>(`/extensions/${encodeURIComponent(id)}/dependencies/missing`),
+  /** Registry: search for extensions. */
+  registrySearch: (params: { q?: string; category?: string; sort?: string; page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set("q", params.q);
+    if (params.category) qs.set("category", params.category);
+    if (params.sort) qs.set("sort", params.sort);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<RegistrySearchResult>(`/extensions/registry/search?${qs.toString()}`);
+  },
+  /** Registry: get extension detail. */
+  registryGetExtension: (extensionId: string) =>
+    request<RegistryExtensionDetail>(`/extensions/registry/${encodeURIComponent(extensionId)}`),
+  /** Registry: check for updates. */
+  registryCheckUpdates: () => request<RegistryUpdateInfo[]>("/extensions/registry/updates"),
+  /** Registry: get categories. */
+  registryGetCategories: () => request<string[]>("/extensions/registry/categories"),
 };

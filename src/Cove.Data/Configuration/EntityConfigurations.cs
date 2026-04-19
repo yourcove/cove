@@ -59,6 +59,18 @@ public class ScenePerformerConfiguration : IEntityTypeConfiguration<ScenePerform
     }
 }
 
+public class SceneRemoteIdConfiguration : IEntityTypeConfiguration<SceneRemoteId>
+{
+    public void Configure(EntityTypeBuilder<SceneRemoteId> builder)
+    {
+        builder.ToTable("SceneRemoteId");
+        builder.HasKey(remoteId => remoteId.Id);
+        builder.Property(remoteId => remoteId.Endpoint).IsRequired();
+        builder.Property(remoteId => remoteId.RemoteId).IsRequired();
+        builder.HasIndex(remoteId => remoteId.SceneId);
+    }
+}
+
 public class SceneGalleryConfiguration : IEntityTypeConfiguration<SceneGallery>
 {
     public void Configure(EntityTypeBuilder<SceneGallery> builder)
@@ -112,6 +124,18 @@ public class PerformerTagConfiguration : IEntityTypeConfiguration<PerformerTag>
     }
 }
 
+public class PerformerRemoteIdConfiguration : IEntityTypeConfiguration<PerformerRemoteId>
+{
+    public void Configure(EntityTypeBuilder<PerformerRemoteId> builder)
+    {
+        builder.ToTable("PerformerRemoteId");
+        builder.HasKey(remoteId => remoteId.Id);
+        builder.Property(remoteId => remoteId.Endpoint).IsRequired();
+        builder.Property(remoteId => remoteId.RemoteId).IsRequired();
+        builder.HasIndex(remoteId => remoteId.PerformerId);
+    }
+}
+
 public class TagConfiguration : IEntityTypeConfiguration<Tag>
 {
     public void Configure(EntityTypeBuilder<Tag> builder)
@@ -137,6 +161,18 @@ public class TagParentConfiguration : IEntityTypeConfiguration<TagParent>
         builder.HasKey(tp => new { tp.ParentId, tp.ChildId });
         builder.HasOne(tp => tp.Parent).WithMany(t => t.ChildRelations).HasForeignKey(tp => tp.ParentId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(tp => tp.Child).WithMany(t => t.ParentRelations).HasForeignKey(tp => tp.ChildId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public class TagRemoteIdConfiguration : IEntityTypeConfiguration<TagRemoteId>
+{
+    public void Configure(EntityTypeBuilder<TagRemoteId> builder)
+    {
+        builder.ToTable("TagRemoteId");
+        builder.HasKey(remoteId => remoteId.Id);
+        builder.Property(remoteId => remoteId.Endpoint).IsRequired();
+        builder.Property(remoteId => remoteId.RemoteId).IsRequired();
+        builder.HasIndex(remoteId => remoteId.TagId);
     }
 }
 
@@ -167,6 +203,18 @@ public class StudioTagConfiguration : IEntityTypeConfiguration<StudioTag>
         builder.HasKey(st => new { st.StudioId, st.TagId });
         builder.HasOne(st => st.Studio).WithMany(s => s.StudioTags).HasForeignKey(st => st.StudioId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(st => st.Tag).WithMany(t => t.StudioTags).HasForeignKey(st => st.TagId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public class StudioRemoteIdConfiguration : IEntityTypeConfiguration<StudioRemoteId>
+{
+    public void Configure(EntityTypeBuilder<StudioRemoteId> builder)
+    {
+        builder.ToTable("StudioRemoteId");
+        builder.HasKey(remoteId => remoteId.Id);
+        builder.Property(remoteId => remoteId.Endpoint).IsRequired();
+        builder.Property(remoteId => remoteId.RemoteId).IsRequired();
+        builder.HasIndex(remoteId => remoteId.StudioId);
     }
 }
 
@@ -403,6 +451,22 @@ public class BaseFileEntityConfiguration : IEntityTypeConfiguration<BaseFileEnti
         builder.HasKey(f => f.Id);
         builder.Property(f => f.Basename).IsRequired();
         builder.HasIndex(f => new { f.ParentFolderId, f.Basename }).IsUnique();
+    }
+}
+
+public class VideoFileConfiguration : IEntityTypeConfiguration<VideoFile>
+{
+    public void Configure(EntityTypeBuilder<VideoFile> builder)
+    {
+        builder.HasIndex(v => v.SceneId);
+    }
+}
+
+public class ImageFileConfiguration : IEntityTypeConfiguration<ImageFile>
+{
+    public void Configure(EntityTypeBuilder<ImageFile> builder)
+    {
+        builder.HasIndex(i => i.ImageId);
     }
 }
 

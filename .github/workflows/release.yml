@@ -1,0 +1,263 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ── Build frontend once, share via artifact ─────────────────────
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install & build frontend
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wwwroot
+          path: src/Cove.Api/wwwroot/
+          retention-days: 1
+
+  # ── Build self-contained executables per platform ───────────────
+  build-native:
+    needs: build-ui
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            artifact: cove-win-x64
+            ext: .zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact: cove-linux-x64
+            ext: .tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            artifact: cove-osx-arm64
+            ext: .tar.gz
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wwwroot
+          path: src/Cove.Api/wwwroot/
+
+      - name: Publish self-contained app
+        run: >
+          dotnet publish src/Cove.Api/Cove.Api.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=none
+          -p:DebugSymbols=false
+          -o publish/
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path publish/* -DestinationPath ${{ matrix.artifact }}${{ matrix.ext }}
+
+      - name: Package (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: tar -czf ${{ matrix.artifact }}${{ matrix.ext }} -C publish .
+
+      - name: Generate checksums
+        shell: bash
+        run: sha256sum ${{ matrix.artifact }}${{ matrix.ext }} > ${{ matrix.artifact }}${{ matrix.ext }}.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}${{ matrix.ext }}
+            ${{ matrix.artifact }}${{ matrix.ext }}.sha256
+          retention-days: 1
+
+  # ── Determine release type ────────────────────────────────────────
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      is_stable: ${{ steps.check.outputs.is_stable }}
+    steps:
+      - name: Check if stable release
+        id: check
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Stable = vN.N.N (no alpha/beta/rc/dev suffix)
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_stable=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Build Docker images (stable releases only) ───────────────────
+  build-docker:
+    needs: [build-ui, check-version]
+    # Only publish Docker images for stable semver tags (v1.0.0, v2.1.3)
+    # Skip for alpha (v1.0.0a1), beta (v1.0.0b2), rc (v1.0.0rc1), dev tags
+    if: needs.check-version.outputs.is_stable == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - dockerfile: docker/Dockerfile
+            suffix: ''
+            description: 'All-in-one (includes PostgreSQL + FFmpeg)'
+          - dockerfile: docker/Dockerfile.app
+            suffix: '-app'
+            description: 'App only (requires external PostgreSQL)'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wwwroot
+          path: src/Cove.Api/wwwroot/
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
+
+  # ── Create GitHub Release ───────────────────────────────────────
+  release:
+    needs: [build-native, check-version]
+    # Always run after native builds succeed (Docker may have been skipped)
+    if: always() && needs.build-native.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          find artifacts/ -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' | while read f; do
+            cp "$f" release-files/
+          done
+
+      - name: Generate combined checksums
+        working-directory: release-files
+        run: |
+          sha256sum *.zip *.tar.gz 2>/dev/null > checksums.txt || true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ needs.check-version.outputs.is_stable != 'true' }}
+          files: release-files/*
+          body: |
+            ## Downloads
+
+            Standalone executables for Windows, Linux, and macOS are attached above.
+
+            ${{ needs.check-version.outputs.is_stable == 'true' && format('## Docker Images
+
+            **All-in-one** (includes PostgreSQL + FFmpeg):
+            ```
+            docker pull {0}/{1}:{2}
+            ```
+
+            **App only** (requires external PostgreSQL):
+            ```
+            docker pull {0}/{1}-app:{2}
+            ```
+
+            See [Docker setup docs](docker/README.md) for docker-compose examples.', env.REGISTRY, env.IMAGE_NAME, github.ref_name) || '> This is a pre-release. Docker images are only published for stable releases (e.g. v1.0.0).' }}
+
+  # ── CI checks (runs on all pushes and PRs too) ──────────────────
+  ci:
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build backend
+        run: dotnet build src/Cove.slnx -c Release
+
+      - name: Run backend tests
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build
+
+      - name: Install frontend deps
+        working-directory: ui
+        run: npm ci
+
+      - name: Frontend type check + build
+        working-directory: ui
+        run: npm run build
+
+      - name: Frontend tests
+        working-directory: ui
+        run: npm test

@@ -1,0 +1,74 @@
+# Cove – App + PostgreSQL (recommended for most users)
+#
+# Usage:
+#   docker compose up -d
+#
+# GPU acceleration (optional):
+#   For NVIDIA GPUs, uncomment the deploy section below and ensure
+#   nvidia-container-toolkit is installed on the host.
+#
+#   For Intel/AMD VAAPI, uncomment the devices section below.
+#
+# Data is persisted in named volumes. To back up, use:
+#   docker compose exec cove dotnet Cove.Api.dll --backup
+#   # or via the Cove UI: Settings → Backup
+
+services:
+  cove:
+    image: ghcr.io/cove-app/cove-app:latest
+    restart: unless-stopped
+    ports:
+      - "9999:9999"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      COVE__Postgres__Managed: "false"
+      COVE__Postgres__ConnectionString: "Host=db;Port=5432;Database=cove;Username=cove;Password=cove"
+      COVE__GeneratedPath: /generated
+      COVE__CachePath: /cache
+    volumes:
+      - cove-data:/data
+      - cove-config:/config
+      - cove-generated:/generated
+      - cove-cache:/cache
+      - cove-backups:/backups
+      # Mount your media library (adjust path):
+      # - /path/to/your/media:/media:ro
+
+    # ── GPU acceleration (uncomment ONE section) ──────────────────
+    # NVIDIA GPU (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    #
+    # Intel/AMD VAAPI:
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cove
+      POSTGRES_USER: cove
+      POSTGRES_PASSWORD: cove
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cove -d cove"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  cove-data:
+  cove-config:
+  cove-generated:
+  cove-cache:
+  cove-backups:
+  pg-data:

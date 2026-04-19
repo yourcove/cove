@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,16 +17,68 @@ namespace Cove.Plugins;
 /// </summary>
 public interface IExtension
 {
+    /// <summary>Unique extension identifier (reverse-domain recommended: "com.author.name").</summary>
     string Id { get; }
     string Name { get; }
     string Version { get; }
     string? Description { get; }
     string? Author { get; }
+    string? Url { get; }
     string? IconUrl { get; }
+
+    /// <summary>
+    /// Categories/labels describing what this extension does.
+    /// Use well-known categories from <see cref="ExtensionCategories"/> when applicable,
+    /// plus any custom labels (e.g. "recommendation-system", "ai").
+    /// Used for filtering/sorting in the UI and registry.
+    /// </summary>
+    IReadOnlyList<string> Categories => [];
+
+    /// <summary>
+    /// Minimum Cove core version this extension requires (semver, e.g. "1.0.0").
+    /// Null means compatible with any version.
+    /// </summary>
+    string? MinCoveVersion => null;
+
+    /// <summary>
+    /// Extensions this extension depends on. Key = extension ID, Value = semver range (e.g. ">=1.0.0").
+    /// </summary>
+    IReadOnlyDictionary<string, string> Dependencies => new Dictionary<string, string>();
 
     void ConfigureServices(IServiceCollection services, ExtensionContext context);
     Task InitializeAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
     Task ShutdownAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>Called once after first install. Extensions can seed data, create config, etc.</summary>
+    Task OnInstallAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
+    /// <summary>Called when the extension is being uninstalled. Clean up non-DB resources.</summary>
+    Task OnUninstallAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Well-known extension categories. Extensions can also declare custom categories.
+/// </summary>
+public static class ExtensionCategories
+{
+    public const string Theme = "theme";
+    public const string ColorPalette = "color-palette";
+    public const string Style = "style";
+    public const string Layout = "layout";
+    public const string Analytics = "analytics";
+    public const string Tools = "tools";
+    public const string Library = "library";
+    public const string Scraper = "scraper";
+    public const string Metadata = "metadata";
+    public const string Integration = "integration";
+    public const string Automation = "automation";
+    public const string UI = "ui";
+    public const string ContentManagement = "content-management";
+    public const string Search = "search";
+    public const string Import = "import";
+    public const string Export = "export";
+    public const string Notification = "notification";
+    public const string Security = "security";
+    public const string MediaPlayer = "media-player";
 }
 
 /// <summary>
@@ -34,6 +88,7 @@ public class ExtensionContext
 {
     public required IConfiguration Configuration { get; init; }
     public required string DataDirectory { get; init; }
+    public required string CoveVersion { get; init; }
     public UIRegistry UI { get; } = new();
 }
 
@@ -112,6 +167,147 @@ public record ExtensionEvent(
     Dictionary<string, object?>? Data = null
 );
 
+/// <summary>
+/// Extension that contributes its own database tables via EF Core migrations.
+/// Extensions MUST NOT drop core tables or remove core columns.
+/// Extensions CAN add new tables and add columns to core tables (via raw SQL migrations).
+/// </summary>
+public interface IDataExtension : IExtension
+{
+    /// <summary>
+    /// Configure the extension's entity model. Called during OnModelCreating.
+    /// Use this to define new tables owned by the extension.
+    /// </summary>
+    void ConfigureModel(ModelBuilder modelBuilder);
+
+    /// <summary>
+    /// Return SQL migration scripts to apply, keyed by a unique migration name.
+    /// These are tracked in extension_migrations and only applied once.
+    /// Use this for adding columns to core tables or complex schema changes.
+    /// Order matters — migrations are applied in dictionary order.
+    /// </summary>
+    IReadOnlyList<ExtensionMigration> GetMigrations() => [];
+}
+
+/// <summary>A named SQL migration for an extension.</summary>
+public record ExtensionMigration(
+    /// <summary>Unique name for this migration (e.g. "001_add_recommendation_scores").</summary>
+    string Name,
+    /// <summary>SQL to apply this migration (forward only).</summary>
+    string UpSql
+);
+
+/// <summary>
+/// Extension that provides middleware to intercept and modify HTTP requests/responses.
+/// Useful for adding auth, logging, response transformation, etc.
+/// </summary>
+public interface IMiddlewareExtension : IExtension
+{
+    /// <summary>
+    /// Configure middleware in the pipeline. Called during app.UseRouting() phase.
+    /// Extensions should call next() to continue the pipeline.
+    /// </summary>
+    void ConfigureMiddleware(IApplicationBuilder app);
+}
+
+/// <summary>
+/// Extension that contributes toolbar actions, context menu items, and bulk actions.
+/// These appear in the UI based on context (entity type, selection state, page).
+/// </summary>
+public interface IActionExtension : IExtension
+{
+    IReadOnlyList<ExtensionAction> GetActions();
+}
+
+/// <summary>An action contributed by an extension (toolbar button, context menu item, bulk action).</summary>
+public record ExtensionAction(
+    string Id,
+    string Label,
+    string ExtensionId,
+    /// <summary>"toolbar", "context-menu", "bulk"</summary>
+    string ActionType,
+    /// <summary>Entity types this action applies to (empty = all). E.g. ["scene", "performer"]</summary>
+    string[] EntityTypes,
+    /// <summary>Icon name (lucide icon).</summary>
+    string? Icon = null,
+    /// <summary>
+    /// If set, clicking invokes the extension's API endpoint. Otherwise triggers a JS handler.
+    /// </summary>
+    string? ApiEndpoint = null,
+    /// <summary>JS handler function name exported from the extension bundle.</summary>
+    string? HandlerName = null,
+    int Order = 100,
+    /// <summary>Only show in these pages (empty = show everywhere applicable).</summary>
+    string[]? Pages = null
+);
+
+// ============================================================================
+// EXTENSION MANIFEST FILE — extension.json schema
+// ============================================================================
+
+/// <summary>
+/// Deserialized from extension.json in each extension directory.
+/// Provides metadata, dependencies, and asset paths before the DLL is loaded.
+/// </summary>
+public class ExtensionManifestFile
+{
+    public required string Id { get; set; }
+    public required string Name { get; set; }
+    public required string Version { get; set; }
+    public string? Description { get; set; }
+    public string? Author { get; set; }
+    public string? Url { get; set; }
+    public string? IconUrl { get; set; }
+    /// <summary>Minimum Cove version required (semver).</summary>
+    public string? MinCoveVersion { get; set; }
+    /// <summary>Extension dependencies: ID → semver range (e.g. ">=1.0.0").</summary>
+    public Dictionary<string, string> Dependencies { get; set; } = [];
+    /// <summary>The DLL filename containing the IExtension implementation.</summary>
+    public string? EntryDll { get; set; }
+    /// <summary>Relative path to the frontend JS bundle (ESM module).</summary>
+    public string? JsBundle { get; set; }
+    /// <summary>Relative path to the frontend CSS file.</summary>
+    public string? CssBundle { get; set; }
+    /// <summary>Categories/labels for filtering and sorting.</summary>
+    public List<string> Categories { get; set; } = [];
+    /// <summary>SHA-256 checksum of the extension package (set by registry).</summary>
+    public string? Checksum { get; set; }
+    /// <summary>Registry source URL (set when installed from remote registry).</summary>
+    public string? RegistryUrl { get; set; }
+}
+
+// ============================================================================
+// INSTALLATION STATE — tracked in the database
+// ============================================================================
+
+/// <summary>
+/// Tracks the installation state of an extension in the database.
+/// </summary>
+public class ExtensionInstallation
+{
+    public required string ExtensionId { get; set; }
+    public required string Version { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTime InstalledAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>JSON blob of the extension.json manifest for reference.</summary>
+    public string? ManifestJson { get; set; }
+    /// <summary>Source: "local", "registry", "builtin"</summary>
+    public string Source { get; set; } = "local";
+    /// <summary>Comma-separated categories/labels for filtering.</summary>
+    public string? Categories { get; set; }
+}
+
+/// <summary>
+/// Tracks which extension migrations have been applied.
+/// </summary>
+public class ExtensionMigrationRecord
+{
+    public required string ExtensionId { get; set; }
+    public required string MigrationName { get; set; }
+    public DateTime AppliedAt { get; set; } = DateTime.UtcNow;
+}
+
 // ============================================================================
 // UI MANIFEST — Declares all frontend contributions from an extension
 // ============================================================================
@@ -128,6 +324,7 @@ public class UIManifest
     public List<UISettingsPanel> SettingsPanels { get; set; } = [];
     public List<UIPageOverride> PageOverrides { get; set; } = [];
     public List<UIDialogOverride> DialogOverrides { get; set; } = [];
+    public List<ExtensionAction> Actions { get; set; } = [];
 
     /// <summary>URL of the extension's JS module (ESM) loaded by the frontend runtime.</summary>
     public string? JsBundleUrl { get; set; }
@@ -180,13 +377,9 @@ public record UIThemeDefinition(
     string? Description = null,
     Dictionary<string, string>? CssVariables = null,
     string? CssUrl = null,
-    /// <summary>Layer 2: Component style preset id (e.g. "default", "glass", "minimal", "rounded").</summary>
     string? ComponentStyle = null,
-    /// <summary>Layer 3: Layout preset id (e.g. "default", "compact").</summary>
     string? LayoutStyle = null,
-    /// <summary>CSS animation name for the background effect (e.g. "liquid-drift"). Applied via data-theme-bg-animation attribute.</summary>
     string? BackgroundAnimation = null,
-    /// <summary>Color scheme hint: "light" or "dark" (default). Applied via data-color-scheme attribute for light/dark mode CSS.</summary>
     string? ColorScheme = null
 );
 
@@ -215,10 +408,11 @@ public record UISettingsPanel(
 
 /// <summary>
 /// Replace an existing built-in page with an extension's component.
-/// This is how extensions achieve full page replacement.
+/// This is how extensions achieve full page replacement or complete UI overhaul.
+/// Use TargetPage = "*" to override the entire app shell.
 /// </summary>
 public record UIPageOverride(
-    /// <summary>The built-in page key to replace (e.g. "scenes", "home", "settings").</summary>
+    /// <summary>The built-in page key to replace (e.g. "scenes", "home", "settings", or "*" for full shell).</summary>
     string TargetPage,
     string ExtensionId,
     string ComponentName,
@@ -253,6 +447,7 @@ public class UIRegistry
     private readonly List<UISettingsPanel> _settingsPanels = [];
     private readonly List<UIPageOverride> _pageOverrides = [];
     private readonly List<UIDialogOverride> _dialogOverrides = [];
+    private readonly List<ExtensionAction> _actions = [];
 
     public IReadOnlyList<UIPageDefinition> Pages => _pages;
     public IReadOnlyList<UISlotContribution> Slots => _slots;
@@ -263,6 +458,7 @@ public class UIRegistry
     public IReadOnlyList<UISettingsPanel> SettingsPanels => _settingsPanels;
     public IReadOnlyList<UIPageOverride> PageOverrides => _pageOverrides;
     public IReadOnlyList<UIDialogOverride> DialogOverrides => _dialogOverrides;
+    public IReadOnlyList<ExtensionAction> Actions => _actions;
 
     public void RegisterPage(UIPageDefinition page) => _pages.Add(page);
     public void RegisterSlot(UISlotContribution slot) => _slots.Add(slot);
@@ -273,6 +469,7 @@ public class UIRegistry
     public void RegisterSettingsPanel(UISettingsPanel panel) => _settingsPanels.Add(panel);
     public void RegisterPageOverride(UIPageOverride ov) => _pageOverrides.Add(ov);
     public void RegisterDialogOverride(UIDialogOverride ov) => _dialogOverrides.Add(ov);
+    public void RegisterAction(ExtensionAction action) => _actions.Add(action);
 
     public UIManifest ToManifest() => new()
     {
@@ -285,5 +482,6 @@ public class UIRegistry
         SettingsPanels = [.. _settingsPanels],
         PageOverrides = [.. _pageOverrides],
         DialogOverrides = [.. _dialogOverrides],
+        Actions = [.. _actions],
     };
 }

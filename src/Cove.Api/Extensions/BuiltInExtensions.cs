@@ -14,7 +14,9 @@ public class ThemeCollectionExtension : IExtension, IUIExtension
     public string Version => "1.0.0";
     public string? Description => "Built-in theme collection with multiple dark and light themes";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.Theme, ExtensionCategories.ColorPalette, ExtensionCategories.Style, ExtensionCategories.Layout];
 
     public void ConfigureServices(IServiceCollection services, ExtensionContext context) { }
 
@@ -59,9 +61,9 @@ public class ThemeCollectionExtension : IExtension, IUIExtension
                 }
             ),
             new UIThemeDefinition(
-                Id: "dark-default",
+                Id: "legacy",
                 Name: "Legacy",
-                Description: "The original Cove dark theme"
+                Description: "A nostalgic theme"
             ),
             new UIThemeDefinition(
                 Id: "light",
@@ -453,7 +455,9 @@ public class SceneAnalyticsExtension : IExtension, IApiExtension, IUIExtension, 
     public string Version => "1.0.0";
     public string? Description => "Adds play count tracking and analytics tab to scene details";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.Analytics, ExtensionCategories.UI];
     private IExtensionStore? _store;
 
     public void SetStore(IExtensionStore store) => _store = store;
@@ -519,7 +523,9 @@ public class CustomHomeExtension : IExtension, IUIExtension
     public string Version => "1.0.0";
     public string? Description => "Replaces the default home page with an enhanced dashboard";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.UI];
 
     public void ConfigureServices(IServiceCollection services, ExtensionContext context) { }
 
@@ -548,7 +554,9 @@ public class SystemToolsExtension : IExtension, IApiExtension, IUIExtension
     public string Version => "1.0.0";
     public string? Description => "Adds a System Tools page with diagnostics and utilities";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.Tools, ExtensionCategories.UI];
 
     public void ConfigureServices(IServiceCollection services, ExtensionContext context) { }
 
@@ -615,7 +623,9 @@ public class NotificationSettingsExtension : IExtension, IUIExtension, IStateful
     public string Version => "1.0.0";
     public string? Description => "Adds notification preferences to extension settings";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.Notification, ExtensionCategories.UI];
     private IExtensionStore? _store;
 
     public void SetStore(IExtensionStore store) => _store = store;
@@ -647,7 +657,9 @@ public class EnhancedDeleteDialogExtension : IExtension, IUIExtension
     public string Version => "1.0.0";
     public string? Description => "Replaces the default delete confirmation with an enhanced version showing what will be affected";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.UI];
 
     public void ConfigureServices(IServiceCollection services, ExtensionContext context) { }
 
@@ -676,7 +688,9 @@ public class AuditLogExtension : IExtension, IEventExtension, IApiExtension, ISt
     public string Version => "1.0.0";
     public string? Description => "Logs entity changes (create/update/delete) to an audit trail";
     public string? Author => "Cove";
+    public string? Url => null;
     public string? IconUrl => null;
+    public IReadOnlyList<string> Categories => [ExtensionCategories.Security, ExtensionCategories.Tools];
     private IExtensionStore? _store;
 
     public void SetStore(IExtensionStore store) => _store = store;

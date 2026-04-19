@@ -12,41 +12,75 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
     public ActionResult<UIManifest> GetManifest() =>
         Ok(extensionManager.GetAggregatedManifest());
 
-    /// <summary>Returns a list of all registered extensions with capability info.</summary>
+    /// <summary>Returns a list of all registered extensions with capability and category info.</summary>
     [HttpGet]
-    public ActionResult<IEnumerable<ExtensionInfo>> GetExtensions() =>
-        Ok(extensionManager.Extensions.Select(e => new ExtensionInfo(
-            e.Id,
-            e.Name,
-            e.Version,
-            e.Description,
-            e.Author,
-            e.IconUrl,
-            extensionManager.IsEnabled(e.Id),
-            e is IUIExtension,
-            e is IApiExtension,
-            e is IStatefulExtension,
-            e is IJobExtension,
-            e is IEventExtension,
-            e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : [])));
+    public ActionResult<IEnumerable<ExtensionInfo>> GetExtensions([FromQuery] string? category = null) =>
+        Ok(extensionManager.Extensions
+            .Where(e => category == null || e.Categories.Any(c => string.Equals(c, category, StringComparison.OrdinalIgnoreCase)))
+            .Select(e =>
+        {
+            var install = extensionManager.GetInstallation(e.Id);
+            return new ExtensionInfo(
+                e.Id,
+                e.Name,
+                e.Version,
+                e.Description,
+                e.Author,
+                e.Url,
+                e.IconUrl,
+                extensionManager.IsEnabled(e.Id),
+                e is IUIExtension,
+                e is IApiExtension,
+                e is IStatefulExtension,
+                e is IJobExtension,
+                e is IEventExtension,
+                e is IDataExtension,
+                e is IMiddlewareExtension,
+                e is IActionExtension,
+                e.Categories.ToList(),
+                e.MinCoveVersion,
+                e.Dependencies.ToDictionary(kv => kv.Key, kv => kv.Value),
+                install?.Source ?? "unknown",
+                install?.InstalledAt,
+                e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : []);
+        }));
 
-    /// <summary>Enable an extension.</summary>
-    [HttpPost("{id}/enable")]
-    public IActionResult Enable(string id)
+    /// <summary>Get all available extension categories (from loaded extensions + registry).</summary>
+    [HttpGet("categories")]
+    public ActionResult<IEnumerable<string>> GetCategories() =>
+        Ok(extensionManager.GetAllCategories());
+
+    /// <summary>Validate all extension dependencies and return any problems.</summary>
+    [HttpGet("dependencies/validate")]
+    public ActionResult<IEnumerable<DependencyProblem>> ValidateDependencies() =>
+        Ok(extensionManager.ValidateDependencies());
+
+    /// <summary>Get missing dependencies for a specific extension (for install prompting).</summary>
+    [HttpGet("{id}/dependencies/missing")]
+    public ActionResult<IEnumerable<string>> GetMissingDependencies(string id)
     {
         var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id);
         if (ext == null) return NotFound();
-        extensionManager.EnableExtension(id);
+        return Ok(extensionManager.GetMissingDependencies(id));
+    }
+
+    /// <summary>Enable an extension.</summary>
+    [HttpPost("{id}/enable")]
+    public async Task<IActionResult> Enable(string id, CancellationToken ct)
+    {
+        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id);
+        if (ext == null) return NotFound();
+        await extensionManager.EnableExtensionAsync(id, ct);
         return Ok();
     }
 
     /// <summary>Disable an extension.</summary>
     [HttpPost("{id}/disable")]
-    public IActionResult Disable(string id)
+    public async Task<IActionResult> Disable(string id, CancellationToken ct)
     {
         var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id);
         if (ext == null) return NotFound();
-        extensionManager.DisableExtension(id);
+        await extensionManager.DisableExtensionAsync(id, ct);
         return Ok();
     }
 
@@ -133,6 +167,69 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
 
         return PhysicalFile(fullPath, contentType);
     }
+
+    // ========================================================================
+    // REGISTRY ENDPOINTS (stubs — ready for when remote registry is built)
+    // ========================================================================
+
+    /// <summary>Search the extension registry.</summary>
+    [HttpGet("registry/search")]
+    public async Task<IActionResult> RegistrySearch(
+        [FromQuery] string? q,
+        [FromQuery] string? category,
+        [FromQuery] string? sort,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromServices] IExtensionRegistry? registry = null,
+        CancellationToken ct = default)
+    {
+        registry ??= new StubExtensionRegistry();
+        var result = await registry.SearchAsync(new RegistrySearchRequest
+        {
+            Query = q,
+            Categories = category != null ? [category] : null,
+            SortBy = sort ?? "relevance",
+            Page = page,
+            PageSize = pageSize,
+        }, ct);
+        return Ok(result);
+    }
+
+    /// <summary>Get details for a specific registry extension.</summary>
+    [HttpGet("registry/{extensionId}")]
+    public async Task<IActionResult> RegistryGetExtension(
+        string extensionId,
+        [FromServices] IExtensionRegistry? registry = null,
+        CancellationToken ct = default)
+    {
+        registry ??= new StubExtensionRegistry();
+        var detail = await registry.GetExtensionAsync(extensionId, ct);
+        if (detail == null) return NotFound();
+        return Ok(detail);
+    }
+
+    /// <summary>Check for updates for all installed extensions.</summary>
+    [HttpGet("registry/updates")]
+    public async Task<IActionResult> RegistryCheckUpdates(
+        [FromServices] IExtensionRegistry? registry = null,
+        CancellationToken ct = default)
+    {
+        registry ??= new StubExtensionRegistry();
+        var installed = extensionManager.Extensions.Select(e => (e.Id, e.Version));
+        var updates = await registry.CheckForUpdatesAsync(installed, ct);
+        return Ok(updates);
+    }
+
+    /// <summary>Get registry categories.</summary>
+    [HttpGet("registry/categories")]
+    public async Task<IActionResult> RegistryGetCategories(
+        [FromServices] IExtensionRegistry? registry = null,
+        CancellationToken ct = default)
+    {
+        registry ??= new StubExtensionRegistry();
+        var categories = await registry.GetCategoriesAsync(ct);
+        return Ok(categories);
+    }
 }
 
 public record ExtensionInfo(
@@ -141,6 +238,7 @@ public record ExtensionInfo(
     string Version,
     string? Description,
     string? Author,
+    string? Url,
     string? IconUrl,
     bool Enabled,
     bool HasUI,
@@ -148,6 +246,14 @@ public record ExtensionInfo(
     bool HasState,
     bool HasJobs,
     bool HasEvents,
+    bool HasData,
+    bool HasMiddleware,
+    bool HasActions,
+    List<string> Categories,
+    string? MinCoveVersion,
+    Dictionary<string, string> Dependencies,
+    string Source,
+    DateTime? InstalledAt,
     List<JobInfo> Jobs);
 
 public record JobInfo(string Id, string Name, string? Description);

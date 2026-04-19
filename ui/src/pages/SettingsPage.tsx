@@ -997,11 +997,11 @@ export function SettingsPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="MetadataServer Instances" description="Configure remote metadata-server GraphQL endpoints, validate credentials, and use them from performer detail pages.">
+            <SectionCard title="Metadata Server Instances" description="Configure remote metadata-server GraphQL endpoints, validate credentials, and use them from performer detail pages.">
               <div className="space-y-3">
                 {draft.scraping.metadataServers.length === 0 && (
                   <div className="rounded-xl border border-dashed border-border p-4 text-sm text-secondary">
-                    No MetadataServer instances configured yet.
+                    No Metadata Server instances configured yet.
                   </div>
                 )}
 

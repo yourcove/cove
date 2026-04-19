@@ -509,6 +509,8 @@ export interface SystemStatus {
   appDir: string;
   configFile: string;
   databasePath: string;
+  migrationRequired: boolean;
+  pendingMigrations: string[] | null;
 }
 
 export type RatingSystemType = "stars" | "decimal";
@@ -1134,6 +1136,7 @@ export interface ExtensionManifest {
   settingsPanels: ExtensionSettingsPanel[];
   pageOverrides: ExtensionPageOverride[];
   dialogOverrides: ExtensionDialogOverride[];
+  actions: ExtensionAction[];
   jsBundleUrl?: string;
   cssBundleUrl?: string;
 }
@@ -1215,12 +1218,27 @@ export interface ExtensionDialogOverride {
   priority: number;
 }
 
+export interface ExtensionAction {
+  id: string;
+  label: string;
+  extensionId: string;
+  /** "toolbar", "context-menu", "bulk" */
+  actionType: string;
+  entityTypes: string[];
+  icon?: string;
+  apiEndpoint?: string;
+  handlerName?: string;
+  order: number;
+  pages?: string[];
+}
+
 export interface ExtensionInfo {
   id: string;
   name: string;
   version: string;
   description?: string;
   author?: string;
+  url?: string;
   iconUrl?: string;
   enabled: boolean;
   hasUI: boolean;
@@ -1228,5 +1246,64 @@ export interface ExtensionInfo {
   hasState: boolean;
   hasJobs: boolean;
   hasEvents: boolean;
+  hasData: boolean;
+  hasMiddleware: boolean;
+  hasActions: boolean;
+  categories: string[];
+  minCoveVersion?: string;
+  dependencies: Record<string, string>;
+  source: string;
+  installedAt?: string;
   jobs: { id: string; name: string; description?: string }[];
+}
+
+// ===== Registry Types =====
+export interface RegistrySearchResult {
+  items: RegistryExtensionSummary[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface RegistryExtensionSummary {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  iconUrl?: string;
+  categories: string[];
+  downloads: number;
+  updatedAt: string;
+  minCoveVersion?: string;
+}
+
+export interface RegistryExtensionDetail extends RegistryExtensionSummary {
+  url?: string;
+  readme?: string;
+  changelog?: string;
+  screenshots: string[];
+  dependencies: Record<string, string>;
+  versions: RegistryVersionInfo[];
+}
+
+export interface RegistryVersionInfo {
+  version: string;
+  releasedAt: string;
+  changelog?: string;
+  minCoveVersion?: string;
+  checksum?: string;
+}
+
+export interface RegistryUpdateInfo {
+  extensionId: string;
+  currentVersion: string;
+  latestVersion: string;
+  changelog?: string;
+}
+
+export interface DependencyProblem {
+  extensionId: string;
+  dependencyId?: string;
+  message: string;
 }

@@ -114,7 +114,7 @@ public class ThemeSystemTests
     }
 
     [Theory]
-    [InlineData("dark-default")]
+    [InlineData("legacy")]
     [InlineData("light")]
     [InlineData("dark-midnight")]
     [InlineData("dark-emerald")]
@@ -180,7 +180,7 @@ public class ThemeSystemTests
     {
         var ext = new ThemeCollectionExtension();
         var manifest = ext.GetUIManifest();
-        var defaultTheme = manifest.Themes.First(t => t.Id == "dark-default");
+        var defaultTheme = manifest.Themes.First(t => t.Id == "legacy");
 
         // Default theme has no CSS overrides (uses the base CSS @theme values)
         Assert.Null(defaultTheme.CssVariables);

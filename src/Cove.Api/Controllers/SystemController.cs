@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
+using Cove.Data;
 
 namespace Cove.Api.Controllers;
 
@@ -13,16 +15,29 @@ public class SystemController(
     IGalleryRepository galleryRepo, IPerformerRepository performerRepo,
     IStudioRepository studioRepo, ITagRepository tagRepo,
     IGroupRepository groupRepo, ConfigService configService,
-    ScraperService scraperService, MetadataServerService metadataServerService) : ControllerBase
+    ScraperService scraperService, MetadataServerService metadataServerService,
+    CoveContext db) : ControllerBase
 {
     [HttpGet("status")]
-    public ActionResult<SystemStatusDto> GetStatus()
+    public async Task<ActionResult<SystemStatusDto>> GetStatus()
     {
+        string[] pending;
+        try
+        {
+            pending = (await db.Database.GetPendingMigrationsAsync()).ToArray();
+        }
+        catch
+        {
+            pending = [];
+        }
+
         return Ok(new SystemStatusDto(
             Version: GetType().Assembly.GetName().Version?.ToString() ?? "0.1.0",
             AppDir: AppContext.BaseDirectory,
             ConfigFile: configService.ConfigPath,
-            DatabasePath: "PostgreSQL"
+            DatabasePath: "PostgreSQL",
+            MigrationRequired: pending.Length > 0,
+            PendingMigrations: pending.Length > 0 ? pending : null
         ));
     }
 

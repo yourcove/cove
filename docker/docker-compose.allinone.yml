@@ -1,0 +1,50 @@
+# Cove – All-in-one (PostgreSQL + FFmpeg + Cove in single container)
+#
+# Ideal for UnRAID, Synology, and simple Docker setups.
+#
+# Usage:
+#   docker compose -f docker-compose.allinone.yml up -d
+#
+# GPU acceleration (optional):
+#   For NVIDIA GPUs, uncomment the deploy section below and ensure
+#   nvidia-container-toolkit is installed on the host.
+#
+#   For Intel/AMD VAAPI, uncomment the devices section below.
+
+services:
+  cove:
+    image: ghcr.io/cove-app/cove:latest
+    restart: unless-stopped
+    ports:
+      - "9999:9999"
+    volumes:
+      - cove-pgdata:/var/lib/postgresql/cove-data
+      - cove-data:/data
+      - cove-config:/config
+      - cove-generated:/generated
+      - cove-cache:/cache
+      - cove-backups:/backups
+      # Mount your media library (adjust path):
+      # - /path/to/your/media:/media:ro
+
+    # ── GPU acceleration (uncomment ONE section) ──────────────────
+    # NVIDIA GPU (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    #
+    # Intel/AMD VAAPI:
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+volumes:
+  cove-pgdata:
+  cove-data:
+  cove-config:
+  cove-generated:
+  cove-cache:
+  cove-backups:

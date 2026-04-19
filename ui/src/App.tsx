@@ -122,16 +122,42 @@ export default function App() {
 }
 
 function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
-  const { config, configLoading } = useAppConfig();
+  const { config, configLoading, status, statusLoading } = useAppConfig();
   const [setupDismissed, setSetupDismissed] = useState(() => sessionStorage.getItem("cove-setup-dismissed") === "true");
 
   // Show setup wizard if config has no library paths and user hasn't dismissed it
   const needsSetup = config && config.covePaths.filter(p => p.path.trim() !== "").length === 0 && !setupDismissed;
 
-  if (configLoading) {
+  if (configLoading || statusLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+      </div>
+    );
+  }
+
+  // Migration gate: block the app until migrations are applied (they run on next restart)
+  if (status?.migrationRequired) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="max-w-md text-center space-y-4 p-8">
+          <div className="text-4xl">⚙️</div>
+          <h1 className="text-xl font-semibold text-foreground">Database Update Required</h1>
+          <p className="text-sm text-muted-foreground">
+            Cove needs to update the database schema. This will happen automatically — please restart the server.
+          </p>
+          {status.pendingMigrations && (
+            <div className="text-xs text-muted-foreground bg-surface rounded p-3 text-left">
+              <div className="font-medium mb-1">Pending migrations:</div>
+              {status.pendingMigrations.map(m => (
+                <div key={m} className="font-mono">{m}</div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            A backup will be created automatically before applying changes.
+          </p>
+        </div>
       </div>
     );
   }

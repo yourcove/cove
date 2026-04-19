@@ -187,7 +187,13 @@ public record LoginResponse(string Token, string Username);
 public record ApiKeyResponse(string ApiKey);
 
 // ===== CONFIG DTOs =====
-public record SystemStatusDto(string Version, string AppDir, string ConfigFile, string DatabasePath);
+public record SystemStatusDto(
+    string Version,
+    string AppDir,
+    string ConfigFile,
+    string DatabasePath,
+    bool MigrationRequired = false,
+    string[]? PendingMigrations = null);
 
 public record CoveConfigDto
 {
