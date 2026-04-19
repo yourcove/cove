@@ -110,8 +110,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         list = request.SortBy?.ToLower() switch
         {
             "name" => list.OrderBy(e => e.Name).ToList(),
-            "updated" => list.OrderByDescending(e => e.UpdatedAt).ToList(),
-            "downloads" => list.OrderByDescending(e => e.Downloads).ToList(),
+            "updated" => list.OrderByDescending(e => e.UpdatedAt ?? DateTime.MinValue).ToList(),
             _ => list, // relevance = default order
         };
 
@@ -155,7 +154,6 @@ public class GitHubExtensionRegistry : IExtensionRegistry
             IconUrl = meta.IconUrl,
             Url = meta.Url,
             Categories = meta.Categories ?? [],
-            Downloads = meta.Downloads,
             UpdatedAt = meta.UpdatedAt,
             MinCoveVersion = meta.MinCoveVersion,
             Dependencies = meta.Dependencies ?? [],
@@ -273,7 +271,6 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         Author = e.Author,
         IconUrl = e.IconUrl,
         Categories = e.Categories ?? [],
-        Downloads = e.Downloads,
         UpdatedAt = e.UpdatedAt,
         MinCoveVersion = e.MinCoveVersion,
     };
@@ -310,8 +307,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         public string? Author { get; set; }
         public string? IconUrl { get; set; }
         public List<string>? Categories { get; set; }
-        public int Downloads { get; set; }
-        public DateTime UpdatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
         public string? MinCoveVersion { get; set; }
     }
 
@@ -326,8 +322,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         public string? Url { get; set; }
         public string? RepositoryUrl { get; set; }
         public List<string>? Categories { get; set; }
-        public int Downloads { get; set; }
-        public DateTime UpdatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
         public string? MinCoveVersion { get; set; }
         public Dictionary<string, string>? Dependencies { get; set; }
         public string? Changelog { get; set; }
@@ -338,7 +333,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
     private class RegistryVersionEntry
     {
         public string? Version { get; set; }
-        public DateTime ReleasedAt { get; set; }
+        public DateTime? ReleasedAt { get; set; }
         public string? Changelog { get; set; }
         public string? MinCoveVersion { get; set; }
         public string? Checksum { get; set; }

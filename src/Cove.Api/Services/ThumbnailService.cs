@@ -77,27 +77,11 @@ public class ThumbnailService(
     private const int SpriteFrameCount = 81; // 9x9 grid
     private const int SpriteFrameSize = 160; // px
 
-    public async Task<string?> GetSceneThumbnailPathAsync(int sceneId, CancellationToken ct)
+    public Task<string?> GetSceneThumbnailPathAsync(int sceneId, CancellationToken ct)
     {
+        // Cover images are only created by an explicit generate task, never on-demand.
         var thumbPath = GetThumbnailPath(sceneId);
-        if (File.Exists(thumbPath)) return thumbPath;
-
-        // Try to generate on-demand, but don't block long — the semaphore may be
-        // saturated by a background generate job.  Use a short timeout so HTTP
-        // requests aren't starved (browser limits connections per origin to ~6).
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(2));
-        try
-        {
-            await GenerateSceneThumbnailAsync(sceneId, null, cts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            // Semaphore was busy (generate job running) — return null rather than
-            // blocking the HTTP request.  The thumbnail will be generated later.
-        }
-
-        return File.Exists(thumbPath) ? thumbPath : null;
+        return Task.FromResult(File.Exists(thumbPath) ? thumbPath : null);
     }
 
     public async Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct)
@@ -213,12 +197,15 @@ public class ThumbnailService(
             // Double-check after acquiring semaphore (another request may have generated it)
             if (File.Exists(thumbPath)) return;
 
+            // Write to a temp file then rename to avoid readers seeing a partial file
+            var tempPath = thumbPath + ".tmp";
+
             var process = new System.Diagnostics.Process
             {
                 StartInfo = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = ffmpegPath,
-                    Arguments = $"-v error -threads 1 -ss {seekSeconds:F2} -i \"{filePath}\" -vframes 1 -q:v 2 -f image2 -y \"{thumbPath}\"",
+                    Arguments = $"-v error -threads 1 -ss {seekSeconds:F2} -i \"{filePath}\" -vframes 1 -q:v 2 -f image2 -y \"{tempPath}\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -246,6 +233,11 @@ public class ThumbnailService(
             {
                 var stderr = await stderrTask;
                 logger.LogWarning("FFmpeg failed for scene {SceneId}: {Error}", sceneId, stderr);
+                try { File.Delete(tempPath); } catch { }
+            }
+            else if (File.Exists(tempPath))
+            {
+                File.Move(tempPath, thumbPath, overwrite: true);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

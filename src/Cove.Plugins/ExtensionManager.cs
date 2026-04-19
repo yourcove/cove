@@ -19,6 +19,7 @@ public class ExtensionManager
     private readonly Dictionary<string, IExtension> _extensionMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly ExtensionContext _context;
     private readonly Dictionary<string, AssemblyLoadContext> _loadContexts = [];
+    private readonly Dictionary<string, ExtensionManifestFile> _manifestFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExtensionInstallation> _installations = new(StringComparer.OrdinalIgnoreCase);
     private IServiceProvider? _lastServiceProvider;
     private ILogger<ExtensionManager>? _logger;
@@ -110,6 +111,11 @@ public class ExtensionManager
                                     ManifestJson = manifestFile != null ? File.ReadAllText(manifestPath) : null,
                                     Categories = ext.Categories.Count > 0 ? string.Join(",", ext.Categories) : null,
                                 };
+
+                                if (manifestFile != null)
+                                {
+                                    _manifestFiles[ext.Id] = manifestFile;
+                                }
                             }
                         }
                     }
@@ -365,6 +371,36 @@ public class ExtensionManager
         manifest.Tabs.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
         return manifest;
+    }
+
+    /// <summary>Get enabled extension UI JS bundle asset paths (extensionId + relative path).</summary>
+    public IReadOnlyList<(string ExtensionId, string Path)> GetEnabledJsBundles()
+    {
+        var bundles = new List<(string ExtensionId, string Path)>();
+        foreach (var ext in GetInitializationOrder().OfType<IUIExtension>())
+        {
+            if (!IsEnabled(ext.Id)) continue;
+            if (_manifestFiles.TryGetValue(ext.Id, out var mf) && !string.IsNullOrWhiteSpace(mf.JsBundle))
+            {
+                bundles.Add((ext.Id, mf.JsBundle));
+            }
+        }
+        return bundles;
+    }
+
+    /// <summary>Get enabled extension UI CSS bundle asset paths (extensionId + relative path).</summary>
+    public IReadOnlyList<(string ExtensionId, string Path)> GetEnabledCssBundles()
+    {
+        var bundles = new List<(string ExtensionId, string Path)>();
+        foreach (var ext in GetInitializationOrder().OfType<IUIExtension>())
+        {
+            if (!IsEnabled(ext.Id)) continue;
+            if (_manifestFiles.TryGetValue(ext.Id, out var mf) && !string.IsNullOrWhiteSpace(mf.CssBundle))
+            {
+                bundles.Add((ext.Id, mf.CssBundle));
+            }
+        }
+        return bundles;
     }
 
     // ========================================================================

@@ -68,11 +68,26 @@ public static class FfmpegInProcess
         var available = new List<AVHWDeviceType>();
         foreach (var dt in HwAccelProbeOrder)
         {
-            AVBufferRef* ctx = null;
-            if (ffmpeg.av_hwdevice_ctx_create(&ctx, dt, null, null, 0) == 0)
+            try
             {
-                available.Add(dt);
-                ffmpeg.av_buffer_unref(&ctx);
+                AVBufferRef* ctx = null;
+                if (ffmpeg.av_hwdevice_ctx_create(&ctx, dt, null, null, 0) == 0)
+                {
+                    available.Add(dt);
+                    ffmpeg.av_buffer_unref(&ctx);
+                }
+            }
+            catch (NotSupportedException)
+            {
+                // Some platforms/runtimes do not support certain hwdevice APIs.
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // Function not available in the loaded FFmpeg build.
+            }
+            catch (DllNotFoundException)
+            {
+                // Partial/shared-library loading issue; continue with CPU fallback.
             }
         }
         return available.ToArray();

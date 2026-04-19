@@ -10,6 +10,7 @@ interface ImageInputProps {
   label?: string;
   className?: string;
   aspectRatio?: string; // e.g. "2/3", "16/9", "1/1"
+  objectFit?: "cover" | "contain";
 }
 
 export function ImageInput({
@@ -20,6 +21,7 @@ export function ImageInput({
   label = "Image",
   className = "",
   aspectRatio = "2/3",
+  objectFit = "cover",
 }: ImageInputProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export function ImageInput({
             <img
               src={displayUrl}
               alt={label}
-              className="w-full h-full object-cover"
+              className={`w-full h-full ${objectFit === "contain" ? "object-contain p-2" : "object-cover"}`}
               onError={() => setImgError(true)}
             />
             {isLoading && (

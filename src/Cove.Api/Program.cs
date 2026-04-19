@@ -101,11 +101,6 @@ try
     extensionManager.DiscoverExtensions(extensionsDataDir);
     // Register built-in extensions
     extensionManager.Register(new Cove.Api.Extensions.ThemeCollectionExtension());
-    extensionManager.Register(new Cove.Api.Extensions.SceneAnalyticsExtension());
-    extensionManager.Register(new Cove.Api.Extensions.CustomHomeExtension());
-    extensionManager.Register(new Cove.Api.Extensions.SystemToolsExtension());
-    extensionManager.Register(new Cove.Api.Extensions.NotificationSettingsExtension());
-    extensionManager.Register(new Cove.Api.Extensions.EnhancedDeleteDialogExtension());
     extensionManager.Register(new Cove.Api.Extensions.AuditLogExtension());
     builder.Services.AddSingleton(extensionManager);
     builder.Services.AddSingleton<IExtensionStoreFactory>(sp => new Cove.Data.Repositories.EfExtensionStoreFactory(sp));
@@ -243,6 +238,7 @@ try
     // When running as a single-file executable, wwwroot is embedded as managed resources.
     // Fall back to the embedded file provider when the physical wwwroot folder is absent.
     var webRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+    IFileProvider? spaFileProvider = null;
     if (Directory.Exists(webRootPath))
     {
         app.UseDefaultFiles();
@@ -250,12 +246,20 @@ try
     }
     else
     {
-        var embeddedProvider = new ManifestEmbeddedFileProvider(
+        spaFileProvider = new ManifestEmbeddedFileProvider(
             typeof(Program).Assembly, "wwwroot");
-        app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = embeddedProvider });
-        app.UseStaticFiles(new StaticFileOptions { FileProvider = embeddedProvider });
+        app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = spaFileProvider });
+        app.UseStaticFiles(new StaticFileOptions { FileProvider = spaFileProvider });
     }
-    app.MapFallbackToFile("index.html");
+
+    if (spaFileProvider != null)
+    {
+        app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = spaFileProvider });
+    }
+    else
+    {
+        app.MapFallbackToFile("index.html");
+    }
 
     var port = coveConfig.GetValue<int?>("Port") ?? 9999;
     app.Urls.Add($"http://0.0.0.0:{port}");

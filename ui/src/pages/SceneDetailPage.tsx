@@ -143,7 +143,9 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
 
   const updateMut = useMutation({
     mutationFn: (data: { organized?: boolean; rating?: number }) => scenes.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scene", id] }),
+    onSuccess: (updatedScene) => {
+      queryClient.setQueryData<Scene>(["scene", id], updatedScene);
+    },
   });
 
   const generateScreenshotMut = useMutation({
@@ -318,8 +320,9 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
                     <span>{scene.oCounter}</span>
                   </button>
                   <button 
-                    onClick={() => updateMut.mutate({ organized: !scene.organized })}
-                    className={`p-1 rounded ${scene.organized ? "bg-green-600 text-white" : "bg-card text-muted hover:text-foreground"}`}
+                    onClick={() => { if (!updateMut.isPending) updateMut.mutate({ organized: !scene.organized }); }}
+                    disabled={updateMut.isPending}
+                    className={`p-1 rounded ${scene.organized ? "bg-green-600 text-white" : "bg-card text-muted hover:text-foreground"} ${updateMut.isPending ? "opacity-60 cursor-not-allowed" : ""}`}
                     title={scene.organized ? "Organized" : "Not organized"}
                   >
                     <Check className="w-4 h-4" />
@@ -1221,7 +1224,7 @@ function VideoPlayer({
         ref={videoRef}
         key={effectiveStreamUrl}
         className="w-full h-full object-contain cursor-pointer"
-        preload="auto"
+        preload="metadata"
         poster={posterUrl}
         {...{ "x-webkit-airplay": "allow" } as any}
         onClick={togglePlay}

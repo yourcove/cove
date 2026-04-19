@@ -96,13 +96,14 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
     <EditModal title={`Edit Studio: ${studio.name}`} open={open} onClose={onClose}>
       <div className="flex gap-6 mb-4">
         <ImageInput
-          currentImageUrl={entityImages.studioImageUrl(studio.id)}
+          currentImageUrl={entityImages.studioImageUrl(studio.id, studio.updatedAt)}
           onUpload={(file) => entityImages.uploadStudioImage(studio.id, file)}
           onDelete={() => entityImages.deleteStudioImage(studio.id)}
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ["studio", studio.id] })}
           label="Logo"
           aspectRatio="1/1"
           className="w-40"
+          objectFit="contain"
         />
         <div className="flex-1 space-y-4">
       <div className="grid grid-cols-2 gap-4">

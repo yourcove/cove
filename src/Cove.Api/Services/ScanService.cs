@@ -848,7 +848,13 @@ public class ScanService(
         var targets = new List<ScanTarget>();
         foreach (var selectedPath in selectedPaths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(NormalizePath).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var matchingConfig = cfg.CovePaths.FirstOrDefault(path => IsPathWithin(selectedPath, NormalizePath(path.Path)) || IsPathWithin(NormalizePath(path.Path), selectedPath));
+            var matchingConfig = cfg.CovePaths
+                .Select(path => new { Config = path, NormalizedPath = NormalizePath(path.Path) })
+                .Where(x => IsPathWithin(selectedPath, x.NormalizedPath) || IsPathWithin(x.NormalizedPath, selectedPath))
+                .OrderByDescending(x => x.NormalizedPath.Length)
+                .Select(x => x.Config)
+                .FirstOrDefault();
+
             var excludeVideo = matchingConfig?.ExcludeVideo ?? false;
             var excludeImage = matchingConfig?.ExcludeImage ?? false;
             var isFile = File.Exists(selectedPath);

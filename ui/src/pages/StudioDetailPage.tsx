@@ -149,14 +149,14 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     return <div className="py-16 text-center text-secondary">Studio not found</div>;
   }
 
-  const studioImageUrl = studio.imagePath || entityImages.studioImageUrl(studio.id);
+  const studioImageUrl = studio.imagePath || entityImages.studioImageUrl(studio.id, studio.updatedAt);
 
   return (
     <div className="min-h-screen">
       <div className="relative overflow-hidden border-b border-border detail-hero-gradient">
         {/* Background studio image */}
         <img
-          src={entityImages.studioImageUrl(studio.id)}
+          src={entityImages.studioImageUrl(studio.id, studio.updatedAt)}
           alt=""
           className="absolute inset-0 h-full w-full object-cover opacity-10 blur-md scale-110"
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

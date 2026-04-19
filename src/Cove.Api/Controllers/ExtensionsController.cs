@@ -9,8 +9,84 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
 {
     /// <summary>Returns the aggregated UI manifest from all registered extensions.</summary>
     [HttpGet("manifest")]
-    public ActionResult<UIManifest> GetManifest() =>
-        Ok(extensionManager.GetAggregatedManifest());
+    public ActionResult<UIManifest> GetManifest()
+    {
+        var manifest = extensionManager.GetAggregatedManifest();
+
+        var jsBundles = extensionManager.GetEnabledJsBundles();
+        if (jsBundles.Count == 1)
+        {
+            var (extId, path) = jsBundles[0];
+            manifest.JsBundleUrl = $"/api/extensions/assets/{Uri.EscapeDataString(extId)}/{path}";
+        }
+        else if (jsBundles.Count > 1)
+        {
+            manifest.JsBundleUrl = "/api/extensions/bundles/ui.mjs";
+        }
+
+        var cssBundles = extensionManager.GetEnabledCssBundles();
+        if (cssBundles.Count == 1)
+        {
+            var (extId, path) = cssBundles[0];
+            manifest.CssBundleUrl = $"/api/extensions/assets/{Uri.EscapeDataString(extId)}/{path}";
+        }
+        else if (cssBundles.Count > 1)
+        {
+            manifest.CssBundleUrl = "/api/extensions/bundles/ui.css";
+        }
+
+        return Ok(manifest);
+    }
+
+    /// <summary>
+    /// Returns a synthetic ESM module that imports all enabled extension UI bundles and
+    /// merges their `default.components` exports into one object for the frontend runtime.
+    /// </summary>
+    [HttpGet("bundles/ui.mjs")]
+    public IActionResult GetCombinedUiBundleModule()
+    {
+        var jsBundles = extensionManager.GetEnabledJsBundles();
+        if (jsBundles.Count == 0)
+        {
+            return Content("export default { components: {} };", "application/javascript");
+        }
+
+        var lines = new List<string>();
+        for (var i = 0; i < jsBundles.Count; i++)
+        {
+            var (extId, path) = jsBundles[i];
+            var url = $"/api/extensions/assets/{Uri.EscapeDataString(extId)}/{path}";
+            lines.Add($"import * as m{i} from '{url}';");
+        }
+
+        lines.Add("const components = {};");
+        for (var i = 0; i < jsBundles.Count; i++)
+        {
+            lines.Add($"Object.assign(components, (m{i}.default && m{i}.default.components) || {{}});");
+        }
+        lines.Add("export default { components };\n");
+
+        return Content(string.Join("\n", lines), "application/javascript");
+    }
+
+    [HttpGet("bundles/ui.css")]
+    public IActionResult GetCombinedUiCssBundle()
+    {
+        var cssBundles = extensionManager.GetEnabledCssBundles();
+        if (cssBundles.Count == 0)
+        {
+            return Content(string.Empty, "text/css");
+        }
+
+        var lines = new List<string>();
+        foreach (var (extId, path) in cssBundles)
+        {
+            var url = $"/api/extensions/assets/{Uri.EscapeDataString(extId)}/{path}";
+            lines.Add($"@import url('{url}');");
+        }
+
+        return Content(string.Join("\n", lines), "text/css");
+    }
 
     /// <summary>Returns a list of all registered extensions with capability and category info.</summary>
     [HttpGet]

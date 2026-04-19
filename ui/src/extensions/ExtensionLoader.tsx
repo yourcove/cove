@@ -27,24 +27,13 @@ import type {
 } from "../api/types";
 
 // ============================================================================
-// Built-in POC extension components (registered by component name)
-// These prove that the component resolution system works without external JS bundles.
-// External extensions would register components via their JS bundle entry point.
+// Built-in component registry — populated by external extensions at runtime.
+// External extensions deliver their components via JS bundles and call
+// registerComponent() during module initialization.
 // ============================================================================
-import { SceneAnalyticsTab } from "./poc/SceneAnalyticsTab";
-import { CustomHomeDashboard } from "./poc/CustomHomeDashboard";
-import { SystemToolsPage } from "./poc/SystemToolsPage";
-import { NotificationSettingsPanel } from "./poc/NotificationSettingsPanel";
-import { EnhancedDeleteDialog } from "./poc/EnhancedDeleteDialog";
 
 /** Global registry mapping componentName → React component. */
-const componentRegistry = new Map<string, FC<any>>([
-  ["SceneAnalyticsTab", SceneAnalyticsTab],
-  ["CustomHomeDashboard", CustomHomeDashboard],
-  ["SystemToolsPage", SystemToolsPage],
-  ["NotificationSettingsPanel", NotificationSettingsPanel],
-  ["EnhancedDeleteDialog", EnhancedDeleteDialog],
-]);
+const componentRegistry = new Map<string, FC<any>>();
 
 /** Resolve a component by name from the registry. */
 export function resolveComponent(name: string): FC<any> | undefined {
@@ -257,6 +246,17 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
           } catch (err) {
             console.warn("[ExtensionLoader] Failed to load JS bundle:", m.jsBundleUrl, err);
           }
+        }
+
+        if (m.cssBundleUrl) {
+          const id = "cove-extension-css-bundle";
+          const existing = document.getElementById(id);
+          if (existing) existing.remove();
+          const link = document.createElement("link");
+          link.id = id;
+          link.rel = "stylesheet";
+          link.href = m.cssBundleUrl;
+          document.head.appendChild(link);
         }
 
         setLoaded(true);

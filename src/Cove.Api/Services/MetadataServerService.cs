@@ -550,7 +550,7 @@ query Me {
             if (studio != null)
             {
                 scene.Studio = studio;
-                scene.StudioId = studio.Id;
+                scene.StudioId = studio.Id == 0 ? null : studio.Id;
             }
         }
 
@@ -566,9 +566,12 @@ query Me {
                 var tag = await ResolveSceneTagAsync(remoteTag, endpoint, tagOverride, ct, allowCreate: !onlyExistingTags);
                 if (tag == null)
                     continue;
-                if (!scene.SceneTags.Any(link => link.TagId == tag.Id))
+                var alreadyLinkedTag = tag.Id == 0
+                    ? scene.SceneTags.Any(link => ReferenceEquals(link.Tag, tag))
+                    : scene.SceneTags.Any(link => link.TagId == tag.Id);
+                if (!alreadyLinkedTag)
                 {
-                    scene.SceneTags.Add(new SceneTag { SceneId = scene.Id, TagId = tag.Id, Tag = tag });
+                    scene.SceneTags.Add(new SceneTag { SceneId = scene.Id, Tag = tag });
                 }
             }
         }
@@ -585,9 +588,12 @@ query Me {
                 var performer = await ResolveScenePerformerAsync(remotePerformer, endpoint, performerOverride, ct, allowCreate: !onlyExistingPerformers);
                 if (performer == null)
                     continue;
-                if (!scene.ScenePerformers.Any(link => link.PerformerId == performer.Id))
+                var alreadyLinkedPerformer = performer.Id == 0
+                    ? scene.ScenePerformers.Any(link => ReferenceEquals(link.Performer, performer))
+                    : scene.ScenePerformers.Any(link => link.PerformerId == performer.Id);
+                if (!alreadyLinkedPerformer)
                 {
-                    scene.ScenePerformers.Add(new ScenePerformer { SceneId = scene.Id, PerformerId = performer.Id, Performer = performer });
+                    scene.ScenePerformers.Add(new ScenePerformer { SceneId = scene.Id, Performer = performer });
                 }
             }
         }

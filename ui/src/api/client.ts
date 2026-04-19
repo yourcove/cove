@@ -347,15 +347,15 @@ async function deleteImage(path: string): Promise<void> {
 }
 
 export const entityImages = {
-  performerImageUrl: (id: number) => `${API_BASE}/performers/${id}/image`,
+  performerImageUrl: (id: number, version?: string) => `${API_BASE}/performers/${id}/image${version ? `?v=${encodeURIComponent(version)}` : ""}`,
   uploadPerformerImage: (id: number, file: File) => uploadImage(`/performers/${id}/image`, file),
   deletePerformerImage: (id: number) => deleteImage(`/performers/${id}/image`),
 
-  studioImageUrl: (id: number) => `${API_BASE}/studios/${id}/image`,
+  studioImageUrl: (id: number, version?: string) => `${API_BASE}/studios/${id}/image${version ? `?v=${encodeURIComponent(version)}` : ""}`,
   uploadStudioImage: (id: number, file: File) => uploadImage(`/studios/${id}/image`, file),
   deleteStudioImage: (id: number) => deleteImage(`/studios/${id}/image`),
 
-  tagImageUrl: (id: number) => `${API_BASE}/tags/${id}/image`,
+  tagImageUrl: (id: number, version?: string) => `${API_BASE}/tags/${id}/image${version ? `?v=${encodeURIComponent(version)}` : ""}`,
   uploadTagImage: (id: number, file: File) => uploadImage(`/tags/${id}/image`, file),
   deleteTagImage: (id: number) => deleteImage(`/tags/${id}/image`),
 

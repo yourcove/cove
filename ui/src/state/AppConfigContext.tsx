@@ -23,17 +23,21 @@ function normalizeRatingStarPrecision(value: string | undefined) {
 }
 
 function normalizeConfig(config: CoveConfig): CoveConfig {
+  const interfaceConfig = config.interface;
+  const uiConfig = config.ui ?? ({} as CoveConfig["ui"]);
+  const ratingOptions = uiConfig.ratingSystemOptions ?? { type: "stars", starPrecision: "full" };
+
   return {
     ...config,
     interface: {
-      ...config.interface,
-      menuItems: config.interface.menuItems.length > 0 ? config.interface.menuItems : defaultMenuItems,
+      ...interfaceConfig,
+      menuItems: interfaceConfig.menuItems.length > 0 ? interfaceConfig.menuItems : defaultMenuItems,
     },
     ui: {
-      ...config.ui,
+      ...uiConfig,
       ratingSystemOptions: {
-        type: normalizeRatingSystemType(config.ui.ratingSystemOptions.type),
-        starPrecision: normalizeRatingStarPrecision(config.ui.ratingSystemOptions.starPrecision),
+        type: normalizeRatingSystemType(ratingOptions.type),
+        starPrecision: normalizeRatingStarPrecision(ratingOptions.starPrecision),
       },
     },
     scraping: {

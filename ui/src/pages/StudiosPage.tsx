@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { studios } from "../api/client";
+import { studios, entityImages } from "../api/client";
 import type { FindFilter, Studio, StudioCreate, StudioFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { RatingBanner, RatingField } from "../components/Rating";
@@ -194,7 +194,12 @@ function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting
           <Heart className={`w-5 h-5 ${studio.favorite ? "fill-red-500 text-red-500" : "text-white drop-shadow-md"}`} />
         </button>
         {studio.imagePath ? (
-          <img src={studio.imagePath} alt={studio.name} className="w-full h-full object-contain p-4" loading="lazy" />
+          <img
+            src={entityImages.studioImageUrl(studio.id, studio.updatedAt)}
+            alt={studio.name}
+            className="w-full h-full object-contain p-4"
+            loading="lazy"
+          />
         ) : (
           <Building2 className="w-10 h-10 opacity-30" />
         )}

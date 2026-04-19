@@ -4,8 +4,8 @@ public class CoveConfiguration
 {
     public List<CovePath> CovePaths { get; set; } = [];
     public string DatabaseConnectionString { get; set; } = string.Empty;
-    public string GeneratedPath { get; set; } = string.Empty;
-    public string CachePath { get; set; } = string.Empty;
+    public string GeneratedPath { get; set; } = CoveDefaultPaths.GetDataSubdirectory("generated");
+    public string CachePath { get; set; } = CoveDefaultPaths.GetDataSubdirectory("cache");
     public string? FfmpegPath { get; set; }
     public string? FfprobePath { get; set; }
     public string Host { get; set; } = "0.0.0.0";

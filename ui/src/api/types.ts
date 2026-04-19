@@ -1344,8 +1344,7 @@ export interface RegistryExtensionSummary {
   author?: string;
   iconUrl?: string;
   categories: string[];
-  downloads: number;
-  updatedAt: string;
+  updatedAt?: string;
   minCoveVersion?: string;
 }
 

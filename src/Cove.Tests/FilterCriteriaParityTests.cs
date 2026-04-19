@@ -8,7 +8,7 @@ namespace Cove.Tests;
 
 /// <summary>
 /// Tests that verify all filter criteria properties exist on filter classes,
-/// all DTO fields exist, and JSON deserialization works for the full stashv1 parity set.
+/// all DTO fields exist, and JSON deserialization works for the full filter criteria set.
 /// </summary>
 public class FilterCriteriaParityTests
 {
@@ -54,7 +54,7 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.UpdatedAtCriterion);
         Assert.Null(filter.LastPlayedAtCriterion);
 
-        // New stashv1 parity criteria
+        // Additional filter criteria
         Assert.Null(filter.PerformerTagsCriterion);
         Assert.Null(filter.PerformerAgeCriterion);
         Assert.Null(filter.CaptionsCriterion);

@@ -248,6 +248,9 @@ export function SettingsPage() {
     if (nextDraft.scraping.scraperDirectories.length === 0) {
       nextDraft.scraping.scraperDirectories = [""];
     }
+    if (!nextDraft.ui.ratingSystemOptions) {
+      nextDraft.ui.ratingSystemOptions = { type: "stars", starPrecision: "full" };
+    }
 
     setDraft(nextDraft);
   }, [config]);
@@ -3409,7 +3412,6 @@ function FindAndInstallExtensions() {
               <div className="text-xs text-muted mt-0.5">
                 v{selectedExtension.version}
                 {selectedExtension.author && <> · by {selectedExtension.author}</>}
-                {selectedExtension.downloads > 0 && <> · {selectedExtension.downloads.toLocaleString()} downloads</>}
               </div>
             </div>
             <button

@@ -58,8 +58,8 @@ public class RegistryExtensionSummary
     public string? Author { get; set; }
     public string? IconUrl { get; set; }
     public List<string> Categories { get; set; } = [];
-    public int Downloads { get; set; }
-    public DateTime UpdatedAt { get; set; }
+    /// <summary>Auto-set by registry CI from the latest version's release date.</summary>
+    public DateTime? UpdatedAt { get; set; }
     public string? MinCoveVersion { get; set; }
 }
 
@@ -78,7 +78,8 @@ public class RegistryExtensionDetail : RegistryExtensionSummary
 public class RegistryVersionInfo
 {
     public required string Version { get; set; }
-    public DateTime ReleasedAt { get; set; }
+    /// <summary>Auto-set by registry CI from the GitHub release date.</summary>
+    public DateTime? ReleasedAt { get; set; }
     public string? Changelog { get; set; }
     public string? MinCoveVersion { get; set; }
     public string? Checksum { get; set; }

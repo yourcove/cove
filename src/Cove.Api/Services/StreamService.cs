@@ -51,35 +51,17 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
 
     public async Task<(Stream stream, string contentType)?> GetSceneScreenshot(int sceneId, double? seconds, CancellationToken ct = default)
     {
-        // For timestamped thumbnails, check cache first, then generate
+        // For timestamped thumbnails, only serve from cache — never generate on demand.
+        // Thumbnail generation is exclusively the job of the generate task.
         if (seconds.HasValue)
         {
             var tsPath = thumbnailService.GetTimestampedThumbnailPath(sceneId, seconds.Value);
-            if (!File.Exists(tsPath))
-            {
-                // Don't block long — the ffmpeg semaphore may be saturated by a
-                // background generate job.  Short timeout prevents HTTP connection
-                // pool exhaustion in the browser.
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(2));
-                try
-                {
-                    await thumbnailService.GenerateSceneThumbnailAsync(sceneId, seconds, cts.Token);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    // Semaphore busy — return null (404) rather than starving connections
-                }
-            }
-            if (File.Exists(tsPath))
-            {
-                var stream = new FileStream(tsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
-                return (stream, "image/jpeg");
-            }
-            return null;
+            if (!File.Exists(tsPath)) return null;
+            var stream = new FileStream(tsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
+            return (stream, "image/jpeg");
         }
 
-        // Default thumbnail (no timestamp)
+        // Default cover thumbnail (no timestamp) — also only served from cache
         var thumbPath = await thumbnailService.GetSceneThumbnailPathAsync(sceneId, ct);
         if (thumbPath == null) return null;
 

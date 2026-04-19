@@ -303,7 +303,7 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
         if (result == null) return NotFound();
 
         var (stream, contentType) = result.Value;
-        Response.Headers.CacheControl = "public, max-age=86400";
+        Response.Headers.CacheControl = "no-store, no-cache, max-age=0, must-revalidate";
         return File(stream, contentType);
     }
 }
