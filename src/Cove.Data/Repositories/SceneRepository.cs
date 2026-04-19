@@ -373,6 +373,53 @@ public class SceneRepository : ISceneRepository
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, s => s.UpdatedAt);
             query = FilterHelpers.ApplyNullableTimestamp(query, filter.LastPlayedAtCriterion, s => s.LastPlayedAt);
 
+            // Performer tags criterion (filter scenes by tags of their performers)
+            if (filter.PerformerTagsCriterion != null)
+            {
+                var ptIds = filter.PerformerTagsCriterion.Value;
+                query = filter.PerformerTagsCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(s => s.ScenePerformers.Any(sp => sp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                    CriterionModifier.Excludes => query.Where(s => !s.ScenePerformers.Any(sp => sp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                    CriterionModifier.IncludesAll => query.Where(s => ptIds.All(tid => s.ScenePerformers.Any(sp => sp.Performer!.PerformerTags.Any(pt => pt.TagId == tid)))),
+                    _ => query.Where(s => s.ScenePerformers.Any(sp => sp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                };
+            }
+
+            // Performer age criterion (age at time of scene based on scene date and performer birthdate)
+            if (filter.PerformerAgeCriterion != null)
+            {
+                var ageVal = filter.PerformerAgeCriterion.Value;
+                var ageVal2 = filter.PerformerAgeCriterion.Value2 ?? ageVal;
+                query = filter.PerformerAgeCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                        sp.Performer!.Birthdate != null &&
+                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) == ageVal)),
+                    CriterionModifier.NotEquals => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                        sp.Performer!.Birthdate != null &&
+                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) != ageVal)),
+                    CriterionModifier.GreaterThan => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                        sp.Performer!.Birthdate != null &&
+                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) > ageVal)),
+                    CriterionModifier.LessThan => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                        sp.Performer!.Birthdate != null &&
+                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) < ageVal)),
+                    CriterionModifier.Between => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                        sp.Performer!.Birthdate != null &&
+                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) >= ageVal &&
+                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) <= ageVal2)),
+                    _ => query,
+                };
+            }
+
+            // Captions criterion (filter by caption content)
+            query = FilterHelpers.ApplyString(query, filter.CaptionsCriterion, s => s.Captions);
+
+            // Interactive speed criterion
+            if (filter.InteractiveSpeedCriterion != null)
+                query = ApplyIntCriterion(query, filter.InteractiveSpeedCriterion, s => s.InteractiveSpeed ?? 0);
+
         return query;
     }
 

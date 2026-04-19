@@ -80,6 +80,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
             image.ImageTags = dto.TagIds.Select(tagId => new ImageTag { TagId = tagId }).ToList();
         if (dto.PerformerIds?.Count > 0)
             image.ImagePerformers = dto.PerformerIds.Select(performerId => new ImagePerformer { PerformerId = performerId }).ToList();
+        if (dto.GalleryIds?.Count > 0)
+            image.ImageGalleries = dto.GalleryIds.Select(gid => new ImageGallery { GalleryId = gid }).ToList();
 
         image = await imageRepo.AddAsync(image, ct);
         var result = await imageRepo.GetByIdWithRelationsAsync(image.Id, ct);

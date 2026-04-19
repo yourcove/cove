@@ -25,6 +25,7 @@ import {
   FileText,
   History,
   Search,
+  X,
 } from "lucide-react";
 import { system, jobs, metadata, database, plugins as pluginsApi, dlna as dlnaApi, logs as logsApi } from "../api/client";
 import type { ScanOptions, GenerateOptions, CleanGeneratedOptions, ExportOptions, LogEntry } from "../api/client";
@@ -388,7 +389,7 @@ export function SettingsPage() {
                 {activeTab === "security" && "Authentication and session settings. Password changes are persisted immediately."}
                 {activeTab === "metadata-providers" && "Scraper directories, package source URLs, configured MetadataServer endpoints, and discovered Cove-compatible scrapers."}
                 {activeTab === "dlna" && "DLNA media server for streaming to compatible devices on your local network."}
-                {activeTab === "extensions" && "Manage extensions, themes, and plugin settings."}
+                {activeTab === "extensions" && "Manage extensions, themes, and settings."}
                 {activeTab === "system" && "Host, port, and task concurrency. Server changes take effect after restart."}
                 {activeTab === "tools" && "Utility tools for working with your library."}
                 {activeTab === "changelog" && "Release history and version information."}
@@ -1398,9 +1399,9 @@ export function SettingsPage() {
                     A self-hosted media organizer and video streaming app. Organize, tag, and browse your media library with ease.
                   </p>
                   <div className="flex gap-3 pt-1">
-                    <a href="https://github.com/cove-app/cove" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">GitHub</a>
+                    <a href="https://github.com/yourcove/cove" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">GitHub</a>
                     <a href="https://docs.cove.app" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Documentation</a>
-                    <a href="https://discord.gg/2TsNFKt" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Discord</a>
+                    <a href="https://discord.gg/EzM8764YVr" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Discord</a>
                   </div>
                 </div>
               </div>
@@ -1540,7 +1541,7 @@ function TasksPanel() {
       {jobQueue}
       <LibraryTasksSection refetchJobs={refetchJobs} />
       <DataManagementSection refetchJobs={refetchJobs} />
-      <PluginTasksSection refetchJobs={refetchJobs} />
+      <ExtensionTasksSection refetchJobs={refetchJobs} />
     </>
   );
 }
@@ -2010,37 +2011,37 @@ function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
   );
 }
 
-// ---- Plugin Tasks ----
-function PluginTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
+// ---- Extension Tasks ----
+function ExtensionTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
   const { data: pluginList } = useQuery({ queryKey: ["plugins"], queryFn: pluginsApi.list });
   const runTaskMut = useMutation({
     mutationFn: pluginsApi.runTask,
     onSuccess: () => refetchJobs(),
   });
 
-  const enabledPlugins = pluginList?.filter((p) => p.enabled && p.tasks.length > 0) ?? [];
+  const enabledWithTasks = pluginList?.filter((p) => p.enabled && p.tasks.length > 0) ?? [];
 
-  if (enabledPlugins.length === 0) return null;
+  if (enabledWithTasks.length === 0) return null;
 
   return (
-    <SectionCard title="Plugin Tasks" description="Run tasks provided by enabled plugins.">
+    <SectionCard title="Extension Tasks" description="Run tasks provided by enabled extensions.">
       <div className="space-y-4">
-        {enabledPlugins.map((plugin) => (
-          <div key={plugin.id} className="rounded-xl border border-border bg-card overflow-hidden">
+        {enabledWithTasks.map((ext) => (
+          <div key={ext.id} className="rounded-xl border border-border bg-card overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border bg-black/10 flex items-center gap-2">
               <Plug className="h-3.5 w-3.5 text-muted" />
-              <span className="text-sm font-medium text-foreground">{plugin.name}</span>
-              <span className="text-xs text-muted">v{plugin.version}</span>
+              <span className="text-sm font-medium text-foreground">{ext.name}</span>
+              <span className="text-xs text-muted">v{ext.version}</span>
             </div>
             <div className="divide-y divide-border/50">
-              {plugin.tasks.map((task) => (
+              {ext.tasks.map((task) => (
                 <div key={task.name} className="flex items-center justify-between px-4 py-3">
                   <div>
                     <h4 className="text-sm font-medium text-foreground">{task.name}</h4>
                     {task.description && <p className="text-xs text-secondary mt-0.5">{task.description}</p>}
                   </div>
                   <button
-                    onClick={() => runTaskMut.mutate({ pluginId: plugin.id, taskName: task.name })}
+                    onClick={() => runTaskMut.mutate({ pluginId: ext.id, taskName: task.name })}
                     disabled={runTaskMut.isPending}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                   >
@@ -2872,25 +2873,24 @@ function DlnaPanel() {
   );
 }
 
-// ===== Plugins Panel =====
-function PluginSettingsForm({ pluginId, schema }: { pluginId: string; schema: import("../api/types").PluginSettingSchema[] }) {
+// ===== Extension Settings Form (legacy Python extensions with config) =====
+function ExtensionSettingsForm({ extensionId, schema }: { extensionId: string; schema: import("../api/types").PluginSettingSchema[] }) {
   const queryClient = useQueryClient();
   const { data: configValues, isLoading } = useQuery({
-    queryKey: ["plugin-config", pluginId],
-    queryFn: () => pluginsApi.getConfig(pluginId),
+    queryKey: ["ext-config", extensionId],
+    queryFn: () => pluginsApi.getConfig(extensionId),
   });
   const [localValues, setLocalValues] = useState<Record<string, unknown>>({});
   const [initialized, setInitialized] = useState(false);
 
-  // Initialize local values once config loads
   if (configValues && !initialized) {
     setLocalValues(configValues);
     setInitialized(true);
   }
 
   const saveMut = useMutation({
-    mutationFn: (values: Record<string, unknown>) => pluginsApi.setConfig(pluginId, values),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["plugin-config", pluginId] }),
+    mutationFn: (values: Record<string, unknown>) => pluginsApi.setConfig(extensionId, values),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ext-config", extensionId] }),
   });
 
   const updateValue = (name: string, value: unknown) => {
@@ -2961,25 +2961,31 @@ function PluginSettingsForm({ pluginId, schema }: { pluginId: string; schema: im
   );
 }
 
-function PluginsPanel() {
+// ===== Extensions Panel — unified view of all extensions =====
+function ExtensionsPanel() {
+  const { availableThemes, activeThemeId, setActiveTheme, settingsPanels, resolveComponent } = useExtensions();
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: pluginList, isLoading } = useQuery({
-    queryKey: ["plugins"],
-    queryFn: pluginsApi.list,
+  // .NET extensions from the extension manager
+  const { data: extList } = useQuery({
+    queryKey: ["extensions-list"],
+    queryFn: () => import("../api/client").then(m => m.extensions.list()),
   });
 
-  const reloadMut = useMutation({
-    mutationFn: pluginsApi.reload,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["plugins"] }),
+  // Legacy Python extensions (from /api/plugins)
+  const { data: legacyList } = useQuery({
+    queryKey: ["plugins"],
+    queryFn: pluginsApi.list,
   });
 
   const settingsMut = useMutation({
     mutationFn: pluginsApi.saveSettings,
     onMutate: async (vars: { enabledMap: Record<string, boolean> }) => {
       await queryClient.cancelQueries({ queryKey: ["plugins"] });
-      const prev = queryClient.getQueryData<typeof pluginList>(["plugins"]);
+      const prev = queryClient.getQueryData<typeof legacyList>(["plugins"]);
       if (prev) {
         queryClient.setQueryData(["plugins"], prev.map((p) => {
           const override = vars.enabledMap[p.id];
@@ -2994,77 +3000,201 @@ function PluginsPanel() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["plugins"] }),
   });
 
-  const runTaskMut = useMutation({
-    mutationFn: pluginsApi.runTask,
+  const enableMut = useMutation({
+    mutationFn: (args: { id: string; enable: boolean }) =>
+      import("../api/client").then(m => args.enable ? m.extensions.enable(args.id) : m.extensions.disable(args.id)),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["extensions-list"] }),
   });
 
-  const togglePlugin = (id: string, enabled: boolean) => {
-    settingsMut.mutate({ enabledMap: { [id]: enabled } });
+  const runJobMut = useMutation({
+    mutationFn: (args: { id: string; jobId: string }) =>
+      import("../api/client").then(m => m.extensions.runJob(args.id, args.jobId)),
+  });
+
+  // Merge all extensions into a unified list
+  type UnifiedExtension = {
+    id: string;
+    name: string;
+    version: string;
+    description?: string;
+    author?: string;
+    url?: string;
+    enabled: boolean;
+    categories: string[];
+    source: "native" | "legacy";
+    hasUI: boolean;
+    hasApi: boolean;
+    hasJobs: boolean;
+    hasState: boolean;
+    hasEvents: boolean;
+    jobs: { id: string; name: string; description?: string }[];
+    legacyTasks?: import("../api/types").PluginTask[];
+    legacySettings?: import("../api/types").PluginSettingSchema[];
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-10">
-        <Loader2 className="w-6 h-6 animate-spin text-secondary" />
-      </div>
-    );
-  }
+  const allExtensions: UnifiedExtension[] = useMemo(() => {
+    const list: UnifiedExtension[] = [];
 
-  const sortedPlugins = [...(pluginList ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+    // .NET extensions
+    for (const ext of extList ?? []) {
+      list.push({
+        id: ext.id,
+        name: ext.name,
+        version: ext.version,
+        description: ext.description,
+        author: ext.author,
+        url: ext.url,
+        enabled: ext.enabled,
+        categories: ext.categories,
+        source: "native",
+        hasUI: ext.hasUI,
+        hasApi: ext.hasApi,
+        hasJobs: ext.hasJobs,
+        hasState: ext.hasState,
+        hasEvents: ext.hasEvents,
+        jobs: ext.jobs,
+      });
+    }
+
+    // Legacy Python extensions
+    for (const p of legacyList ?? []) {
+      // Don't duplicate if already in .NET list
+      if (list.some(e => e.id === p.id)) continue;
+      list.push({
+        id: p.id,
+        name: p.name,
+        version: p.version,
+        description: p.description,
+        enabled: p.enabled,
+        url: p.url,
+        categories: [],
+        source: "legacy",
+        hasUI: false,
+        hasApi: false,
+        hasJobs: p.tasks.length > 0,
+        hasState: false,
+        hasEvents: false,
+        jobs: [],
+        legacyTasks: p.tasks,
+        legacySettings: p.settings,
+      });
+    }
+
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [extList, legacyList]);
+
+  // Derive categories from loaded extensions
+  const allCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const ext of allExtensions) {
+      for (const c of ext.categories) cats.add(c);
+    }
+    return Array.from(cats).sort();
+  }, [allExtensions]);
+
+  // Filter
+  const filtered = useMemo(() => {
+    let list = allExtensions;
+    if (categoryFilter !== "all") {
+      list = list.filter(e => e.categories.some(c => c.toLowerCase() === categoryFilter.toLowerCase()));
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(e =>
+        e.name.toLowerCase().includes(q) ||
+        (e.description?.toLowerCase().includes(q)) ||
+        e.id.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [allExtensions, categoryFilter, searchQuery]);
+
+  const toggleEnable = (ext: UnifiedExtension) => {
+    if (ext.source === "legacy") {
+      settingsMut.mutate({ enabledMap: { [ext.id]: !ext.enabled } });
+    } else {
+      enableMut.mutate({ id: ext.id, enable: !ext.enabled });
+    }
+  };
 
   return (
     <>
-      <SectionCard title="Installed Plugins" description="Manage extensions loaded into this instance.">
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-sm text-secondary">{sortedPlugins.length} plugin{sortedPlugins.length !== 1 ? "s" : ""} found</span>
-          <button
-            onClick={() => reloadMut.mutate()}
-            disabled={reloadMut.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-card hover:bg-card-hover rounded transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${reloadMut.isPending ? "animate-spin" : ""}`} />
-            Reload Plugins
-          </button>
+      {/* Installed Extensions */}
+      <SectionCard title="Installed Extensions" description="Manage extensions loaded into this instance.">
+        {/* Search and filter bar */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted" />
+            <input
+              type="text"
+              placeholder="Search extensions..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-sm bg-card border border-border rounded focus:outline-none focus:border-accent"
+            />
+          </div>
+          {allCategories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-3 py-1.5 text-sm bg-card border border-border rounded focus:outline-none focus:border-accent"
+            >
+              <option value="all">All Categories</option>
+              {allCategories.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+          <span className="text-sm text-secondary whitespace-nowrap">
+            {filtered.length} extension{filtered.length !== 1 ? "s" : ""}
+          </span>
         </div>
 
-        {sortedPlugins.length === 0 && (
-          <div className="text-sm text-muted py-6 text-center">No plugins installed</div>
+        {filtered.length === 0 && (
+          <div className="text-sm text-muted py-6 text-center">
+            {searchQuery || categoryFilter !== "all" ? "No extensions match your filter." : "No extensions installed."}
+          </div>
         )}
 
         <div className="space-y-2">
-          {sortedPlugins.map((plugin) => {
-            const isExpanded = expandedId === plugin.id;
+          {filtered.map((ext) => {
+            const isExpanded = expandedId === ext.id;
             return (
-              <div key={plugin.id} className="bg-card/50 rounded-lg border border-border/50">
+              <div key={ext.id} className="bg-card/50 rounded-lg border border-border/50 overflow-hidden">
                 <div
                   className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-card-hover/30 transition-colors"
-                  onClick={() => setExpandedId(isExpanded ? null : plugin.id)}
+                  onClick={() => setExpandedId(isExpanded ? null : ext.id)}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-2 h-2 rounded-full ${plugin.enabled ? "bg-green-400" : "bg-gray-500"}`} />
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${ext.enabled ? "bg-green-400" : "bg-gray-500"}`} />
                     <div className="min-w-0">
-                      <div className="font-medium text-sm flex items-center gap-2">
-                        {plugin.name}
-                        <span className="text-xs text-muted">v{plugin.version}</span>
+                      <div className="font-medium text-sm flex items-center gap-2 flex-wrap">
+                        {ext.name}
+                        <span className="text-xs text-muted">v{ext.version}</span>
+                        {ext.author && <span className="text-xs text-muted">by {ext.author}</span>}
                       </div>
-                      {plugin.description && (
-                        <div className="text-xs text-secondary truncate">{plugin.description}</div>
+                      {ext.description && (
+                        <div className="text-xs text-secondary truncate">{ext.description}</div>
+                      )}
+                      {ext.categories.length > 0 && (
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          {ext.categories.map(c => (
+                            <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-secondary border border-border/50">{c}</span>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        togglePlugin(plugin.id, !plugin.enabled);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); toggleEnable(ext); }}
                       className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-                        plugin.enabled
+                        ext.enabled
                           ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
                           : "bg-card/30 text-secondary hover:bg-card-hover/40"
                       }`}
                     >
-                      {plugin.enabled ? "Enabled" : "Disabled"}
+                      {ext.enabled ? "Enabled" : "Disabled"}
                     </button>
                     <span className="text-secondary text-xs">{isExpanded ? "▲" : "▼"}</span>
                   </div>
@@ -3073,31 +3203,36 @@ function PluginsPanel() {
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-border/50 pt-3 space-y-3">
                     <div className="text-xs text-muted">
-                      <span className="font-medium">ID:</span> {plugin.id}
-                      {plugin.url && (
-                        <> · <a href={plugin.url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{plugin.url}</a></>
+                      <span className="font-medium">ID:</span> {ext.id}
+                      {ext.url && (
+                        <> · <a href={ext.url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{ext.url}</a></>
                       )}
+                      {ext.source === "legacy" && <> · <span className="text-yellow-500">Python extension</span></>}
                     </div>
 
-                    {plugin.settings && plugin.settings.length > 0 && (
-                      <PluginSettingsForm pluginId={plugin.id} schema={plugin.settings} />
-                    )}
+                    {/* Capability badges */}
+                    <div className="flex gap-1.5 flex-wrap">
+                      {ext.hasUI && <ExtBadge label="UI" />}
+                      {ext.hasApi && <ExtBadge label="API" />}
+                      {ext.hasState && <ExtBadge label="Stateful" />}
+                      {ext.hasJobs && <ExtBadge label="Jobs" />}
+                      {ext.hasEvents && <ExtBadge label="Events" />}
+                    </div>
 
-                    {plugin.tasks.length > 0 && (
+                    {/* Jobs (only shown if extension has them) */}
+                    {ext.jobs.length > 0 && (
                       <div>
-                        <div className="text-xs font-medium text-secondary mb-2">Tasks</div>
+                        <div className="text-xs font-medium text-secondary mb-2">Jobs</div>
                         <div className="space-y-1.5">
-                          {plugin.tasks.map((task) => (
-                            <div key={task.name} className="flex items-center justify-between bg-surface/50 rounded px-3 py-2">
+                          {ext.jobs.map(job => (
+                            <div key={job.id} className="flex items-center justify-between bg-surface/50 rounded px-3 py-2">
                               <div>
-                                <div className="text-sm font-medium">{task.name}</div>
-                                {task.description && (
-                                  <div className="text-xs text-muted">{task.description}</div>
-                                )}
+                                <div className="text-sm font-medium">{job.name}</div>
+                                {job.description && <div className="text-xs text-muted">{job.description}</div>}
                               </div>
                               <button
-                                onClick={() => runTaskMut.mutate({ pluginId: plugin.id, taskName: task.name })}
-                                disabled={runTaskMut.isPending}
+                                onClick={() => runJobMut.mutate({ id: ext.id, jobId: job.id })}
+                                disabled={runJobMut.isPending}
                                 className="px-2 py-1 text-xs bg-accent hover:bg-accent-hover rounded transition-colors disabled:opacity-50"
                               >
                                 Run
@@ -3108,8 +3243,26 @@ function PluginsPanel() {
                       </div>
                     )}
 
-                    {plugin.tasks.length === 0 && (
-                      <div className="text-xs text-muted">No tasks defined for this plugin.</div>
+                    {/* Legacy tasks (only for Python extensions that have them) */}
+                    {ext.legacyTasks && ext.legacyTasks.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-secondary mb-2">Tasks</div>
+                        <div className="space-y-1.5">
+                          {ext.legacyTasks.map(task => (
+                            <div key={task.name} className="flex items-center justify-between bg-surface/50 rounded px-3 py-2">
+                              <div>
+                                <div className="text-sm font-medium">{task.name}</div>
+                                {task.description && <div className="text-xs text-muted">{task.description}</div>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Legacy settings */}
+                    {ext.legacySettings && ext.legacySettings.length > 0 && (
+                      <ExtensionSettingsForm extensionId={ext.id} schema={ext.legacySettings} />
                     )}
                   </div>
                 )}
@@ -3117,175 +3270,6 @@ function PluginsPanel() {
             );
           })}
         </div>
-      </SectionCard>
-
-      <PackageManagerSection />
-    </>
-  );
-}
-
-// ===== Package Manager =====
-function PackageManagerSection() {
-  const queryClient = useQueryClient();
-  const [pkgType, setPkgType] = useState<"plugin" | "scraper">("plugin");
-
-  const { data: availablePackages, isLoading: availLoading } = useQuery({
-    queryKey: ["available-packages", pkgType],
-    queryFn: () => pluginsApi.availablePackages(pkgType),
-  });
-
-  const { data: installedPackages } = useQuery({
-    queryKey: ["installed-packages", pkgType],
-    queryFn: () => pluginsApi.installedPackages(pkgType),
-  });
-
-  const installMut = useMutation({
-    mutationFn: (pkgs: { id: string; sourceUrl: string }[]) => pluginsApi.installPackages(pkgs),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["installed-packages"] });
-      queryClient.invalidateQueries({ queryKey: ["available-packages"] });
-      queryClient.invalidateQueries({ queryKey: ["plugins"] });
-    },
-  });
-
-  const uninstallMut = useMutation({
-    mutationFn: (ids: string[]) => pluginsApi.uninstallPackages(ids),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["installed-packages"] });
-      queryClient.invalidateQueries({ queryKey: ["available-packages"] });
-      queryClient.invalidateQueries({ queryKey: ["plugins"] });
-    },
-  });
-
-  const installedIds = new Set((installedPackages ?? []).map(p => p.name));
-
-  return (
-    <SectionCard title="Package Manager" description="Browse and install plugins and scrapers from configured package sources.">
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setPkgType("plugin")}
-          className={`px-3 py-1.5 text-sm rounded transition-colors ${pkgType === "plugin" ? "bg-accent text-white" : "bg-card border border-border text-secondary hover:text-foreground"}`}
-        >
-          <Plug className="w-3.5 h-3.5 inline mr-1.5" />
-          Plugins
-        </button>
-        <button
-          onClick={() => setPkgType("scraper")}
-          className={`px-3 py-1.5 text-sm rounded transition-colors ${pkgType === "scraper" ? "bg-accent text-white" : "bg-card border border-border text-secondary hover:text-foreground"}`}
-        >
-          <SearchCode className="w-3.5 h-3.5 inline mr-1.5" />
-          Scrapers
-        </button>
-      </div>
-
-      {availLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-5 h-5 animate-spin text-muted" />
-        </div>
-      ) : !availablePackages || availablePackages.length === 0 ? (
-        <div className="text-sm text-muted text-center py-6">
-          No available packages. Add package sources in Settings &gt; Library.
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {availablePackages.map((pkg) => {
-            const isInstalled = installedIds.has(pkg.name) || pkg.installed;
-            const hasUpdate = isInstalled && pkg.installedVersion && pkg.installedVersion !== pkg.version;
-            return (
-              <div key={`${pkg.name}-${pkg.sourceUrl}`} className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">{pkg.name}</span>
-                    <span className="text-xs text-muted">v{pkg.version}</span>
-                    {isInstalled && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-green-600/20 text-green-400">Installed</span>
-                    )}
-                    {hasUpdate && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-600/20 text-yellow-400">
-                        Update available (v{pkg.installedVersion} → v{pkg.version})
-                      </span>
-                    )}
-                  </div>
-                  {pkg.description && <p className="text-xs text-secondary mt-0.5 truncate">{pkg.description}</p>}
-                </div>
-                <div className="flex gap-2 ml-3 flex-shrink-0">
-                  {!isInstalled ? (
-                    <button
-                      onClick={() => installMut.mutate([{ id: pkg.name, sourceUrl: pkg.sourceUrl }])}
-                      disabled={installMut.isPending}
-                      className="px-3 py-1.5 text-xs bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50 flex items-center gap-1"
-                    >
-                      {installMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                      Install
-                    </button>
-                  ) : hasUpdate ? (
-                    <button
-                      onClick={() => installMut.mutate([{ id: pkg.name, sourceUrl: pkg.sourceUrl }])}
-                      disabled={installMut.isPending}
-                      className="px-3 py-1.5 text-xs bg-yellow-600 hover:bg-yellow-500 text-white rounded disabled:opacity-50 flex items-center gap-1"
-                    >
-                      {installMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                      Update
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => uninstallMut.mutate([pkg.name])}
-                      disabled={uninstallMut.isPending}
-                      className="px-3 py-1.5 text-xs bg-card border border-border text-muted hover:text-red-400 hover:border-red-500 rounded disabled:opacity-50 flex items-center gap-1"
-                    >
-                      {uninstallMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                      Uninstall
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </SectionCard>
-  );
-}
-
-// ===== Extensions Panel — replaces "Plugins" tab =====
-function ExtensionsPanel() {
-  const { availableThemes, activeThemeId, setActiveTheme, settingsPanels, resolveComponent } = useExtensions();
-  const { data: extList } = useQuery({
-    queryKey: ["extensions-list"],
-    queryFn: () => import("../api/client").then(m => m.extensions.list()),
-  });
-
-  return (
-    <>
-      {/* Extension Registry */}
-      <SectionCard title="Registered Extensions" description="Extensions provide themes, pages, tabs, settings panels, and API endpoints.">
-        {extList && extList.length > 0 ? (
-          <div className="space-y-2">
-            {extList.map((ext) => (
-              <div key={ext.id} className="flex items-center justify-between bg-surface rounded-lg px-4 py-3 border border-border">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm text-foreground">{ext.name}</span>
-                    <span className="text-xs text-muted">v{ext.version}</span>
-                  </div>
-                  {ext.description && (
-                    <div className="text-xs text-secondary mt-0.5">{ext.description}</div>
-                  )}
-                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                    {ext.hasUI && <ExtBadge label="UI" />}
-                    {ext.hasApi && <ExtBadge label="API" />}
-                    {ext.hasState && <ExtBadge label="Stateful" />}
-                    {ext.hasJobs && <ExtBadge label="Jobs" />}
-                    {ext.hasEvents && <ExtBadge label="Events" />}
-                  </div>
-                </div>
-                <div className={`w-2 h-2 rounded-full ${ext.enabled ? "bg-green-500" : "bg-gray-500"}`} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-muted py-4 text-center">Loading extensions...</div>
-        )}
       </SectionCard>
 
       {/* Extension-contributed settings panels */}
@@ -3304,9 +3288,255 @@ function ExtensionsPanel() {
           );
         })}
 
-      {/* Legacy Plugins */}
-      <PluginsPanel />
+      {/* Find and Install Extensions */}
+      <FindAndInstallExtensions />
     </>
+  );
+}
+
+// ===== Find and Install Extensions =====
+function FindAndInstallExtensions() {
+  const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [category, setCategory] = useState<string>("");
+  const [selectedExtension, setSelectedExtension] = useState<import("../api/types").RegistryExtensionDetail | null>(null);
+
+  const { data: searchResults, isLoading: searching, refetch: doSearch } = useQuery({
+    queryKey: ["registry-search", searchQuery, category],
+    queryFn: () => import("../api/client").then(m =>
+      m.extensions.registrySearch({ q: searchQuery || undefined, category: category || undefined, pageSize: 50 })
+    ),
+    enabled: true,
+  });
+
+  const { data: registryCategories } = useQuery({
+    queryKey: ["registry-categories"],
+    queryFn: () => import("../api/client").then(m => m.extensions.registryGetCategories()),
+  });
+
+  const { data: updates } = useQuery({
+    queryKey: ["registry-updates"],
+    queryFn: () => import("../api/client").then(m => m.extensions.registryCheckUpdates()),
+  });
+
+  const { data: installedList } = useQuery({
+    queryKey: ["extensions-list"],
+    queryFn: () => import("../api/client").then(m => m.extensions.list()),
+  });
+
+  const installMut = useMutation({
+    mutationFn: (args: { extensionId: string; version: string }) =>
+      import("../api/client").then(m => m.extensions.registryInstall(args.extensionId, args.version)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["registry-search"] });
+      queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+    },
+  });
+
+  const uninstallMut = useMutation({
+    mutationFn: (extensionId: string) =>
+      import("../api/client").then(m => m.extensions.registryUninstall(extensionId)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["registry-search"] });
+    },
+  });
+
+  const installedIds = new Set((installedList ?? []).map(e => e.id));
+  const updateMap = new Map((updates ?? []).map(u => [u.extensionId, u]));
+
+  const viewDetail = async (id: string) => {
+    const detail = await import("../api/client").then(m => m.extensions.registryGetExtension(id));
+    setSelectedExtension(detail);
+  };
+
+  return (
+    <SectionCard title="Find and Install Extensions" description="Browse and install extensions from the official Cove extension registry.">
+      {/* Updates banner */}
+      {updates && updates.length > 0 && (
+        <div className="mb-4 p-3 bg-yellow-600/10 border border-yellow-600/30 rounded-lg">
+          <div className="text-sm font-medium text-yellow-400 mb-1">Updates Available</div>
+          <div className="space-y-1">
+            {updates.map(u => (
+              <div key={u.extensionId} className="flex items-center justify-between text-xs">
+                <span className="text-secondary">{u.extensionId}: v{u.currentVersion} → v{u.latestVersion}</span>
+                <button
+                  onClick={() => installMut.mutate({ extensionId: u.extensionId, version: u.latestVersion })}
+                  disabled={installMut.isPending}
+                  className="px-2 py-0.5 bg-yellow-600 hover:bg-yellow-500 text-white rounded text-xs disabled:opacity-50"
+                >
+                  Update
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Search and filter */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted" />
+          <input
+            type="text"
+            placeholder="Search the extension registry..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-sm bg-card border border-border rounded focus:outline-none focus:border-accent"
+          />
+        </div>
+        {registryCategories && registryCategories.length > 0 && (
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="px-3 py-1.5 text-sm bg-card border border-border rounded focus:outline-none focus:border-accent"
+          >
+            <option value="">All Categories</option>
+            {registryCategories.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* Extension detail modal */}
+      {selectedExtension && (
+        <div className="mb-4 p-4 bg-surface rounded-lg border border-border">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h3 className="text-lg font-semibold">{selectedExtension.name}</h3>
+              <div className="text-xs text-muted mt-0.5">
+                v{selectedExtension.version}
+                {selectedExtension.author && <> · by {selectedExtension.author}</>}
+                {selectedExtension.downloads > 0 && <> · {selectedExtension.downloads.toLocaleString()} downloads</>}
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedExtension(null)}
+              className="text-secondary hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {selectedExtension.description && (
+            <p className="text-sm text-secondary mb-3">{selectedExtension.description}</p>
+          )}
+          {selectedExtension.categories.length > 0 && (
+            <div className="flex gap-1 mb-3 flex-wrap">
+              {selectedExtension.categories.map(c => (
+                <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-secondary border border-border/50">{c}</span>
+              ))}
+            </div>
+          )}
+          {selectedExtension.readme && (
+            <div className="text-xs text-secondary bg-card rounded p-3 mb-3 max-h-48 overflow-y-auto whitespace-pre-wrap">
+              {selectedExtension.readme}
+            </div>
+          )}
+          <div className="flex gap-2">
+            {!installedIds.has(selectedExtension.id) ? (
+              <button
+                onClick={() => installMut.mutate({ extensionId: selectedExtension.id, version: selectedExtension.version })}
+                disabled={installMut.isPending}
+                className="px-4 py-1.5 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {installMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                Install v{selectedExtension.version}
+              </button>
+            ) : (
+              <button
+                onClick={() => uninstallMut.mutate(selectedExtension.id)}
+                disabled={uninstallMut.isPending}
+                className="px-4 py-1.5 text-sm bg-card border border-border text-muted hover:text-red-400 hover:border-red-500 rounded disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {uninstallMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Uninstall
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Results grid */}
+      {searching ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-5 h-5 animate-spin text-muted" />
+        </div>
+      ) : !searchResults || searchResults.items.length === 0 ? (
+        <div className="text-sm text-muted text-center py-6">
+          {searchQuery ? "No extensions found matching your search." : "No extensions available in the registry yet."}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {searchResults.items.map((ext) => {
+            const isInstalled = installedIds.has(ext.id);
+            const update = updateMap.get(ext.id);
+            return (
+              <div
+                key={ext.id}
+                className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3 cursor-pointer hover:bg-card-hover/30 transition-colors"
+                onClick={() => viewDetail(ext.id)}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-foreground">{ext.name}</span>
+                    <span className="text-xs text-muted">v{ext.version}</span>
+                    {ext.author && <span className="text-xs text-muted">by {ext.author}</span>}
+                    {isInstalled && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-green-600/20 text-green-400">Installed</span>
+                    )}
+                    {update && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-600/20 text-yellow-400">
+                        Update: v{update.latestVersion}
+                      </span>
+                    )}
+                  </div>
+                  {ext.description && <p className="text-xs text-secondary mt-0.5 truncate">{ext.description}</p>}
+                  {ext.categories.length > 0 && (
+                    <div className="flex gap-1 mt-1 flex-wrap">
+                      {ext.categories.map(c => (
+                        <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-secondary border border-border/50">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 ml-3 flex-shrink-0">
+                  {!isInstalled ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); installMut.mutate({ extensionId: ext.id, version: ext.version }); }}
+                      disabled={installMut.isPending}
+                      className="px-3 py-1.5 text-xs bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {installMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                      Install
+                    </button>
+                  ) : update ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); installMut.mutate({ extensionId: ext.id, version: update.latestVersion }); }}
+                      disabled={installMut.isPending}
+                      className="px-3 py-1.5 text-xs bg-yellow-600 hover:bg-yellow-500 text-white rounded disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {installMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      Update
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); uninstallMut.mutate(ext.id); }}
+                      disabled={uninstallMut.isPending}
+                      className="px-3 py-1.5 text-xs bg-card border border-border text-muted hover:text-red-400 hover:border-red-500 rounded disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {uninstallMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      Uninstall
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 

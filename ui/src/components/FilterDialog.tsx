@@ -1,7 +1,17 @@
 import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus } from "lucide-react";
+import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus, Star } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi } from "../api/client";
+import { useAppConfig } from "../state/AppConfigContext";
+import {
+  normalizeRatingOptions,
+  defaultRatingSystemOptions,
+  convertToRatingFormat,
+  convertFromRatingFormat,
+  getRatingMax,
+  getRatingStep,
+  getRatingPrecision,
+} from "./Rating";
 import type {
   CriterionModifier,
   IntCriterion,
@@ -10,21 +20,30 @@ import type {
   MultiIdCriterion,
   DateCriterion,
   TimestampCriterion,
+  SceneFilterCriteria,
+  PerformerFilterCriteria,
+  TagFilterCriteria,
+  StudioFilterCriteria,
+  GalleryFilterCriteria,
+  ImageFilterCriteria,
+  GroupFilterCriteria,
 } from "../api/types";
 
 // ===== Criterion definitions =====
 
 export type CriterionType = "string" | "number" | "bool" | "date" | "timestamp" | "duration" | "rating" | "resolution" | "multiId" | "enum";
-export type EntityType = "tags" | "performers" | "studios" | "groups" | "galleries";
+export type EntityType = "tags" | "performers" | "studios" | "groups" | "galleries" | "scenes";
 
-export interface CriterionDefinition {
+export interface CriterionDefinition<TFilterKey extends string = string> {
   id: string;
   label: string;
   type: CriterionType;
   entityType?: EntityType;
-  filterKey: string;
+  filterKey: TFilterKey;
   options?: { value: string; label: string }[];
 }
+
+type CriteriaDefinitionList<TFilterCriteria> = CriterionDefinition<Extract<keyof TFilterCriteria, string>>[];
 
 // Modifier labels
 const MODIFIER_LABELS: Record<CriterionModifier, string> = {
@@ -59,7 +78,7 @@ const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
 };
 
 // Scene criterion definitions
-export const SCENE_CRITERIA: CriterionDefinition[] = [
+export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
   { id: "code", label: "Scene Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
@@ -95,9 +114,13 @@ export const SCENE_CRITERIA: CriterionDefinition[] = [
   { id: "lastPlayedAt", label: "Last Played", type: "timestamp", filterKey: "lastPlayedAtCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
+  { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
+  { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" },
+  { id: "captions", label: "Captions", type: "string", filterKey: "captionsCriterion" },
+  { id: "interactiveSpeed", label: "Interactive Speed", type: "number", filterKey: "interactiveSpeedCriterion" },
 ];
 
-export const PERFORMER_CRITERIA: CriterionDefinition[] = [
+export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria> = [
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "age", label: "Age", type: "number", filterKey: "ageCriterion" },
@@ -117,13 +140,40 @@ export const PERFORMER_CRITERIA: CriterionDefinition[] = [
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
   { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
   { id: "birthdate", label: "Birthdate", type: "date", filterKey: "birthdateCriterion" },
+  { id: "height", label: "Height (cm)", type: "number", filterKey: "heightCriterion" },
+  { id: "weight", label: "Weight", type: "number", filterKey: "weightCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
+  { id: "disambiguation", label: "Disambiguation", type: "string", filterKey: "disambiguationCriterion" },
+  { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
+  { id: "eyeColor", label: "Eye Color", type: "string", filterKey: "eyeColorCriterion" },
+  { id: "hairColor", label: "Hair Color", type: "string", filterKey: "hairColorCriterion" },
+  { id: "measurements", label: "Measurements", type: "string", filterKey: "measurementsCriterion" },
+  { id: "fakeTits", label: "Fake Tits", type: "string", filterKey: "fakeTitsCriterion" },
+  { id: "penisLength", label: "Penis Length", type: "number", filterKey: "penisLengthCriterion" },
+  { id: "circumcised", label: "Circumcised", type: "enum", filterKey: "circumcisedCriterion", options: [
+    { value: "Cut", label: "Cut" },
+    { value: "Uncut", label: "Uncut" },
+  ] },
+  { id: "careerStart", label: "Career Start", type: "date", filterKey: "careerStartCriterion" },
+  { id: "careerEnd", label: "Career End", type: "date", filterKey: "careerEndCriterion" },
+  { id: "tattoos", label: "Tattoos", type: "string", filterKey: "tattooCriterion" },
+  { id: "piercings", label: "Piercings", type: "string", filterKey: "piercingsCriterion" },
+  { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
+  { id: "deathDate", label: "Death Date", type: "date", filterKey: "deathDateCriterion" },
+  { id: "markerCount", label: "Marker Count", type: "number", filterKey: "markerCountCriterion" },
+  { id: "playCount", label: "Play Count", type: "number", filterKey: "playCountCriterion" },
+  { id: "oCounter", label: "O-Counter", type: "number", filterKey: "oCounterCriterion" },
+  { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
+  { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
 ];
 
-export const TAG_CRITERIA: CriterionDefinition[] = [
+export const TAG_CRITERIA: CriteriaDefinitionList<TagFilterCriteria> = [
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
   { id: "markerCount", label: "Marker Count", type: "number", filterKey: "markerCountCriterion" },
@@ -132,54 +182,108 @@ export const TAG_CRITERIA: CriterionDefinition[] = [
   { id: "children", label: "Child Tags", type: "multiId", entityType: "tags", filterKey: "childrenCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
+  { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
+  { id: "sortName", label: "Sort Name", type: "string", filterKey: "sortNameCriterion" },
+  { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
+  { id: "description", label: "Description", type: "string", filterKey: "descriptionCriterion" },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
+  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
+  { id: "studioCount", label: "Studio Count", type: "number", filterKey: "studioCountCriterion" },
+  { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion" },
+  { id: "parentCount", label: "Parent Count", type: "number", filterKey: "parentCountCriterion" },
+  { id: "childCount", label: "Child Count", type: "number", filterKey: "childCountCriterion" },
+  { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
+  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
 ];
 
-export const STUDIO_CRITERIA: CriterionDefinition[] = [
+export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
+  { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
+  { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
+  { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
+  { id: "parents", label: "Parent Studios", type: "multiId", entityType: "studios", filterKey: "parentsCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+  { id: "childCount", label: "Child Count", type: "number", filterKey: "childCountCriterion" },
+  { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion" },
+  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
+  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
+  { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
+  { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
 ];
 
-export const GALLERY_CRITERIA: CriterionDefinition[] = [
+export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
+  { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
+  { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
+  { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
+  { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
+  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
+  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
-  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "scenes", label: "Scenes", type: "multiId", entityType: "scenes", filterKey: "scenesCriterion" },
+  { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
+  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
+  { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
 
-export const IMAGE_CRITERIA: CriterionDefinition[] = [
+export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
+  { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
+  { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
+  { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
+  { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
+  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
+  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
+  { id: "oCounter", label: "O-Counter", type: "number", filterKey: "oCounterCriterion" },
+  { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
   { id: "galleries", label: "Galleries", type: "multiId", entityType: "galleries", filterKey: "galleriesCriterion" },
-  { id: "oCounter", label: "O-Counter", type: "number", filterKey: "oCounterCriterion" },
-  { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
+  { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
 
-export const GROUP_CRITERIA: CriterionDefinition[] = [
+export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
+  { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "director", label: "Director", type: "string", filterKey: "directorCriterion" },
+  { id: "synopsis", label: "Synopsis", type: "string", filterKey: "synopsisCriterion" },
   { id: "duration", label: "Duration", type: "duration", filterKey: "durationCriterion" },
-  { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
-  { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
+  { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
+  { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
+  { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
+  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
@@ -459,9 +563,10 @@ function CriterionEditor({
   switch (type) {
     case "bool":
       return <BoolEditor value={value as BoolCriterion | undefined} onChange={onChange} />;
+    case "rating":
+      return <RatingFilterEditor value={value as IntCriterion | undefined} onChange={onChange} />;
     case "number":
     case "duration":
-    case "rating":
     case "resolution":
       return <NumberEditor value={value as IntCriterion | undefined} onChange={onChange} type={type} />;
     case "string":
@@ -525,12 +630,7 @@ function NumberEditor({ value, onChange, type }: { value?: IntCriterion; onChang
             <input
               type="number"
               value={value?.value ?? 0}
-              onChange={(e) => {
-                let v = Number(e.target.value);
-                if (type === "rating") v = Math.max(0, Math.min(100, v));
-                update({ value: v });
-              }}
-              {...(type === "rating" ? { min: 0, max: 100 } : {})}
+              onChange={(e) => update({ value: Number(e.target.value) })}
               className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             />
           )}
@@ -543,15 +643,154 @@ function NumberEditor({ value, onChange, type }: { value?: IntCriterion; onChang
                 <input
                   type="number"
                   value={value?.value2 ?? 0}
-                  onChange={(e) => {
-                    let v = Number(e.target.value);
-                    if (type === "rating") v = Math.max(0, Math.min(100, v));
-                    update({ value2: v });
-                  }}
-                  {...(type === "rating" ? { min: 0, max: 100 } : {})}
+                  onChange={(e) => update({ value2: Number(e.target.value) })}
                   className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
                 />
               )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Rating Editor — uses the user's configured rating system =====
+
+function RatingStarInput({
+  displayValue,
+  onChangeDisplay,
+  step,
+  sizeClass,
+}: {
+  displayValue: number;
+  onChangeDisplay: (v: number) => void;
+  step: number;
+  sizeClass?: string;
+}) {
+  const [hoverValue, setHoverValue] = useState<number | null>(null);
+  const activeValue = hoverValue ?? displayValue;
+  const cls = sizeClass ?? "h-4 w-4";
+
+  return (
+    <div className="flex items-center gap-0.5" onMouseLeave={() => setHoverValue(null)}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          type="button"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            const segments = Math.max(1, Math.ceil(ratio / step));
+            const frac = Math.min(1, Number((segments * step).toFixed(2)));
+            setHoverValue(star - 1 + frac);
+          }}
+          onMouseLeave={() => setHoverValue(null)}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            const segments = Math.max(1, Math.ceil(ratio / step));
+            const frac = Math.min(1, Number((segments * step).toFixed(2)));
+            const next = star - 1 + frac;
+            onChangeDisplay(next === displayValue ? 0 : next);
+          }}
+          className="relative text-accent transition-transform hover:scale-110"
+        >
+          <Star className={`${cls} text-muted`} />
+          <span
+            className="absolute inset-y-0 left-0 overflow-hidden"
+            style={{ width: `${Math.max(0, Math.min(1, activeValue - (star - 1))) * 100}%` }}
+          >
+            <Star className={`${cls} fill-current text-accent`} />
+          </span>
+        </button>
+      ))}
+      {hoverValue != null && (
+        <span className="text-xs text-secondary ml-1">{hoverValue.toFixed(step < 1 ? 1 : 0)}</span>
+      )}
+    </div>
+  );
+}
+
+function RatingFilterInput({
+  rawValue,
+  onChangeRaw,
+}: {
+  rawValue: number;
+  onChangeRaw: (v: number) => void;
+}) {
+  const { config } = useAppConfig();
+  const options = normalizeRatingOptions(config?.ui.ratingSystemOptions ?? defaultRatingSystemOptions);
+  const displayValue = convertToRatingFormat(rawValue || undefined, options) ?? 0;
+  const max = getRatingMax(options);
+  const step = getRatingStep(options);
+
+  const setDisplay = (v: number) => {
+    const clamped = Math.min(max, Math.max(0, Number(v.toFixed(2))));
+    onChangeRaw(convertFromRatingFormat(clamped, options));
+  };
+
+  if (options.type === "stars") {
+    return (
+      <div className="flex items-center gap-2">
+        <RatingStarInput
+          displayValue={displayValue}
+          onChangeDisplay={setDisplay}
+          step={getRatingPrecision(options.starPrecision)}
+        />
+        <input
+          type="number"
+          value={displayValue || ""}
+          min={0}
+          max={max}
+          step={step}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v)) setDisplay(v);
+          }}
+          className="w-16 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+        />
+      </div>
+    );
+  }
+
+  // Decimal mode
+  return (
+    <input
+      type="number"
+      value={displayValue || ""}
+      min={0}
+      max={max}
+      step={step}
+      onChange={(e) => {
+        const v = Number(e.target.value);
+        if (Number.isFinite(v)) setDisplay(v);
+      }}
+      className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+    />
+  );
+}
+
+function RatingFilterEditor({ value, onChange }: { value?: IntCriterion; onChange: (v: unknown) => void }) {
+  const modifiers = TYPE_MODIFIERS.rating;
+  const modifier = value?.modifier ?? "EQUALS";
+  const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
+  const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
+
+  const update = (patch: Partial<IntCriterion>) => {
+    onChange({ value: value?.value ?? 0, modifier, ...value, ...patch });
+  };
+
+  return (
+    <div className="space-y-2">
+      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => update({ modifier: m })} />
+      {!isNull && (
+        <div className="space-y-2">
+          <RatingFilterInput rawValue={value?.value ?? 0} onChangeRaw={(v) => update({ value: v })} />
+          {isBetween && (
+            <>
+              <span className="text-xs text-muted">and</span>
+              <RatingFilterInput rawValue={value?.value2 ?? 0} onChangeRaw={(v) => update({ value2: v })} />
             </>
           )}
         </div>

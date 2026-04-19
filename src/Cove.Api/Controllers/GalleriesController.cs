@@ -69,6 +69,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (dto.Urls?.Count > 0) gallery.Urls = dto.Urls.Select(u => new GalleryUrl { Url = u }).ToList();
         if (dto.TagIds?.Count > 0) gallery.GalleryTags = dto.TagIds.Select(id => new GalleryTag { TagId = id }).ToList();
         if (dto.PerformerIds?.Count > 0) gallery.GalleryPerformers = dto.PerformerIds.Select(id => new GalleryPerformer { PerformerId = id }).ToList();
+        if (dto.SceneIds?.Count > 0) gallery.SceneGalleries = dto.SceneIds.Select(id => new SceneGallery { SceneId = id }).ToList();
 
         gallery = await galleryRepo.AddAsync(gallery, ct);
         var result = await galleryRepo.GetByIdWithRelationsAsync(gallery.Id, ct);

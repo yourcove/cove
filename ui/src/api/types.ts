@@ -885,6 +885,10 @@ export interface SceneFilterCriteria {
   playDurationCriterion?: IntCriterion;
   lastPlayedAtCriterion?: TimestampCriterion;
   galleriesCriterion?: MultiIdCriterion;
+  performerTagsCriterion?: MultiIdCriterion;
+  performerAgeCriterion?: IntCriterion;
+  captionsCriterion?: StringCriterion;
+  interactiveSpeedCriterion?: IntCriterion;
 }
 
 export interface PerformerFilterCriteria {
@@ -912,6 +916,26 @@ export interface PerformerFilterCriteria {
   heightCriterion?: IntCriterion;
   isMissingCriterion?: BoolCriterion;
   remoteIdCriterion?: StringCriterion;
+  disambiguationCriterion?: StringCriterion;
+  detailsCriterion?: StringCriterion;
+  eyeColorCriterion?: StringCriterion;
+  hairColorCriterion?: StringCriterion;
+  measurementsCriterion?: StringCriterion;
+  fakeTitsCriterion?: StringCriterion;
+  penisLengthCriterion?: IntCriterion;
+  circumcisedCriterion?: StringCriterion;
+  careerStartCriterion?: DateCriterion;
+  careerEndCriterion?: DateCriterion;
+  tattooCriterion?: StringCriterion;
+  piercingsCriterion?: StringCriterion;
+  aliasesCriterion?: StringCriterion;
+  deathDateCriterion?: DateCriterion;
+  markerCountCriterion?: IntCriterion;
+  playCountCriterion?: IntCriterion;
+  oCounterCriterion?: IntCriterion;
+  groupsCriterion?: MultiIdCriterion;
+  ignoreAutoTagCriterion?: BoolCriterion;
+  tagCountCriterion?: IntCriterion;
 }
 
 export interface TagFilterCriteria {
@@ -926,6 +950,17 @@ export interface TagFilterCriteria {
   isMissingCriterion?: BoolCriterion;
   createdAtCriterion?: TimestampCriterion;
   updatedAtCriterion?: TimestampCriterion;
+  nameCriterion?: StringCriterion;
+  sortNameCriterion?: StringCriterion;
+  aliasesCriterion?: StringCriterion;
+  descriptionCriterion?: StringCriterion;
+  imageCountCriterion?: IntCriterion;
+  galleryCountCriterion?: IntCriterion;
+  studioCountCriterion?: IntCriterion;
+  groupCountCriterion?: IntCriterion;
+  parentCountCriterion?: IntCriterion;
+  childCountCriterion?: IntCriterion;
+  ignoreAutoTagCriterion?: BoolCriterion;
 }
 
 export interface StudioFilterCriteria {
@@ -942,6 +977,17 @@ export interface StudioFilterCriteria {
   isMissingCriterion?: BoolCriterion;
   createdAtCriterion?: TimestampCriterion;
   updatedAtCriterion?: TimestampCriterion;
+  nameCriterion?: StringCriterion;
+  detailsCriterion?: StringCriterion;
+  aliasesCriterion?: StringCriterion;
+  parentsCriterion?: MultiIdCriterion;
+  childCountCriterion?: IntCriterion;
+  tagCountCriterion?: IntCriterion;
+  groupCountCriterion?: IntCriterion;
+  ignoreAutoTagCriterion?: BoolCriterion;
+  organizedCriterion?: BoolCriterion;
+  galleryCountCriterion?: IntCriterion;
+  imageCountCriterion?: IntCriterion;
 }
 
 export interface GalleryFilterCriteria {
@@ -957,6 +1003,7 @@ export interface GalleryFilterCriteria {
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
   imageCountCriterion?: IntCriterion;
+  titleCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
   pathCriterion?: StringCriterion;
   urlCriterion?: StringCriterion;
@@ -964,6 +1011,14 @@ export interface GalleryFilterCriteria {
   updatedAtCriterion?: TimestampCriterion;
   performerFavoriteCriterion?: BoolCriterion;
   isMissingCriterion?: BoolCriterion;
+  codeCriterion?: StringCriterion;
+  detailsCriterion?: StringCriterion;
+  photographerCriterion?: StringCriterion;
+  fileCountCriterion?: IntCriterion;
+  tagCountCriterion?: IntCriterion;
+  performerCountCriterion?: IntCriterion;
+  scenesCriterion?: MultiIdCriterion;
+  performerTagsCriterion?: MultiIdCriterion;
 }
 
 export interface ImageFilterCriteria {
@@ -980,6 +1035,7 @@ export interface ImageFilterCriteria {
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
   galleriesCriterion?: MultiIdCriterion;
+  titleCriterion?: StringCriterion;
   oCounterCriterion?: IntCriterion;
   resolutionCriterion?: IntCriterion;
   pathCriterion?: StringCriterion;
@@ -987,12 +1043,22 @@ export interface ImageFilterCriteria {
   updatedAtCriterion?: TimestampCriterion;
   performerFavoriteCriterion?: BoolCriterion;
   isMissingCriterion?: BoolCriterion;
+  codeCriterion?: StringCriterion;
+  detailsCriterion?: StringCriterion;
+  photographerCriterion?: StringCriterion;
+  urlCriterion?: StringCriterion;
+  dateCriterion?: DateCriterion;
+  fileCountCriterion?: IntCriterion;
+  tagCountCriterion?: IntCriterion;
+  performerCountCriterion?: IntCriterion;
+  performerTagsCriterion?: MultiIdCriterion;
 }
 
 export interface GroupFilterCriteria {
   name?: string;
   rating?: number;
   studioId?: number;
+  nameCriterion?: StringCriterion;
   ratingCriterion?: IntCriterion;
   durationCriterion?: IntCriterion;
   studiosCriterion?: MultiIdCriterion;
@@ -1002,6 +1068,11 @@ export interface GroupFilterCriteria {
   createdAtCriterion?: TimestampCriterion;
   updatedAtCriterion?: TimestampCriterion;
   isMissingCriterion?: BoolCriterion;
+  directorCriterion?: StringCriterion;
+  synopsisCriterion?: StringCriterion;
+  performersCriterion?: MultiIdCriterion;
+  sceneCountCriterion?: IntCriterion;
+  tagCountCriterion?: IntCriterion;
 }
 
 export interface FilteredQueryRequest<T = Record<string, unknown>> {

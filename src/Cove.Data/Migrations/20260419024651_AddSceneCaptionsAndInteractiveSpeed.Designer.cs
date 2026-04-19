@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cove.Data.Migrations
 {
     [DbContext(typeof(CoveContext))]
-    partial class CoveContextModelSnapshot : ModelSnapshot
+    [Migration("20260419024651_AddSceneCaptionsAndInteractiveSpeed")]
+    partial class AddSceneCaptionsAndInteractiveSpeed
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -596,4 +596,16 @@ export const extensions = {
   registryCheckUpdates: () => request<RegistryUpdateInfo[]>("/extensions/registry/updates"),
   /** Registry: get categories. */
   registryGetCategories: () => request<string[]>("/extensions/registry/categories"),
+  /** Registry: install an extension. */
+  registryInstall: (extensionId: string, version: string) =>
+    request<{ message: string; path: string }>("/extensions/registry/install", {
+      method: "POST",
+      body: JSON.stringify({ extensionId, version }),
+    }),
+  /** Registry: uninstall an extension. */
+  registryUninstall: (extensionId: string) =>
+    request<{ message: string }>("/extensions/registry/uninstall", {
+      method: "POST",
+      body: JSON.stringify({ extensionId }),
+    }),
 };

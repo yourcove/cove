@@ -142,6 +142,5 @@ public class SceneMarkersController(ISceneMarkerRepository markerRepo, ISceneRep
         m.Id, m.Title, m.Seconds, m.EndSeconds, m.PrimaryTagId, m.PrimaryTag?.Name ?? "");
 }
 
-// DTOs for scene markers (add to DTOs file or keep here for now)
-public record SceneMarkerCreateDto(string Title, double Seconds, double? EndSeconds, int PrimaryTagId, List<int>? TagIds);
-public record SceneMarkerUpdateDto(string? Title, double? Seconds, double? EndSeconds, int? PrimaryTagId);
+// DTOs for scene markers - use Cove.Core.DTOs versions instead
+// (SceneMarkerCreateDto and SceneMarkerUpdateDto are in Cove.Core.DTOs.DTOs)

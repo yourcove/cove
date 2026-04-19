@@ -140,6 +140,10 @@ public class SceneFilter
     public IntCriterion? PlayDurationCriterion { get; set; }
     public TimestampCriterion? LastPlayedAtCriterion { get; set; }
     public MultiIdCriterion? GalleriesCriterion { get; set; }
+    public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public IntCriterion? PerformerAgeCriterion { get; set; }
+    public StringCriterion? CaptionsCriterion { get; set; }
+    public IntCriterion? InteractiveSpeedCriterion { get; set; }
 }
 
 public class PerformerFilter
@@ -170,6 +174,26 @@ public class PerformerFilter
     public IntCriterion? HeightCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
     public StringCriterion? RemoteIdCriterion { get; set; }
+    public StringCriterion? DisambiguationCriterion { get; set; }
+    public StringCriterion? DetailsCriterion { get; set; }
+    public StringCriterion? EyeColorCriterion { get; set; }
+    public StringCriterion? HairColorCriterion { get; set; }
+    public StringCriterion? MeasurementsCriterion { get; set; }
+    public StringCriterion? FakeTitsCriterion { get; set; }
+    public IntCriterion? PenisLengthCriterion { get; set; }
+    public StringCriterion? CircumcisedCriterion { get; set; }
+    public DateCriterion? CareerStartCriterion { get; set; }
+    public DateCriterion? CareerEndCriterion { get; set; }
+    public StringCriterion? TattooCriterion { get; set; }
+    public StringCriterion? PiercingsCriterion { get; set; }
+    public StringCriterion? AliasesCriterion { get; set; }
+    public DateCriterion? DeathDateCriterion { get; set; }
+    public IntCriterion? MarkerCountCriterion { get; set; }
+    public IntCriterion? PlayCountCriterion { get; set; }
+    public IntCriterion? OCounterCriterion { get; set; }
+    public MultiIdCriterion? GroupsCriterion { get; set; }
+    public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
+    public IntCriterion? TagCountCriterion { get; set; }
 }
 
 public class TagFilter
@@ -186,6 +210,17 @@ public class TagFilter
     public BoolCriterion? IsMissingCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
+    public StringCriterion? NameCriterion { get; set; }
+    public StringCriterion? SortNameCriterion { get; set; }
+    public StringCriterion? AliasesCriterion { get; set; }
+    public StringCriterion? DescriptionCriterion { get; set; }
+    public IntCriterion? ImageCountCriterion { get; set; }
+    public IntCriterion? GalleryCountCriterion { get; set; }
+    public IntCriterion? StudioCountCriterion { get; set; }
+    public IntCriterion? GroupCountCriterion { get; set; }
+    public IntCriterion? ParentCountCriterion { get; set; }
+    public IntCriterion? ChildCountCriterion { get; set; }
+    public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
 }
 
 public class StudioFilter
@@ -206,6 +241,15 @@ public class StudioFilter
     public BoolCriterion? IsMissingCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
+    public StringCriterion? NameCriterion { get; set; }
+    public StringCriterion? DetailsCriterion { get; set; }
+    public StringCriterion? AliasesCriterion { get; set; }
+    public MultiIdCriterion? ParentsCriterion { get; set; }
+    public IntCriterion? ChildCountCriterion { get; set; }
+    public IntCriterion? TagCountCriterion { get; set; }
+    public IntCriterion? GroupCountCriterion { get; set; }
+    public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
+    public BoolCriterion? OrganizedCriterion { get; set; }
 }
 
 public class GalleryFilter
@@ -223,6 +267,7 @@ public class GalleryFilter
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public IntCriterion? ImageCountCriterion { get; set; }
+    public StringCriterion? TitleCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
     public StringCriterion? UrlCriterion { get; set; }
@@ -230,6 +275,14 @@ public class GalleryFilter
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
     public BoolCriterion? PerformerFavoriteCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
+    public StringCriterion? CodeCriterion { get; set; }
+    public StringCriterion? DetailsCriterion { get; set; }
+    public StringCriterion? PhotographerCriterion { get; set; }
+    public IntCriterion? FileCountCriterion { get; set; }
+    public IntCriterion? TagCountCriterion { get; set; }
+    public IntCriterion? PerformerCountCriterion { get; set; }
+    public MultiIdCriterion? ScenesCriterion { get; set; }
+    public MultiIdCriterion? PerformerTagsCriterion { get; set; }
 }
 
 public class ImageFilter
@@ -248,6 +301,7 @@ public class ImageFilter
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public MultiIdCriterion? GalleriesCriterion { get; set; }
+    public StringCriterion? TitleCriterion { get; set; }
     public IntCriterion? OCounterCriterion { get; set; }
     public IntCriterion? ResolutionCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
@@ -255,6 +309,15 @@ public class ImageFilter
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
     public BoolCriterion? PerformerFavoriteCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
+    public StringCriterion? CodeCriterion { get; set; }
+    public StringCriterion? DetailsCriterion { get; set; }
+    public StringCriterion? PhotographerCriterion { get; set; }
+    public StringCriterion? UrlCriterion { get; set; }
+    public DateCriterion? DateCriterion { get; set; }
+    public IntCriterion? FileCountCriterion { get; set; }
+    public IntCriterion? TagCountCriterion { get; set; }
+    public IntCriterion? PerformerCountCriterion { get; set; }
+    public MultiIdCriterion? PerformerTagsCriterion { get; set; }
 }
 
 public class GroupFilter
@@ -266,6 +329,7 @@ public class GroupFilter
     // Advanced criteria
     public IntCriterion? RatingCriterion { get; set; }
     public IntCriterion? DurationCriterion { get; set; }
+    public StringCriterion? NameCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public MultiIdCriterion? TagsCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
@@ -273,4 +337,9 @@ public class GroupFilter
     public TimestampCriterion? CreatedAtCriterion { get; set; }
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
+    public StringCriterion? DirectorCriterion { get; set; }
+    public StringCriterion? SynopsisCriterion { get; set; }
+    public MultiIdCriterion? PerformersCriterion { get; set; }
+    public IntCriterion? SceneCountCriterion { get; set; }
+    public IntCriterion? TagCountCriterion { get; set; }
 }

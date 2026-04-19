@@ -124,10 +124,102 @@ public class PerformerRepository : IPerformerRepository
 
             // Date criteria
             query = FilterHelpers.ApplyDate(query, filter.BirthdateCriterion, p => p.Birthdate);
+            query = FilterHelpers.ApplyDate(query, filter.DeathDateCriterion, p => p.DeathDate);
+            query = FilterHelpers.ApplyDate(query, filter.CareerStartCriterion, p => p.CareerStart);
+            query = FilterHelpers.ApplyDate(query, filter.CareerEndCriterion, p => p.CareerEnd);
 
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, p => p.CreatedAt);
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, p => p.UpdatedAt);
+
+            // String criteria for new fields
+            query = FilterHelpers.ApplyString(query, filter.DisambiguationCriterion, p => p.Disambiguation);
+            query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, p => p.Details);
+            query = FilterHelpers.ApplyString(query, filter.EyeColorCriterion, p => p.EyeColor);
+            query = FilterHelpers.ApplyString(query, filter.HairColorCriterion, p => p.HairColor);
+            query = FilterHelpers.ApplyString(query, filter.MeasurementsCriterion, p => p.Measurements);
+            query = FilterHelpers.ApplyString(query, filter.FakeTitsCriterion, p => p.FakeTits);
+            if (filter.CircumcisedCriterion != null)
+            {
+                var val = filter.CircumcisedCriterion.Value;
+                if (Enum.TryParse<Core.Enums.CircumcisedEnum>(val, true, out var circumVal))
+                {
+                    query = filter.CircumcisedCriterion.Modifier switch
+                    {
+                        CriterionModifier.Equals => query.Where(p => p.Circumcised == circumVal),
+                        CriterionModifier.NotEquals => query.Where(p => p.Circumcised != circumVal),
+                        CriterionModifier.IsNull => query.Where(p => p.Circumcised == null),
+                        CriterionModifier.NotNull => query.Where(p => p.Circumcised != null),
+                        _ => query.Where(p => p.Circumcised == circumVal),
+                    };
+                }
+                else
+                {
+                    query = filter.CircumcisedCriterion.Modifier switch
+                    {
+                        CriterionModifier.IsNull => query.Where(p => p.Circumcised == null),
+                        CriterionModifier.NotNull => query.Where(p => p.Circumcised != null),
+                        _ => query,
+                    };
+                }
+            }
+            query = FilterHelpers.ApplyString(query, filter.TattooCriterion, p => p.Tattoos);
+            query = FilterHelpers.ApplyString(query, filter.PiercingsCriterion, p => p.Piercings);
+
+            // Aliases criterion
+            if (filter.AliasesCriterion != null)
+            {
+                var aliasVal = filter.AliasesCriterion.Value;
+                query = filter.AliasesCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                    CriterionModifier.Excludes => query.Where(p => !p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                    CriterionModifier.IsNull => query.Where(p => p.Aliases.Count == 0),
+                    CriterionModifier.NotNull => query.Where(p => p.Aliases.Count > 0),
+                    _ => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                };
+            }
+
+            // PenisLength as int (rounded)
+            query = FilterHelpers.ApplyInt(query, filter.PenisLengthCriterion, p => (int)(p.PenisLength ?? 0));
+
+            // Count criteria
+            query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, p => p.PerformerTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.PlayCountCriterion, p => p.ScenePerformers.Sum(sp => sp.Scene!.PlayCount));
+            query = FilterHelpers.ApplyInt(query, filter.OCounterCriterion, p => p.ScenePerformers.Sum(sp => sp.Scene!.OCounter));
+
+            // Groups criterion
+            if (filter.GroupsCriterion != null)
+            {
+                var gIds = filter.GroupsCriterion.Value;
+                query = filter.GroupsCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(p => p.ScenePerformers.Any(sp => sp.Scene!.SceneGroups.Any(sg => gIds.Contains(sg.GroupId)))),
+                    CriterionModifier.Excludes => query.Where(p => !p.ScenePerformers.Any(sp => sp.Scene!.SceneGroups.Any(sg => gIds.Contains(sg.GroupId)))),
+                    _ => query.Where(p => p.ScenePerformers.Any(sp => sp.Scene!.SceneGroups.Any(sg => gIds.Contains(sg.GroupId)))),
+                };
+            }
+
+            // IgnoreAutoTag criterion
+            if (filter.IgnoreAutoTagCriterion != null)
+                query = query.Where(p => p.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
+
+            // Marker count criterion
+            if (filter.MarkerCountCriterion != null)
+            {
+                var mcVal = filter.MarkerCountCriterion.Value;
+                var mcVal2 = filter.MarkerCountCriterion.Value2 ?? mcVal;
+                query = filter.MarkerCountCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals => query.Where(p => p.ScenePerformers.SelectMany(sp => sp.Scene!.SceneMarkers).Count() == mcVal),
+                    CriterionModifier.NotEquals => query.Where(p => p.ScenePerformers.SelectMany(sp => sp.Scene!.SceneMarkers).Count() != mcVal),
+                    CriterionModifier.GreaterThan => query.Where(p => p.ScenePerformers.SelectMany(sp => sp.Scene!.SceneMarkers).Count() > mcVal),
+                    CriterionModifier.LessThan => query.Where(p => p.ScenePerformers.SelectMany(sp => sp.Scene!.SceneMarkers).Count() < mcVal),
+                    CriterionModifier.Between => query.Where(p => p.ScenePerformers.SelectMany(sp => sp.Scene!.SceneMarkers).Count() >= mcVal &&
+                        p.ScenePerformers.SelectMany(sp => sp.Scene!.SceneMarkers).Count() <= mcVal2),
+                    _ => query,
+                };
+            }
 
             // RemoteId criterion
             if (filter.RemoteIdCriterion != null)
@@ -287,6 +379,37 @@ public class TagRepository : ITagRepository
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, t => t.CreatedAt);
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, t => t.UpdatedAt);
+
+            // String criteria
+            query = FilterHelpers.ApplyString(query, filter.NameCriterion, t => t.Name);
+            query = FilterHelpers.ApplyString(query, filter.SortNameCriterion, t => t.SortName);
+            query = FilterHelpers.ApplyString(query, filter.DescriptionCriterion, t => t.Description);
+
+            // Aliases criterion
+            if (filter.AliasesCriterion != null)
+            {
+                var aliasVal = filter.AliasesCriterion.Value;
+                query = filter.AliasesCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                    CriterionModifier.Excludes => query.Where(t => !t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                    CriterionModifier.IsNull => query.Where(t => t.Aliases.Count == 0),
+                    CriterionModifier.NotNull => query.Where(t => t.Aliases.Count > 0),
+                    _ => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                };
+            }
+
+            // Count criteria
+            query = FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, t => t.ImageTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.GalleryCountCriterion, t => t.GalleryTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.StudioCountCriterion, t => t.StudioTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.GroupCountCriterion, t => t.GroupTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.ParentCountCriterion, t => t.ParentRelations.Count);
+            query = FilterHelpers.ApplyInt(query, filter.ChildCountCriterion, t => t.ChildRelations.Count);
+
+            // IgnoreAutoTag criterion
+            if (filter.IgnoreAutoTagCriterion != null)
+                query = query.Where(t => t.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
         }
 
         if (findFilter != null && !string.IsNullOrEmpty(findFilter.Q))
@@ -405,6 +528,47 @@ public class StudioRepository : IStudioRepository
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, s => s.CreatedAt);
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, s => s.UpdatedAt);
+
+            // String criteria
+            query = FilterHelpers.ApplyString(query, filter.NameCriterion, s => s.Name);
+            query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, s => s.Details);
+
+            // Aliases criterion
+            if (filter.AliasesCriterion != null)
+            {
+                var aliasVal = filter.AliasesCriterion.Value;
+                query = filter.AliasesCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(s => s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                    CriterionModifier.Excludes => query.Where(s => !s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                    CriterionModifier.IsNull => query.Where(s => s.Aliases.Count == 0),
+                    CriterionModifier.NotNull => query.Where(s => s.Aliases.Count > 0),
+                    _ => query.Where(s => s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                };
+            }
+
+            // Parents (multi-ID on parent studios)
+            if (filter.ParentsCriterion != null)
+            {
+                var pIds = filter.ParentsCriterion.Value;
+                query = filter.ParentsCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(s => s.ParentId.HasValue && pIds.Contains(s.ParentId.Value)),
+                    CriterionModifier.Excludes => query.Where(s => !s.ParentId.HasValue || !pIds.Contains(s.ParentId.Value)),
+                    _ => query.Where(s => s.ParentId.HasValue && pIds.Contains(s.ParentId.Value)),
+                };
+            }
+
+            // Count criteria
+            query = FilterHelpers.ApplyInt(query, filter.ChildCountCriterion, s => s.Children.Count);
+            query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, s => s.StudioTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.GroupCountCriterion, s => s.Groups.Count);
+
+            // Bool criteria
+            if (filter.IgnoreAutoTagCriterion != null)
+                query = query.Where(s => s.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
+            if (filter.OrganizedCriterion != null)
+                query = query.Where(s => s.Organized == filter.OrganizedCriterion.Value);
         }
         if (findFilter != null && !string.IsNullOrEmpty(findFilter.Q))
             query = query.Where(s => EF.Functions.ILike(s.Name, $"%{findFilter.Q}%"));
@@ -540,6 +704,33 @@ public class GalleryRepository : IGalleryRepository
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, g => g.CreatedAt);
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, g => g.UpdatedAt);
+
+            // String criteria
+            query = FilterHelpers.ApplyString(query, filter.TitleCriterion, g => g.Title);
+            query = FilterHelpers.ApplyString(query, filter.CodeCriterion, g => g.Code);
+            query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, g => g.Details);
+            query = FilterHelpers.ApplyString(query, filter.PhotographerCriterion, g => g.Photographer);
+
+            // Count criteria
+            query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, g => g.Files.Count);
+            query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, g => g.GalleryTags.Count);
+            query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, g => g.GalleryPerformers.Count);
+
+            // Scenes criterion
+            query = FilterHelpers.ApplyMultiId(query, filter.ScenesCriterion, g => g.SceneGalleries.Select(sg => sg.SceneId));
+
+            // Performer tags criterion
+            if (filter.PerformerTagsCriterion != null)
+            {
+                var ptIds = filter.PerformerTagsCriterion.Value;
+                query = filter.PerformerTagsCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                    CriterionModifier.Excludes => query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                    CriterionModifier.IncludesAll => query.Where(g => ptIds.All(tid => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => pt.TagId == tid)))),
+                    _ => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                };
+            }
         }
         if (findFilter != null && !string.IsNullOrEmpty(findFilter.Q))
             query = query.Where(g => (g.Title != null && EF.Functions.ILike(g.Title, $"%{findFilter.Q}%")));
@@ -726,6 +917,47 @@ public class ImageRepository : IImageRepository
         query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, i => i.CreatedAt);
         query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, i => i.UpdatedAt);
 
+        // String criteria
+        query = FilterHelpers.ApplyString(query, filter.TitleCriterion, i => i.Title);
+        query = FilterHelpers.ApplyString(query, filter.CodeCriterion, i => i.Code);
+        query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, i => i.Details);
+        query = FilterHelpers.ApplyString(query, filter.PhotographerCriterion, i => i.Photographer);
+
+        // URL criterion
+        if (filter.UrlCriterion != null)
+        {
+            var urlVal = filter.UrlCriterion.Value;
+            query = filter.UrlCriterion.Modifier switch
+            {
+                CriterionModifier.Includes => query.Where(i => i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
+                CriterionModifier.Excludes => query.Where(i => !i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
+                CriterionModifier.IsNull => query.Where(i => i.Urls.Count == 0),
+                CriterionModifier.NotNull => query.Where(i => i.Urls.Count > 0),
+                _ => query.Where(i => i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
+            };
+        }
+
+        // Date criterion
+        query = FilterHelpers.ApplyDate(query, filter.DateCriterion, i => i.Date);
+
+        // Count criteria
+        query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, i => i.Files.Count);
+        query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, i => i.ImageTags.Count);
+        query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, i => i.ImagePerformers.Count);
+
+        // Performer tags criterion
+        if (filter.PerformerTagsCriterion != null)
+        {
+            var ptIds = filter.PerformerTagsCriterion.Value;
+            query = filter.PerformerTagsCriterion.Modifier switch
+            {
+                CriterionModifier.Includes => query.Where(i => i.ImagePerformers.Any(ip => ip.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                CriterionModifier.Excludes => query.Where(i => !i.ImagePerformers.Any(ip => ip.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                CriterionModifier.IncludesAll => query.Where(i => ptIds.All(tid => i.ImagePerformers.Any(ip => ip.Performer!.PerformerTags.Any(pt => pt.TagId == tid)))),
+                _ => query.Where(i => i.ImagePerformers.Any(ip => ip.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+            };
+        }
+
         return query;
     }
 
@@ -879,6 +1111,28 @@ public class GroupRepository : IGroupRepository
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, g => g.CreatedAt);
             query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, g => g.UpdatedAt);
+
+            // String criteria
+            query = FilterHelpers.ApplyString(query, filter.NameCriterion, g => g.Name);
+            query = FilterHelpers.ApplyString(query, filter.DirectorCriterion, g => g.Director);
+            query = FilterHelpers.ApplyString(query, filter.SynopsisCriterion, g => g.Synopsis);
+
+            // Count criteria
+            query = FilterHelpers.ApplyInt(query, filter.SceneCountCriterion, g => g.SceneGroups.Count);
+            query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, g => g.GroupTags.Count);
+
+            // Performers criterion (performers in scenes belonging to this group)
+            if (filter.PerformersCriterion != null)
+            {
+                var pIds = filter.PerformersCriterion.Value;
+                query = filter.PerformersCriterion.Modifier switch
+                {
+                    CriterionModifier.Includes => query.Where(g => g.SceneGroups.Any(sg => sg.Scene!.ScenePerformers.Any(sp => pIds.Contains(sp.PerformerId)))),
+                    CriterionModifier.Excludes => query.Where(g => !g.SceneGroups.Any(sg => sg.Scene!.ScenePerformers.Any(sp => pIds.Contains(sp.PerformerId)))),
+                    CriterionModifier.IncludesAll => query.Where(g => pIds.All(pid => g.SceneGroups.Any(sg => sg.Scene!.ScenePerformers.Any(sp => sp.PerformerId == pid)))),
+                    _ => query.Where(g => g.SceneGroups.Any(sg => sg.Scene!.ScenePerformers.Any(sp => pIds.Contains(sp.PerformerId)))),
+                };
+            }
         }
         if (findFilter != null && !string.IsNullOrEmpty(findFilter.Q))
             query = query.Where(g => EF.Functions.ILike(g.Name, $"%{findFilter.Q}%"));

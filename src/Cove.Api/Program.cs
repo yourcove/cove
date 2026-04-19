@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Cove.Api.Hubs;
@@ -108,7 +109,14 @@ try
     extensionManager.Register(new Cove.Api.Extensions.AuditLogExtension());
     builder.Services.AddSingleton(extensionManager);
     builder.Services.AddSingleton<IExtensionStoreFactory>(sp => new Cove.Data.Repositories.EfExtensionStoreFactory(sp));
-    builder.Services.AddSingleton<IExtensionRegistry, StubExtensionRegistry>();
+    builder.Services.AddSingleton<IExtensionRegistry>(sp =>
+    {
+        var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var http = httpFactory.CreateClient("ExtensionRegistry");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Cove/1.0");
+        return new GitHubExtensionRegistry(http);
+    });
+    builder.Services.AddHttpClient("ExtensionRegistry");
     extensionManager.ConfigureServices(builder.Services);
 
     // Managed PostgreSQL — auto-downloads and runs a local PG instance
@@ -232,8 +240,21 @@ try
     extensionManager.MapEndpoints(app);
 
     // Serve SPA static files (production)
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
+    // When running as a single-file executable, wwwroot is embedded as managed resources.
+    // Fall back to the embedded file provider when the physical wwwroot folder is absent.
+    var webRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+    if (Directory.Exists(webRootPath))
+    {
+        app.UseDefaultFiles();
+        app.UseStaticFiles();
+    }
+    else
+    {
+        var embeddedProvider = new ManifestEmbeddedFileProvider(
+            typeof(Program).Assembly, "wwwroot");
+        app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = embeddedProvider });
+        app.UseStaticFiles(new StaticFileOptions { FileProvider = embeddedProvider });
+    }
     app.MapFallbackToFile("index.html");
 
     var port = coveConfig.GetValue<int?>("Port") ?? 9999;

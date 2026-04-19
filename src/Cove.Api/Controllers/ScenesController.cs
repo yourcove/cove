@@ -75,7 +75,8 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         var scene = new Scene
         {
             Title = dto.Title, Code = dto.Code, Details = dto.Details, Director = dto.Director,
-            Date = ParseDate(dto.Date), Rating = dto.Rating, Organized = dto.Organized, StudioId = dto.StudioId
+            Date = ParseDate(dto.Date), Rating = dto.Rating, Organized = dto.Organized, StudioId = dto.StudioId,
+            Captions = dto.Captions, InteractiveSpeed = dto.InteractiveSpeed
         };
         if (dto.Urls?.Count > 0)
             scene.Urls = dto.Urls.Select(u => new SceneUrl { Url = u }).ToList();
@@ -105,6 +106,8 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         if (dto.Rating.HasValue) scene.Rating = dto.Rating;
         if (dto.Organized.HasValue) scene.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) scene.StudioId = dto.StudioId;
+        if (dto.Captions != null) scene.Captions = dto.Captions;
+        if (dto.InteractiveSpeed.HasValue) scene.InteractiveSpeed = dto.InteractiveSpeed;
 
         if (dto.Urls != null)
         {
@@ -211,6 +214,7 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         s.Date?.ToString("yyyy-MM-dd"), s.Rating, s.Organized, s.StudioId, s.Studio?.Name,
         s.ResumeTime, s.PlayDuration, s.PlayCount, s.LastPlayedAt?.ToString("o"),
         s.OCounter,
+        s.Captions, s.InteractiveSpeed,
         s.Urls.Select(u => u.Url).ToList(),
         s.SceneTags.Where(st => st.Tag != null).Select(st => new TagDto(st.Tag!.Id, st.Tag.Name, st.Tag.Description, st.Tag.Favorite, st.Tag.IgnoreAutoTag, [])).ToList(),
         s.ScenePerformers.Where(sp => sp.Performer != null).Select(sp => new PerformerSummaryDto(sp.Performer!.Id, sp.Performer.Name, sp.Performer.Disambiguation, sp.Performer.Gender?.ToString(), sp.Performer.Favorite, sp.Performer.ImageBlobId != null ? $"/api/performers/{sp.Performer.Id}/image" : null)).ToList(),
@@ -272,13 +276,19 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
     [HttpPut("{sceneId:int}/markers/{markerId:int}")]
     public async Task<ActionResult<SceneMarkerSummaryDto>> UpdateMarker(int sceneId, int markerId, [FromBody] SceneMarkerUpdateDto dto, CancellationToken ct)
     {
-        var marker = await db.SceneMarkers.Include(m => m.PrimaryTag).FirstOrDefaultAsync(m => m.Id == markerId && m.SceneId == sceneId, ct);
+        var marker = await db.SceneMarkers.Include(m => m.PrimaryTag).Include(m => m.SceneMarkerTags).FirstOrDefaultAsync(m => m.Id == markerId && m.SceneId == sceneId, ct);
         if (marker == null) return NotFound();
 
         if (dto.Title != null) marker.Title = dto.Title;
         if (dto.Seconds.HasValue) marker.Seconds = dto.Seconds.Value;
         if (dto.EndSeconds.HasValue) marker.EndSeconds = dto.EndSeconds;
         if (dto.PrimaryTagId.HasValue) marker.PrimaryTagId = dto.PrimaryTagId.Value;
+        if (dto.TagIds != null)
+        {
+            marker.SceneMarkerTags.Clear();
+            foreach (var tid in dto.TagIds)
+                marker.SceneMarkerTags.Add(new SceneMarkerTag { TagId = tid, SceneMarkerId = markerId });
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -475,6 +485,7 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         var scenes = await db.Scenes
             .Include(s => s.SceneTags)
             .Include(s => s.ScenePerformers)
+            .Include(s => s.SceneGroups)
             .Where(s => dto.Ids.Contains(s.Id))
             .ToListAsync(ct);
 
@@ -483,6 +494,9 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
             if (dto.Rating.HasValue) scene.Rating = dto.Rating;
             if (dto.Organized.HasValue) scene.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) scene.StudioId = dto.StudioId;
+            if (dto.Date != null) scene.Date = ParseDate(dto.Date);
+            if (dto.Code != null) scene.Code = dto.Code;
+            if (dto.Director != null) scene.Director = dto.Director;
 
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {
@@ -514,6 +528,23 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
             else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)
             {
                 scene.ScenePerformers = scene.ScenePerformers.Where(sp => !dto.PerformerIds.Contains(sp.PerformerId)).ToList();
+            }
+
+            if (dto.GroupIds != null && dto.GroupMode == BulkUpdateMode.Set)
+            {
+                scene.SceneGroups.Clear();
+                scene.SceneGroups = dto.GroupIds.Select(g => new SceneGroup { GroupId = g.GroupId, SceneIndex = g.SceneIndex, SceneId = scene.Id }).ToList();
+            }
+            else if (dto.GroupIds != null && dto.GroupMode == BulkUpdateMode.Add)
+            {
+                var existing = scene.SceneGroups.Select(sg => sg.GroupId).ToHashSet();
+                foreach (var g in dto.GroupIds.Where(g => !existing.Contains(g.GroupId)))
+                    scene.SceneGroups.Add(new SceneGroup { GroupId = g.GroupId, SceneIndex = g.SceneIndex, SceneId = scene.Id });
+            }
+            else if (dto.GroupIds != null && dto.GroupMode == BulkUpdateMode.Remove)
+            {
+                var removeIds = dto.GroupIds.Select(g => g.GroupId).ToHashSet();
+                scene.SceneGroups = scene.SceneGroups.Where(sg => !removeIds.Contains(sg.GroupId)).ToList();
             }
         }
 

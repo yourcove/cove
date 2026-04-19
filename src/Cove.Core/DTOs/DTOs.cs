@@ -15,7 +15,8 @@ public record SceneDto(
     int Id, string? Title, string? Code, string? Details, string? Director,
     string? Date, int? Rating, bool Organized, int? StudioId, string? StudioName,
     double ResumeTime, double PlayDuration, int PlayCount, string? LastPlayedAt,
-    int OCounter, List<string> Urls, List<TagDto> Tags, List<PerformerSummaryDto> Performers,
+    int OCounter, string? Captions, int? InteractiveSpeed,
+    List<string> Urls, List<TagDto> Tags, List<PerformerSummaryDto> Performers,
     List<VideoFileDto> Files, List<SceneMarkerSummaryDto> Markers,
     List<GroupSummaryDto> Groups, List<GallerySummaryDto> Galleries,
     List<SceneRemoteIdDto> RemoteIds, Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt);
@@ -27,12 +28,14 @@ public record SceneGroupInputDto(int GroupId, int SceneIndex = 0);
 public record SceneCreateDto(
     string? Title, string? Code, string? Details, string? Director,
     string? Date, int? Rating, bool Organized, int? StudioId,
+    string? Captions, int? InteractiveSpeed,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<SceneGroupInputDto>? Groups);
 
 public record SceneUpdateDto(
     string? Title, string? Code, string? Details, string? Director,
     string? Date, int? Rating, bool? Organized, int? StudioId,
+    string? Captions, int? InteractiveSpeed,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<SceneGroupInputDto>? Groups, Dictionary<string, object>? CustomFields);
 
@@ -114,7 +117,7 @@ public record GalleryDto(int Id, string? Title, string? Code, string? Date, stri
 public record GalleryFileInfoDto(int Id, string Path, long Size, string ModTime, List<FingerprintDto> Fingerprints);
 
 public record GalleryCreateDto(string? Title, string? Code, string? Date, string? Details, string? Photographer,
-    int? Rating, bool Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds);
+    int? Rating, bool Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? SceneIds);
 
 public record GalleryUpdateDto(string? Title, string? Code, string? Date, string? Details, string? Photographer,
     int? Rating, bool? Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? SceneIds, Dictionary<string, object>? CustomFields);
@@ -129,7 +132,7 @@ public record ImageFileDto(int Id, string Path, string Basename, string Format, 
 
 public record ImageCreateDto(string? Title, string? Code, string? Details, string? Photographer,
     int? Rating, bool Organized, int? StudioId, string? Date,
-    List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds);
+    List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds);
 
 public record ImageUpdateDto(string? Title, string? Code, string? Details, string? Photographer,
     int? Rating, bool? Organized, int? StudioId, string? Date,
@@ -174,7 +177,7 @@ public record TagSummaryDto(int Id, string Name);
 
 public record SceneMarkerCreateDto(string Title, double Seconds, double? EndSeconds, int PrimaryTagId, List<int>? TagIds);
 
-public record SceneMarkerUpdateDto(string? Title, double? Seconds, double? EndSeconds, int? PrimaryTagId);
+public record SceneMarkerUpdateDto(string? Title, double? Seconds, double? EndSeconds, int? PrimaryTagId, List<int>? TagIds);
 
 public record PaginatedResponse<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PerPage);
 
@@ -396,10 +399,15 @@ public record BulkSceneUpdateDto
     public int? Rating { get; init; }
     public bool? Organized { get; init; }
     public int? StudioId { get; init; }
+    public string? Date { get; init; }
+    public string? Code { get; init; }
+    public string? Director { get; init; }
     public List<int>? TagIds { get; init; }
     public BulkUpdateMode TagMode { get; init; } = BulkUpdateMode.Add;
     public List<int>? PerformerIds { get; init; }
     public BulkUpdateMode PerformerMode { get; init; } = BulkUpdateMode.Add;
+    public List<SceneGroupInputDto>? GroupIds { get; init; }
+    public BulkUpdateMode GroupMode { get; init; } = BulkUpdateMode.Add;
 }
 
 public record BulkPerformerUpdateDto

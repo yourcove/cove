@@ -169,7 +169,7 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
     }
 
     // ========================================================================
-    // REGISTRY ENDPOINTS (stubs — ready for when remote registry is built)
+    // REGISTRY ENDPOINTS
     // ========================================================================
 
     /// <summary>Search the extension registry.</summary>
@@ -180,10 +180,9 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
         [FromQuery] string? sort,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromServices] IExtensionRegistry? registry = null,
+        [FromServices] IExtensionRegistry registry = null!,
         CancellationToken ct = default)
     {
-        registry ??= new StubExtensionRegistry();
         var result = await registry.SearchAsync(new RegistrySearchRequest
         {
             Query = q,
@@ -199,10 +198,9 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
     [HttpGet("registry/{extensionId}")]
     public async Task<IActionResult> RegistryGetExtension(
         string extensionId,
-        [FromServices] IExtensionRegistry? registry = null,
+        [FromServices] IExtensionRegistry registry = null!,
         CancellationToken ct = default)
     {
-        registry ??= new StubExtensionRegistry();
         var detail = await registry.GetExtensionAsync(extensionId, ct);
         if (detail == null) return NotFound();
         return Ok(detail);
@@ -211,10 +209,9 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
     /// <summary>Check for updates for all installed extensions.</summary>
     [HttpGet("registry/updates")]
     public async Task<IActionResult> RegistryCheckUpdates(
-        [FromServices] IExtensionRegistry? registry = null,
+        [FromServices] IExtensionRegistry registry = null!,
         CancellationToken ct = default)
     {
-        registry ??= new StubExtensionRegistry();
         var installed = extensionManager.Extensions.Select(e => (e.Id, e.Version));
         var updates = await registry.CheckForUpdatesAsync(installed, ct);
         return Ok(updates);
@@ -223,12 +220,53 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
     /// <summary>Get registry categories.</summary>
     [HttpGet("registry/categories")]
     public async Task<IActionResult> RegistryGetCategories(
-        [FromServices] IExtensionRegistry? registry = null,
+        [FromServices] IExtensionRegistry registry = null!,
         CancellationToken ct = default)
     {
-        registry ??= new StubExtensionRegistry();
         var categories = await registry.GetCategoriesAsync(ct);
         return Ok(categories);
+    }
+
+    /// <summary>Install an extension from the registry.</summary>
+    [HttpPost("registry/install")]
+    public async Task<IActionResult> RegistryInstall(
+        [FromBody] RegistryInstallRequest request,
+        [FromServices] IExtensionRegistry registry = null!,
+        CancellationToken ct = default)
+    {
+        var extensionsDir = Path.Combine(extensionManager.Context.DataDirectory, "..", "extensions");
+        extensionsDir = Path.GetFullPath(extensionsDir);
+        Directory.CreateDirectory(extensionsDir);
+
+        var installPath = await registry.DownloadAsync(request.ExtensionId, request.Version, extensionsDir, ct);
+
+        // Reload extensions to pick up the newly installed one
+        extensionManager.DiscoverExtensions(extensionsDir);
+
+        return Ok(new { message = $"Extension '{request.ExtensionId}' v{request.Version} installed.", path = installPath });
+    }
+
+    /// <summary>Uninstall an extension by removing its directory.</summary>
+    [HttpPost("registry/uninstall")]
+    public async Task<IActionResult> RegistryUninstall(
+        [FromBody] RegistryUninstallRequest request,
+        CancellationToken ct = default)
+    {
+        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == request.ExtensionId);
+        if (ext == null) return NotFound($"Extension '{request.ExtensionId}' not found.");
+
+        // Shut down the extension first
+        await extensionManager.DisableExtensionAsync(request.ExtensionId, ct);
+
+        // Remove the extension directory
+        var extensionsDir = Path.Combine(extensionManager.Context.DataDirectory, "..", "extensions");
+        extensionsDir = Path.GetFullPath(extensionsDir);
+        var extDir = Path.Combine(extensionsDir, request.ExtensionId);
+
+        if (Directory.Exists(extDir))
+            Directory.Delete(extDir, true);
+
+        return Ok(new { message = $"Extension '{request.ExtensionId}' uninstalled." });
     }
 }
 
@@ -257,6 +295,17 @@ public record ExtensionInfo(
     List<JobInfo> Jobs);
 
 public record JobInfo(string Id, string Name, string? Description);
+
+public record RegistryInstallRequest
+{
+    public required string ExtensionId { get; init; }
+    public required string Version { get; init; }
+}
+
+public record RegistryUninstallRequest
+{
+    public required string ExtensionId { get; init; }
+}
 
 /// <summary>Simple job progress reporter.</summary>
 internal class SimpleJobProgress : IJobProgress

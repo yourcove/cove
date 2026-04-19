@@ -15,6 +15,8 @@ public class Scene : BaseEntity
     public int PlayCount { get; set; }
     public DateTime? LastPlayedAt { get; set; }
     public int OCounter { get; set; }
+    public string? Captions { get; set; }
+    public int? InteractiveSpeed { get; set; }
 
     // Navigation properties
     public Studio? Studio { get; set; }
