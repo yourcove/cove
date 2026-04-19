@@ -54,9 +54,9 @@ jobs:
           -p:PackageVersion=${{ steps.version.outputs.version }}
           -o artifacts/nuget
 
-      - name: Push package to GitHub Packages
+      - name: Push package to NuGet.org
         run: >
           dotnet nuget push "artifacts/nuget/*.nupkg"
-          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --source "https://api.nuget.org/v3/index.json"
+          --api-key "${{ secrets.NUGET_ORG_API_KEY }}"
           --skip-duplicate
