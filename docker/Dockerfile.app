@@ -30,7 +30,7 @@ RUN dotnet publish Cove.Api/Cove.Api.csproj \
     -p:Version=${VERSION}
 
 # ── Stage 3: App-only runtime (FFmpeg + Cove, no PostgreSQL) ──────
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-bookworm-slim
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 
 # Install FFmpeg with hwaccel support (BtbN GPL static builds)
 # These include NVENC, VAAPI, QSV, Vulkan — much more capable than Debian's ffmpeg

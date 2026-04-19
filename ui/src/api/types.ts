@@ -1208,6 +1208,7 @@ export interface ExtensionManifest {
   pageOverrides: ExtensionPageOverride[];
   dialogOverrides: ExtensionDialogOverride[];
   actions: ExtensionAction[];
+  frontendRuntimeVersion?: string;
   jsBundleUrl?: string;
   cssBundleUrl?: string;
 }

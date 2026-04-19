@@ -329,6 +329,8 @@ public class UIManifest
     public List<UIDialogOverride> DialogOverrides { get; set; } = [];
     public List<ExtensionAction> Actions { get; set; } = [];
 
+    /// <summary>Version of the frontend runtime contract used to load extension bundles.</summary>
+    public string? FrontendRuntimeVersion { get; set; }
     /// <summary>URL of the extension's JS module (ESM) loaded by the frontend runtime.</summary>
     public string? JsBundleUrl { get; set; }
     /// <summary>URL of additional CSS to load.</summary>

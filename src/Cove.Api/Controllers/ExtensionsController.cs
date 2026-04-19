@@ -3,6 +3,11 @@ using Cove.Plugins;
 
 namespace Cove.Api.Controllers;
 
+internal static class FrontendRuntimeContract
+{
+    public const string Version = "v1";
+}
+
 [ApiController]
 [Route("api/[controller]")]
 public class ExtensionsController(ExtensionManager extensionManager) : ControllerBase
@@ -12,6 +17,7 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
     public ActionResult<UIManifest> GetManifest()
     {
         var manifest = extensionManager.GetAggregatedManifest();
+        manifest.FrontendRuntimeVersion = FrontendRuntimeContract.Version;
 
         var jsBundles = extensionManager.GetEnabledJsBundles();
         if (jsBundles.Count == 1)
