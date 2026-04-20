@@ -4,6 +4,14 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Cove.Core</PackageId>
+    <Title>Cove Core</Title>
+    <Description>Core entities, DTOs, interfaces, configuration, and events for the Cove media organizer. Required for extensions that interact with core data types.</Description>
+    <Authors>Cove</Authors>
+    <RepositoryUrl>https://github.com/yourcove/cove</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/yourcove/cove</PackageProjectUrl>
+    <PackageTags>cove;core;entities;extensions</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

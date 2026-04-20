@@ -23,6 +23,9 @@ public static class DataServiceExtensions
             options.EnableDetailedErrors(false);
         }, poolSize: 256);
 
+        // Allow extensions to resolve via DbContext base type
+        services.AddScoped<DbContext>(sp => sp.GetRequiredService<CoveContext>());
+
         services.AddScoped<ISceneRepository, SceneRepository>();
         services.AddScoped<IPerformerRepository, PerformerRepository>();
         services.AddScoped<ITagRepository, TagRepository>();

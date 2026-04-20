@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode, type ComponentType } from "react";
+import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
 
 export interface NavItem {
   page: string;
@@ -90,7 +91,9 @@ export function ExtensionSlot<TContext>({ slot, context }: { slot: string; conte
   return (
     <>
       {matching.map((entry) => (
-        <div key={entry.id}>{entry.render(context)}</div>
+        <ExtensionErrorBoundary key={entry.id} extensionId={entry.id}>
+          <div>{entry.render(context)}</div>
+        </ExtensionErrorBoundary>
       ))}
     </>
   );

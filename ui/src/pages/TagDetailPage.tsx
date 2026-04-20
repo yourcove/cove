@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, groups, images, markers, metadata, performers, scenes, studios, tags, entityImages } from "../api/client";
 import type { FindFilter, Gallery, Group, Image, Performer, Scene, SceneMarkerWall, Studio } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay } from "../components/shared";
-import { ArrowLeft, Bookmark, Building2, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Loader2, Pencil, Tag as TagIcon, Trash2, UserRound, Wand2 } from "lucide-react";
+import { ArrowLeft, Bookmark, Building2, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Loader2, Music, Pencil, Tag as TagIcon, Trash2, UserRound, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TagEditModal } from "./TagEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -13,6 +13,7 @@ import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
+import { useExtensionTabs } from "../components/useExtensionTabs";
 
 const SCENE_SORT = [
   { value: "updated_at", label: "Recently Updated" },
@@ -63,7 +64,7 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "scenes" | "performers" | "images" | "galleries" | "markers" | "studios" | "groups";
+type TabKey = "scenes" | "performers" | "images" | "galleries" | "markers" | "studios" | "groups" | (string & {});
 
 export function TagDetailPage({ id, onNavigate }: Props) {
   const { data: tag, isLoading } = useQuery({
@@ -74,6 +75,15 @@ export function TagDetailPage({ id, onNavigate }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("scenes");
+  const { allTabs: tagTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("tag", [
+    { key: "scenes", label: "Scenes", count: tag?.sceneCount },
+    { key: "performers", label: "Performers", count: tag?.performerCount },
+    { key: "images", label: "Images", count: tag?.imageCount },
+    { key: "galleries", label: "Galleries", count: tag?.galleryCount },
+    { key: "markers", label: "Markers", count: tag?.markerCount },
+    { key: "studios", label: "Studios", count: tag?.studioCount },
+    { key: "groups", label: "Groups", count: tag?.groupCount },
+  ], id);
   const [sceneFilter, setSceneFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
   const [performerFilter, setPerformerFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
   const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 30, direction: "desc" });
@@ -232,6 +242,9 @@ export function TagDetailPage({ id, onNavigate }: Props) {
                 <CountCard label="Markers" value={tag.markerCount} icon={<Bookmark className="h-4 w-4" />} />
                 <CountCard label="Studios" value={tag.studioCount} icon={<Building2 className="h-4 w-4" />} />
                 <CountCard label="Groups" value={tag.groupCount} icon={<Layers className="h-4 w-4" />} />
+                {extensionCounts.map((ec) => (
+                  <CountCard key={ec.key} label={ec.label} value={ec.count} icon={ec.icon === "music" ? <Music className="h-4 w-4" /> : undefined} />
+                ))}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">
                 {tag.ignoreAutoTag && <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-yellow-400">Ignores Auto-Tag</span>}
@@ -304,15 +317,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
 
         <div className="mx-auto max-w-7xl border-b border-border">
           <div className="flex gap-1 overflow-x-auto">
-            {[
-              { key: "scenes", label: "Scenes", count: tag.sceneCount },
-              { key: "performers", label: "Performers", count: tag.performerCount },
-              { key: "images", label: "Images", count: tag.imageCount },
-              { key: "galleries", label: "Galleries", count: tag.galleryCount },
-              { key: "markers", label: "Markers", count: tag.markerCount },
-              { key: "studios", label: "Studios", count: tag.studioCount },
-              { key: "groups", label: "Groups", count: tag.groupCount },
-            ].map((tab) => (
+            {tagTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as TabKey)}
@@ -351,6 +356,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
           {activeTab === "groups" && (
             <TagGroupsPanel tagId={id} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
           )}
+          {renderExtensionTab(activeTab, id, onNavigate)}
         </div>
 
         <ExtensionSlot slot="tag-detail-bottom" context={{ tag, onNavigate }} />

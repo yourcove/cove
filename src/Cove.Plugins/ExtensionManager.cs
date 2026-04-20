@@ -137,15 +137,21 @@ public class ExtensionManager
                             }
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Skip DLLs that can't be loaded as extensions
+                        System.Diagnostics.Debug.WriteLine($"Failed to load extension DLL {dll}: {ex}");
+                        Console.Error.WriteLine($"[EXT-LOAD] Failed to load {dll}: {ex.GetType().Name}: {ex.Message}");
+                        if (ex is System.Reflection.ReflectionTypeLoadException rtle)
+                        {
+                            foreach (var le in rtle.LoaderExceptions ?? [])
+                                Console.Error.WriteLine($"  Loader exception: {le?.Message}");
+                        }
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip directories that can't be processed
+                Console.Error.WriteLine($"[EXT-LOAD] Failed to process extension directory {dir}: {ex.Message}");
             }
         }
     }
@@ -569,6 +575,28 @@ public class ExtensionManager
                 _logger?.LogError(ex, "Extension {Id} failed handling event {EventType}", ext.Id, evt.EventType);
             }
         }
+    }
+
+    // ========================================================================
+    // SCAN PARTICIPANTS
+    // ========================================================================
+
+    /// <summary>Get all enabled extensions that participate in the core library scan.</summary>
+    public IReadOnlyList<IScanParticipant> GetScanParticipants()
+    {
+        return GetInitializationOrder()
+            .OfType<IScanParticipant>()
+            .Where(ext => IsEnabled(ext.Id))
+            .ToList();
+    }
+
+    /// <summary>Get all enabled extensions that participate in auto-tagging.</summary>
+    public IReadOnlyList<IAutoTagParticipant> GetAutoTagParticipants()
+    {
+        return GetInitializationOrder()
+            .OfType<IAutoTagParticipant>()
+            .Where(ext => IsEnabled(ext.Id))
+            .ToList();
     }
 
     // ========================================================================

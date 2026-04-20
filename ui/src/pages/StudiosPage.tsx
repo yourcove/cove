@@ -14,6 +14,8 @@ import { StudioTagger } from "../components/StudioTagger";
 import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, PerformersPopoverContent, GalleriesPopoverContent, GroupsPopoverContent } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
+import { ExtensionSlot } from "../router/RouteRegistry";
+import { useRouteRegistry } from "../router/RouteRegistry";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -173,7 +175,9 @@ export function StudiosPage({ onNavigate }: Props) {
 }
 
 function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting }: { studio: Studio; onClick: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+  const { slots } = useRouteRegistry();
   const queryClient = useQueryClient();
+  const hasExtensionFooter = slots.some((slot) => slot.slot === "studio-card-footer");
   const favMut = useMutation({
     mutationFn: () => studios.update(studio.id, { favorite: !studio.favorite }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["studios"] }),
@@ -211,7 +215,7 @@ function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting
           <div className="text-xs text-muted truncate">↑ {studio.parentName}</div>
         )}
       </div>
-      {(studio.sceneCount > 0 || studio.imageCount > 0 || studio.galleryCount > 0 || studio.groupCount > 0 || studio.performerCount > 0 || studio.tags.length > 0 || studio.childStudioCount > 0 || studio.organized) && (
+      {(studio.sceneCount > 0 || studio.imageCount > 0 || studio.galleryCount > 0 || studio.groupCount > 0 || studio.performerCount > 0 || studio.tags.length > 0 || studio.childStudioCount > 0 || studio.organized || hasExtensionFooter) && (
         <div className="flex items-center justify-center gap-1 px-2 pb-2 border-t border-border/50 pt-1.5 flex-wrap">
           {studio.sceneCount > 0 && (
             <PopoverButton icon={<Film className="w-3 h-3" />} count={studio.sceneCount} title="Scenes" wide preferBelow>
@@ -260,6 +264,7 @@ function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting
               <Box className="w-3 h-3" />
             </span>
           )}
+          <ExtensionSlot slot="studio-card-footer" context={{ studio, onNavigate }} />
         </div>
       )}
     </div>

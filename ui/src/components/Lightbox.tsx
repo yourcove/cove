@@ -278,7 +278,7 @@ export function Lightbox({
 
       {/* Image container */}
       <div
-        className="max-h-[85vh] max-w-[90vw] overflow-hidden select-none"
+        className="h-[85vh] w-[90vw] overflow-hidden select-none"
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -302,7 +302,7 @@ export function Lightbox({
             }
           }}
           onLoad={() => setLoading(false)}
-          className="max-h-[85vh] max-w-[90vw] object-contain transition-transform duration-200 ease-out"
+          className="h-[85vh] w-[90vw] object-contain transition-transform duration-200 ease-out"
           style={{
             transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
             opacity: loading ? 0 : 1,

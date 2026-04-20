@@ -113,6 +113,7 @@ try
         return new GitHubExtensionRegistry(http);
     });
     builder.Services.AddHttpClient("ExtensionRegistry");
+    builder.Services.AddHostedService<ExtensionEventBridge>();
     extensionManager.ConfigureServices(builder.Services);
 
     // Managed PostgreSQL — auto-downloads and runs a local PG instance
@@ -164,7 +165,10 @@ try
     builder.Services.AddAuthorization();
 
     // MVC + OpenAPI
-    builder.Services.AddControllers()
+    builder.Services.AddControllers(options =>
+    {
+        options.Filters.Add<Cove.Api.Middleware.EntityEventFilter>();
+    })
         .AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));

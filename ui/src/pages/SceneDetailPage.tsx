@@ -17,7 +17,7 @@ import { DetailMergeDialog } from "../components/DetailMergeDialog";
 import { IdentifyDialog } from "../components/IdentifyDialog";
 import type { Scene, SceneMarkerCreate, SceneUpdate } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
-import { InteractiveRating, RatingField } from "../components/Rating";
+import { InteractiveRating } from "../components/Rating";
 import { useSceneQueue } from "../state/SceneQueueContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
@@ -124,7 +124,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
   }, [videoFilters]);
 
   const deleteMut = useMutation({
-    mutationFn: () => scenes.delete(id),
+    mutationFn: (deleteFile?: boolean) => scenes.delete(id, deleteFile),
     onSuccess: () => { 
       queryClient.invalidateQueries({ queryKey: ["scenes"] }); 
       onNavigate({ page: "scenes" }); 
@@ -193,8 +193,9 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
         open={confirmDelete}
         title="Delete Scene"
         message={`Are you sure you want to delete "${scene.title || "Untitled"}"? This cannot be undone.`}
-        onConfirm={() => deleteMut.mutate()}
+        onConfirm={(opts) => deleteMut.mutate(opts?.deleteFile)}
         onCancel={() => setConfirmDelete(false)}
+        showDeleteFile
       />
       <GenerateDialog
         open={showGenerate}
@@ -232,7 +233,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
           <div
             className="w-full xl:w-[400px] 2xl:w-[450px] xl:min-w-[350px] xl:max-w-[500px] xl:border-r border-b xl:border-b-0 border-border overflow-y-auto shrink-0 xl:max-h-[calc(100vh-48px)]"
           >
-            <div className="px-4 pt-4 pb-2">
+            <div className="px-6 pt-4 pb-2">
               {/* Studio logo */}
               {studioImageUrl && scene.studioId && (
                 <div className="mb-3 flex items-start gap-4">
@@ -299,9 +300,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
 
               {/* Toolbar: rating left, counters + ops right — single row */}
               <div className="flex items-center justify-between mt-3 gap-2">
-                {activeTab !== "edit" && (
-                  <InteractiveRating value={scene.rating} onChange={(value) => updateMut.mutate({ rating: value })} />
-                )}
+                <InteractiveRating value={scene.rating} onChange={(value) => updateMut.mutate({ rating: value })} />
                 <div className="flex items-center gap-2">
                   <button 
                     onClick={() => incrementPlayMut.mutate()}
@@ -372,7 +371,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
             </div>
 
             {/* Tab Navigation */}
-            <div className="px-4">
+            <div className="px-6">
               <div className="flex flex-wrap border-b border-border">
                 {tabs.map((tab) => (
                   <button
@@ -391,7 +390,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
             </div>
 
             {/* Tab Content */}
-            <div className="px-4 py-4">
+            <div className="px-6 py-4">
               {activeTab === "details" && (
                 <DetailsTab scene={scene} onNavigate={onNavigate} />
               )}
@@ -1843,7 +1842,6 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   const [director, setDirector] = useState(scene.director || "");
   const [date, setDate] = useState(scene.date || "");
   const [rating, setRating] = useState<number | undefined>(scene.rating ?? undefined);
-  const [organized, setOrganized] = useState(scene.organized);
   const [urls, setUrls] = useState(scene.urls.join("\n"));
   const [studioId, setStudioId] = useState<number | undefined>(scene.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(scene.tags.map((t) => t.id));
@@ -1856,6 +1854,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   const [perfSearch, setPerfSearch] = useState("");
   const [gallerySearch, setGallerySearch] = useState("");
   const [groupSearch, setGroupSearch] = useState("");
+  const [studioSearch, setStudioSearch] = useState("");
 
   const { data: allTags } = useQuery({ queryKey: ["tags-all"], queryFn: () => tags.find({ perPage: 500, sort: "name", direction: "asc" }) });
   const { data: allPerformers } = useQuery({ queryKey: ["performers-all"], queryFn: () => performersApi.find({ perPage: 500, sort: "name", direction: "asc" }) });
@@ -1866,7 +1865,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   useEffect(() => {
     setTitle(scene.title || ""); setCode(scene.code || ""); setDetails(scene.details || "");
     setDirector(scene.director || ""); setDate(scene.date || ""); setRating(scene.rating ?? undefined);
-    setOrganized(scene.organized); setUrls(scene.urls.join("\n")); setStudioId(scene.studioId ?? undefined);
+    setUrls(scene.urls.join("\n")); setStudioId(scene.studioId ?? undefined);
     setSelectedTagIds(scene.tags.map((t) => t.id)); setSelectedPerformerIds(scene.performers.map((p) => p.id));
     setSelectedGalleryIds(scene.galleries.map((g) => g.id));
     setSelectedGroups(scene.groups.map((g) => ({ groupId: g.id, sceneIndex: g.sceneIndex })));
@@ -1880,7 +1879,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   const handleSave = () => {
     const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
     mutation.mutate({ title: title || undefined, code: code || undefined, details: details || undefined,
-      director: director || undefined, date: date || undefined, rating, organized, studioId,
+      director: director || undefined, date: date || undefined, rating, studioId,
       urls: urlList, tagIds: selectedTagIds, performerIds: selectedPerformerIds, galleryIds: selectedGalleryIds, groups: selectedGroups });
   };
 
@@ -1906,15 +1905,28 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
         <label className="space-y-1"><span className="text-xs text-secondary">Director</span><input value={director} onChange={(e) => setDirector(e.target.value)} className={inputCls} /></label>
       </div>
       <label className="block space-y-1"><span className="text-xs text-secondary">Details</span><textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={3} className={inputCls} /></label>
-      <div className="grid grid-cols-2 gap-3">
-        <RatingField value={rating} onChange={setRating} />
-        <label className="space-y-1">
-          <span className="text-xs text-secondary">Studio</span>
-          <select value={studioId ?? ""} onChange={(e) => setStudioId(e.target.value ? Number(e.target.value) : undefined)} className={inputCls}>
-            <option value="">None</option>
-            {allStudios?.items.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
+      <div className="space-y-1">
+        <span className="text-xs text-secondary">Studio</span>
+        {studioId && allStudios?.items.find((s) => s.id === studioId) && (
+          <div className="flex items-center gap-1 mb-1">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-accent/20 text-accent">
+              {allStudios.items.find((s) => s.id === studioId)!.name}
+              <button onClick={() => setStudioId(undefined)} className="hover:text-white">×</button>
+            </span>
+          </div>
+        )}
+        {!studioId && (
+          <>
+            <input value={studioSearch} onChange={(e) => setStudioSearch(e.target.value)} placeholder="Search studios…" className={inputCls} />
+            {studioSearch && allStudios && (
+              <div className="max-h-24 overflow-y-auto bg-surface rounded border border-border">
+                {allStudios.items.filter((s) => s.name.toLowerCase().includes(studioSearch.toLowerCase())).slice(0, 10).map((s) => (
+                  <button key={s.id} onClick={() => { setStudioId(s.id); setStudioSearch(""); }} className="block w-full text-left px-3 py-1 text-sm text-foreground hover:bg-card">{s.name}</button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
       <label className="block space-y-1"><span className="text-xs text-secondary">URLs (one per line)</span><textarea value={urls} onChange={(e) => setUrls(e.target.value)} rows={2} className={inputCls} /></label>
 
@@ -1973,10 +1985,6 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
         <input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search groups…" className={inputCls} />
         {groupSearch && filteredGroupsList.length > 0 && <div className="max-h-24 overflow-y-auto bg-surface rounded border border-border">{filteredGroupsList.slice(0, 10).map((g) => <button key={g.id} onClick={() => { setSelectedGroups([...selectedGroups, { groupId: g.id, sceneIndex: 0 }]); setGroupSearch(""); }} className="block w-full text-left px-3 py-1 text-sm text-foreground hover:bg-card">{g.name}</button>)}</div>}
       </div>
-
-      <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer">
-        <input type="checkbox" checked={organized} onChange={(e) => setOrganized(e.target.checked)} className="rounded border-border bg-surface" /> Organized
-      </label>
 
       {mutation.error && <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 text-sm">{(mutation.error as Error).message}</div>}
 

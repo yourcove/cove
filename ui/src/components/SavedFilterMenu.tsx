@@ -108,7 +108,7 @@ export function SavedFilterMenu({
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-border bg-input text-secondary hover:text-foreground"
+        className="flex items-center gap-1 rounded-lg border border-border bg-card/70 px-2 py-1 text-xs text-secondary hover:border-accent hover:text-foreground"
         title="Saved filters"
       >
         <Bookmark className="w-3.5 h-3.5" />
@@ -116,7 +116,7 @@ export function SavedFilterMenu({
       </button>
 
       {open && (
-        <div className="styled-dropdown-panel absolute top-full right-0 mt-1 w-56 bg-surface border border-border rounded-lg shadow-lg z-50">
+        <div className="styled-dropdown-panel absolute top-full right-0 z-50 mt-1 w-56 rounded-lg border border-border shadow-lg">
           <div className="p-2 border-b border-border">
             <p className="text-[10px] text-muted uppercase tracking-wider font-medium">
               Saved Filters
@@ -131,7 +131,7 @@ export function SavedFilterMenu({
             {filters?.map((f) => (
               <div
                 key={f.id}
-                className="flex items-center justify-between px-3 py-1.5 hover:bg-surface cursor-pointer group"
+                className="group flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-card/80"
               >
                 <button
                   onClick={() => applyFilter(f.findFilter, f.objectFilter, f.uiOptions)}
@@ -180,7 +180,7 @@ export function SavedFilterMenu({
                   onChange={(e) => setSaveName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && saveName && createMut.mutate()}
                   placeholder="Filter name..."
-                  className="flex-1 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
+                  className="flex-1 rounded border border-border bg-card/70 px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
                   autoFocus
                 />
                 <button

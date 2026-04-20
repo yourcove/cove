@@ -3,5 +3,6 @@
   <Project Path="Cove.Core/Cove.Core.csproj" />
   <Project Path="Cove.Data/Cove.Data.csproj" />
   <Project Path="Cove.Plugins/Cove.Plugins.csproj" />
+  <Project Path="Cove.Sdk/Cove.Sdk.csproj" />
   <Project Path="Cove.Tests/Cove.Tests.csproj" />
 </Solution>

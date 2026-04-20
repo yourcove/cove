@@ -95,15 +95,26 @@ public class PluginsController(
         var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == dto.PluginId);
         if (ext == null) return NotFound($"Plugin '{dto.PluginId}' not found");
 
-        var netJobId = jobService.Enqueue($"plugin:{dto.PluginId}", $"Running {dto.PluginId}/{dto.TaskName}", async (progress, ct) =>
+        if (ext is IJobExtension jobExt)
+        {
+            var jobDef = jobExt.Jobs.FirstOrDefault(j => j.Id == dto.TaskName);
+            var label = jobDef?.Name ?? dto.TaskName;
+            var netJobId = jobService.Enqueue($"plugin:{dto.PluginId}", $"{ext.Name}: {label}", async (progress, ct) =>
+            {
+                var adapter = new PluginJobProgressAdapter(progress);
+                await jobExt.RunJobAsync(dto.TaskName, dto.Args != null ? dto.Args : null, adapter, ct);
+            }, exclusive: false);
+            return Ok(new { jobId = netJobId });
+        }
+
+        var fallbackJobId = jobService.Enqueue($"plugin:{dto.PluginId}", $"Running {dto.PluginId}/{dto.TaskName}", async (progress, ct) =>
         {
             progress.Report(0, "Running plugin task...");
-            // .NET plugin tasks would be invoked via reflection or IPluginTask interface
             await Task.CompletedTask;
             progress.Report(1, "Done");
         }, exclusive: false);
 
-        return Ok(new { jobId = netJobId });
+        return Ok(new { jobId = fallbackJobId });
     }
 
     [HttpPost("settings")]
@@ -257,7 +268,11 @@ public class PluginsController(
 
     private static List<PluginTaskDto> GetPluginTasks(IExtension ext)
     {
-        // Default task for any extension
+        // If the extension defines typed jobs, expose those
+        if (ext is IJobExtension jobExt && jobExt.Jobs.Count > 0)
+            return jobExt.Jobs.Select(j => new PluginTaskDto(j.Id, j.Name)).ToList();
+
+        // Default fallback task for any extension
         return [new PluginTaskDto("run", $"Run {ext.Name}")];
     }
 
@@ -429,4 +444,9 @@ public class PluginsController(
         }
         return null;
     }
+}
+
+internal sealed class PluginJobProgressAdapter(Cove.Core.Interfaces.IJobProgress inner) : Cove.Plugins.IJobProgress
+{
+    public void Report(double percent, string? message = null) => inner.Report(percent, message);
 }

@@ -100,8 +100,25 @@ async function main() {
   await fs.mkdir(runtimeDir, { recursive: true });
 
   for (const definition of extensionRuntimeModules) {
-    await generateRuntimeModule(definition);
+    if (definition.source) {
+      await generateRuntimeModule(definition);
+    }
   }
+
+  // Write the components barrel (source is null – it re-exports a local barrel)
+  const componentsBarrel = [
+    "// AUTO-GENERATED FILE. DO NOT EDIT.",
+    '// Re-exports the shared component barrel for extensions.',
+    'export * from "../../../../components/extension-shared";',
+    "",
+  ].join("\n");
+  const componentsType = [
+    "// AUTO-GENERATED FILE. DO NOT EDIT.",
+    'export * from "../../../../components/extension-shared";',
+    "",
+  ].join("\n");
+  await fs.writeFile(path.join(runtimeDir, "components.ts"), componentsBarrel, "utf8");
+  await fs.writeFile(path.join(runtimeDir, "components.d.ts"), componentsType, "utf8");
 
   await generateContractModule();
   console.log(`Generated Cove extension runtime modules in ${runtimeDir}`);

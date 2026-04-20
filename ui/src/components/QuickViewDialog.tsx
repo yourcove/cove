@@ -209,11 +209,11 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
       </div>
 
       {/* Preview */}
-      <div className="bg-black flex items-center justify-center max-h-[50vh]" onClick={() => { onClose(); onNavigate({ page: "image", id }); }}>
+      <div className="bg-black flex items-center justify-center h-[50vh]" onClick={() => { onClose(); onNavigate({ page: "image", id }); }}>
         <img
           src={images.imageUrl(image.id)}
           alt=""
-          className="max-w-full max-h-[50vh] object-contain cursor-pointer"
+          className="w-full h-[50vh] object-contain cursor-pointer"
         />
       </div>
 

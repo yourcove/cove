@@ -49,6 +49,7 @@ public class ConfigService
                 Path = p.Path,
                 ExcludeVideo = p.ExcludeVideo,
                 ExcludeImage = p.ExcludeImage,
+                ExcludeAudio = p.ExcludeAudio,
             }).ToList(),
             GeneratedPath = cfg.GeneratedPath,
             CachePath = cfg.CachePath,
@@ -181,6 +182,7 @@ public class ConfigService
             Path = p.Path,
             ExcludeVideo = p.ExcludeVideo,
             ExcludeImage = p.ExcludeImage,
+            ExcludeAudio = p.ExcludeAudio,
         }).ToList();
 
         if (!string.IsNullOrEmpty(dto.GeneratedPath))

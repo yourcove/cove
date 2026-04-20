@@ -25,6 +25,32 @@ body {
   font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+.navbar-desktop-links {
+  display: none;
+}
+
+.navbar-mobile-menu {
+  display: block;
+}
+
+.navbar-mobile-toggle {
+  display: inline-flex;
+}
+
+@media (min-width: 768px) {
+  .navbar-desktop-links {
+    display: flex;
+  }
+
+  .navbar-mobile-menu {
+    display: none;
+  }
+
+  .navbar-mobile-toggle {
+    display: none;
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

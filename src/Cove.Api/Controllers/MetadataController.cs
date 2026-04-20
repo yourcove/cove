@@ -392,7 +392,7 @@ public class MetadataController(
             }
 
             progress.Report(0.9, "Writing export file...");
-            var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+            var jsonOpts = new JsonSerializerOptions { WriteIndented = true, ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles };
             await System.IO.File.WriteAllTextAsync(exportFile, JsonSerializer.Serialize(exportData, jsonOpts), ct);
 
             logger.LogInformation("Export completed: {Path}", exportFile);

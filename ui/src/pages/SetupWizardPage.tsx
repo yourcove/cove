@@ -26,7 +26,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const [paths, setPaths] = useState<CovePathConfig[]>(
     config.covePaths.length > 0
       ? config.covePaths
-      : [{ path: "", excludeVideo: false, excludeImage: false }]
+      : [{ path: "", excludeVideo: false, excludeImage: false, excludeAudio: false }]
   );
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -41,7 +41,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   });
 
   const addPath = () => {
-    setPaths([...paths, { path: "", excludeVideo: false, excludeImage: false }]);
+    setPaths([...paths, { path: "", excludeVideo: false, excludeImage: false, excludeAudio: false }]);
   };
 
   const removePath = (index: number) => {

@@ -16,9 +16,17 @@
   </PropertyGroup>
 
   <!-- Embed wwwroot as managed resources so the SPA is inside the single-file binary -->
-  <ItemGroup>
+  <ItemGroup Condition="'$(PublishSingleFile)' == 'true'">
     <EmbeddedResource Include="wwwroot\**" />
   </ItemGroup>
+
+  <!-- For development / dotnet run: copy wwwroot to output directory -->
+  <Target Name="CopyWwwrootToBin" AfterTargets="Build" Condition="'$(PublishSingleFile)' != 'true'">
+    <ItemGroup>
+      <WwwrootFiles Include="wwwroot\**" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WwwrootFiles)" DestinationFolder="$(OutputPath)wwwroot\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.5" />
@@ -46,6 +54,7 @@
     <ProjectReference Include="..\Cove.Core\Cove.Core.csproj" />
     <ProjectReference Include="..\Cove.Data\Cove.Data.csproj" />
     <ProjectReference Include="..\Cove.Plugins\Cove.Plugins.csproj" />
+    <ProjectReference Include="..\Cove.Sdk\Cove.Sdk.csproj" />
   </ItemGroup>
 
 </Project>

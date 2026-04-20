@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, groups, images, metadata, performers, scenes, studios, entityImages } from "../api/client";
 import type { FindFilter, Gallery, Group, Image, Performer, Scene, Studio } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay } from "../components/shared";
-import { ArrowLeft, Building2, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Link as LinkIcon, Link2, Loader2, MoreVertical, Pencil, Trash2, UserRound, Wand2 } from "lucide-react";
+import { ArrowLeft, Building2, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Link as LinkIcon, Link2, Loader2, MoreVertical, Music, Pencil, Trash2, UserRound, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { StudioEditModal } from "./StudioEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -15,6 +15,7 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
+import { useExtensionTabs } from "../components/useExtensionTabs";
 
 const SCENE_SORT = [
   { value: "updated_at", label: "Recently Updated" },
@@ -65,7 +66,7 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "scenes" | "performers" | "galleries" | "images" | "studios" | "groups";
+type TabKey = "scenes" | "performers" | "galleries" | "images" | "studios" | "groups" | (string & {});
 
 export function StudioDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
@@ -79,6 +80,14 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("scenes");
+  const { allTabs: studioTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("studio", [
+    { key: "scenes", label: "Scenes", count: studio?.sceneCount },
+    { key: "performers", label: "Performers", count: studio?.performerCount },
+    { key: "galleries", label: "Galleries", count: studio?.galleryCount },
+    { key: "images", label: "Images", count: studio?.imageCount },
+    { key: "studios", label: "Sub-studios", count: studio?.childStudioCount },
+    { key: "groups", label: "Groups", count: studio?.groupCount },
+  ], id);
   const [sceneFilter, setSceneFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
   const [galleryFilter, setGalleryFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
   const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 30, direction: "desc" });
@@ -255,6 +264,9 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                 <CountCard label="Galleries" value={studio.galleryCount} icon={<FolderOpen className="h-4 w-4" />} />
                 <CountCard label="Sub-studios" value={studio.childStudioCount} icon={<Building2 className="h-4 w-4" />} />
                 <CountCard label="Groups" value={studio.groupCount} icon={<Layers className="h-4 w-4" />} />
+                {extensionCounts.map((ec) => (
+                  <CountCard key={ec.key} label={ec.label} value={ec.count} icon={ec.icon === "music" ? <Music className="h-4 w-4" /> : undefined} />
+                ))}
               </div>
 
               {studio.details && (
@@ -325,14 +337,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
 
         <div className="mx-auto max-w-7xl border-b border-border mt-6">
           <div className="flex gap-1 overflow-x-auto">
-            {[
-              { key: "scenes", label: "Scenes", count: studio.sceneCount },
-              { key: "performers", label: "Performers", count: studio.performerCount },
-              { key: "galleries", label: "Galleries", count: studio.galleryCount },
-              { key: "images", label: "Images", count: studio.imageCount },
-              { key: "studios", label: "Sub-studios", count: studio.childStudioCount },
-              { key: "groups", label: "Groups", count: studio.groupCount },
-            ].map((tab) => (
+            {studioTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as TabKey)}
@@ -343,7 +348,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                 }`}
               >
                 {tab.label}
-                {tab.count > 0 && <span className="ml-1.5 text-xs text-muted bg-surface rounded-full px-1.5 py-0.5">{tab.count}</span>}
+                {(tab.count ?? 0) > 0 && <span className="ml-1.5 text-xs text-muted bg-surface rounded-full px-1.5 py-0.5">{tab.count}</span>}
               </button>
             ))}
           </div>
@@ -368,6 +373,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
           {activeTab === "groups" && (
             <StudioGroupsPanel studioId={id} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
           )}
+          {renderExtensionTab(activeTab, id, onNavigate)}
         </div>
 
         <ExtensionSlot slot="studio-detail-bottom" context={{ studio, onNavigate }} />

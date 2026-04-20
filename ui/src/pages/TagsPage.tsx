@@ -12,6 +12,8 @@ import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { TAG_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog } from "../components/BulkEditDialog";
 import { useListUrlState } from "../hooks/useListUrlState";
+import { ExtensionSlot } from "../router/RouteRegistry";
+import { useRouteRegistry } from "../router/RouteRegistry";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -130,6 +132,7 @@ export function TagsPage({ onNavigate }: Props) {
               key={tag.id}
               tag={tag}
               onClick={() => selecting ? toggle(tag.id) : onNavigate({ page: "tag", id: tag.id })}
+              onNavigate={onNavigate}
               selected={selectedIds.has(tag.id)}
               onSelect={() => toggle(tag.id)}
               selecting={selecting}
@@ -202,8 +205,10 @@ function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: 
   );
 }
 
-function TagCard({ tag, onClick, selected, onSelect, selecting }: { tag: Tag; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+function TagCard({ tag, onClick, onNavigate, selected, onSelect, selecting }: { tag: Tag; onClick: () => void; onNavigate: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+  const { slots } = useRouteRegistry();
   const queryClient = useQueryClient();
+  const hasExtensionFooter = slots.some((slot) => slot.slot === "tag-card-footer");
   const favMut = useMutation({
     mutationFn: () => tags.update(tag.id, { favorite: !tag.favorite }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tags"] }),
@@ -235,7 +240,7 @@ function TagCard({ tag, onClick, selected, onSelect, selecting }: { tag: Tag; on
           <p className="text-xs text-secondary mt-0.5 line-clamp-1">{tag.description}</p>
         )}
       </div>
-      {(tag.sceneCount || tag.sceneMarkerCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount) ? (
+      {(tag.sceneCount || tag.sceneMarkerCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount || hasExtensionFooter) ? (
         <div className="flex items-center justify-center gap-2 px-2 pb-2 border-t border-border/50 pt-1.5 flex-wrap">
           {tag.sceneCount != null && tag.sceneCount > 0 && (
             <PopoverButton icon={<Film className="w-3 h-3" />} count={tag.sceneCount} title="Scenes" wide preferBelow>
@@ -272,6 +277,7 @@ function TagCard({ tag, onClick, selected, onSelect, selecting }: { tag: Tag; on
               <StudiosPopoverContent filter={{ tagIds: String(tag.id) }} />
             </PopoverButton>
           )}
+          <ExtensionSlot slot="tag-card-footer" context={{ tag, onNavigate }} />
         </div>
       ) : null}
     </div>

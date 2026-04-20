@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Cove.Plugins;
+using Cove.Core.Interfaces;
 using System.IO;
 
 namespace Cove.Api.Controllers;
@@ -199,7 +200,8 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
 
     /// <summary>Trigger a job defined by an extension.</summary>
     [HttpPost("{id}/jobs/{jobId}/run")]
-    public async Task<IActionResult> RunJob(string id, string jobId, [FromBody] Dictionary<string, string>? parameters, CancellationToken ct)
+    public IActionResult RunJob(string id, string jobId, [FromBody] Dictionary<string, string>? parameters,
+        [FromServices] IJobService jobService)
     {
         var ext = extensionManager.Extensions.OfType<IJobExtension>().FirstOrDefault(e => e.Id == id);
         if (ext == null) return NotFound("Extension not found or has no jobs");
@@ -207,14 +209,18 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
         var job = ext.Jobs.FirstOrDefault(j => j.Id == jobId);
         if (job == null) return NotFound($"Job '{jobId}' not found");
 
-        // Run job in background
-        _ = Task.Run(async () =>
-        {
-            var progress = new SimpleJobProgress();
-            await ext.RunJobAsync(jobId, parameters, progress, CancellationToken.None);
-        }, CancellationToken.None);
+        // Run through the core job service for proper queuing, progress tracking, and SignalR updates
+        var coreJobId = jobService.Enqueue(
+            $"ext:{ext.Id}:{jobId}",
+            $"[{ext.Name}] {job.Name}",
+            async (coreProgress, ct) =>
+            {
+                var bridge = new JobProgressBridge(coreProgress);
+                await ext.RunJobAsync(jobId, parameters, bridge, ct);
+            },
+            exclusive: false);
 
-        return Accepted(new { message = $"Job '{job.Name}' started" });
+        return Accepted(new { message = $"Job '{job.Name}' started", jobId = coreJobId });
     }
 
     /// <summary>Serve static assets from an extension's data directory.</summary>
@@ -321,6 +327,54 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
         extensionsDir = Path.GetFullPath(extensionsDir);
         Directory.CreateDirectory(extensionsDir);
 
+        // Resolve dependencies first
+        var detail = await registry.GetExtensionAsync(request.ExtensionId, ct);
+        if (detail == null)
+            return NotFound($"Extension '{request.ExtensionId}' not found in registry.");
+
+        // Find the specific version's details (or use latest if no deps differ per version)
+        var missingDeps = new List<DependencyInfo>();
+        var installedIds = new HashSet<string>(extensionManager.Extensions.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
+
+        if (detail.Dependencies.Count > 0)
+        {
+            foreach (var (depId, versionConstraint) in detail.Dependencies)
+            {
+                if (installedIds.Contains(depId)) continue;
+
+                var depDetail = await registry.GetExtensionAsync(depId, ct);
+                if (depDetail == null)
+                {
+                    missingDeps.Add(new DependencyInfo(depId, versionConstraint, null, null, false));
+                    continue;
+                }
+
+                missingDeps.Add(new DependencyInfo(depId, versionConstraint, depDetail.Name, depDetail.Version, true));
+            }
+        }
+
+        // If there are missing deps and the client didn't opt in to auto-install, return them
+        if (missingDeps.Count > 0 && !request.InstallDependencies)
+        {
+            return Ok(new
+            {
+                requiresDependencies = true,
+                extension = new { detail.Id, detail.Name, detail.Version },
+                missingDependencies = missingDeps,
+            });
+        }
+
+        // Install missing dependencies first
+        var installedExtensions = new List<string>();
+        foreach (var dep in missingDeps.Where(d => d.Available))
+        {
+            await registry.DownloadAsync(dep.Id, dep.ResolvedVersion!, extensionsDir, ct);
+            extensionManager.DiscoverExtensions(extensionsDir);
+            await extensionManager.InitializeExtensionAsync(dep.Id, HttpContext.RequestServices, ct);
+            installedExtensions.Add(dep.Id);
+        }
+
+        // Install the requested extension
         var installPath = await registry.DownloadAsync(request.ExtensionId, request.Version, extensionsDir, ct);
 
         // Reload discovered extensions and hot-initialize the newly installed one.
@@ -335,7 +389,41 @@ public class ExtensionsController(ExtensionManager extensionManager) : Controlle
             });
         }
 
-        return Ok(new { message = $"Extension '{request.ExtensionId}' v{request.Version} installed.", path = installPath });
+        return Ok(new
+        {
+            message = $"Extension '{request.ExtensionId}' v{request.Version} installed.",
+            path = installPath,
+            installedDependencies = installedExtensions,
+        });
+    }
+
+    /// <summary>Resolve dependencies for an extension without installing.</summary>
+    [HttpGet("registry/{extensionId}/dependencies")]
+    public async Task<IActionResult> RegistryResolveDependencies(
+        string extensionId,
+        [FromServices] IExtensionRegistry registry = null!,
+        CancellationToken ct = default)
+    {
+        var detail = await registry.GetExtensionAsync(extensionId, ct);
+        if (detail == null) return NotFound();
+
+        var installedIds = new HashSet<string>(extensionManager.Extensions.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
+        var deps = new List<DependencyInfo>();
+
+        foreach (var (depId, versionConstraint) in detail.Dependencies)
+        {
+            var isInstalled = installedIds.Contains(depId);
+            var depDetail = await registry.GetExtensionAsync(depId, ct);
+            deps.Add(new DependencyInfo(
+                depId,
+                versionConstraint,
+                depDetail?.Name,
+                depDetail?.Version,
+                depDetail != null,
+                isInstalled));
+        }
+
+        return Ok(deps);
     }
 
     /// <summary>Uninstall an extension by removing its directory.</summary>
@@ -431,6 +519,8 @@ public record RegistryInstallRequest
 {
     public required string ExtensionId { get; init; }
     public required string Version { get; init; }
+    /// <summary>When true, automatically install missing dependencies.</summary>
+    public bool InstallDependencies { get; init; }
 }
 
 public record RegistryUninstallRequest
@@ -438,10 +528,17 @@ public record RegistryUninstallRequest
     public required string ExtensionId { get; init; }
 }
 
-/// <summary>Simple job progress reporter.</summary>
-internal class SimpleJobProgress : IJobProgress
+public record DependencyInfo(
+    string Id,
+    string VersionConstraint,
+    string? Name,
+    string? ResolvedVersion,
+    bool Available,
+    bool Installed = false
+);
+
+/// <summary>Bridges extension IJobProgress to core IJobProgress.</summary>
+internal class JobProgressBridge(Cove.Core.Interfaces.IJobProgress coreProgress) : Cove.Plugins.IJobProgress
 {
-    public double Percent { get; private set; }
-    public string? Message { get; private set; }
-    public void Report(double percent, string? message = null) { Percent = percent; Message = message; }
+    public void Report(double percent, string? message = null) => coreProgress.Report(percent, message);
 }

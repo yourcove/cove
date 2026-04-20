@@ -30,7 +30,7 @@ const GroupDetailPage = lazy(() => import("./pages/GroupDetailPage").then(m => (
 const ImageDetailPage = lazy(() => import("./pages/ImageDetailPage").then(m => ({ default: m.ImageDetailPage })));
 const LogsPage = lazy(() => import("./pages/LogsPage").then(m => ({ default: m.LogsPage })));
 const SceneMarkersPage = lazy(() => import("./pages/SceneMarkersPage").then(m => ({ default: m.SceneMarkersPage })));
-const DuplicateFinderPage = lazy(() => import("./pages/DuplicateFinderPage").then(m => ({ default: m.DuplicateFinderPage })));
+
 const SceneFilenameParserPage = lazy(() => import("./pages/SceneFilenameParserPage").then(m => ({ default: m.SceneFilenameParserPage })));
 const HomePage = lazy(() => import("./pages/HomePage").then(m => ({ default: m.HomePage })));
 
@@ -206,7 +206,12 @@ function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => 
   if (extPage?.componentName) {
     const Component = resolveComponent(extPage.componentName);
     if (Component) {
-      return <Component onNavigate={navigate} />;
+      // Pass id if this is a detail page route
+      const props: Record<string, unknown> = { onNavigate: navigate };
+      if ("id" in route && route.id !== undefined) {
+        props.id = route.id;
+      }
+      return <Component {...props} />;
     }
   }
 
@@ -246,7 +251,6 @@ function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => 
       {route.page === "stats" && <StatsPage onNavigate={navigate} />}
       {route.page === "logs" && <LogsPage />}
       {route.page === "markers" && <SceneMarkersPage onNavigate={navigate} />}
-      {route.page === "duplicates" && <DuplicateFinderPage onNavigate={navigate} />}
       {route.page === "sceneparser" && <SceneFilenameParserPage onNavigate={navigate} />}
     </>
   );

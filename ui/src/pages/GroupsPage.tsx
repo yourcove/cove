@@ -13,6 +13,8 @@ import { GROUP_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog } from "../components/BulkEditDialog";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
+import { ExtensionSlot } from "../router/RouteRegistry";
+import { useRouteRegistry } from "../router/RouteRegistry";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -153,6 +155,8 @@ export function GroupsPage({ onNavigate }: Props) {
 }
 
 function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }: { group: Group; onClick: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+  const { slots } = useRouteRegistry();
+  const hasExtensionFooter = slots.some((slot) => slot.slot === "group-card-footer");
   return (
     <div className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`} onClick={onClick}>
       {/* Movie poster style - 2:3 aspect ratio */}
@@ -180,7 +184,7 @@ function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }
           {group.director && <span>Dir: {group.director}</span>}
         </div>
       </div>
-      {(group.sceneCount > 0 || group.subGroupCount > 0 || group.containingGroupCount > 0 || group.tags.length > 0) && (
+      {(group.sceneCount > 0 || group.subGroupCount > 0 || group.containingGroupCount > 0 || group.tags.length > 0 || hasExtensionFooter) && (
         <div className="flex items-center justify-center gap-2 px-2 pb-2 border-t border-border pt-1.5">
           {group.sceneCount > 0 && (
             <PopoverButton icon={<Film className="w-3 h-3" />} count={group.sceneCount} title="Scenes" wide preferBelow>
@@ -209,6 +213,7 @@ function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }
               <FolderUp className="w-3 h-3" /> {group.containingGroupCount}
             </span>
           )}
+          <ExtensionSlot slot="group-card-footer" context={{ group, onNavigate }} />
         </div>
       )}
     </div>

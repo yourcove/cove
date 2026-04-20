@@ -55,6 +55,7 @@ public class CovePath
     public string Path { get; set; } = string.Empty;
     public bool ExcludeVideo { get; set; }
     public bool ExcludeImage { get; set; }
+    public bool ExcludeAudio { get; set; }
 }
 
 public class AuthConfig

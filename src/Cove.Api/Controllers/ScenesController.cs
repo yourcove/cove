@@ -142,10 +142,19 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
     }
 
     [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, CancellationToken ct = default)
     {
-        var scene = await sceneRepo.GetByIdAsync(id, ct);
+        var scene = await sceneRepo.GetByIdWithRelationsAsync(id, ct);
         if (scene == null) return NotFound();
+        if (deleteFile)
+        {
+            foreach (var file in scene.Files)
+            {
+                var path = file.Path;
+                if (System.IO.File.Exists(path))
+                    System.IO.File.Delete(path);
+            }
+        }
         await sceneRepo.DeleteAsync(id, ct);
         return NoContent();
     }

@@ -49,4 +49,20 @@ export const extensionRuntimeModules = [
     outputFileName: "react-query.js",
     legacySpecifiers: ["@tanstack/react-query"],
   },
+  {
+    id: "lucide-react",
+    source: "lucide-react",
+    specifier: "@cove/runtime/lucide-react",
+    sourceFileName: "lucide-react.ts",
+    outputFileName: "lucide-react.js",
+    legacySpecifiers: ["lucide-react"],
+  },
+  {
+    id: "components",
+    source: null as any, // local barrel – not auto-generated
+    specifier: "@cove/runtime/components",
+    sourceFileName: "components.ts",
+    outputFileName: "components.js",
+    legacySpecifiers: [],
+  },
 ];

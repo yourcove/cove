@@ -1192,7 +1192,7 @@ export function FilterButton({
       className={`flex items-center gap-1 px-2 py-1 rounded text-xs border ${
         activeCount > 0
           ? "border-accent bg-accent/10 text-accent"
-          : "border-border bg-input text-secondary hover:text-foreground"
+          : "border-border bg-card/70 text-secondary hover:border-accent hover:text-foreground"
       }`}
     >
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

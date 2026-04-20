@@ -231,6 +231,7 @@ public record CovePathDto
     public string Path { get; init; } = "";
     public bool ExcludeVideo { get; init; }
     public bool ExcludeImage { get; init; }
+    public bool ExcludeAudio { get; init; }
 }
 
 public record InterfaceConfigDto
@@ -638,11 +639,6 @@ public record PluginSettingsDto(Dictionary<string, bool> EnabledMap);
 public record PackageDto(string Name, string Description, string Version, string SourceUrl, string Type, bool Installed, string? InstalledVersion);
 public record InstallPackagesDto(List<InstallPackageEntryDto> Packages);
 public record InstallPackageEntryDto(string Id, string SourceUrl);
-
-// ===== DLNA DTOs =====
-public record DlnaStatusDto(bool Running, string? UntilDisabled, List<string> RecentIps, List<string> AllowedIps);
-public record DlnaToggleDto(int? DurationMinutes);
-public record DlnaIpDto(string IpAddress, int? DurationMinutes);
 
 // ===== DIRECTORY LISTING =====
 public record DirectoryEntryDto(string Path, bool IsDirectory);

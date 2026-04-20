@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, images, metadata, performers, scenes, entityImages } from "../api/client";
 import type { FindFilter, Gallery, Image, Performer as PerformerModel, Scene, MetadataServer, MetadataServerPerformerMatch } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay } from "../components/shared";
-import { ArrowLeft, Calendar, ChevronDown, CloudDownload, ExternalLink, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Link2, Loader2, MapPin, MoreVertical, Pencil, Ruler, Scale, Search, Trash2, Users, UserRound, Wand2 } from "lucide-react";
+import { ArrowLeft, Calendar, ChevronDown, CloudDownload, ExternalLink, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Link2, Loader2, MapPin, MoreVertical, Music, Pencil, Ruler, Scale, Search, Trash2, Users, UserRound, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -15,13 +15,14 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
+import { useExtensionTabs } from "../components/useExtensionTabs";
 
 interface Props {
   id: number;
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "scenes" | "galleries" | "images" | "groups" | "appearsWith";
+type TabKey = "scenes" | "galleries" | "images" | "groups" | "appearsWith" | (string & {});
 
 const SCENE_SORT = [
   { value: "updated_at", label: "Recently Updated" },
@@ -68,6 +69,13 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 30, direction: "desc" });
   const [groupFilter, setGroupFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
   const [appearsWithFilter, setAppearsWithFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
+  const { allTabs: performerTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("performer", [
+    { key: "scenes", label: "Scenes", count: performer?.sceneCount },
+    { key: "galleries", label: "Galleries", count: performer?.galleryCount },
+    { key: "images", label: "Images", count: performer?.imageCount },
+    { key: "groups", label: "Groups", count: performer?.groupCount },
+    { key: "appearsWith", label: "Appears With" },
+  ], id);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -236,6 +244,9 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                 <CountCard label="Galleries" value={performer.galleryCount} icon={<FolderOpen className="h-4 w-4" />} />
                 <CountCard label="Images" value={performer.imageCount} icon={<ImageIcon className="h-4 w-4" />} />
                 <CountCard label="Groups" value={performer.groupCount} icon={<Layers className="h-4 w-4" />} />
+                {extensionCounts.map((ec) => (
+                  <CountCard key={ec.key} label={ec.label} value={ec.count} icon={ec.icon === "music" ? <Music className="h-4 w-4" /> : <Layers className="h-4 w-4" />} />
+                ))}
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -329,13 +340,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
 
         <div className="mx-auto max-w-7xl mt-0 border-b border-border">
           <div className="flex gap-1 overflow-x-auto">
-            {[
-              { key: "scenes", label: "Scenes", count: performer.sceneCount },
-              { key: "galleries", label: "Galleries", count: performer.galleryCount },
-              { key: "images", label: "Images", count: performer.imageCount },
-              { key: "groups", label: "Groups", count: performer.groupCount },
-              { key: "appearsWith", label: "Appears With", count: undefined as number | undefined },
-            ].map((tab) => (
+            {performerTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as TabKey)}
@@ -368,6 +373,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
           {activeTab === "appearsWith" && (
             <PerformerAppearsWithPanel performerId={id} filter={appearsWithFilter} setFilter={setAppearsWithFilter} onNavigate={onNavigate} />
           )}
+          {renderExtensionTab(activeTab, id, onNavigate)}
         </div>
 
         <ExtensionSlot slot="performer-detail-bottom" context={{ performer, onNavigate }} />

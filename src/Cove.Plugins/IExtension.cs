@@ -211,6 +211,83 @@ public interface IMiddlewareExtension : IExtension
 }
 
 /// <summary>
+/// Extension that participates in the core library scan.
+/// When a user triggers a scan, the core scan system calls all registered
+/// scan participants as part of the same scan job, sharing progress tracking.
+/// </summary>
+public interface IScanParticipant : IExtension
+{
+    /// <summary>
+    /// Called by the core scan system to let this extension scan for its file types.
+    /// The extension receives the resolved scan paths and should process them
+    /// within the provided progress range.
+    /// </summary>
+    Task ScanAsync(ScanContext context, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Extension that participates in the core auto-tag operation.
+/// When a user triggers auto-tag, the core system calls all registered
+/// auto-tag participants as part of the same job, sharing progress tracking.
+/// </summary>
+public interface IAutoTagParticipant : IExtension
+{
+    /// <summary>
+    /// Called by the core auto-tag system to let this extension auto-tag its entities.
+    /// The extension receives pre-loaded performer, studio, and tag data to match against.
+    /// </summary>
+    Task AutoTagAsync(AutoTagContext context, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Context provided to extension scan participants during a core library scan.
+/// </summary>
+public record ScanContext(
+    /// <summary>Resolved scan targets with their path and exclusion flags.</summary>
+    IReadOnlyList<ScanPathInfo> Paths,
+    /// <summary>Progress reporter scoped to this participant's allocation of the progress bar.</summary>
+    IJobProgress Progress,
+    /// <summary>Service provider for resolving dependencies.</summary>
+    IServiceProvider Services,
+    /// <summary>Whether this is a rescan (re-process existing files).</summary>
+    bool Rescan = false
+);
+
+/// <summary>A resolved scan path with exclusion flags from the core configuration.</summary>
+public record ScanPathInfo(
+    string Path,
+    bool ExcludeVideo,
+    bool ExcludeImage,
+    bool ExcludeAudio,
+    bool IsFile
+);
+
+/// <summary>
+/// Context provided to extension auto-tag participants.
+/// </summary>
+public record AutoTagContext(
+    /// <summary>Pre-loaded performers with names and aliases for matching.</summary>
+    IReadOnlyList<AutoTagPerformer> Performers,
+    /// <summary>Pre-loaded studios with names for matching.</summary>
+    IReadOnlyList<AutoTagStudio> Studios,
+    /// <summary>Pre-loaded tags with names and aliases for matching.</summary>
+    IReadOnlyList<AutoTagTag> Tags,
+    /// <summary>Progress reporter scoped to this participant's allocation.</summary>
+    IJobProgress Progress,
+    /// <summary>Service provider for resolving dependencies.</summary>
+    IServiceProvider Services
+);
+
+/// <summary>Performer data for auto-tag matching.</summary>
+public record AutoTagPerformer(int Id, string Name, IReadOnlyList<string> Aliases);
+
+/// <summary>Studio data for auto-tag matching.</summary>
+public record AutoTagStudio(int Id, string Name);
+
+/// <summary>Tag data for auto-tag matching.</summary>
+public record AutoTagTag(int Id, string Name, IReadOnlyList<string> Aliases);
+
+/// <summary>
 /// Extension that contributes toolbar actions, context menu items, and bulk actions.
 /// These appear in the UI based on context (entity type, selection state, page).
 /// </summary>
@@ -372,7 +449,10 @@ public record UITabContribution(
     string PageType,
     string ExtensionId,
     string ComponentName,
-    int Order = 100
+    int Order = 100,
+    /// <summary>API endpoint template for fetching a count badge. Use {entityId} as placeholder.</summary>
+    string? CountEndpoint = null,
+    string? Icon = null
 );
 
 /// <summary>Add a panel/pane region contribution to a page layout.</summary>
@@ -433,13 +513,17 @@ public record UILayoutStyleDef(
     string? Description = null
 );
 
-/// <summary>A settings panel contributed by an extension, shown in the Extensions settings tab.</summary>
+/// <summary>A settings panel contributed by an extension. Appears in the Extensions settings tab by default, or in a specific tab or tab section when targeted.</summary>
 public record UISettingsPanel(
     string Id,
     string Label,
     string ExtensionId,
     string ComponentName,
-    int Order = 100
+    int Order = 100,
+    /// <summary>Target settings tab key (e.g. "library", "interface", "security"). Null = Extensions tab.</summary>
+    string? TargetTab = null,
+    /// <summary>Optional target section key within the target tab (e.g. "extensions" under the Library tab).</summary>
+    string? TargetSection = null
 );
 
 /// <summary>

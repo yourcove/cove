@@ -14,6 +14,7 @@
 import { useEffect, useState, createContext, useContext, useCallback, type ReactNode, type FC } from "react";
 import { useRouteRegistry } from "../router/RouteRegistry";
 import { extensions } from "../api/client";
+import { Music, Puzzle, type LucideIcon } from "lucide-react";
 import type {
   ExtensionManifest,
   ExtensionThemeDef,
@@ -25,6 +26,14 @@ import type {
   ExtensionLayoutStyleDef,
   ExtensionAction,
 } from "../api/types";
+
+// ============================================================================
+// Icon resolver — maps manifest icon names to Lucide components
+// ============================================================================
+const ICON_MAP: Record<string, LucideIcon> = { music: Music, puzzle: Puzzle };
+function resolveIcon(name?: string): LucideIcon | undefined {
+  return name ? ICON_MAP[name.toLowerCase()] : undefined;
+}
 
 // ============================================================================
 // Built-in component registry — populated by external extensions at runtime.
@@ -72,6 +81,8 @@ interface ExtensionState {
   getDialogOverride: (dialogId: string) => ExtensionDialogOverride | undefined;
   /** Settings panels contributed by extensions */
   settingsPanels: ExtensionSettingsPanel[];
+  /** Get settings panels for a specific settings tab (e.g. "library", "interface") */
+  getSettingsPanelsForTab: (tab: string, section?: string) => ExtensionSettingsPanel[];
   /** Actions contributed by extensions (toolbar, context menu, bulk) */
   actions: ExtensionAction[];
   /** Get actions applicable to a given context */
@@ -98,6 +109,7 @@ const ExtensionContext = createContext<ExtensionState>({
   getPageOverride: () => undefined,
   getDialogOverride: () => undefined,
   settingsPanels: [],
+  getSettingsPanelsForTab: () => [],
   actions: [],
   getActionsForContext: () => [],
   resolveComponent: () => undefined,
@@ -202,14 +214,31 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
               navItem: {
                 page: page.route,
                 label: page.label,
-                icon: undefined,
+                icon: resolveIcon(page.icon),
                 order: page.navOrder,
               },
             });
           }
         }
 
-        // Register slot contributions
+        // Dynamically load external JS bundles (ESM modules from third-party extensions)
+        // Must happen BEFORE slot registration so component-based slots can resolve
+        if (m.jsBundleUrl) {
+          try {
+            const mod = await import(/* @vite-ignore */ m.jsBundleUrl);
+            if (mod.default?.components) {
+              for (const [name, component] of Object.entries(mod.default.components)) {
+                if (typeof component === "function") {
+                  registerComponent(name, component as FC<any>);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("[ExtensionLoader] Failed to load JS bundle:", m.jsBundleUrl, err);
+          }
+        }
+
+        // Register slot contributions (after bundle load so components are available)
         for (const slot of m.slots) {
           if (slot.contentType === "html" && slot.html) {
             registerSlot({
@@ -229,22 +258,6 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
                 order: slot.order,
               });
             }
-          }
-        }
-
-        // Dynamically load external JS bundles (ESM modules from third-party extensions)
-        if (m.jsBundleUrl) {
-          try {
-            const mod = await import(/* @vite-ignore */ m.jsBundleUrl);
-            if (mod.default?.components) {
-              for (const [name, component] of Object.entries(mod.default.components)) {
-                if (typeof component === "function") {
-                  registerComponent(name, component as FC<any>);
-                }
-              }
-            }
-          } catch (err) {
-            console.warn("[ExtensionLoader] Failed to load JS bundle:", m.jsBundleUrl, err);
           }
         }
 
@@ -424,6 +437,19 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
   const settingsPanels = manifest?.settingsPanels ?? [];
   const actions = manifest?.actions ?? [];
 
+  const getSettingsPanelsForTab = useCallback(
+    (tab: string, section?: string) => {
+      return settingsPanels
+        .filter((p) => {
+          if (p.targetTab !== tab) return false;
+          if (section == null) return !p.targetSection;
+          return p.targetSection === section;
+        })
+        .sort((a, b) => a.order - b.order);
+    },
+    [settingsPanels]
+  );
+
   const getActionsForContext = useCallback(
     (entityType?: string, page?: string, actionType?: string) => {
       return actions.filter((a) => {
@@ -457,6 +483,7 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
         getPageOverride,
         getDialogOverride,
         settingsPanels,
+        getSettingsPanelsForTab,
         actions,
         getActionsForContext,
         resolveComponent,

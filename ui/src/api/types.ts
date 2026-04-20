@@ -630,6 +630,7 @@ export interface CovePathConfig {
   path: string;
   excludeVideo: boolean;
   excludeImage: boolean;
+  excludeAudio: boolean;
 }
 
 export interface JobInfo {
@@ -675,13 +676,6 @@ export interface SavedFilterUpdate {
   findFilter?: string;
   objectFilter?: string;
   uiOptions?: string;
-}
-
-export interface DlnaStatus {
-  running: boolean;
-  untilDisabled?: string;
-  recentIps: string[];
-  allowedIps: string[];
 }
 
 export interface ScraperSummary {
@@ -1242,6 +1236,8 @@ export interface ExtensionTabContribution {
   extensionId: string;
   componentName: string;
   order: number;
+  countEndpoint?: string;
+  icon?: string;
 }
 
 export interface ExtensionThemeDef {
@@ -1274,6 +1270,8 @@ export interface ExtensionSettingsPanel {
   extensionId: string;
   componentName: string;
   order: number;
+  targetTab?: string;
+  targetSection?: string;
 }
 
 export interface ExtensionPageOverride {
@@ -1371,6 +1369,15 @@ export interface RegistryUpdateInfo {
   currentVersion: string;
   latestVersion: string;
   changelog?: string;
+}
+
+export interface DependencyInfo {
+  id: string;
+  versionConstraint: string;
+  name?: string;
+  resolvedVersion?: string;
+  available: boolean;
+  installed: boolean;
 }
 
 export interface DependencyProblem {

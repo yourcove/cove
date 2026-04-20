@@ -14,13 +14,14 @@ import { SceneCard, ImageTile } from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
+import { useExtensionTabs } from "../components/useExtensionTabs";
 
 interface Props {
   id: number;
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "images" | "scenes" | "chapters" | "fileinfo";
+type TabKey = "images" | "scenes" | "chapters" | "fileinfo" | (string & {});
 
 export function GalleryDetailPage({ id, onNavigate }: Props) {
   const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 60, direction: "desc" });
@@ -41,6 +42,12 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("images");
+  const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs("gallery", [
+    { key: "images", label: "Images", count: gallery?.imageCount },
+    { key: "scenes", label: "Scenes" },
+    { key: "chapters", label: "Chapters", count: chaptersData?.length ?? 0 },
+    { key: "fileinfo", label: "File Info" },
+  ]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [imageZoom, setImageZoom] = useState(0);
@@ -258,12 +265,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
 
           {/* Tabs */}
           <div className="mt-6 flex gap-1 border-b border-border">
-            {[
-              { key: "images" as TabKey, label: "Images", count: gallery.imageCount },
-              { key: "scenes" as TabKey, label: "Scenes" },
-              { key: "chapters" as TabKey, label: "Chapters", count: chaptersData?.length ?? 0 },
-              { key: "fileinfo" as TabKey, label: "File Info" },
-            ].map((tab) => (
+            {galleryTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -332,6 +334,8 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
             {activeTab === "fileinfo" && (
               <GalleryFileInfo gallery={gallery} />
             )}
+
+            {renderExtensionTab(activeTab, id, onNavigate)}
 
             <ExtensionSlot slot="gallery-detail-main-bottom" context={{ gallery, onNavigate }} />
 

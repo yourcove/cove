@@ -247,6 +247,9 @@ export function ListPage({
   const end = Math.min(page * perPage, totalCount);
   const slotContext = { pageKey, title, filter, onFilterChange, totalCount, isLoading };
   const selecting = selectedIds && selectedIds.size > 0;
+  const toolbarSegmentClass = "flex items-center gap-1 rounded-lg border border-border bg-card/70 px-1.5 py-1 shadow-sm";
+  const toolbarSelectClass = "min-h-[30px] rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent";
+  const toolbarIconButtonClass = "rounded-md border border-transparent p-1.5 text-secondary hover:bg-card/80 hover:text-foreground focus:outline-none focus:border-accent";
 
   useEffect(() => {
     setSearchText(filter.q ?? "");
@@ -301,9 +304,9 @@ export function ListPage({
   return (
     <div className="space-y-0">
       {/* Toolbar - matches standard FilteredListToolbar */}
-      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-surface/80 border border-border rounded-lg px-2 sm:px-3 py-1.5 sticky top-0 z-30 mx-1 mt-1">
+      <div className="sticky top-0 z-30 mx-1 mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-2.5 py-2 shadow-sm shadow-black/20">
         {/* Title + count + byline */}
-        <div className="flex items-center gap-2 mr-auto sm:mr-2">
+        <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2">
           <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
           <span className="text-xs text-muted hidden sm:inline">
             {totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
@@ -315,38 +318,41 @@ export function ListPage({
         </div>
 
         {/* Search */}
-        <form onSubmit={handleSearch} className="relative order-last sm:order-none w-full sm:w-auto">
+        <form onSubmit={handleSearch} className="relative shrink-0" style={{ width: "13rem", maxWidth: "100%" }}>
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
           <input
             type="text"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Filter..."
-            className="bg-input border border-border rounded pl-7 pr-3 py-1.5 text-xs text-foreground w-full sm:w-36 focus:outline-none focus:border-accent placeholder:text-muted"
+            aria-label="Filter by title"
+            className="w-full rounded-lg border border-border bg-card/70 pl-7 pr-3 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
           />
         </form>
 
         {/* Sort */}
         {sortOptions && (
-          <select
-            value={filter.sort ?? ""}
-            onChange={(e) => onFilterChange({ ...filter, sort: e.target.value || undefined, page: 1 })}
-            className="bg-input border border-border rounded px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent"
-          >
-            {sortOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        )}
+          <div className={toolbarSegmentClass}>
+            <select
+              value={filter.sort ?? ""}
+              onChange={(e) => onFilterChange({ ...filter, sort: e.target.value || undefined, page: 1 })}
+              className={`${toolbarSelectClass} min-w-[8.5rem] max-w-[10rem]`}
+            >
+              {sortOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
 
-        {/* Direction toggle */}
-        <button
-          onClick={() => onFilterChange({ ...filter, direction: filter.direction === "desc" ? "asc" : "desc" })}
-          className="p-1.5 rounded border border-border bg-input text-secondary hover:text-foreground hover:border-accent"
-          title={filter.direction === "desc" ? "Sort descending" : "Sort ascending"}
-        >
-          <ArrowUpDown className="w-3.5 h-3.5" />
-        </button>
+            {/* Direction toggle */}
+            <button
+              onClick={() => onFilterChange({ ...filter, direction: filter.direction === "desc" ? "asc" : "desc" })}
+              className={toolbarIconButtonClass}
+              title={filter.direction === "desc" ? "Sort descending" : "Sort ascending"}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Saved filters */}
         {filterMode && (
@@ -374,11 +380,11 @@ export function ListPage({
 
         {/* Display mode */}
         {onDisplayModeChange && availableDisplayModes && (
-          <div className="hidden sm:flex items-center border border-border rounded overflow-hidden">
+          <div className={`${toolbarSegmentClass} gap-0.5`}>
             {availableDisplayModes.includes("grid") && (
               <button
                 onClick={() => onDisplayModeChange("grid")}
-                className={`p-1.5 ${displayMode === "grid" ? "bg-card text-accent" : "bg-input text-secondary hover:text-foreground"}`}
+                className={`rounded-md p-1.5 ${displayMode === "grid" ? "bg-background/60 text-accent shadow-sm" : "text-secondary hover:bg-card/80 hover:text-foreground"}`}
                 title="Grid"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
@@ -387,7 +393,7 @@ export function ListPage({
             {availableDisplayModes.includes("list") && (
               <button
                 onClick={() => onDisplayModeChange("list")}
-                className={`p-1.5 ${displayMode === "list" ? "bg-card text-accent" : "bg-input text-secondary hover:text-foreground"}`}
+                className={`rounded-md p-1.5 ${displayMode === "list" ? "bg-background/60 text-accent shadow-sm" : "text-secondary hover:bg-card/80 hover:text-foreground"}`}
                 title="List"
               >
                 <List className="w-3.5 h-3.5" />
@@ -396,7 +402,7 @@ export function ListPage({
             {availableDisplayModes.includes("wall") && (
               <button
                 onClick={() => onDisplayModeChange("wall")}
-                className={`p-1.5 ${displayMode === "wall" ? "bg-card text-accent" : "bg-input text-secondary hover:text-foreground"}`}
+                className={`rounded-md p-1.5 ${displayMode === "wall" ? "bg-background/60 text-accent shadow-sm" : "text-secondary hover:bg-card/80 hover:text-foreground"}`}
                 title="Wall"
               >
                 <Grid3X3 className="w-3.5 h-3.5" />
@@ -405,7 +411,7 @@ export function ListPage({
             {availableDisplayModes.includes("tagger") && (
               <button
                 onClick={() => onDisplayModeChange("tagger")}
-                className={`p-1.5 ${displayMode === "tagger" ? "bg-card text-accent" : "bg-input text-secondary hover:text-foreground"}`}
+                className={`rounded-md p-1.5 ${displayMode === "tagger" ? "bg-background/60 text-accent shadow-sm" : "text-secondary hover:bg-card/80 hover:text-foreground"}`}
                 title="Tagger"
               >
                 <Columns3 className="w-3.5 h-3.5" />
@@ -415,43 +421,46 @@ export function ListPage({
         )}
 
         {/* Per page */}
-        <select
-          value={perPage}
-          onChange={(e) => onFilterChange({ ...filter, perPage: Number(e.target.value), page: 1 })}
-          className="hidden sm:block bg-input border border-border rounded px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent"
-        >
-          {PER_PAGE_OPTIONS.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+        <div className={toolbarSegmentClass}>
+          <select
+            value={perPage}
+            onChange={(e) => onFilterChange({ ...filter, perPage: Number(e.target.value), page: 1 })}
+            className={`${toolbarSelectClass} min-w-[4.75rem]`}
+            title="Items per page"
+          >
+            {PER_PAGE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
 
-        {/* Zoom slider (standard card size slider) */}
-        {displayMode === "grid" && (
-          <div className="hidden md:flex items-center gap-1">
-            <ZoomOut className="w-3 h-3 text-muted" />
-            <input
-              type="range"
-              min={0}
-              max={5}
-              step={0.25}
-              value={zoomLevel}
-              onChange={(e) => setZoomLevel(Number(e.target.value))}
-              className="w-20 h-1 accent-accent cursor-pointer"
-              title={`Card size: ${Math.round(240 + zoomLevel * 60)}px`}
-            />
-            <ZoomIn className="w-3 h-3 text-muted" />
-          </div>
-        )}
+          {/* Zoom slider (standard card size slider) */}
+          {displayMode === "grid" && (
+            <div className="flex items-center gap-1 pl-1">
+              <ZoomOut className="w-3 h-3 text-muted" />
+              <input
+                type="range"
+                min={0}
+                max={5}
+                step={0.25}
+                value={zoomLevel}
+                onChange={(e) => setZoomLevel(Number(e.target.value))}
+                className="w-16 sm:w-20 h-1 accent-accent cursor-pointer"
+                title={`Card size: ${Math.round(240 + zoomLevel * 60)}px`}
+              />
+              <ZoomIn className="w-3 h-3 text-muted" />
+            </div>
+          )}
+        </div>
 
         {/* Operations */}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {renderOperations?.()}
           <ExtensionSlot slot="list-page-toolbar-end" context={slotContext} />
           {pageKey && <ExtensionSlot slot={`${pageKey}-list-toolbar-end`} context={slotContext} />}
           {onNew && (
             <button
               onClick={onNew}
-              className="px-3 py-1 rounded text-xs font-medium bg-accent hover:bg-accent-hover text-white"
+              className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
             >
               + New
             </button>

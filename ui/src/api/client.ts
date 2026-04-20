@@ -10,7 +10,6 @@ import type {
   SceneMarkerWall,
   PaginatedResponse, Stats, SystemStatus, CoveConfig, JobInfo,
   ScraperSummary,
-  DlnaStatus,
   MetadataServer,
   MetadataServerPerformerImportRequest,
   MetadataServerPerformerMatch,
@@ -49,6 +48,7 @@ import type {
   RegistrySearchResult,
   RegistryExtensionDetail,
   RegistryUpdateInfo,
+  DependencyInfo,
 } from "./types";
 
 const API_BASE = "/api";
@@ -132,7 +132,7 @@ export const scenes = {
   create: (data: SceneCreate) => request<Scene>("/scenes", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: SceneUpdate) => request<Scene>(`/scenes/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkSceneUpdate) => request<void>("/scenes/bulk", { method: "POST", body: JSON.stringify(data) }),
-  delete: (id: number) => request<void>(`/scenes/${id}`, { method: "DELETE" }),
+  delete: (id: number, deleteFile?: boolean) => request<void>(`/scenes/${id}${deleteFile ? "?deleteFile=true" : ""}`, { method: "DELETE" }),
   bulkDelete: (ids: number[]) => request<{ deleted: number }>("/scenes/destroy", { method: "POST", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<Scene>("/scenes/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
@@ -391,18 +391,6 @@ export const system = {
     request<{ key: string; value: unknown; success: boolean }>(`/system/config/ui/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(value) }),
 };
 
-// ===== DLNA =====
-export const dlna = {
-  status: () => request<DlnaStatus>("/dlna/status"),
-  enable: (durationMinutes?: number) =>
-    request<DlnaStatus>("/dlna/enable", { method: "POST", body: JSON.stringify({ durationMinutes }) }),
-  disable: () => request<DlnaStatus>("/dlna/disable", { method: "POST" }),
-  allowIp: (ipAddress: string, durationMinutes?: number) =>
-    request<DlnaStatus>("/dlna/allow-ip", { method: "POST", body: JSON.stringify({ ipAddress, durationMinutes }) }),
-  removeIp: (ipAddress: string) =>
-    request<DlnaStatus>("/dlna/remove-ip", { method: "POST", body: JSON.stringify({ ipAddress }) }),
-};
-
 // ===== Jobs =====
 export const jobs = {
   list: () => request<JobInfo[]>("/jobs"),
@@ -597,11 +585,14 @@ export const extensions = {
   /** Registry: get categories. */
   registryGetCategories: () => request<string[]>("/extensions/registry/categories"),
   /** Registry: install an extension. */
-  registryInstall: (extensionId: string, version: string) =>
-    request<{ message: string; path: string }>("/extensions/registry/install", {
+  registryInstall: (extensionId: string, version: string, installDependencies = false) =>
+    request<{ message: string; path: string; requiresDependencies?: boolean; missingDependencies?: DependencyInfo[]; installedDependencies?: string[] }>("/extensions/registry/install", {
       method: "POST",
-      body: JSON.stringify({ extensionId, version }),
+      body: JSON.stringify({ extensionId, version, installDependencies }),
     }),
+  /** Registry: resolve dependencies for an extension. */
+  registryResolveDependencies: (extensionId: string) =>
+    request<DependencyInfo[]>(`/extensions/registry/${extensionId}/dependencies`),
   /** Registry: uninstall an extension. */
   registryUninstall: (extensionId: string) =>
     request<{ message: string }>("/extensions/registry/uninstall", {

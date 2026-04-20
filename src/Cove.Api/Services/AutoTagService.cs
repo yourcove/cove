@@ -4,12 +4,14 @@ using Microsoft.Extensions.Logging;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Plugins;
 
 namespace Cove.Api.Services;
 
 public class AutoTagService(
     IJobService jobService,
     IServiceScopeFactory scopeFactory,
+    ExtensionManager extensionManager,
     ILogger<AutoTagService> logger) : IAutoTagService
 {
     public string StartAutoTag(IEnumerable<string>? performerIds = null, IEnumerable<string>? studioIds = null, IEnumerable<string>? tagIds = null)
@@ -104,6 +106,38 @@ public class AutoTagService(
 
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Auto-tag complete: {Matched}/{Total} scenes updated", matched, total);
+
+            // Extension auto-tag participants
+            var participants = extensionManager.GetAutoTagParticipants();
+            if (participants.Count > 0)
+            {
+                var atPerformers = performers.Select(p => new AutoTagPerformer(p.Id, p.Name, p.Aliases)).ToList();
+                var atStudios = studios.Select(s => new AutoTagStudio(s.Id, s.Name)).ToList();
+                var atTags = tags.Select(t => new AutoTagTag(t.Id, t.Name, t.Aliases)).ToList();
+                var extProgress = new ProgressAdapter(progress);
+
+                for (var pi = 0; pi < participants.Count; pi++)
+                {
+                    var participant = participants[pi];
+                    try
+                    {
+                        logger.LogInformation("Running auto-tag participant: {Name}", participant.Name);
+                        using var participantScope = scopeFactory.CreateScope();
+                        var atContext = new AutoTagContext(atPerformers, atStudios, atTags, extProgress, participantScope.ServiceProvider);
+                        await participant.AutoTagAsync(atContext, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Extension auto-tag participant {Name} failed", participant.Name);
+                    }
+                }
+            }
         }, exclusive: false);
+    }
+
+    /// <summary>Adapts the core IJobProgress to the extension IJobProgress.</summary>
+    private sealed class ProgressAdapter(Cove.Core.Interfaces.IJobProgress inner) : Cove.Plugins.IJobProgress
+    {
+        public void Report(double percent, string? message = null) => inner.Report(percent / 100.0, message);
     }
 }

@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cove.Plugins\Cove.Plugins.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Cove.Sdk</PackageId>
+    <Title>Cove Extension SDK</Title>
+    <Description>SDK for building Cove extensions. Provides base classes, helpers, and patterns for extending the Cove media organizer.</Description>
+    <Authors>Cove</Authors>
+    <RepositoryUrl>https://github.com/yourcove/cove</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/yourcove/cove</PackageProjectUrl>
+    <PackageTags>cove;sdk;extensions;plugins</PackageTags>
+  </PropertyGroup>
+
+</Project>

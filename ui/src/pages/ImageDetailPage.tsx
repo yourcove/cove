@@ -81,7 +81,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           <img
             src={images.imageUrl(id)}
             alt={image.title || "Image"}
-            className="max-w-[95vw] max-h-[95vh] object-contain"
+            className="w-[95vw] h-[95vh] object-contain"
           />
           <button
             onClick={(e) => { e.stopPropagation(); setLightboxOpen(false); }}
@@ -107,7 +107,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           <img
             src={images.imageUrl(id)}
             alt={image.title || "Image"}
-            className="max-w-full max-h-[calc(100vh-64px)] object-contain select-none"
+            className="w-full h-[calc(100vh-64px)] object-contain select-none"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = "none";
               (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="flex items-center justify-center h-64"><span class="text-muted">Image unavailable</span></div>';

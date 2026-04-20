@@ -6,6 +6,8 @@ using Cove.Core.Entities.Galleries.Zip;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Plugins;
+using ExtJobProgress = Cove.Plugins.IJobProgress;
 
 namespace Cove.Api.Services;
 
@@ -17,6 +19,7 @@ public class ScanService(
     IFingerprintService fingerprintService,
     IThumbnailService thumbnailService,
     ZipGalleryReader zipGalleryReader,
+    ExtensionManager extensionManager,
     ILogger<ScanService> logger) : IScanService
 {
     /// <summary>
@@ -109,80 +112,111 @@ public class ScanService(
             }
 
             logger.LogInformation("Discovered {Count} files to scan", files.Count);
-            if (files.Count == 0) return;
 
-            // Phase 2: Process files
-            using var scope = scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-            var processedCount = 0;
-            foreach (var file in files)
+            if (files.Count > 0)
             {
-                ct.ThrowIfCancellationRequested();
-                processedCount++;
-                progress.Report(0.85 * (double)processedCount / files.Count, Path.GetFileName(file.Path));
+                // Phase 2: Process files
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-                try
+                var processedCount = 0;
+                foreach (var file in files)
                 {
-                    // Check if file already exists in DB by path
-                    var existingFolder = await db.Folders
-                        .FirstOrDefaultAsync(f => f.Path == Path.GetDirectoryName(file.Path), ct);
+                    ct.ThrowIfCancellationRequested();
+                    processedCount++;
+                    progress.Report(0.85 * (double)processedCount / files.Count, Path.GetFileName(file.Path));
 
-                    if (existingFolder != null)
+                    try
                     {
-                        var basename = Path.GetFileName(file.Path);
-                        var existingFile = await db.Set<BaseFileEntity>()
-                            .FirstOrDefaultAsync(f => f.ParentFolderId == existingFolder.Id && f.Basename == basename, ct);
+                        // Check if file already exists in DB by path
+                        var existingFolder = await db.Folders
+                            .FirstOrDefaultAsync(f => f.Path == Path.GetDirectoryName(file.Path), ct);
 
-                        if (existingFile != null)
+                        if (existingFolder != null)
                         {
-                            // Check if file has been modified — but always re-process videos with missing metadata
-                            var fileInfo = new FileInfo(file.Path);
-                            var needsMetadata = existingFile is VideoFile vf && vf.Width == 0 && vf.Height == 0 && vf.Duration == 0;
-                            if (!options.Rescan && !needsMetadata && existingFile.ModTime >= fileInfo.LastWriteTimeUtc && existingFile.Size == fileInfo.Length)
-                                continue; // Not modified and metadata present, skip
+                            var basename = Path.GetFileName(file.Path);
+                            var existingFile = await db.Set<BaseFileEntity>()
+                                .FirstOrDefaultAsync(f => f.ParentFolderId == existingFolder.Id && f.Basename == basename, ct);
+
+                            if (existingFile != null)
+                            {
+                                // Check if file has been modified — but always re-process videos with missing metadata
+                                var fileInfo = new FileInfo(file.Path);
+                                var needsMetadata = existingFile is VideoFile vf && vf.Width == 0 && vf.Height == 0 && vf.Duration == 0;
+                                if (!options.Rescan && !needsMetadata && existingFile.ModTime >= fileInfo.LastWriteTimeUtc && existingFile.Size == fileInfo.Length)
+                                    continue; // Not modified and metadata present, skip
+                            }
                         }
-                    }
 
-                    // Process the file
-                    if (videoExts.Contains(file.Extension))
-                    {
-                        processedVideoPaths.Add(file.Path);
-                        await ProcessVideoFileAsync(db, file.Path, ct);
+                        // Process the file
+                        if (videoExts.Contains(file.Extension))
+                        {
+                            processedVideoPaths.Add(file.Path);
+                            await ProcessVideoFileAsync(db, file.Path, ct);
+                        }
+                        else if (imageExts.Contains(file.Extension))
+                        {
+                            processedImagePaths.Add(file.Path);
+                            await ProcessImageFileAsync(db, file.Path, ct);
+                        }
+                        else if (galleryExts.Contains(file.Extension))
+                            await ProcessGalleryFileAsync(db, file.Path, ct);
                     }
-                    else if (imageExts.Contains(file.Extension))
+                    catch (Exception ex)
                     {
-                        processedImagePaths.Add(file.Path);
-                        await ProcessImageFileAsync(db, file.Path, ct);
+                        logger.LogError(ex, "Error processing file: {Path}", file.Path);
                     }
-                    else if (galleryExts.Contains(file.Extension))
-                        await ProcessGalleryFileAsync(db, file.Path, ct);
                 }
-                catch (Exception ex)
+
+                await db.SaveChangesAsync(ct);
+
+                // Phase 3: Create galleries from folders (if enabled)
+                if (cfg.CreateGalleriesFromFolders)
                 {
-                    logger.LogError(ex, "Error processing file: {Path}", file.Path);
+                    progress.Report(0.90, "Creating galleries from folders...");
+                    await CreateGalleriesFromFoldersAsync(db, ct);
+                }
+
+                await GenerateRequestedAssetsAsync(db, progress, processedVideoPaths, processedImagePaths, options, thumbnailService, ct);
+            }
+
+            // Phase 5: Extension scan participants
+            var participants = extensionManager.GetScanParticipants();
+            if (participants.Count > 0)
+            {
+                var scanPathInfos = scanTargets
+                    .Select(t => new ScanPathInfo(t.Path, t.ExcludeVideo, t.ExcludeImage, t.ExcludeAudio, t.IsFile))
+                    .ToList();
+
+                for (var i = 0; i < participants.Count; i++)
+                {
+                    var participant = participants[i];
+                    var participantProgress = new ScopedProgress(progress,
+                        rangeStart: 0.95 + (0.05 * i / participants.Count),
+                        rangeEnd: 0.95 + (0.05 * (i + 1) / participants.Count));
+
+                    try
+                    {
+                        logger.LogInformation("Running scan participant: {Name}", participant.Name);
+                        using var participantScope = scopeFactory.CreateScope();
+                        var scanContext = new ScanContext(scanPathInfos, participantProgress, participantScope.ServiceProvider, options.Rescan);
+                        await participant.ScanAsync(scanContext, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Extension scan participant {Name} failed", participant.Name);
+                    }
                 }
             }
 
-            await db.SaveChangesAsync(ct);
-
-            // Phase 3: Create galleries from folders (if enabled)
-            if (cfg.CreateGalleriesFromFolders)
-            {
-                progress.Report(0.90, "Creating galleries from folders...");
-                await CreateGalleriesFromFoldersAsync(db, ct);
-            }
-
-            await GenerateRequestedAssetsAsync(db, progress, processedVideoPaths, processedImagePaths, options, thumbnailService, ct);
-
-            logger.LogInformation("Scan completed. Processed {Count} files", processedCount);
+            logger.LogInformation("Scan completed. Processed {Count} core files, {ParticipantCount} extension participant(s)", files.Count, participants.Count);
             eventBus.Publish(new CoveEvent(EventType.ScanCompleted));
         });
     }
 
     private async Task GenerateRequestedAssetsAsync(
         CoveContext db,
-        IJobProgress progress,
+        Cove.Core.Interfaces.IJobProgress progress,
         HashSet<string> processedVideoPaths,
         HashSet<string> processedImagePaths,
         ScanOperationOptions options,
@@ -841,7 +875,7 @@ public class ScanService(
         if (selectedPaths == null)
         {
             return cfg.CovePaths
-                .Select(path => new ScanTarget(NormalizePath(path.Path), path.ExcludeVideo, path.ExcludeImage, false))
+                .Select(path => new ScanTarget(NormalizePath(path.Path), path.ExcludeVideo, path.ExcludeImage, path.ExcludeAudio, false))
                 .ToList();
         }
 
@@ -857,6 +891,7 @@ public class ScanService(
 
             var excludeVideo = matchingConfig?.ExcludeVideo ?? false;
             var excludeImage = matchingConfig?.ExcludeImage ?? false;
+            var excludeAudio = matchingConfig?.ExcludeAudio ?? false;
             var isFile = File.Exists(selectedPath);
 
             if (!isFile && !Directory.Exists(selectedPath))
@@ -864,7 +899,7 @@ public class ScanService(
                 continue;
             }
 
-            targets.Add(new ScanTarget(selectedPath, excludeVideo, excludeImage, isFile));
+            targets.Add(new ScanTarget(selectedPath, excludeVideo, excludeImage, excludeAudio, isFile));
         }
 
         return targets;
@@ -885,5 +920,18 @@ public class ScanService(
     private static string NormalizePath(string path) => Path.GetFullPath(path);
 
     private record DiscoveredFile(string Path, string Extension);
-    private record ScanTarget(string Path, bool ExcludeVideo, bool ExcludeImage, bool IsFile);
+    private record ScanTarget(string Path, bool ExcludeVideo, bool ExcludeImage, bool ExcludeAudio, bool IsFile);
+
+    /// <summary>
+    /// Wraps a progress reporter to map 0-100% into a sub-range of the parent progress.
+    /// Used to give extension scan participants their own slice of the overall progress bar.
+    /// </summary>
+    private sealed class ScopedProgress(Cove.Core.Interfaces.IJobProgress parent, double rangeStart, double rangeEnd) : ExtJobProgress
+    {
+        public void Report(double percent, string? message = null)
+        {
+            var mapped = rangeStart + (percent / 100.0) * (rangeEnd - rangeStart);
+            parent.Report(mapped * 100, message);
+        }
+    }
 }

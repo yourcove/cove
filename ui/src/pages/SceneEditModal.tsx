@@ -21,7 +21,6 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
   const [director, setDirector] = useState(scene.director || "");
   const [date, setDate] = useState(scene.date || "");
   const [rating, setRating] = useState<number | undefined>(scene.rating ?? undefined);
-  const [organized, setOrganized] = useState(scene.organized);
   const [urls, setUrls] = useState(scene.urls.join("\n"));
   const [studioId, setStudioId] = useState<number | undefined>(scene.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(scene.tags.map((t) => t.id));
@@ -75,7 +74,6 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
     setDirector(scene.director || "");
     setDate(scene.date || "");
     setRating(scene.rating ?? undefined);
-    setOrganized(scene.organized);
     setUrls(scene.urls.join("\n"));
     setStudioId(scene.studioId ?? undefined);
     setSelectedTagIds(scene.tags.map((t) => t.id));
@@ -103,7 +101,6 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
       director: director || undefined,
       date: date || undefined,
       rating,
-      organized,
       studioId,
       urls: urlList,
       tagIds: selectedTagIds,
@@ -335,11 +332,6 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
           </div>
         )}
       </Field>
-
-      <label className="flex items-center gap-2 text-sm text-secondary mb-4 cursor-pointer">
-        <input type="checkbox" checked={organized} onChange={(e) => setOrganized(e.target.checked)} className="rounded border-border bg-card" />
-        Organized
-      </label>
 
       <Field label="Custom Fields">
         <CustomFieldsEditor value={customFields} onChange={setCustomFields} />

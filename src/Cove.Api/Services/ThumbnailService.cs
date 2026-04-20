@@ -153,12 +153,15 @@ public class ThumbnailService(
 
     public async Task GenerateSceneThumbnailAsync(int sceneId, double? atSeconds, CancellationToken ct)
     {
-        // Check if the target thumbnail already exists (avoid re-generation)
         var thumbPath = atSeconds.HasValue
             ? GetTimestampedThumbnailPath(sceneId, atSeconds.Value)
             : GetThumbnailPath(sceneId);
 
-        if (File.Exists(thumbPath)) return;
+        // Delete existing thumbnail so we always regenerate on explicit request
+        if (File.Exists(thumbPath))
+        {
+            try { File.Delete(thumbPath); } catch { /* best effort */ }
+        }
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();

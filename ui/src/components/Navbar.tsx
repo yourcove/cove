@@ -4,6 +4,7 @@ import { JobDrawer, useJobCount } from "./JobDrawer";
 import { GlobalSearch } from "./GlobalSearch";
 import { useRouteRegistry } from "../router/RouteRegistry";
 import { useAppConfig } from "../state/AppConfigContext";
+import { useExtensions } from "../extensions/ExtensionLoader";
 import { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
 
 interface NavbarProps {
@@ -39,18 +40,38 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
   const jobCount = useJobCount();
   const { routes } = useRouteRegistry();
   const { config } = useAppConfig();
-  const activePage = DETAIL_PARENT_PAGE[currentPage] ?? currentPage;
+  const { manifest } = useExtensions();
+
+  // Derive parent page: built-in detail pages use static map, extension detail
+  // pages (showInNav=false) resolve to their extension's nav page (showInNav=true)
+  let activePage = DETAIL_PARENT_PAGE[currentPage] ?? currentPage;
+  if (activePage === currentPage && manifest) {
+    const extPage = manifest.pages.find((p) => p.route === currentPage && !p.showInNav);
+    if (extPage) {
+      const navPage = manifest.pages.find((p) => p.extensionId === extPage.extensionId && p.showInNav);
+      if (navPage) activePage = navPage.route;
+    }
+  }
 
   const enabledMenuItems = config?.interface.menuItems.length
-    ? new Set(config.interface.menuItems)
+    ? config.interface.menuItems
     : null;
+
+  const enabledSet = enabledMenuItems ? new Set(enabledMenuItems) : null;
 
   const extensionNavItems = routes
     .filter((r) => r.navItem)
     .map((r) => ({ page: r.navItem!.page, label: r.navItem!.label, icon: r.navItem!.icon, order: r.navItem!.order ?? 99 }))
     .sort((a, b) => a.order - b.order);
 
-  const allNavItems = [...navItems.filter((item) => !enabledMenuItems || enabledMenuItems.has(item.page)), ...extensionNavItems];
+  // Build ordered nav: if menuItems specifies order, use it; otherwise fall back to default
+  const allItemsMap = new Map<string, typeof navItems[number] | typeof extensionNavItems[number]>();
+  for (const item of navItems) allItemsMap.set(item.page, item);
+  for (const item of extensionNavItems) allItemsMap.set(item.page, item);
+
+  const allNavItems = enabledMenuItems
+    ? enabledMenuItems.map((page) => allItemsMap.get(page)).filter(Boolean) as (typeof navItems[number] | typeof extensionNavItems[number])[]
+    : [...navItems, ...extensionNavItems];
 
   return (
     <nav className="cove-navbar bg-nav sticky top-0 z-50 shadow-lg shadow-black/30" role="navigation" aria-label="Main navigation">
@@ -72,7 +93,7 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
           {/* Hamburger button - mobile only */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded text-secondary hover:text-foreground mr-2"
+            className="navbar-mobile-toggle p-2 rounded text-secondary hover:text-foreground mr-2"
             aria-expanded={mobileMenuOpen}
             aria-label="Toggle navigation menu"
           >
@@ -80,7 +101,7 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
           </button>
 
           {/* Nav items - hidden on mobile */}
-          <div className="hidden md:flex items-center gap-0.5 overflow-x-auto">
+          <div className="navbar-desktop-links items-center gap-0.5 overflow-x-auto shrink-0">
             {allNavItems.map(({ page, label, icon: Icon }) => (
               <a
                 key={page}
@@ -152,7 +173,7 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
       <KeyboardShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
       {/* Mobile dropdown menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-nav border-t border-border shadow-lg">
+        <div className="navbar-mobile-menu bg-nav border-t border-border shadow-lg">
           <div className="px-4 py-2 space-y-1">
             {allNavItems.map(({ page, label, icon: Icon }) => (
               <button

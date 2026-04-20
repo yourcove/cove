@@ -12,13 +12,14 @@ import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
+import { useExtensionTabs } from "../components/useExtensionTabs";
 
 interface Props {
   id: number;
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "scenes" | "subGroups" | "containingGroups";
+type TabKey = "scenes" | "subGroups" | "containingGroups" | (string & {});
 
 export function GroupDetailPage({ id, onNavigate }: Props) {
   const { data: group, isLoading } = useQuery({
@@ -28,6 +29,11 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("scenes");
+  const { allTabs: groupTabs, renderExtensionTab } = useExtensionTabs("group", [
+    { key: "scenes", label: "Scenes" },
+    { key: "subGroups", label: "Sub-Groups" },
+    { key: "containingGroups", label: "Containing Groups" },
+  ], id);
   const [sceneFilter, setSceneFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "asc", sort: "date" });
   const queryClient = useQueryClient();
 
@@ -57,11 +63,13 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const tabs: { key: TabKey; label: string; count?: number }[] = [
-    { key: "scenes", label: "Scenes", count: group?.sceneCount },
-    { key: "subGroups", label: "Sub-Groups", count: group?.subGroupCount },
-    { key: "containingGroups", label: "Containing Groups", count: group?.containingGroupCount },
-  ];
+  const tabs = groupTabs.map(t => ({
+    ...t,
+    count: t.key === "scenes" ? group?.sceneCount
+      : t.key === "subGroups" ? group?.subGroupCount
+      : t.key === "containingGroups" ? group?.containingGroupCount
+      : undefined,
+  }));
 
   if (isLoading) {
     return (
@@ -195,6 +203,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
             {activeTab === "containingGroups" && (
               <GroupContainingGroupsPanel groupId={id} onNavigate={onNavigate} />
             )}
+            {renderExtensionTab(activeTab, id, onNavigate)}
 
             <ExtensionSlot slot="group-detail-main-bottom" context={{ group, onNavigate }} />
           </div>

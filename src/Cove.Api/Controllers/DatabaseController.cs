@@ -32,7 +32,7 @@ public class DatabaseController(CoveContext db, ILogger<DatabaseController> logg
         await cmd.ExecuteNonQueryAsync(ct);
 
         // For PostgreSQL, we'll do a logical backup via COPY
-        var tables = new[] { "\"Scenes\"", "\"Performers\"", "\"Tags\"", "\"Studios\"", "\"Galleries\"", "\"Images\"", "\"Groups\"" };
+        var tables = new[] { "scenes", "performers", "tags", "studios", "galleries", "images", "groups" };
         await using var writer = new StreamWriter(backupFile);
         await writer.WriteLineAsync($"-- Cove Backup {timestamp}");
 
@@ -44,6 +44,9 @@ public class DatabaseController(CoveContext db, ILogger<DatabaseController> logg
             var count = await readCmd.ExecuteScalarAsync(ct);
             await writer.WriteLineAsync($"-- {table}: {count} rows");
         }
+
+        await writer.FlushAsync(ct);
+        await writer.DisposeAsync();
 
         var fileInfo = new FileInfo(backupFile);
         logger.LogInformation("Database backup created at {Path}", backupFile);

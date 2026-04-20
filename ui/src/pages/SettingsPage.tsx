@@ -6,6 +6,7 @@ import {
   Database,
   Download,
   FolderOpen,
+  GripVertical,
   HardDrive,
   Info,
   Loader2,
@@ -18,19 +19,15 @@ import {
   Shield,
   Trash2,
   PlayCircle,
-  Radio,
   ScrollText,
   Upload,
-  Wrench,
-  FileText,
   History,
   Search,
   X,
 } from "lucide-react";
-import { system, jobs, metadata, database, plugins as pluginsApi, dlna as dlnaApi, logs as logsApi } from "../api/client";
+import { system, jobs, metadata, database, plugins as pluginsApi, logs as logsApi } from "../api/client";
 import type { ScanOptions, GenerateOptions, CleanGeneratedOptions, ExportOptions, LogEntry } from "../api/client";
 import type {
-  DlnaStatus,
   JobInfo,
   PackageSource,
   Plugin,
@@ -46,7 +43,7 @@ import { useExtensions } from "../extensions/ExtensionLoader";
 import { useAppConfig } from "../state/AppConfigContext";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 
-type SettingsTab = "tasks" | "library" | "interface" | "security" | "metadata-providers" | "dlna" | "extensions" | "logs" | "system" | "tools" | "changelog" | "about";
+type SettingsTab = "tasks" | "library" | "interface" | "security" | "metadata-providers" | "extensions" | "logs" | "system" | "changelog" | "about";
 
 const tabs: { key: SettingsTab; label: string; icon: typeof FolderOpen }[] = [
   { key: "tasks", label: "Tasks", icon: PlayCircle },
@@ -54,11 +51,9 @@ const tabs: { key: SettingsTab; label: string; icon: typeof FolderOpen }[] = [
   { key: "interface", label: "Interface", icon: Monitor },
   { key: "security", label: "Security", icon: Shield },
   { key: "metadata-providers", label: "Metadata Providers", icon: SearchCode },
-  { key: "dlna", label: "Services (DLNA)", icon: Radio },
   { key: "extensions", label: "Extensions", icon: Plug },
   { key: "logs", label: "Logs", icon: ScrollText },
   { key: "system", label: "System", icon: Server },
-  { key: "tools", label: "Tools", icon: Wrench },
   { key: "changelog", label: "Changelog", icon: History },
   { key: "about", label: "About", icon: Info },
 ];
@@ -141,6 +136,7 @@ const menuItems = [
   { value: "studios", label: "Studios" },
   { value: "tags", label: "Tags" },
   { value: "groups", label: "Groups" },
+  { value: "audios", label: "Audios" },
 ];
 
 const ratingSystemOptions: { value: RatingSystemType; label: string }[] = [
@@ -156,7 +152,7 @@ const starPrecisionOptions: { value: RatingStarPrecision; label: string }[] = [
 ];
 
 function emptyPath(): CovePathConfig {
-  return { path: "", excludeVideo: false, excludeImage: false };
+  return { path: "", excludeVideo: false, excludeImage: false, excludeAudio: false };
 }
 
 function emptyPackageSource(): PackageSource {
@@ -218,10 +214,12 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
 
 export function SettingsPage() {
   const { config, status, configLoading, statusLoading } = useAppConfig();
+  const { getSettingsPanelsForTab, resolveComponent } = useExtensions();
+  const libraryExtensionsPanels = getSettingsPanelsForTab("library", "extensions");
+  const libraryStandalonePanels = getSettingsPanelsForTab("library");
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => readSettingsTabFromUrl());
   const [draft, setDraft] = useState<CoveConfig | null>(null);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initializedRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -283,9 +281,7 @@ export function SettingsPage() {
       savingRef.current = true;
       queryClient.setQueryData(["system-config"], savedConfig);
       queryClient.invalidateQueries({ queryKey: ["system-scrapers"] });
-      setSaved(true);
       setError(null);
-      setTimeout(() => setSaved(false), 2000);
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -391,24 +387,15 @@ export function SettingsPage() {
                 {activeTab === "interface" && "Language, custom title, navigation, and rating presentation."}
                 {activeTab === "security" && "Authentication and session settings. Password changes are persisted immediately."}
                 {activeTab === "metadata-providers" && "Scraper directories, package source URLs, configured MetadataServer endpoints, and discovered Cove-compatible scrapers."}
-                {activeTab === "dlna" && "DLNA media server for streaming to compatible devices on your local network."}
                 {activeTab === "extensions" && "Manage extensions, themes, and settings."}
                 {activeTab === "system" && "Host, port, and task concurrency. Server changes take effect after restart."}
-                {activeTab === "tools" && "Utility tools for working with your library."}
                 {activeTab === "changelog" && "Release history and version information."}
                 {activeTab === "about" && "Runtime status and effective config locations."}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {error && <span className="text-sm text-red-300">{error}</span>}
-              {saveMutation.isPending && (
-                <span className="inline-flex items-center gap-1.5 text-sm text-muted">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
-                </span>
-              )}
-              {saved && !saveMutation.isPending && (
-                <span className="text-sm text-emerald-300">Saved</span>
-              )}
+
             </div>
           </div>
         </section>
@@ -457,6 +444,18 @@ export function SettingsPage() {
                               ...current,
                               covePaths: current.covePaths.map((item, itemIndex) =>
                                 itemIndex === index ? { ...item, excludeImage: checked } : item,
+                              ),
+                            }))
+                          }
+                        />
+                        <CheckboxLabel
+                          label="Exclude audio"
+                          checked={path.excludeAudio}
+                          onChange={(checked) =>
+                            updateDraft((current) => ({
+                              ...current,
+                              covePaths: current.covePaths.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, excludeAudio: checked } : item,
                               ),
                             }))
                           }
@@ -526,6 +525,23 @@ export function SettingsPage() {
                   rows={7}
                 />
               </div>
+              {libraryExtensionsPanels.length > 0 && (
+                <div className="mt-6 space-y-4 border-t border-border/70 pt-4">
+                  {libraryExtensionsPanels.map((panel) => {
+                    const Component = resolveComponent(panel.componentName);
+                    if (!Component) return null;
+                    return (
+                      <div key={panel.id} className="space-y-2">
+                        <div>
+                          <h3 className="text-sm font-medium text-foreground">{panel.label}</h3>
+                          <p className="text-xs text-muted">Provided by the {panel.extensionId} extension.</p>
+                        </div>
+                        <Component />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </SectionCard>
 
             <SectionCard title="Scan Rules" description="Hashing and exclude patterns applied during scan operations.">
@@ -598,6 +614,16 @@ export function SettingsPage() {
                 />
               </div>
             </SectionCard>
+
+            {libraryStandalonePanels.map((panel) => {
+              const Component = resolveComponent(panel.componentName);
+              if (!Component) return null;
+              return (
+                <SectionCard key={panel.id} title={panel.label} description={`Provided by the ${panel.extensionId} extension.`}>
+                  <Component />
+                </SectionCard>
+              );
+            })}
           </>
         )}
 
@@ -620,27 +646,17 @@ export function SettingsPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="Navigation" description="These menu items are reflected in the rewrite navbar immediately after save.">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {menuItems.map((item) => (
-                  <CheckboxLabel
-                    key={item.value}
-                    label={item.label}
-                    checked={draft.interface.menuItems.includes(item.value)}
-                    onChange={(checked) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        interface: {
-                          ...current.interface,
-                          menuItems: checked
-                            ? [...new Set([...current.interface.menuItems, item.value])]
-                            : current.interface.menuItems.filter((value) => value !== item.value),
-                        },
-                      }))
-                    }
-                  />
-                ))}
-              </div>
+            <SectionCard title="Navigation" description="Drag to reorder, toggle to show/hide. Changes apply immediately after save.">
+              <NavReorderList
+                allItems={menuItems}
+                enabledItems={draft.interface.menuItems}
+                onChange={(items) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    interface: { ...current.interface, menuItems: items },
+                  }))
+                }
+              />
             </SectionCard>
 
             <SectionCard title="Ratings" description="Stored ratings remain 1-100 internally. This changes how they are displayed and edited in the UI.">
@@ -1324,44 +1340,7 @@ export function SettingsPage() {
 
         {activeTab === "extensions" && <ExtensionsPanel />}
 
-        {activeTab === "dlna" && <DlnaPanel />}
-
         {activeTab === "logs" && <LogsPanel />}
-
-        {activeTab === "tools" && (
-          <>
-            <SectionCard title="Developer Tools" description="API playground and utilities.">
-              <div className="space-y-3">
-                <a
-                  href="/api/graphql"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg bg-surface hover:bg-surface/80 border border-border transition group"
-                >
-                  <div className="w-10 h-10 rounded bg-accent/20 flex items-center justify-center"><FileText className="w-5 h-5 text-accent" /></div>
-                  <div>
-                    <div className="text-sm font-medium text-foreground group-hover:text-accent">API Documentation</div>
-                    <div className="text-xs text-muted">Browse the REST API endpoints</div>
-                  </div>
-                </a>
-              </div>
-            </SectionCard>
-            <SectionCard title="Scene Tools" description="Utilities for managing scene files.">
-              <div className="space-y-3">
-                <button
-                  onClick={() => (window.location.hash = "#/scenes?mode=duplicates")}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-surface hover:bg-surface/80 border border-border transition group text-left"
-                >
-                  <div className="w-10 h-10 rounded bg-yellow-500/20 flex items-center justify-center"><Search className="w-5 h-5 text-yellow-400" /></div>
-                  <div>
-                    <div className="text-sm font-medium text-foreground group-hover:text-accent">Scene Duplicate Checker</div>
-                    <div className="text-xs text-muted">Find and manage duplicate scenes by file fingerprint</div>
-                  </div>
-                </button>
-              </div>
-            </SectionCard>
-          </>
-        )}
 
         {activeTab === "changelog" && (
           <>
@@ -2040,8 +2019,7 @@ function ExtensionTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
               {ext.tasks.map((task) => (
                 <div key={task.name} className="flex items-center justify-between px-4 py-3">
                   <div>
-                    <h4 className="text-sm font-medium text-foreground">{task.name}</h4>
-                    {task.description && <p className="text-xs text-secondary mt-0.5">{task.description}</p>}
+                    <h4 className="text-sm font-medium text-foreground">{task.description || task.name}</h4>
                   </div>
                   <button
                     onClick={() => runTaskMut.mutate({ pluginId: ext.id, taskName: task.name })}
@@ -2700,6 +2678,77 @@ function SelectField({
   );
 }
 
+function NavReorderList({
+  allItems,
+  enabledItems,
+  onChange,
+}: {
+  allItems: { value: string; label: string }[];
+  enabledItems: string[];
+  onChange: (items: string[]) => void;
+}) {
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
+  // Build ordered list: enabled items first (in their order), then unchecked items
+  const enabledSet = new Set(enabledItems);
+  const ordered = [
+    ...enabledItems.map((v) => allItems.find((i) => i.value === v)).filter(Boolean) as typeof allItems,
+    ...allItems.filter((i) => !enabledSet.has(i.value)),
+  ];
+
+  const handleToggle = (value: string, checked: boolean) => {
+    if (checked) {
+      onChange([...enabledItems, value]);
+    } else {
+      onChange(enabledItems.filter((v) => v !== value));
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (dragIdx !== null && overIdx !== null && dragIdx !== overIdx) {
+      const item = ordered[dragIdx];
+      const reordered = ordered.filter((_, i) => i !== dragIdx);
+      reordered.splice(overIdx, 0, item);
+      // Only keep the enabled items in order
+      onChange(reordered.filter((i) => enabledSet.has(i.value)).map((i) => i.value));
+    }
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  return (
+    <div className="space-y-1">
+      {ordered.map((item, idx) => {
+        const isEnabled = enabledSet.has(item.value);
+        const isDragging = dragIdx === idx;
+        const isOver = overIdx === idx;
+        return (
+          <div
+            key={item.value}
+            draggable
+            onDragStart={() => setDragIdx(idx)}
+            onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
+            onDragEnd={handleDragEnd}
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors cursor-grab active:cursor-grabbing select-none ${
+              isDragging ? "opacity-40 border-accent" : isOver ? "border-accent bg-accent/5" : "border-border bg-card"
+            }`}
+          >
+            <GripVertical className="w-4 h-4 text-muted shrink-0" />
+            <input
+              type="checkbox"
+              checked={isEnabled}
+              onChange={(e) => handleToggle(item.value, e.target.checked)}
+              className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
+            />
+            <span className={`text-sm ${isEnabled ? "text-foreground" : "text-muted"}`}>{item.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CheckboxLabel({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 text-sm text-secondary">
@@ -2754,125 +2803,6 @@ function ScraperTable({ entityType, scrapers }: { entityType: string; scrapers: 
         </table>
       </div>
     </div>
-  );
-}
-
-// ===== DLNA Panel =====
-function DlnaPanel() {
-  const queryClient = useQueryClient();
-  const [newIp, setNewIp] = useState("");
-
-  const { data: status, isLoading } = useQuery({
-    queryKey: ["dlna-status"],
-    queryFn: () => dlnaApi.status(),
-  });
-
-  const enableMut = useMutation({
-    mutationFn: (durationMinutes?: number) => dlnaApi.enable(durationMinutes),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dlna-status"] }),
-  });
-
-  const disableMut = useMutation({
-    mutationFn: () => dlnaApi.disable(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dlna-status"] }),
-  });
-
-  const allowIpMut = useMutation({
-    mutationFn: (ip: string) => dlnaApi.allowIp(ip),
-    onSuccess: () => { setNewIp(""); queryClient.invalidateQueries({ queryKey: ["dlna-status"] }); },
-  });
-
-  const removeIpMut = useMutation({
-    mutationFn: (ip: string) => dlnaApi.removeIp(ip),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dlna-status"] }),
-  });
-
-  if (isLoading || !status) {
-    return (
-      <SectionCard title="DLNA Server" description="Loading...">
-        <Loader2 className="w-5 h-5 animate-spin text-muted" />
-      </SectionCard>
-    );
-  }
-
-  return (
-    <>
-      <SectionCard title="DLNA Server" description="Enable or disable the DLNA media server for streaming to compatible devices.">
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <div className={`w-3 h-3 rounded-full ${status.running ? "bg-green-500" : "bg-gray-500"}`} />
-            <span className="text-sm font-medium text-foreground">{status.running ? "Running" : "Stopped"}</span>
-            {status.untilDisabled && (
-              <span className="text-xs text-muted">
-                (enabled until {new Date(status.untilDisabled).toLocaleTimeString()})
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {!status.running ? (
-              <>
-                <button onClick={() => enableMut.mutate(undefined)} className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 text-white rounded">Enable</button>
-                <button onClick={() => enableMut.mutate(120)} className="px-3 py-1.5 text-sm bg-card border border-border text-secondary hover:text-foreground rounded">Enable for 2 hours</button>
-                <button onClick={() => enableMut.mutate(1440)} className="px-3 py-1.5 text-sm bg-card border border-border text-secondary hover:text-foreground rounded">Enable for 24 hours</button>
-              </>
-            ) : (
-              <button onClick={() => disableMut.mutate()} className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded">Disable</button>
-            )}
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Allowed IP Addresses" description="Configure which IP addresses are allowed to access the DLNA server.">
-        <div className="space-y-3">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newIp}
-              onChange={(e) => setNewIp(e.target.value)}
-              placeholder="IP address (e.g. 192.168.1.100)"
-              className="flex-1 bg-input border border-border rounded px-3 py-1.5 text-sm text-foreground"
-              onKeyDown={(e) => { if (e.key === "Enter" && newIp.trim()) allowIpMut.mutate(newIp.trim()); }}
-            />
-            <button
-              onClick={() => newIp.trim() && allowIpMut.mutate(newIp.trim())}
-              className="px-3 py-1.5 text-sm bg-accent hover:bg-accent-hover text-white rounded flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add
-            </button>
-          </div>
-          {status.allowedIps.length === 0 ? (
-            <p className="text-xs text-muted">No IP addresses allowed. All devices can connect when the server is running.</p>
-          ) : (
-            <div className="space-y-1">
-              {status.allowedIps.map((ip) => (
-                <div key={ip} className="flex items-center justify-between bg-card border border-border rounded px-3 py-2 text-sm">
-                  <span className="text-foreground font-mono">{ip}</span>
-                  <button onClick={() => removeIpMut.mutate(ip)} className="text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </SectionCard>
-
-      {status.recentIps.length > 0 && (
-        <SectionCard title="Recent Connections" description="IP addresses that have recently connected to the DLNA server.">
-          <div className="space-y-1">
-            {status.recentIps.map((ip) => (
-              <div key={ip} className="flex items-center justify-between bg-card border border-border rounded px-3 py-2 text-sm">
-                <span className="text-foreground font-mono">{ip}</span>
-                <button
-                  onClick={() => allowIpMut.mutate(ip)}
-                  className="text-xs text-accent hover:underline"
-                >
-                  Allow
-                </button>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      )}
-    </>
   );
 }
 
@@ -2966,7 +2896,8 @@ function ExtensionSettingsForm({ extensionId, schema }: { extensionId: string; s
 
 // ===== Extensions Panel — unified view of all extensions =====
 function ExtensionsPanel() {
-  const { availableThemes, activeThemeId, setActiveTheme, settingsPanels, resolveComponent } = useExtensions();
+  const { availableThemes, activeThemeId, setActiveTheme, getSettingsPanelsForTab, resolveComponent } = useExtensions();
+  const settingsPanels = getSettingsPanelsForTab("extensions");
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -3303,6 +3234,8 @@ function FindAndInstallExtensions() {
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState<string>("");
   const [selectedExtension, setSelectedExtension] = useState<import("../api/types").RegistryExtensionDetail | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState<string>("");
+  const [pendingDeps, setPendingDeps] = useState<import("../api/types").DependencyInfo[] | null>(null);
 
   const { data: searchResults, isLoading: searching, refetch: doSearch } = useQuery({
     queryKey: ["registry-search", searchQuery, category],
@@ -3328,9 +3261,14 @@ function FindAndInstallExtensions() {
   });
 
   const installMut = useMutation({
-    mutationFn: (args: { extensionId: string; version: string }) =>
-      import("../api/client").then(m => m.extensions.registryInstall(args.extensionId, args.version)),
-    onSuccess: () => {
+    mutationFn: (args: { extensionId: string; version: string; installDependencies?: boolean }) =>
+      import("../api/client").then(m => m.extensions.registryInstall(args.extensionId, args.version, args.installDependencies)),
+    onSuccess: (data) => {
+      if (data.requiresDependencies && data.missingDependencies) {
+        setPendingDeps(data.missingDependencies);
+        return;
+      }
+      setPendingDeps(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
@@ -3352,6 +3290,8 @@ function FindAndInstallExtensions() {
   const viewDetail = async (id: string) => {
     const detail = await import("../api/client").then(m => m.extensions.registryGetExtension(id));
     setSelectedExtension(detail);
+    setSelectedVersion(detail.version);
+    setPendingDeps(null);
   };
 
   return (
@@ -3415,7 +3355,7 @@ function FindAndInstallExtensions() {
               </div>
             </div>
             <button
-              onClick={() => setSelectedExtension(null)}
+              onClick={() => { setSelectedExtension(null); setPendingDeps(null); }}
               className="text-secondary hover:text-foreground"
             >
               <X className="h-4 w-4" />
@@ -3431,6 +3371,80 @@ function FindAndInstallExtensions() {
               ))}
             </div>
           )}
+
+          {/* Version picker */}
+          {selectedExtension.versions.length > 1 && (
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-muted mb-1">Version</label>
+              <select
+                value={selectedVersion}
+                onChange={(e) => setSelectedVersion(e.target.value)}
+                className="px-2 py-1 text-sm bg-card border border-border rounded focus:outline-none focus:border-accent"
+              >
+                {selectedExtension.versions.map(v => (
+                  <option key={v.version} value={v.version}>
+                    v{v.version}{v.releasedAt ? ` — ${new Date(v.releasedAt).toLocaleDateString()}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Dependencies */}
+          {Object.keys(selectedExtension.dependencies).length > 0 && (
+            <div className="mb-3 p-2 bg-card rounded border border-border/50">
+              <div className="text-xs font-medium text-muted mb-1">Dependencies</div>
+              <div className="space-y-0.5">
+                {Object.entries(selectedExtension.dependencies).map(([depId, constraint]) => {
+                  const isDepInstalled = installedIds.has(depId);
+                  return (
+                    <div key={depId} className="flex items-center gap-2 text-xs">
+                      <span className={isDepInstalled ? "text-green-400" : "text-yellow-400"}>
+                        {isDepInstalled ? "✓" : "○"}
+                      </span>
+                      <span className="text-secondary">{depId}</span>
+                      <span className="text-muted">{constraint}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Dependency resolution prompt */}
+          {pendingDeps && pendingDeps.length > 0 && (
+            <div className="mb-3 p-3 bg-yellow-600/10 border border-yellow-600/30 rounded-lg">
+              <div className="text-sm font-medium text-yellow-400 mb-2">Missing Dependencies</div>
+              <div className="space-y-1 mb-3">
+                {pendingDeps.map(dep => (
+                  <div key={dep.id} className="flex items-center gap-2 text-xs">
+                    <span className={dep.available ? "text-green-400" : "text-red-400"}>
+                      {dep.available ? "↓" : "✗"}
+                    </span>
+                    <span className="text-secondary">{dep.name || dep.id}</span>
+                    <span className="text-muted">{dep.versionConstraint}</span>
+                    {!dep.available && <span className="text-red-400">(not available in registry)</span>}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => installMut.mutate({ extensionId: selectedExtension.id, version: selectedVersion || selectedExtension.version, installDependencies: true })}
+                  disabled={installMut.isPending || pendingDeps.some(d => !d.available)}
+                  className="px-3 py-1 text-xs bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50"
+                >
+                  {installMut.isPending ? "Installing..." : "Install All"}
+                </button>
+                <button
+                  onClick={() => setPendingDeps(null)}
+                  className="px-3 py-1 text-xs bg-card border border-border text-secondary rounded hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {selectedExtension.readme && (
             <div className="text-xs text-secondary bg-card rounded p-3 mb-3 max-h-48 overflow-y-auto whitespace-pre-wrap">
               {selectedExtension.readme}
@@ -3439,12 +3453,12 @@ function FindAndInstallExtensions() {
           <div className="flex gap-2">
             {!installedIds.has(selectedExtension.id) ? (
               <button
-                onClick={() => installMut.mutate({ extensionId: selectedExtension.id, version: selectedExtension.version })}
+                onClick={() => installMut.mutate({ extensionId: selectedExtension.id, version: selectedVersion || selectedExtension.version })}
                 disabled={installMut.isPending}
                 className="px-4 py-1.5 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50 flex items-center gap-1.5"
               >
                 {installMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                Install v{selectedExtension.version}
+                Install v{selectedVersion || selectedExtension.version}
               </button>
             ) : (
               <button
