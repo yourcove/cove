@@ -1,4 +1,4 @@
-name: Publish Cove.Plugins Package
+name: Publish Cove Packages
 
 on:
   push:
@@ -44,9 +44,17 @@ jobs:
           echo "Using package version ${VERSION}"
 
       - name: Restore
-        run: dotnet restore src/Cove.Plugins/Cove.Plugins.csproj
+        run: dotnet restore src/Cove.slnx
 
-      - name: Pack
+      - name: Pack Cove.Core
+        run: >
+          dotnet pack src/Cove.Core/Cove.Core.csproj
+          -c Release
+          --no-restore
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+          -o artifacts/nuget
+
+      - name: Pack Cove.Plugins
         run: >
           dotnet pack src/Cove.Plugins/Cove.Plugins.csproj
           -c Release
@@ -54,7 +62,16 @@ jobs:
           -p:PackageVersion=${{ steps.version.outputs.version }}
           -o artifacts/nuget
 
-      - name: Push package to NuGet.org
+      - name: Pack Cove.Sdk
+        run: >
+          dotnet pack src/Cove.Sdk/Cove.Sdk.csproj
+          -c Release
+          --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+          -o artifacts/nuget
+
+      - name: Push packages to NuGet.org
         run: >
           dotnet nuget push "artifacts/nuget/*.nupkg"
           --source "https://api.nuget.org/v3/index.json"
