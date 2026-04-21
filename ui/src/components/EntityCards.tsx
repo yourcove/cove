@@ -380,6 +380,13 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressPercent = duration > 0 && scene.resumeTime ? Math.min(100, (scene.resumeTime / duration) * 100) : 0;
 
+  const handleAuxClick = useCallback((e: React.MouseEvent) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      window.open(`/scene/${scene.id}`, "_blank");
+    }
+  }, [scene.id]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -394,7 +401,7 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
   }, []);
 
   return (
-    <div onClick={onClick} className={`scene-card cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
+    <div onClick={onClick} onAuxClick={handleAuxClick} className={`scene-card cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
       <div className="scene-card-preview relative aspect-video bg-black overflow-hidden">
         <img src={screenshotUrl} alt={scene.title || ""} className="scene-card-preview-image w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="scene-card-preview-video" />

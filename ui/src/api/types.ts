@@ -651,6 +651,7 @@ export interface FindFilter {
   perPage?: number;
   sort?: string;
   direction?: "asc" | "desc";
+  seed?: number;
 }
 
 export interface SavedFilter {
@@ -883,6 +884,7 @@ export interface SceneFilterCriteria {
   performerAgeCriterion?: IntCriterion;
   captionsCriterion?: StringCriterion;
   interactiveSpeedCriterion?: IntCriterion;
+  orientationCriterion?: StringCriterion;
 }
 
 export interface PerformerFilterCriteria {

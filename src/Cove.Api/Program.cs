@@ -82,6 +82,7 @@ try
     builder.Services.AddSingleton<ConfigService>();
     builder.Services.AddSingleton<ScraperService>();
     builder.Services.AddSingleton<ITranscodeService, TranscodeService>();
+    builder.Services.AddScoped<StashMigrationService>();
     builder.Services.AddHttpClient("scraper");
     builder.Services.AddHttpClient<MetadataServerService>();
 

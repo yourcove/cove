@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { system } from "../api/client";
+import { system, stashMigration } from "../api/client";
+import type { StashPreviewResult, StashImportResult } from "../api/client";
 import type { CoveConfig, CovePathConfig } from "../api/types";
 import {
   FolderOpen,
@@ -12,6 +13,8 @@ import {
   Loader2,
   Play,
   Settings,
+  Database,
+  RefreshCw,
 } from "lucide-react";
 
 interface Props {
@@ -19,7 +22,7 @@ interface Props {
   onComplete: () => void;
 }
 
-type Step = "welcome" | "paths" | "confirm" | "done";
+type Step = "welcome" | "source" | "paths" | "confirm" | "stash-config" | "done";
 
 export function SetupWizardPage({ config, onComplete }: Props) {
   const [step, setStep] = useState<Step>("welcome");
@@ -29,7 +32,21 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       : [{ path: "", excludeVideo: false, excludeImage: false, excludeAudio: false }]
   );
   const [error, setError] = useState<string | null>(null);
+  const [stashDbPath, setStashDbPath] = useState("");
+  const [stashPreview, setStashPreview] = useState<StashPreviewResult | null>(null);
+  const [stashResult, setStashResult] = useState<StashImportResult | null>(null);
   const queryClient = useQueryClient();
+
+  const stashPreviewMut = useMutation({
+    mutationFn: () => stashMigration.preview(stashDbPath),
+    onSuccess: (data) => setStashPreview(data),
+    onError: (err: Error) => setError(err.message),
+  });
+  const stashImportMut = useMutation({
+    mutationFn: () => stashMigration.import(stashDbPath),
+    onSuccess: (data) => { setStashResult(data); setStep("done"); queryClient.invalidateQueries(); },
+    onError: (err: Error) => setError(err.message),
+  });
 
   const saveMut = useMutation({
     mutationFn: (cfg: CoveConfig) => system.saveConfig(cfg),
@@ -66,28 +83,33 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-2xl">
         {/* Progress indicator */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          {(["welcome", "paths", "confirm", "done"] as Step[]).map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                  s === step
-                    ? "bg-accent text-white"
-                    : (["welcome", "paths", "confirm", "done"].indexOf(step) > i)
-                    ? "bg-green-600 text-white"
-                    : "bg-card border border-border text-muted"
-                }`}
-              >
-                {(["welcome", "paths", "confirm", "done"].indexOf(step) > i) ? (
-                  <Check className="w-4 h-4" />
-                ) : (
-                  i + 1
-                )}
-              </div>
-              {i < 3 && <div className="w-12 h-0.5 bg-border" />}
+        {(() => {
+          const isStashPath = ["stash-config"].includes(step) || stashResult !== null;
+          const freshSteps: Step[] = ["welcome", "source", "paths", "confirm", "done"];
+          const stashSteps: Step[] = ["welcome", "source", "stash-config", "done"];
+          const stepList = isStashPath ? stashSteps : freshSteps;
+          const currentIdx = stepList.indexOf(step);
+          return (
+            <div className="flex items-center justify-center gap-2 mb-8">
+              {stepList.map((s, i) => (
+                <div key={s} className="flex items-center gap-2">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                      s === step
+                        ? "bg-accent text-white"
+                        : currentIdx > i
+                        ? "bg-green-600 text-white"
+                        : "bg-card border border-border text-muted"
+                    }`}
+                  >
+                    {currentIdx > i ? <Check className="w-4 h-4" /> : i + 1}
+                  </div>
+                  {i < stepList.length - 1 && <div className="w-12 h-0.5 bg-border" />}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })()}
 
         <div className="bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden">
           {step === "welcome" && (
@@ -98,14 +120,129 @@ export function SetupWizardPage({ config, onComplete }: Props) {
               <h1 className="text-2xl font-bold text-foreground mb-3">Welcome to Cove</h1>
               <p className="text-secondary mb-6 max-w-md mx-auto">
                 Cove is a self-hosted organizer for your media library. Let's get set up
-                by configuring your library directories.
+                by configuring your library.
               </p>
               <button
-                onClick={() => setStep("paths")}
+                onClick={() => setStep("source")}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors"
               >
                 Get Started <ChevronRight className="w-4 h-4" />
               </button>
+            </div>
+          )}
+
+          {step === "source" && (
+            <div className="p-8">
+              <h2 className="text-xl font-bold text-foreground mb-2">How would you like to start?</h2>
+              <p className="text-sm text-secondary mb-6">
+                Start with a fresh Cove library, or import your existing Stash library.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setStep("paths")}
+                  className="flex flex-col items-center gap-3 p-6 bg-card border-2 border-border hover:border-accent rounded-xl transition-colors text-left"
+                >
+                  <FolderOpen className="w-8 h-8 text-accent" />
+                  <div>
+                    <div className="font-semibold text-foreground mb-1">Start Fresh</div>
+                    <div className="text-xs text-secondary">Configure library paths and scan from scratch.</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setStep("stash-config")}
+                  className="flex flex-col items-center gap-3 p-6 bg-card border-2 border-border hover:border-accent rounded-xl transition-colors text-left"
+                >
+                  <Database className="w-8 h-8 text-accent" />
+                  <div>
+                    <div className="font-semibold text-foreground mb-1">Import from Stash</div>
+                    <div className="text-xs text-secondary">Migrate your existing Stash database to Cove.</div>
+                  </div>
+                </button>
+              </div>
+              <div className="mt-6 flex justify-start">
+                <button
+                  onClick={() => setStep("welcome")}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "stash-config" && (
+            <div className="p-8">
+              <h2 className="text-xl font-bold text-foreground mb-2">Import from Stash</h2>
+              <p className="text-sm text-secondary mb-6">
+                Enter the path to your Stash SQLite database file (usually <code className="text-xs bg-card px-1 py-0.5 rounded">~/.stash/stash-go.sqlite</code>).
+              </p>
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <div className="flex-1 flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
+                    <Database className="w-4 h-4 text-muted flex-shrink-0" />
+                    <input
+                      type="text"
+                      value={stashDbPath}
+                      onChange={(e) => { setStashDbPath(e.target.value); setStashPreview(null); }}
+                      placeholder="/path/to/stash-go.sqlite"
+                      className="flex-1 bg-transparent outline-none text-sm text-foreground"
+                    />
+                  </div>
+                  <button
+                    onClick={() => { setError(null); stashPreviewMut.mutate(); }}
+                    disabled={stashDbPath.trim() === "" || stashPreviewMut.isPending}
+                    className="px-4 py-2 text-sm bg-card border border-border hover:border-accent text-foreground rounded-lg disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                  >
+                    {stashPreviewMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    Preview
+                  </button>
+                </div>
+
+                {stashPreview && (
+                  <div className="bg-card border border-border rounded-xl p-4">
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-muted mb-3">Database Summary</h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      {([
+                        { label: "Scenes", value: stashPreview.scenes },
+                        { label: "Images", value: stashPreview.images },
+                        { label: "Galleries", value: stashPreview.galleries },
+                        { label: "Performers", value: stashPreview.performers },
+                        { label: "Tags", value: stashPreview.tags },
+                        { label: "Studios", value: stashPreview.studios },
+                      ]).map(({ label, value }) => (
+                        <div key={label} className="text-center">
+                          <div className="text-2xl font-bold text-foreground">{value}</div>
+                          <div className="text-xs text-muted">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 text-sm text-red-300">{error}</div>
+                )}
+              </div>
+
+              <div className="flex justify-between mt-6">
+                <button
+                  onClick={() => { setStep("source"); setStashPreview(null); setError(null); }}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                  onClick={() => { setError(null); stashImportMut.mutate(); }}
+                  disabled={!stashPreview || stashImportMut.isPending}
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {stashImportMut.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Importing…</>
+                  ) : (
+                    <>Import <ChevronRight className="w-4 h-4" /></>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -173,7 +310,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
 
               <div className="flex justify-between">
                 <button
-                  onClick={() => setStep("welcome")}
+                  onClick={() => setStep("source")}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
@@ -244,10 +381,33 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 <Check className="w-8 h-8 text-green-400" />
               </div>
               <h2 className="text-2xl font-bold text-foreground mb-3">You're all set!</h2>
-              <p className="text-secondary mb-2 max-w-md mx-auto">
-                Your library paths have been configured. Head to Settings &gt; Tasks to start
-                scanning for content.
-              </p>
+              {stashResult ? (
+                <div className="mb-6">
+                  <p className="text-secondary mb-4 max-w-md mx-auto">
+                    Successfully imported your Stash library into Cove.
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto mb-2">
+                    {([
+                      { label: "Scenes", value: stashResult.scenes },
+                      { label: "Images", value: stashResult.images },
+                      { label: "Galleries", value: stashResult.galleries },
+                      { label: "Performers", value: stashResult.performers },
+                      { label: "Tags", value: stashResult.tags },
+                      { label: "Studios", value: stashResult.studios },
+                    ]).map(({ label, value }) => (
+                      <div key={label} className="bg-card border border-border rounded-lg p-2">
+                        <div className="text-xl font-bold text-foreground">{value}</div>
+                        <div className="text-xs text-muted">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-secondary mb-6 max-w-md mx-auto">
+                  Your library paths have been configured. Head to Settings &gt; Tasks to start
+                  scanning for content.
+                </p>
+              )}
               <p className="text-xs text-muted mb-6">
                 You can add more paths, configure scrapers, and set up MetadataServer connections in Settings.
               </p>

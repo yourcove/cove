@@ -73,6 +73,7 @@ public class FindFilter
     public int PerPage { get; set; } = 25;
     public string? Sort { get; set; }
     public Cove.Core.Enums.SortDirection Direction { get; set; } = Cove.Core.Enums.SortDirection.Asc;
+    public int? Seed { get; set; }
 }
 
 // Criterion modifier for advanced filters
@@ -131,6 +132,7 @@ public class SceneFilter
     public StringCriterion? RemoteIdCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
     public StringCriterion? DuplicatedCriterion { get; set; }
+    public StringCriterion? OrientationCriterion { get; set; }
     public StringCriterion? TitleCriterion { get; set; }
     public StringCriterion? CodeCriterion { get; set; }
     public StringCriterion? DetailsCriterion { get; set; }

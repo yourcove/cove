@@ -93,6 +93,7 @@ function buildQuery(filter?: FindFilter, extra?: Record<string, string | number 
   if (filter?.perPage) params.set("perPage", String(filter.perPage));
   if (filter?.sort) params.set("sort", filter.sort);
   if (filter?.direction) params.set("direction", filter.direction);
+  if (filter?.seed != null) params.set("seed", String(filter.seed));
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined) params.set(k, String(v));
@@ -137,7 +138,7 @@ export const scenes = {
   merge: (targetId: number, sourceIds: number[]) =>
     request<Scene>("/scenes/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   recordPlay: (id: number) => request<void>(`/scenes/${id}/play`, { method: "POST" }),
-  incrementO: (id: number) => request<void>(`/scenes/${id}/o`, { method: "POST" }),
+  incrementO: (id: number) => request<number>(`/scenes/${id}/o`, { method: "POST" }),
   decrementO: (id: number) => request<void>(`/scenes/${id}/o`, { method: "DELETE" }),
   resetO: (id: number) => request<void>(`/scenes/${id}/o/reset`, { method: "POST" }),
   deletePlay: (id: number) => request<void>(`/scenes/${id}/play`, { method: "DELETE" }),
@@ -483,6 +484,43 @@ export const metadata = {
 export const database = {
   backup: () => request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/backup", { method: "POST" }),
   optimize: () => request<void>("/database/optimize", { method: "POST" }),
+  wipe: () => request<{ message: string }>("/database/wipe", { method: "POST" }),
+};
+
+// ===== Stash Migration =====
+export interface StashPreviewResult {
+  isValid: boolean;
+  error: string | null;
+  scenes: number;
+  performers: number;
+  tags: number;
+  studios: number;
+  groups: number;
+  images: number;
+  galleries: number;
+}
+export interface StashImportResult {
+  scenes: number;
+  performers: number;
+  tags: number;
+  studios: number;
+  groups: number;
+  images: number;
+  galleries: number;
+}
+export const stashMigration = {
+  preview: (stashDbPath: string) =>
+    request<StashPreviewResult>("/stash-migration/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stashDbPath }),
+    }),
+  import: (stashDbPath: string) =>
+    request<StashImportResult>("/stash-migration/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stashDbPath }),
+    }),
 };
 
 // ===== Logs =====

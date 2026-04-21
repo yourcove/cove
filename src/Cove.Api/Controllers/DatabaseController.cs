@@ -67,4 +67,24 @@ public class DatabaseController(CoveContext db, ILogger<DatabaseController> logg
         logger.LogInformation("Database optimized (VACUUM ANALYZE)");
         return Ok(new { message = "Database optimized" });
     }
+
+    [HttpPost("wipe")]
+    public async Task<IActionResult> WipeDatabase(CancellationToken ct)
+    {
+        logger.LogWarning("Database wipe initiated");
+
+        var connStr = db.Database.GetConnectionString()!;
+        await using var conn = new Npgsql.NpgsqlConnection(connStr);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        // TRUNCATE root tables with CASCADE clears all dependent junction tables
+        cmd.CommandText = @"
+            TRUNCATE TABLE scenes, performers, tags, studios, galleries, images, groups,
+                           folders, files, saved_filters CASCADE;";
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        logger.LogInformation("Database wiped successfully");
+        return Ok(new { message = "Database wiped successfully" });
+    }
 }

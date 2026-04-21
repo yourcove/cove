@@ -118,6 +118,11 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" },
   { id: "captions", label: "Captions", type: "string", filterKey: "captionsCriterion" },
   { id: "interactiveSpeed", label: "Interactive Speed", type: "number", filterKey: "interactiveSpeedCriterion" },
+  { id: "orientation", label: "Orientation", type: "enum", filterKey: "orientationCriterion", options: [
+    { value: "landscape", label: "Landscape" },
+    { value: "portrait", label: "Portrait" },
+    { value: "square", label: "Square" },
+  ] },
 ];
 
 export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria> = [

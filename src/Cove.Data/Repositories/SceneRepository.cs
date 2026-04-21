@@ -99,7 +99,7 @@ public class SceneRepository : ISceneRepository
         // Sort and paginate on the lightweight query, then fetch only the IDs
         var sort = findFilter?.Sort ?? "updated_at";
         var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        filterQuery = ApplySorting(filterQuery, sort, desc);
+        filterQuery = ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
@@ -420,14 +420,40 @@ public class SceneRepository : ISceneRepository
             if (filter.InteractiveSpeedCriterion != null)
                 query = ApplyIntCriterion(query, filter.InteractiveSpeedCriterion, s => s.InteractiveSpeed ?? 0);
 
+            // Orientation criterion: landscape, portrait, or square based on file dimensions
+            if (filter.OrientationCriterion != null)
+            {
+                var orientation = filter.OrientationCriterion.Value.ToLower();
+                query = orientation switch
+                {
+                    "landscape" => query.Where(s => s.Files.Any(f => f.Width > f.Height)),
+                    "portrait" => query.Where(s => s.Files.Any(f => f.Height > f.Width)),
+                    "square" => query.Where(s => s.Files.Any(f => f.Width == f.Height)),
+                    _ => query,
+                };
+            }
+
         return query;
     }
 
-    private static IQueryable<Scene> ApplySorting(IQueryable<Scene> query, string sort, bool desc) => sort switch
+    private static IQueryable<Scene> ApplySorting(IQueryable<Scene> query, string sort, bool desc, int? seed = null)
+    {
+        // Seeded random: stable deterministic ordering using a seed value
+        if (sort == "random" && seed.HasValue)
+        {
+            var s = seed.Value;
+            return query.OrderBy(scene => (scene.Id * s) % 2147483647);
+        }
+        return ApplySortingSwitch(query, sort, desc);
+    }
+
+    private static IQueryable<Scene> ApplySortingSwitch(IQueryable<Scene> query, string sort, bool desc) => sort switch
     {
         "title" => desc ? query.OrderByDescending(s => s.Title) : query.OrderBy(s => s.Title),
-        "date" => desc ? query.OrderByDescending(s => s.Date) : query.OrderBy(s => s.Date),
-        "rating" => desc ? query.OrderByDescending(s => s.Rating) : query.OrderBy(s => s.Rating),
+        // Null dates sort to bottom: treat null as MinValue so they come last when desc
+        "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue) : query.OrderBy(s => s.Date ?? DateOnly.MinValue),
+        // Null ratings sort to bottom: treat null as -1
+        "rating" => desc ? query.OrderByDescending(s => s.Rating ?? -1) : query.OrderBy(s => s.Rating ?? -1),
         "play_count" => desc ? query.OrderByDescending(s => s.PlayCount) : query.OrderBy(s => s.PlayCount),
         "o_counter" => desc ? query.OrderByDescending(s => s.OCounter) : query.OrderBy(s => s.OCounter),
         "organized" => desc ? query.OrderByDescending(s => s.Organized) : query.OrderBy(s => s.Organized),

@@ -20,13 +20,13 @@ import { SceneCard } from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 
 const SORT_OPTIONS = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "updated_at", label: "Updated Date" },
+  { value: "created_at", label: "Added Date" },
   { value: "title", label: "Title" },
   { value: "date", label: "Date" },
   { value: "rating", label: "Rating" },
   { value: "play_count", label: "Play Count" },
-  { value: "o_counter", label: "O-Counter" },
+  { value: "o_counter", label: "Favorites" },
   { value: "duration", label: "Duration" },
   { value: "file_size", label: "File Size" },
   { value: "file_count", label: "File Count" },
@@ -93,6 +93,17 @@ export function ScenesPage({ onNavigate }: Props) {
     onNavigate({ page: "scene", id: sceneId });
   }, [items, setQueue, onNavigate]);
 
+  // When sort changes to random, generate a new seed for reproducibility
+  const handleFilterChange = useCallback((next: typeof filter) => {
+    if (next.sort === "random" && filter.sort !== "random") {
+      setFilter({ ...next, seed: Math.floor(Math.random() * 2147483647) });
+    } else if (next.sort !== "random" && next.seed != null) {
+      setFilter({ ...next, seed: undefined });
+    } else {
+      setFilter(next);
+    }
+  }, [filter, setFilter]);
+
   // Bulk delete
   const bulkDeleteMut = useMutation({
     mutationFn: () => scenes.bulkDelete([...selectedIds]),
@@ -136,7 +147,7 @@ export function ScenesPage({ onNavigate }: Props) {
       pageKey="scenes"
       filterMode="scenes"
       filter={filter}
-      onFilterChange={setFilter}
+      onFilterChange={handleFilterChange}
       totalCount={data?.totalCount ?? 0}
       isLoading={isLoading}
       sortOptions={SORT_OPTIONS}
@@ -214,9 +225,13 @@ export function ScenesPage({ onNavigate }: Props) {
         <SceneListTable scenes={items} onNavigate={onNavigate} selectedIds={selectedIds} onToggle={toggle} selecting={selecting} />
       )}
       {displayMode === "wall" && (
-        <div className="columns-2 sm:columns-3 md:columns-4 lg:columns-5 gap-1 px-2">
-          {items.map((scene) => (
-            <SceneWallCard key={scene.id} scene={scene} onClick={() => navigateToScene(scene.id)} />
+        <div className="flex gap-1 px-2">
+          {[0, 1, 2, 3, 4].map((colIdx) => (
+            <div key={colIdx} className="flex-1 flex flex-col gap-1 min-w-0">
+              {items.filter((_, i) => i % 5 === colIdx).map((scene) => (
+                <SceneWallCard key={scene.id} scene={scene} onClick={() => navigateToScene(scene.id)} />
+              ))}
+            </div>
           ))}
         </div>
       )}

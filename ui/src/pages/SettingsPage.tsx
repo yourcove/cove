@@ -1879,6 +1879,22 @@ function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
   });
   const backupMut = useMutation({ mutationFn: () => database.backup(), onSuccess: () => refetchJobs() });
   const optimizeMut = useMutation({ mutationFn: () => database.optimize(), onSuccess: () => refetchJobs() });
+  const [wipeConfirm1, setWipeConfirm1] = useState(false);
+  const [wipeConfirm2, setWipeConfirm2] = useState(false);
+  const wipeMut = useMutation({
+    mutationFn: async () => {
+      await database.wipe();
+      // Clear library paths from config so setup wizard shows on reload
+      const cfgResp = await system.getConfig();
+      if (cfgResp) {
+        await system.saveConfig({ ...cfgResp, covePaths: [] });
+      }
+    },
+    onSuccess: () => {
+      sessionStorage.removeItem("cove-setup-dismissed");
+      window.location.reload();
+    },
+  });
 
   const backupStatus = backupMut.isSuccess
     ? { type: "success" as const, text: `Backup saved to ${backupMut.data?.backupPath ?? "disk"}` }
@@ -1988,6 +2004,52 @@ function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
             statusMessage={optimizeStatus}
           />
         </div>
+
+        {/* Wipe Database — danger zone */}
+        <div className="border border-red-900/50 rounded-lg p-4 bg-red-950/20">
+          <h4 className="text-sm font-semibold text-red-400 mb-1">Danger Zone</h4>
+          <p className="text-xs text-secondary mb-3">
+            Permanently deletes all scenes, performers, tags, studios, galleries, and groups from the database. This cannot be undone.
+          </p>
+          {!wipeConfirm1 && (
+            <button
+              onClick={() => setWipeConfirm1(true)}
+              className="px-3 py-1.5 text-sm bg-red-900/40 hover:bg-red-900/70 text-red-400 hover:text-red-300 rounded border border-red-800/50 transition-colors"
+            >
+              Wipe Database…
+            </button>
+          )}
+          {wipeConfirm1 && !wipeConfirm2 && (
+            <div className="space-y-2">
+              <p className="text-sm text-red-300 font-medium">Are you sure? This will delete ALL your data.</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setWipeConfirm2(true)}
+                  className="px-3 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded transition-colors"
+                >
+                  Yes, continue
+                </button>
+                <button
+                  onClick={() => setWipeConfirm1(false)}
+                  className="px-3 py-1.5 text-sm text-secondary hover:text-foreground rounded transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {wipeConfirm2 && (
+            <div className="space-y-2">
+              <p className="text-sm text-red-300 font-medium">Final confirmation: type WIPE to confirm permanent deletion.</p>
+              <WipeConfirmInput
+                onConfirm={() => wipeMut.mutate()}
+                onCancel={() => { setWipeConfirm1(false); setWipeConfirm2(false); }}
+                isPending={wipeMut.isPending}
+                error={wipeMut.isError ? (wipeMut.error instanceof Error ? wipeMut.error.message : "Wipe failed") : null}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </SectionCard>
   );
@@ -2036,6 +2098,39 @@ function ExtensionTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
         ))}
       </div>
     </SectionCard>
+  );
+}
+
+// ---- Wipe Confirm Input ----
+function WipeConfirmInput({ onConfirm, onCancel, isPending, error }: { onConfirm: () => void; onCancel: () => void; isPending: boolean; error: string | null }) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="flex flex-col gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Type WIPE"
+        className="w-48 bg-card border border-red-800 rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-red-500"
+      />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          onClick={onConfirm}
+          disabled={value !== "WIPE" || isPending}
+          className="px-3 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+        >
+          {isPending && <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />}
+          Permanently Wipe Database
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 text-sm text-secondary hover:text-foreground rounded transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

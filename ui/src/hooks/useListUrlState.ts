@@ -16,7 +16,7 @@ interface UseListUrlStateOptions<TDisplayMode extends string> {
   allowedDisplayModes: readonly TDisplayMode[];
 }
 
-const MANAGED_KEYS = ["q", "page", "perPage", "sort", "direction", "view", "filters"];
+const MANAGED_KEYS = ["q", "page", "perPage", "sort", "direction", "view", "filters", "seed"];
 
 function cloneFilter(filter: FindFilter): FindFilter {
   return { ...filter };
@@ -82,6 +82,7 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
     perPage: normalizeInteger(params.get("perPage"), options.defaultFilter.perPage),
     sort: params.get("sort") ?? options.defaultFilter.sort,
     direction: normalizeDirection(params.get("direction"), options.defaultFilter.direction),
+    seed: normalizeInteger(params.get("seed"), options.defaultFilter.seed),
   };
 
   const view = params.get("view");
@@ -119,6 +120,9 @@ function writeStateToParams<TDisplayMode extends string>(
   }
   if (state.filter.direction && state.filter.direction !== options.defaultFilter.direction) {
     params.set("direction", state.filter.direction);
+  }
+  if (state.filter.seed != null) {
+    params.set("seed", String(state.filter.seed));
   }
   if (state.displayMode !== options.defaultDisplayMode) {
     params.set("view", state.displayMode);

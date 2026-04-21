@@ -138,7 +138,11 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
 
   const incrementOMut = useMutation({
     mutationFn: () => scenes.incrementO(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scene", id] }),
+    onSuccess: (newCount: number) => {
+      queryClient.setQueryData<Scene>(["scene", id], (old) =>
+        old ? { ...old, oCounter: newCount } : old
+      );
+    },
   });
 
   const updateMut = useMutation({
@@ -251,28 +255,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
                 </div>
               )}
 
-              {/* Queue navigation */}
-              {queueLength > 1 && (
-                <div className="flex items-center gap-2 mb-2">
-                  <button
-                    onClick={() => prevId != null && onNavigate({ page: "scene", id: prevId })}
-                    disabled={!hasPrev}
-                    className="p-1 rounded text-secondary hover:text-foreground hover:bg-card disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="Previous scene"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs text-muted">{currentPosition} / {queueLength}</span>
-                  <button
-                    onClick={() => nextId != null && onNavigate({ page: "scene", id: nextId })}
-                    disabled={!hasNext}
-                    className="p-1 rounded text-secondary hover:text-foreground hover:bg-card disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="Next scene"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+              {/* Queue navigation removed - will be replaced later */}
 
               {/* Title — large like original's h3 */}
               <h3 className="text-[1.5rem] font-semibold text-foreground leading-snug line-clamp-2 mt-1">
@@ -313,7 +296,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
                   <button 
                     onClick={() => incrementOMut.mutate()}
                     className="flex items-center gap-1 text-sm text-secondary hover:text-accent"
-                    title="O counter"
+                    title="Favorite"
                   >
                     <Heart className={`w-4 h-4 ${scene.oCounter > 0 ? "fill-accent text-accent" : ""}`} />
                     <span>{scene.oCounter}</span>
@@ -1488,6 +1471,7 @@ function SceneScrubber({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [spriteData, setSpriteData] = useState<{ entries: { start: number; end: number; x: number; y: number; w: number; h: number }[]; imageUrl: string } | null>(null);
   const [spriteError, setSpriteError] = useState(false);
+  const [spriteLoadSettled, setSpriteLoadSettled] = useState(false);
   
   const spriteVttUrl = `/api/stream/scene/${sceneId}/vtt/thumbs`;
   const spriteImageUrl = `/api/stream/scene/${sceneId}/sprite`;
@@ -1501,9 +1485,16 @@ function SceneScrubber({
 
   // Load and parse VTT sprite data
   useEffect(() => {
+    let cancelled = false;
+
+    setSpriteData(null);
+    setSpriteError(false);
+    setSpriteLoadSettled(false);
+
     fetch(spriteVttUrl)
       .then(r => { if (!r.ok) throw new Error("VTT not found"); return r.text(); })
       .then(text => {
+        if (cancelled) return;
         const entries: typeof spriteData extends null ? never : NonNullable<typeof spriteData>["entries"] = [];
         const blocks = text.split(/\n\n+/);
         for (const block of blocks) {
@@ -1530,8 +1521,17 @@ function SceneScrubber({
         } else {
           setSpriteError(true);
         }
+        setSpriteLoadSettled(true);
       })
-      .catch(() => setSpriteError(true));
+      .catch(() => {
+        if (cancelled) return;
+        setSpriteError(true);
+        setSpriteLoadSettled(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [sceneId, spriteVttUrl, spriteImageUrl]);
 
   const thumbCount = spriteData ? spriteData.entries.length : Math.min(Math.ceil(duration / 10), 60);
@@ -1618,7 +1618,7 @@ function SceneScrubber({
                         backgroundSize: `${(spriteData!.entries[0].w * Math.ceil(Math.sqrt(thumbCount))) * (thumbWidth / entry.w)}px auto`,
                       }}
                     />
-                  ) : !spriteError ? (
+                  ) : spriteLoadSettled && spriteError ? (
                     <img 
                       src={`${screenshotUrl}?seconds=${Math.floor(time)}`} 
                       alt="" 

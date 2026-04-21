@@ -358,7 +358,7 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
     }
 
     [HttpPost("{id:int}/o")]
-    public async Task<IActionResult> IncrementO(int id, CancellationToken ct)
+    public async Task<ActionResult<int>> IncrementO(int id, CancellationToken ct)
     {
         var scene = await sceneRepo.GetByIdAsync(id, ct);
         if (scene == null) return NotFound();
@@ -366,7 +366,7 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         scene.OCounter++;
         db.Set<SceneOHistory>().Add(new SceneOHistory { SceneId = id, OccurredAt = DateTime.UtcNow });
         await sceneRepo.UpdateAsync(scene, ct);
-        return NoContent();
+        return Ok(scene.OCounter);
     }
 
     [HttpDelete("{id:int}/o")]

@@ -21,7 +21,10 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
   const [director, setDirector] = useState(scene.director || "");
   const [date, setDate] = useState(scene.date || "");
   const [rating, setRating] = useState<number | undefined>(scene.rating ?? undefined);
-  const [urls, setUrls] = useState(scene.urls.join("\n"));
+  const [urls, setUrls] = useState<string[]>(scene.urls.length > 0 ? scene.urls : [""]);
+  const addUrl = () => setUrls([...urls, ""]);
+  const removeUrl = (i: number) => setUrls(urls.filter((_, idx) => idx !== i));
+  const updateUrl = (i: number, val: string) => setUrls(urls.map((u, idx) => idx === i ? val : u));
   const [studioId, setStudioId] = useState<number | undefined>(scene.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(scene.tags.map((t) => t.id));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(scene.performers.map((p) => p.id));
@@ -74,7 +77,7 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
     setDirector(scene.director || "");
     setDate(scene.date || "");
     setRating(scene.rating ?? undefined);
-    setUrls(scene.urls.join("\n"));
+    setUrls(scene.urls.length > 0 ? scene.urls : [""]);
     setStudioId(scene.studioId ?? undefined);
     setSelectedTagIds(scene.tags.map((t) => t.id));
     setSelectedPerformerIds(scene.performers.map((p) => p.id));
@@ -93,7 +96,7 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
   });
 
   const handleSave = () => {
-    const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
+    const urlList = urls.map((u) => u.trim()).filter(Boolean);
     mutation.mutate({
       title: title || undefined,
       code: code || undefined,
@@ -178,8 +181,31 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
         </Field>
       </div>
 
-      <Field label="URLs (one per line)">
-        <TextArea value={urls} onChange={setUrls} placeholder="https://..." rows={2} />
+      <Field label="URLs">
+        <div className="space-y-1.5">
+          {urls.map((url, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => updateUrl(i, e.target.value)}
+                placeholder="https://..."
+                className="flex-1 bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent"
+              />
+              <button
+                type="button"
+                onClick={() => removeUrl(i)}
+                className="p-1 text-muted hover:text-red-400 transition-colors flex-shrink-0"
+                title="Remove URL"
+              >×</button>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={addUrl}
+          className="mt-1.5 flex items-center gap-1 text-xs text-accent hover:text-accent-hover"
+        >+ Add URL</button>
       </Field>
 
       {/* Tags */}
