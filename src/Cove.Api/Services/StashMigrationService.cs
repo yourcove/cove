@@ -910,7 +910,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             while (await r.ReadAsync(ct))
             {
                 var path = r.GetString(1);
-                var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                var name = GetLastPathSegment(path);
                 stashFolderNames[r.GetInt32(0)] = string.IsNullOrWhiteSpace(name) ? path : name;
             }
         }
@@ -1293,6 +1293,16 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     private static string? GetFingerprintValue(List<(string Type, string Value)> fingerprints, string type) =>
         fingerprints.FirstOrDefault(fp => string.Equals(fp.Type, type, StringComparison.OrdinalIgnoreCase)).Value;
+
+    private static string GetLastPathSegment(string path)
+    {
+        var normalizedPath = path.Replace('\\', '/').TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+            return path;
+
+        var separatorIndex = normalizedPath.LastIndexOf('/');
+        return separatorIndex >= 0 ? normalizedPath[(separatorIndex + 1)..] : normalizedPath;
+    }
 
     private static string? TrimGeneratedSuffix(string? value, string suffix)
     {

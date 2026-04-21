@@ -2,16 +2,11 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace Cove.Tests;
 
-[CollectionDefinition("ManagedPostgresPerformerFilter", DisableParallelization = true)]
-public sealed class ManagedPostgresPerformerFilterCollection;
-
-[Collection("ManagedPostgresPerformerFilter")]
 public class PerformerFilterBehaviorTests
 {
     [Fact]
@@ -290,57 +285,42 @@ public class PerformerFilterBehaviorTests
 
     private static async Task<TestContextScope> CreateContextAsync()
     {
-        var managedRoot = ResolveManagedPostgresRoot();
-        if (managedRoot == null)
-            throw new InvalidOperationException("Managed PostgreSQL binaries are not available for performer filter tests.");
-
-        var postgresConfig = new PostgresConfig
-        {
-            Managed = true,
-            DataPath = managedRoot,
-            Port = 5548,
-            Database = $"performer_filter_{Guid.NewGuid():N}",
-        };
-        var connectionString = $"Host=127.0.0.1;Port={postgresConfig.Port};Database={postgresConfig.Database};Username=postgres;Trust Server Certificate=true;Timeout=15;Command Timeout=30";
-
-        var manager = new PostgresManagerService(Options.Create(postgresConfig), NullLogger<PostgresManagerService>.Instance);
-        await manager.StartAsync(CancellationToken.None);
+        var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
 
         var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseNpgsql(connectionString)
+            .UseSqlite(connection)
             .Options;
 
-        var context = new CoveContext(options);
+        var context = new PerformerFilterTestContext(options);
         await context.Database.EnsureCreatedAsync();
-        return new TestContextScope(context, manager);
+        return new TestContextScope(context, connection);
     }
 
-    private static string? ResolveManagedPostgresRoot()
+    private sealed class PerformerFilterTestContext(DbContextOptions<CoveContext> options) : CoveContext(options)
     {
-        var repoArtifactRoot = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "backup-verify-data");
-        if (File.Exists(Path.Combine(repoArtifactRoot, "pgsql", "bin", Exe("pg_ctl"))))
-            return repoArtifactRoot;
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
 
-        var localAppDataRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cove");
-        if (File.Exists(Path.Combine(localAppDataRoot, "pgsql", "bin", Exe("pg_ctl"))))
-            return localAppDataRoot;
-
-        return null;
+            modelBuilder.Entity<Scene>().Ignore(scene => scene.CustomFields);
+            modelBuilder.Entity<Performer>().Ignore(performer => performer.CustomFields);
+            modelBuilder.Entity<Tag>().Ignore(tag => tag.CustomFields);
+            modelBuilder.Entity<Studio>().Ignore(studio => studio.CustomFields);
+            modelBuilder.Entity<Gallery>().Ignore(gallery => gallery.CustomFields);
+            modelBuilder.Entity<Image>().Ignore(image => image.CustomFields);
+            modelBuilder.Entity<Group>().Ignore(group => group.CustomFields);
+        }
     }
 
-    private static string Exe(string toolName)
-    {
-        return OperatingSystem.IsWindows() ? toolName + ".exe" : toolName;
-    }
-
-    private sealed class TestContextScope(CoveContext context, PostgresManagerService manager) : IAsyncDisposable
+    private sealed class TestContextScope(CoveContext context, SqliteConnection connection) : IAsyncDisposable
     {
         public CoveContext Context { get; } = context;
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
-            await manager.StopAsync(CancellationToken.None);
+            await connection.DisposeAsync();
         }
     }
 }
