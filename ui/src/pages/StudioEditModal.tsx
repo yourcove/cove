@@ -6,6 +6,7 @@ import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components
 import { ImageInput } from "../components/ImageInput";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface Props {
   studio: Studio;
@@ -22,7 +23,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   const [favorite, setFavorite] = useState(studio.favorite);
   const [ignoreAutoTag, setIgnoreAutoTag] = useState(studio.ignoreAutoTag);
   const [organized, setOrganized] = useState(studio.organized);
-  const [urls, setUrls] = useState(studio.urls.join("\n"));
+  const [urls, setUrls] = useState(studio.urls.length > 0 ? studio.urls : [""]);
   const [aliases, setAliases] = useState(studio.aliases.join("\n"));
   const [parentId, setParentId] = useState<number | undefined>(studio.parentId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(studio.tags.map((t) => t.id));
@@ -50,7 +51,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
     setFavorite(studio.favorite);
     setIgnoreAutoTag(studio.ignoreAutoTag);
     setOrganized(studio.organized);
-    setUrls(studio.urls.join("\n"));
+    setUrls(studio.urls.length > 0 ? studio.urls : [""]);
     setAliases(studio.aliases.join("\n"));
     setParentId(studio.parentId ?? undefined);
     setSelectedTagIds(studio.tags.map((t) => t.id));
@@ -67,7 +68,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   });
 
   const handleSave = () => {
-    const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
+    const urlList = urls.map((url) => url.trim()).filter(Boolean);
     const aliasList = aliases.split("\n").map((a) => a.trim()).filter(Boolean);
     mutation.mutate({
       name,
@@ -146,8 +147,8 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
         </div>
       </div>
 
-      <Field label="URLs (one per line)">
-        <TextArea value={urls} onChange={setUrls} placeholder="https://..." rows={2} />
+      <Field label="URLs">
+        <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
       <Field label="Aliases (one per line)">

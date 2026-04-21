@@ -99,26 +99,51 @@ public class CoveContext : DbContext
     {
         var entries = ChangeTracker.Entries()
             .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
+        var now = DateTime.UtcNow;
 
         foreach (var entry in entries)
         {
             if (entry.Entity is BaseEntity entity)
             {
-                entity.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added)
-                    entity.CreatedAt = DateTime.UtcNow;
+                {
+                    if (entity.CreatedAt == default)
+                        entity.CreatedAt = now;
+                    if (entity.UpdatedAt == default)
+                        entity.UpdatedAt = entity.CreatedAt;
+                }
+                else
+                {
+                    entity.UpdatedAt = now;
+                }
             }
             else if (entry.Entity is BaseFileEntity file)
             {
-                file.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added)
-                    file.CreatedAt = DateTime.UtcNow;
+                {
+                    if (file.CreatedAt == default)
+                        file.CreatedAt = now;
+                    if (file.UpdatedAt == default)
+                        file.UpdatedAt = file.CreatedAt;
+                }
+                else
+                {
+                    file.UpdatedAt = now;
+                }
             }
             else if (entry.Entity is Folder folder)
             {
-                folder.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added)
-                    folder.CreatedAt = DateTime.UtcNow;
+                {
+                    if (folder.CreatedAt == default)
+                        folder.CreatedAt = now;
+                    if (folder.UpdatedAt == default)
+                        folder.UpdatedAt = folder.CreatedAt;
+                }
+                else
+                {
+                    folder.UpdatedAt = now;
+                }
             }
         }
     }

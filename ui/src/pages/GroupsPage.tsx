@@ -15,6 +15,7 @@ import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { useRouteRegistry } from "../router/RouteRegistry";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -157,8 +158,9 @@ export function GroupsPage({ onNavigate }: Props) {
 function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }: { group: Group; onClick: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
   const { slots } = useRouteRegistry();
   const hasExtensionFooter = slots.some((slot) => slot.slot === "group-card-footer");
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "group", id: group.id }, onClick);
   return (
-    <div className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`} onClick={onClick}>
+    <div {...navigationHandlers} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
       {/* Movie poster style - 2:3 aspect ratio */}
       <div className="aspect-[2/3] bg-surface flex items-center justify-center relative overflow-hidden">
         <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>

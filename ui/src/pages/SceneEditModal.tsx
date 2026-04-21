@@ -153,8 +153,8 @@ export function SceneEditModal({ scene, open, onClose }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Code">
-          <TextInput value={code} onChange={setCode} placeholder="Scene code" />
+        <Field label="Studio Code">
+          <TextInput value={code} onChange={setCode} placeholder="Studio code" />
         </Field>
         <Field label="Director">
           <TextInput value={director} onChange={setDirector} placeholder="Director name" />

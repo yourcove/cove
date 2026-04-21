@@ -54,7 +54,7 @@ public record PerformerDto(
 
 public record PerformerRemoteIdDto(string Endpoint, string RemoteId);
 
-public record PerformerSummaryDto(int Id, string Name, string? Disambiguation, string? Gender, bool Favorite, string? ImagePath);
+public record PerformerSummaryDto(int Id, string Name, string? Disambiguation, string? Gender, string? Birthdate, bool Favorite, string? ImagePath);
 
 public record GallerySummaryDto(int Id, string? Title, string? Date);
 
@@ -584,6 +584,7 @@ public record IdentifyOptionsDto
 
 // ===== DATABASE OPERATION DTOs =====
 public record BackupResultDto(string BackupPath, long SizeBytes, string Timestamp);
+public record RestoreBackupRequestDto(string BackupPath);
 
 // ===== SCRAPER DTOs =====
 public record ScrapeUrlDto(string Url, string ContentType);

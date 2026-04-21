@@ -960,6 +960,10 @@ select option {
   background-color: var(--color-card);
   color: var(--color-foreground);
 }
+select {
+  background-color: var(--color-input);
+  border-color: var(--color-border);
+}
 
 /* Glass: ensure dropdown options have opaque background */
 html[data-component-style*="glass"] select option {
@@ -1217,27 +1221,31 @@ html.theater-mode main { max-width: none !important; padding: 0 !important; }
 
 /* Style native select dropdowns to match dark theme */
 select option {
-  background-color: var(--color-plex-card);
-  color: var(--color-plex-text);
+  background-color: var(--color-card);
+  color: var(--color-foreground);
   padding: 4px 8px;
 }
 select option:hover,
 select option:checked {
-  background-color: var(--color-plex-accent);
+  background-color: var(--color-accent);
   color: #fff;
 }
 select {
-  appearance: none;
+  color-scheme: dark;
+  cursor: pointer;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a9ba8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 6px center;
   padding-right: 20px !important;
 }
+html[data-color-scheme="light"] select {
+  color-scheme: light;
+}
 
 /* Custom dropdown panel styling (used by StyledSelect) */
 .styled-dropdown-panel {
-  background: var(--color-plex-card);
-  border: 1px solid var(--color-plex-border);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   overflow: hidden;
@@ -1246,22 +1254,22 @@ select {
   padding: 5px 10px;
   font-size: 0.75rem;
   cursor: pointer;
-  color: var(--color-plex-text);
+  color: var(--color-foreground);
   transition: background-color 0.1s;
 }
 .styled-dropdown-item:hover {
-  background-color: var(--color-plex-card-hover);
+  background-color: var(--color-card-hover);
 }
 .styled-dropdown-item.selected {
-  background-color: var(--color-plex-accent);
+  background-color: var(--color-accent);
   color: #fff;
 }
 
 /* Dialog/modal overlay styling */
 .filter-dialog select {
-  background-color: var(--color-plex-input);
-  border-color: var(--color-plex-border);
-  color: var(--color-plex-text);
+  background-color: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
 }
 
 /* ===== Layer 2: Component Styles ===== */

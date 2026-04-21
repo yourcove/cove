@@ -14,6 +14,7 @@ import { PerformerTagger } from "../components/PerformerTagger";
 import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, GalleriesPopoverContent } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 /** Convert 2-letter ISO country code to flag emoji */
 function countryToFlag(code: string): string {
@@ -195,6 +196,7 @@ function PerformerCard({ performer, onClick, onNavigate, selected, onSelect, sel
   const age = performer.birthdate
     ? Math.floor((Date.now() - new Date(performer.birthdate).getTime()) / 31557600000)
     : null;
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "performer", id: performer.id }, onClick);
 
   const favMut = useMutation({
     mutationFn: () => performers.update(performer.id, { favorite: !performer.favorite }),
@@ -203,7 +205,7 @@ function PerformerCard({ performer, onClick, onNavigate, selected, onSelect, sel
 
   return (
     <div
-      onClick={onClick}
+      {...navigationHandlers}
       className={`entity-card bg-card rounded overflow-hidden cursor-pointer border hover:border-accent/60 transition-all text-left w-full group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}
     >
       {/* Image */}

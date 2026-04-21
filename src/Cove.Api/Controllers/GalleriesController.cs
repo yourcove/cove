@@ -132,7 +132,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         g.Rating, g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
         g.GalleryTags.Where(gt => gt.Tag != null).Select(gt => new TagDto(gt.Tag!.Id, gt.Tag.Name, gt.Tag.Description, gt.Tag.Favorite, gt.Tag.IgnoreAutoTag, [])).ToList(),
-        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => new PerformerSummaryDto(gp.Performer!.Id, gp.Performer.Name, gp.Performer.Disambiguation, gp.Performer.Gender?.ToString(), gp.Performer.Favorite, gp.Performer.ImageBlobId != null ? $"/api/performers/{gp.Performer.Id}/image" : null)).ToList(),
+        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => new PerformerSummaryDto(gp.Performer!.Id, gp.Performer.Name, gp.Performer.Disambiguation, gp.Performer.Gender?.ToString(), gp.Performer.Birthdate?.ToString("yyyy-MM-dd"), gp.Performer.Favorite, gp.Performer.ImageBlobId != null ? $"/api/performers/{gp.Performer.Id}/image" : null)).ToList(),
         imageCount ?? g.ImageGalleries?.Count ?? 0,
         sceneCount ?? g.SceneGalleries?.Count ?? 0,
         g.SceneGalleries?.Select(sg => sg.SceneId).ToList() ?? [],

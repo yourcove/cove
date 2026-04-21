@@ -47,4 +47,39 @@ describe("filter criteria definitions", () => {
     expectUnique(criteria, "label", entityName);
     expectUnique(criteria, "filterKey", entityName);
   });
+
+  it("keeps scene filter labels and modifiers aligned with the supported UI", () => {
+    const sceneCriteriaById = new Map(SCENE_CRITERIA.map((criterion) => [criterion.id, criterion]));
+
+    expect(sceneCriteriaById.get("code")?.label).toBe("Studio Code");
+    expect(sceneCriteriaById.get("oCounter")?.label).toBe("Favorites");
+    expect(sceneCriteriaById.has("isMissing")).toBe(false);
+    expect(sceneCriteriaById.has("interactive")).toBe(false);
+    expect(sceneCriteriaById.has("interactiveSpeed")).toBe(false);
+    expect(sceneCriteriaById.get("frameRate")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(sceneCriteriaById.get("orientation")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS"]);
+  });
+
+  it("does not expose unsupported performer path filtering", () => {
+    expect(PERFORMER_CRITERIA.some((criterion) => criterion.id === "path")).toBe(false);
+  });
+
+  it("keeps performer count and timestamp modifiers aligned with non-null backend semantics", () => {
+    const performerCriteriaById = new Map(PERFORMER_CRITERIA.map((criterion) => [criterion.id, criterion]));
+
+    expect(performerCriteriaById.get("name")?.label).toBe("Name");
+    expect(performerCriteriaById.get("gender")?.multiSelectOptions).toBe(true);
+    expect(performerCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
+    expect(performerCriteriaById.get("sceneCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"]);
+    expect(performerCriteriaById.get("studioCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"]);
+    expect(performerCriteriaById.get("imageCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("galleryCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("markerCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("playCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("oCounter")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("tagCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("createdAt")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("updatedAt")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("remoteId")?.label).toBe("Remote ID Provider");
+  });
 });

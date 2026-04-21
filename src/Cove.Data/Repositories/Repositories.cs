@@ -52,6 +52,13 @@ public class PerformerRepository : IPerformerRepository
 
     public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        ExpandedHierarchicalStudioCriterion? expandedStudios = null;
+        if (filter?.StudiosCriterion?.Depth == -1)
+        {
+            expandedStudios = await ExpandHierarchicalStudioCriterionAsync(filter.StudiosCriterion, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
+
         var query = _db.Performers
             .Include(p => p.PerformerTags).ThenInclude(pt => pt.Tag)
             .AsSplitQuery()
@@ -71,10 +78,35 @@ public class PerformerRepository : IPerformerRepository
                 query = query.Where(p => p.ScenePerformers.Any(sp => sp.Scene!.StudioId == filter.StudioId.Value));
 
             // Advanced criteria
+            query = FilterHelpers.ApplyString(query, filter.NameCriterion, p => p.Name);
             query = FilterHelpers.ApplyInt(query, filter.RatingCriterion, p => p.Rating ?? 0);
             query = FilterHelpers.ApplyInt(query, filter.HeightCriterion, p => p.HeightCm ?? 0);
             query = FilterHelpers.ApplyInt(query, filter.WeightCriterion, p => p.Weight ?? 0);
-            query = FilterHelpers.ApplyInt(query, filter.SceneCountCriterion, p => p.ScenePerformers.Count);
+
+            if (filter.SceneCountCriterion != null)
+            {
+                query = filter.SceneCountCriterion.Modifier switch
+                {
+                    CriterionModifier.IsNull => query.Where(p => !p.ScenePerformers.Any()),
+                    CriterionModifier.NotNull => query.Where(p => p.ScenePerformers.Any()),
+                    _ => FilterHelpers.ApplyInt(query, filter.SceneCountCriterion, p => p.ScenePerformers.Count),
+                };
+            }
+
+            if (filter.StudioCountCriterion != null)
+            {
+                query = filter.StudioCountCriterion.Modifier switch
+                {
+                    CriterionModifier.IsNull => query.Where(p => !p.ScenePerformers.Any(sp => sp.Scene != null && sp.Scene.StudioId.HasValue)),
+                    CriterionModifier.NotNull => query.Where(p => p.ScenePerformers.Any(sp => sp.Scene != null && sp.Scene.StudioId.HasValue)),
+                    _ => FilterHelpers.ApplyInt(query, filter.StudioCountCriterion, p => p.ScenePerformers
+                        .Where(sp => sp.Scene != null && sp.Scene.StudioId.HasValue)
+                        .Select(sp => sp.Scene!.StudioId!.Value)
+                        .Distinct()
+                        .Count()),
+                };
+            }
+
             query = FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, p => p.ImagePerformers.Count);
             query = FilterHelpers.ApplyInt(query, filter.GalleryCountCriterion, p => p.GalleryPerformers.Count);
 
@@ -110,17 +142,13 @@ public class PerformerRepository : IPerformerRepository
 
             // Multi-ID criteria
             query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, p => p.PerformerTags.Select(pt => pt.TagId));
-
-            if (filter.StudiosCriterion != null)
-            {
-                var ids = filter.StudiosCriterion.Value;
-                query = filter.StudiosCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(p => p.ScenePerformers.Any(sp => sp.Scene!.StudioId.HasValue && ids.Contains(sp.Scene.StudioId.Value))),
-                    CriterionModifier.Excludes => query.Where(p => !p.ScenePerformers.Any(sp => sp.Scene!.StudioId.HasValue && ids.Contains(sp.Scene.StudioId.Value))),
-                    _ => query.Where(p => p.ScenePerformers.Any(sp => sp.Scene!.StudioId.HasValue && ids.Contains(sp.Scene.StudioId.Value))),
-                };
-            }
+            query = FilterHelpers.ApplyMultiId(
+                query,
+                filter.StudiosCriterion,
+                p => p.ScenePerformers
+                    .Where(sp => sp.Scene != null && sp.Scene.StudioId.HasValue)
+                    .Select(sp => sp.Scene!.StudioId!.Value),
+                expandedStudios?.ValueGroups);
 
             // Date criteria
             query = FilterHelpers.ApplyDate(query, filter.BirthdateCriterion, p => p.Birthdate);
@@ -224,11 +252,21 @@ public class PerformerRepository : IPerformerRepository
             // RemoteId criterion
             if (filter.RemoteIdCriterion != null)
             {
+                var providerValue = filter.RemoteIdCriterion.Value?.Trim() ?? string.Empty;
+                var normalizedProvider = providerValue.ToLower();
+                var hasProviderFilter = !string.IsNullOrWhiteSpace(providerValue);
+
                 query = filter.RemoteIdCriterion.Modifier switch
                 {
+                    CriterionModifier.Equals when hasProviderFilter => query.Where(p => p.RemoteIds.Any(sid => sid.Endpoint.ToLower() == normalizedProvider)),
+                    CriterionModifier.NotEquals when hasProviderFilter => query.Where(p => !p.RemoteIds.Any(sid => sid.Endpoint.ToLower() == normalizedProvider)),
+                    CriterionModifier.Includes when hasProviderFilter => query.Where(p => p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.Excludes when hasProviderFilter => query.Where(p => !p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.IsNull when hasProviderFilter => query.Where(p => !p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.NotNull when hasProviderFilter => query.Where(p => p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
                     CriterionModifier.IsNull => query.Where(p => p.RemoteIds.Count == 0),
                     CriterionModifier.NotNull => query.Where(p => p.RemoteIds.Count > 0),
-                    _ => query.Where(p => p.RemoteIds.Any(sid => EF.Functions.ILike(sid.Endpoint, $"%{filter.RemoteIdCriterion.Value}%"))),
+                    _ => query,
                 };
             }
         }
@@ -275,6 +313,67 @@ public class PerformerRepository : IPerformerRepository
         var items = await query.Skip((page - 1) * perPage).Take(perPage).AsNoTracking().ToListAsync(ct);
 
         return (items, totalCount);
+    }
+
+    private sealed record ExpandedHierarchicalStudioCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);
+
+    private async Task<ExpandedHierarchicalStudioCriterion> ExpandHierarchicalStudioCriterionAsync(MultiIdCriterion criterion, CancellationToken ct)
+    {
+        var studios = await _db.Studios
+            .AsNoTracking()
+            .Select(studio => new { studio.Id, studio.ParentId })
+            .ToListAsync(ct);
+
+        var childrenByParent = studios
+            .Where(studio => studio.ParentId.HasValue)
+            .GroupBy(studio => studio.ParentId!.Value)
+            .ToDictionary(group => group.Key, group => group.Select(studio => studio.Id).ToArray());
+
+        var valueGroups = criterion.Value
+            .Distinct()
+            .Select(studioId => ExpandStudioGroup(studioId, childrenByParent))
+            .ToList();
+
+        var flatValue = valueGroups.SelectMany(group => group).Distinct().ToList();
+        var flatExcludes = criterion.Excludes?
+            .Distinct()
+            .SelectMany(studioId => ExpandStudioGroup(studioId, childrenByParent))
+            .Distinct()
+            .ToList();
+
+        return new ExpandedHierarchicalStudioCriterion(
+            new MultiIdCriterion
+            {
+                Value = flatValue,
+                Modifier = criterion.Modifier,
+                Excludes = flatExcludes is { Count: > 0 } ? flatExcludes : null,
+                Depth = criterion.Depth,
+            },
+            valueGroups);
+    }
+
+    private static int[] ExpandStudioGroup(int rootStudioId, IReadOnlyDictionary<int, int[]> childrenByParent)
+    {
+        var expanded = new HashSet<int> { rootStudioId };
+        var queue = new Queue<int>();
+        queue.Enqueue(rootStudioId);
+
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            if (!childrenByParent.TryGetValue(parentId, out var childIds))
+            {
+                continue;
+            }
+
+            foreach (var childId in childIds)
+            {
+                if (expanded.Add(childId))
+                    queue.Enqueue(childId);
+            }
+        }
+
+        return expanded.ToArray();
     }
 }
 
@@ -428,6 +527,9 @@ public class TagRepository : ITagRepository
         query = sort switch
         {
             "name" => desc ? query.OrderByDescending(t => t.Name) : query.OrderBy(t => t.Name),
+            "scene_count" => desc ? query.OrderByDescending(t => t.SceneTags.Count) : query.OrderBy(t => t.SceneTags.Count),
+            "created_at" => desc ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt),
+            "random" => query.OrderBy(_ => EF.Functions.Random()),
             _ => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
         };
 
@@ -579,6 +681,9 @@ public class StudioRepository : IStudioRepository
         query = sort switch
         {
             "name" => desc ? query.OrderByDescending(s => s.Name) : query.OrderBy(s => s.Name),
+            "scene_count" => desc ? query.OrderByDescending(s => s.Scenes.Count) : query.OrderBy(s => s.Scenes.Count),
+            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
+            "random" => query.OrderBy(_ => EF.Functions.Random()),
             _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
         };
         var page = findFilter?.Page ?? 1;
@@ -659,30 +764,9 @@ public class GalleryRepository : IGalleryRepository
             query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.GalleryTags.Select(gt => gt.TagId));
             query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, g => g.GalleryPerformers.Select(gp => gp.PerformerId));
 
-            if (filter.StudiosCriterion != null)
-            {
-                var ids = filter.StudiosCriterion.Value;
-                query = filter.StudiosCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(g => g.StudioId.HasValue && ids.Contains(g.StudioId.Value)),
-                    CriterionModifier.Excludes => query.Where(g => !g.StudioId.HasValue || !ids.Contains(g.StudioId.Value)),
-                    _ => query.Where(g => g.StudioId.HasValue && ids.Contains(g.StudioId.Value)),
-                };
-            }
+            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
 
-            // Path criterion
-            if (filter.PathCriterion != null)
-            {
-                var val = filter.PathCriterion.Value;
-                query = filter.PathCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(g => g.Files.Any(f => f.Basename == val)),
-                    CriterionModifier.NotEquals => query.Where(g => !g.Files.Any(f => f.Basename == val)),
-                    CriterionModifier.Includes => query.Where(g => g.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(g => !g.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, g => g.Files);
 
             // URL criterion
             if (filter.UrlCriterion != null)
@@ -882,32 +966,12 @@ public class ImageRepository : IImageRepository
         if (filter.PerformersCriterion != null)
             query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, i => i.ImagePerformers.Select(ip => ip.PerformerId));
 
-        if (filter.StudiosCriterion != null)
-        {
-            var ids = filter.StudiosCriterion.Value;
-            query = filter.StudiosCriterion.Modifier switch
-            {
-                CriterionModifier.Includes => query.Where(i => i.StudioId.HasValue && ids.Contains(i.StudioId.Value)),
-                CriterionModifier.Excludes => query.Where(i => !i.StudioId.HasValue || !ids.Contains(i.StudioId.Value)),
-                _ => query.Where(i => i.StudioId.HasValue && ids.Contains(i.StudioId.Value)),
-            };
-        }
+        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, i => i.StudioId);
 
         if (filter.GalleriesCriterion != null)
             query = FilterHelpers.ApplyMultiId(query, filter.GalleriesCriterion, i => i.ImageGalleries.Select(ig => ig.GalleryId));
 
-        if (filter.PathCriterion != null)
-        {
-            var val = filter.PathCriterion.Value;
-            query = filter.PathCriterion.Modifier switch
-            {
-                CriterionModifier.Equals => query.Where(i => i.Files.Any(f => f.Basename == val)),
-                CriterionModifier.NotEquals => query.Where(i => !i.Files.Any(f => f.Basename == val)),
-                CriterionModifier.Includes => query.Where(i => i.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                CriterionModifier.Excludes => query.Where(i => !i.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                _ => query,
-            };
-        }
+        query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, i => i.Files);
 
         if (filter.PerformerFavoriteCriterion != null)
             query = filter.PerformerFavoriteCriterion.Value
@@ -1080,16 +1144,7 @@ public class GroupRepository : IGroupRepository
             // Multi-ID criteria
             query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.GroupTags.Select(gt => gt.TagId));
 
-            if (filter.StudiosCriterion != null)
-            {
-                var ids = filter.StudiosCriterion.Value;
-                query = filter.StudiosCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(g => g.StudioId.HasValue && ids.Contains(g.StudioId.Value)),
-                    CriterionModifier.Excludes => query.Where(g => !g.StudioId.HasValue || !ids.Contains(g.StudioId.Value)),
-                    _ => query.Where(g => g.StudioId.HasValue && ids.Contains(g.StudioId.Value)),
-                };
-            }
+            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
 
             // URL criterion
             if (filter.UrlCriterion != null)
@@ -1143,6 +1198,10 @@ public class GroupRepository : IGroupRepository
         query = sort switch
         {
             "name" => desc ? query.OrderByDescending(g => g.Name) : query.OrderBy(g => g.Name),
+            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
+            "rating" => desc ? query.OrderByDescending(g => g.Rating ?? -1) : query.OrderBy(g => g.Rating ?? -1),
+            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
+            "random" => query.OrderBy(_ => EF.Functions.Random()),
             _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
         };
         var page = findFilter?.Page ?? 1;

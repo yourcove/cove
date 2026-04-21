@@ -6,6 +6,7 @@ import { EditModal, Field, TextInput, TextArea, NumberInput, SaveButton } from "
 import { ImageInput } from "../components/ImageInput";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface Props {
   group: Group;
@@ -24,7 +25,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   const [rating, setRating] = useState<number | undefined>(group.rating ?? undefined);
   const [studioId, setStudioId] = useState<number | undefined>(group.studioId ?? undefined);
   const [synopsis, setSynopsis] = useState(group.synopsis ?? "");
-  const [urls, setUrls] = useState(group.urls.join("\n"));
+  const [urls, setUrls] = useState(group.urls.length > 0 ? group.urls : [""]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(group.tags.map((t) => t.id));
 
   // Tag search
@@ -52,7 +53,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
     setRating(group.rating ?? undefined);
     setStudioId(group.studioId ?? undefined);
     setSynopsis(group.synopsis ?? "");
-    setUrls(group.urls.join("\n"));
+    setUrls(group.urls.length > 0 ? group.urls : [""]);
     setSelectedTagIds(group.tags.map((t) => t.id));
     setCustomFields(Object.fromEntries(Object.entries(group.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])));
   }, [group]);
@@ -67,7 +68,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   });
 
   const handleSave = () => {
-    const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
+    const urlList = urls.map((url) => url.trim()).filter(Boolean);
     mutation.mutate({
       name,
       aliases: aliases || undefined,
@@ -154,8 +155,8 @@ export function GroupEditModal({ group, open, onClose }: Props) {
         <TextArea value={synopsis} onChange={setSynopsis} placeholder="Group synopsis / description" rows={4} />
       </Field>
 
-      <Field label="URLs (one per line)">
-        <TextArea value={urls} onChange={setUrls} placeholder="https://..." rows={2} />
+      <Field label="URLs">
+        <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
       {/* Tags */}

@@ -6,6 +6,7 @@ import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components
 import { Search, X } from "lucide-react";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface Props {
   gallery: Gallery;
@@ -24,7 +25,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
     rating: gallery.rating,
     organized: gallery.organized,
     studioId: gallery.studioId,
-    urls: gallery.urls.join("\n"),
+    urls: gallery.urls.length > 0 ? gallery.urls : [""],
     tagIds: gallery.tags.map((t) => t.id),
     performerIds: gallery.performers.map((p) => p.id),
     sceneIds: gallery.sceneIds ?? [],
@@ -64,7 +65,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
       rating: form.rating,
       organized: form.organized,
       studioId: form.studioId,
-      urls: form.urls ? form.urls.split("\n").map((u) => u.trim()).filter(Boolean) : [],
+      urls: form.urls.map((url) => url.trim()).filter(Boolean),
       tagIds: form.tagIds,
       performerIds: form.performerIds,
       sceneIds: form.sceneIds,
@@ -110,8 +111,8 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
       <Field label="Details">
         <TextArea value={form.details} onChange={(v) => setForm({ ...form, details: v })} rows={3} />
       </Field>
-      <Field label="URLs (one per line)">
-        <TextArea value={form.urls} onChange={(v) => setForm({ ...form, urls: v })} rows={2} />
+      <Field label="URLs">
+        <StringListEditor values={form.urls} onChange={(value) => setForm({ ...form, urls: value })} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
       {/* Tags picker */}

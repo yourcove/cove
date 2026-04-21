@@ -57,6 +57,7 @@ try
         var pgDb = pgSection.GetValue<string>("Database") ?? "cove";
         connectionString = $"Host=127.0.0.1;Port={pgPort};Database={pgDb};Username=postgres;Trust Server Certificate=true;Minimum Pool Size=10;Maximum Pool Size=200;Timeout=15;Command Timeout=30";
     }
+    coveCfgInstance.DatabaseConnectionString = connectionString;
     builder.Services.AddCoveData(connectionString);
 
     // Event bus (singleton for cross-service communication)
@@ -358,19 +359,9 @@ try
                 pendingMigrations.Length, string.Join(", ", pendingMigrations));
 
             // Automatic backup before migration
-            try
-            {
-                var backupSvc = scope.ServiceProvider.GetRequiredService<IBackupService>();
-                var backupJobId = backupSvc.StartBackup();
-                Log.Information("Pre-migration backup started (job {JobId})", backupJobId);
-                // Give the backup a moment to begin (it runs as a background job)
-                await Task.Delay(500);
-            }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "Pre-migration backup failed — proceeding with migration anyway. " +
-                    "Manual backup recommended.");
-            }
+            var backupSvc = scope.ServiceProvider.GetRequiredService<IBackupService>();
+            var backup = await backupSvc.CreateBackupAsync("pre_migration");
+            Log.Information("Pre-migration backup created at {Path}", backup.BackupPath);
 
             await db.Database.MigrateAsync();
             Log.Information("Database migrations applied successfully");

@@ -4,6 +4,7 @@ import { scenes } from "../api/client";
 import type { Scene } from "../api/types";
 import { formatDuration, formatFileSize, getResolutionLabel } from "../components/shared";
 import { Copy, Trash2, Loader2, Search, AlertTriangle, Check } from "lucide-react";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -159,6 +160,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                   {group.map((scene) => {
                     const file = scene.files[0];
                     const isSelected = selected.has(scene.id);
+                    const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, () => onNavigate({ page: "scene", id: scene.id }));
                     return (
                       <div
                         key={scene.id}
@@ -183,9 +185,10 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                         </button>
 
                         {/* Thumbnail */}
-                        <div
-                          className="aspect-video bg-card cursor-pointer"
-                          onClick={() => onNavigate({ page: "scene", id: scene.id })}
+                        <button
+                          type="button"
+                          {...navigationHandlers}
+                          className="aspect-video bg-card cursor-pointer block w-full overflow-hidden"
                         >
                           <img
                             src={scenes.screenshotUrl(scene.id)}
@@ -196,16 +199,17 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                               (e.target as HTMLImageElement).style.display = "none";
                             }}
                           />
-                        </div>
+                        </button>
 
                         {/* Details */}
                         <div className="p-2 space-y-1">
-                          <p
-                            className="text-xs font-medium text-foreground truncate cursor-pointer hover:text-accent"
-                            onClick={() => onNavigate({ page: "scene", id: scene.id })}
+                          <button
+                            type="button"
+                            {...navigationHandlers}
+                            className="block max-w-full truncate text-left text-xs font-medium text-foreground hover:text-accent"
                           >
                             {scene.title || file?.basename || `Scene #${scene.id}`}
-                          </p>
+                          </button>
                           {file && (
                             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted">
                               <span>{file.width}×{file.height}</span>

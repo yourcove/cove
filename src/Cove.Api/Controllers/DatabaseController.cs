@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -8,50 +9,24 @@ namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class DatabaseController(CoveContext db, ILogger<DatabaseController> logger) : ControllerBase
+public class DatabaseController(CoveContext db, IBackupService backupService, ILogger<DatabaseController> logger) : ControllerBase
 {
     [HttpPost("backup")]
     public async Task<ActionResult<BackupResultDto>> BackupDatabase(CancellationToken ct)
     {
-        var backupDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "cove", "backups");
-        Directory.CreateDirectory(backupDir);
+        var backup = await backupService.CreateBackupAsync("manual", ct);
+        return Ok(backup);
+    }
 
-        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-        var backupFile = Path.Combine(backupDir, $"cove-backup-{timestamp}.sql");
+    [HttpPost("restore")]
+    public async Task<IActionResult> RestoreDatabase([FromBody] RestoreBackupRequestDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.BackupPath))
+            return BadRequest(new { message = "Backup path is required." });
 
-        // Use pg_dump via the connection string
-        var connStr = db.Database.GetConnectionString()!;
-        await using var conn = new Npgsql.NpgsqlConnection(connStr);
-        await conn.OpenAsync(ct);
-
-        // Export all tables as SQL
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT 'Backup initiated at ' || now()";
-        await cmd.ExecuteNonQueryAsync(ct);
-
-        // For PostgreSQL, we'll do a logical backup via COPY
-        var tables = new[] { "scenes", "performers", "tags", "studios", "galleries", "images", "groups" };
-        await using var writer = new StreamWriter(backupFile);
-        await writer.WriteLineAsync($"-- Cove Backup {timestamp}");
-
-        foreach (var table in tables)
-        {
-            ct.ThrowIfCancellationRequested();
-            await using var readCmd = conn.CreateCommand();
-            readCmd.CommandText = $"SELECT count(*) FROM {table}";
-            var count = await readCmd.ExecuteScalarAsync(ct);
-            await writer.WriteLineAsync($"-- {table}: {count} rows");
-        }
-
-        await writer.FlushAsync(ct);
-        await writer.DisposeAsync();
-
-        var fileInfo = new FileInfo(backupFile);
-        logger.LogInformation("Database backup created at {Path}", backupFile);
-
-        return Ok(new BackupResultDto(backupFile, fileInfo.Length, timestamp));
+        logger.LogWarning("Database restore initiated from {Path}", request.BackupPath);
+        await backupService.RestoreBackupAsync(request.BackupPath, ct);
+        return Ok(new { message = "Database restored successfully", backupPath = request.BackupPath });
     }
 
     [HttpPost("optimize")]
@@ -59,7 +34,7 @@ public class DatabaseController(CoveContext db, ILogger<DatabaseController> logg
     {
         // VACUUM cannot run inside a transaction — use a raw connection
         var connStr = db.Database.GetConnectionString()!;
-        await using var conn = new Npgsql.NpgsqlConnection(connStr);
+        await using var conn = new NpgsqlConnection(connStr);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "VACUUM ANALYZE";
@@ -72,19 +47,21 @@ public class DatabaseController(CoveContext db, ILogger<DatabaseController> logg
     public async Task<IActionResult> WipeDatabase(CancellationToken ct)
     {
         logger.LogWarning("Database wipe initiated");
+        var backup = await backupService.CreateBackupAsync("pre_wipe", ct);
 
         var connStr = db.Database.GetConnectionString()!;
-        await using var conn = new Npgsql.NpgsqlConnection(connStr);
+        await using var conn = new NpgsqlConnection(connStr);
         await conn.OpenAsync(ct);
 
         await using var cmd = conn.CreateCommand();
         // TRUNCATE root tables with CASCADE clears all dependent junction tables
         cmd.CommandText = @"
             TRUNCATE TABLE scenes, performers, tags, studios, galleries, images, groups,
-                           folders, files, saved_filters CASCADE;";
+                           folders, files, saved_filters
+            RESTART IDENTITY CASCADE;";
         await cmd.ExecuteNonQueryAsync(ct);
 
-        logger.LogInformation("Database wiped successfully");
-        return Ok(new { message = "Database wiped successfully" });
+        logger.LogInformation("Database wiped successfully after backup {Path}", backup.BackupPath);
+        return Ok(new { message = "Database wiped successfully", backupPath = backup.BackupPath, backupTimestamp = backup.Timestamp });
     }
 }

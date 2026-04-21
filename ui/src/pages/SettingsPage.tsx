@@ -1846,6 +1846,7 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
 
 // ---- Data Management ----
 function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
+  const queryClient = useQueryClient();
   const [cleanDryRun, setCleanDryRun] = useState(false);
   const [showCleanGenOpts, setShowCleanGenOpts] = useState(false);
   const [cleanGenOpts, setCleanGenOpts] = useState<CleanGeneratedOptions>({
@@ -1873,11 +1874,41 @@ function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
   const [importFilePath, setImportFilePath] = useState("");
   const [importOverwrite, setImportOverwrite] = useState(false);
   const [showImportOpts, setShowImportOpts] = useState(false);
+  const [restoreBackupPath, setRestoreBackupPath] = useState("");
+  const [restoreConfirmed, setRestoreConfirmed] = useState(false);
   const importMut = useMutation({
     mutationFn: () => metadata.import({ filePath: importFilePath, duplicateHandling: importOverwrite }),
     onSuccess: () => refetchJobs(),
   });
-  const backupMut = useMutation({ mutationFn: () => database.backup(), onSuccess: () => refetchJobs() });
+  const latestBackupQuery = useQuery({
+    queryKey: ["settings", "latest-backup"],
+    queryFn: () => database.latestBackup(),
+    retry: false,
+  });
+  const backupMut = useMutation({
+    mutationFn: () => database.backup(),
+    onSuccess: async (result) => {
+      setRestoreBackupPath(result.backupPath);
+      await queryClient.invalidateQueries({ queryKey: ["settings", "latest-backup"] });
+      refetchJobs();
+    },
+  });
+  const restoreMut = useMutation({
+    mutationFn: async () => {
+      const backupPath = restoreBackupPath.trim();
+      if (!backupPath) {
+        throw new Error("Backup path is required.");
+      }
+      if (!restoreConfirmed) {
+        throw new Error("Confirm that restoring will replace the current database first.");
+      }
+      return database.restore(backupPath);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries();
+      window.location.reload();
+    },
+  });
   const optimizeMut = useMutation({ mutationFn: () => database.optimize(), onSuccess: () => refetchJobs() });
   const [wipeConfirm1, setWipeConfirm1] = useState(false);
   const [wipeConfirm2, setWipeConfirm2] = useState(false);
@@ -1905,6 +1936,11 @@ function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
     ? { type: "success" as const, text: "Database optimized successfully" }
     : optimizeMut.isError
     ? { type: "error" as const, text: `Optimize failed: ${optimizeMut.error instanceof Error ? optimizeMut.error.message : "Unknown error"}` }
+    : null;
+  const restoreStatus = restoreMut.isSuccess
+    ? { type: "success" as const, text: `Restore completed from ${restoreBackupPath}. Reloading...` }
+    : restoreMut.isError
+    ? { type: "error" as const, text: `Restore failed: ${restoreMut.error instanceof Error ? restoreMut.error.message : "Unknown error"}` }
     : null;
 
   return (
@@ -1996,6 +2032,48 @@ function DataManagementSection({ refetchJobs }: { refetchJobs: () => void }) {
             isPending={backupMut.isPending}
             statusMessage={backupStatus}
           />
+          <TaskCard
+            label="Restore Backup"
+            description="Restore the database from a backup file. This replaces the current database contents and reloads Cove."
+            onRun={() => restoreMut.mutate()}
+            isPending={restoreMut.isPending}
+            statusMessage={restoreStatus}
+          >
+            <div className="space-y-3 pt-3 border-t border-border/50">
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <label className="block text-xs text-secondary">Backup file path</label>
+                  {latestBackupQuery.data && (
+                    <button
+                      type="button"
+                      onClick={() => setRestoreBackupPath(latestBackupQuery.data ?? "")}
+                      className="text-xs text-accent hover:text-accent-hover"
+                    >
+                      Use latest backup
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={restoreBackupPath}
+                  onChange={(e) => setRestoreBackupPath(e.target.value)}
+                  placeholder="/path/to/cove_backup.sql"
+                  className="w-full rounded border border-border bg-surface px-3 py-1.5 text-sm text-foreground"
+                />
+                {latestBackupQuery.data && (
+                  <p className="mt-2 text-xs text-secondary">Latest backup: {latestBackupQuery.data}</p>
+                )}
+                {latestBackupQuery.isLoading && (
+                  <p className="mt-2 text-xs text-secondary">Checking for the latest backup…</p>
+                )}
+              </div>
+              <CheckboxLabel
+                label="I understand this will replace the current database with the selected backup"
+                checked={restoreConfirmed}
+                onChange={setRestoreConfirmed}
+              />
+            </div>
+          </TaskCard>
           <TaskCard
             label="Optimise Database"
             description="Run VACUUM ANALYSE to reclaim space and update query planner statistics."

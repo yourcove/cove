@@ -16,17 +16,8 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
+import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 
-const SCENE_SORT = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "rating", label: "Rating" },
-  { value: "duration", label: "Duration" },
-  { value: "file_size", label: "File Size" },
-  { value: "random", label: "Random" },
-];
 const PERFORMER_SORT = [
   { value: "name", label: "Name" },
   { value: "updated_at", label: "Recently Updated" },
@@ -414,7 +405,7 @@ function StudioScenesPanel({ studioId, filter, setFilter, onNavigate }: {
 
   return (
     <>
-      <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} sortOptions={SCENE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="scenes" selectedIds={selectedIds} onDone={selectNone} sceneItems={data.items} onNavigate={onNavigate} />} />
+      <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} sortOptions={SCENE_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="scenes" selectedIds={selectedIds} onDone={selectNone} sceneItems={data.items} onNavigate={onNavigate} />} />
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${220 + zoomLevel * 50}px, 1fr))` }}>
         {data.items.map((scene) => (
           <SceneCard key={scene.id} scene={scene} onClick={() => selecting ? toggle(scene.id) : onNavigate({ page: "scene", id: scene.id })} onNavigate={onNavigate} onQuickView={() => setQuickViewId(scene.id)} selected={selectedIds.has(scene.id)} onSelect={() => toggle(scene.id)} selecting={selecting} />

@@ -5,6 +5,7 @@ import type { Scene, Performer, Studio, Tag, Gallery, Group, SavedFilter } from 
 import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { RatingBanner } from "../components/Rating";
 import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical } from "lucide-react";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -350,10 +351,11 @@ function SceneRecommendationCard({ scene, onNavigate }: { scene: Scene; onNaviga
   const duration = file?.duration ?? 0;
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
   const screenshotUrl = scenes.screenshotUrl(scene.id);
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, () => onNavigate({ page: "scene", id: scene.id }));
 
   return (
     <div
-      onClick={() => onNavigate({ page: "scene", id: scene.id })}
+      {...navigationHandlers}
       className="flex-shrink-0 w-[200px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
       style={{ scrollSnapAlign: "start" }}
     >
@@ -388,9 +390,11 @@ function SceneRecommendationCard({ scene, onNavigate }: { scene: Scene; onNaviga
 // ─── Performer Card ─────────────────────────────────────────────────────────
 
 function PerformerRecommendationCard({ performer, onNavigate }: { performer: Performer; onNavigate: (r: any) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "performer", id: performer.id }, () => onNavigate({ page: "performer", id: performer.id }));
+
   return (
     <div
-      onClick={() => onNavigate({ page: "performer", id: performer.id })}
+      {...navigationHandlers}
       className="flex-shrink-0 w-[160px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
       style={{ scrollSnapAlign: "start" }}
     >
@@ -418,9 +422,11 @@ function PerformerRecommendationCard({ performer, onNavigate }: { performer: Per
 // ─── Studio Card ────────────────────────────────────────────────────────────
 
 function StudioRecommendationCard({ studio, onNavigate }: { studio: Studio; onNavigate: (r: any) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "studio", id: studio.id }, () => onNavigate({ page: "studio", id: studio.id }));
+
   return (
     <div
-      onClick={() => onNavigate({ page: "studio", id: studio.id })}
+      {...navigationHandlers}
       className="flex-shrink-0 w-[200px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
       style={{ scrollSnapAlign: "start" }}
     >
@@ -445,9 +451,11 @@ function StudioRecommendationCard({ studio, onNavigate }: { studio: Studio; onNa
 // ─── Tag Card ───────────────────────────────────────────────────────────────
 
 function TagRecommendationCard({ tag, onNavigate }: { tag: Tag; onNavigate: (r: any) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "tag", id: tag.id }, () => onNavigate({ page: "tag", id: tag.id }));
+
   return (
     <div
-      onClick={() => onNavigate({ page: "tag", id: tag.id })}
+      {...navigationHandlers}
       className="flex-shrink-0 w-[160px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
       style={{ scrollSnapAlign: "start" }}
     >
@@ -473,9 +481,11 @@ function TagRecommendationCard({ tag, onNavigate }: { tag: Tag; onNavigate: (r: 
 // ─── Gallery Card ───────────────────────────────────────────────────────────
 
 function GalleryRecommendationCard({ gallery, onNavigate }: { gallery: Gallery; onNavigate: (r: any) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, () => onNavigate({ page: "gallery", id: gallery.id }));
+
   return (
     <div
-      onClick={() => onNavigate({ page: "gallery", id: gallery.id })}
+      {...navigationHandlers}
       className="flex-shrink-0 w-[200px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
       style={{ scrollSnapAlign: "start" }}
     >
@@ -501,9 +511,11 @@ function GalleryRecommendationCard({ gallery, onNavigate }: { gallery: Gallery; 
 // ─── Group Card ─────────────────────────────────────────────────────────────
 
 function GroupRecommendationCard({ group, onNavigate }: { group: Group; onNavigate: (r: any) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
+
   return (
     <div
-      onClick={() => onNavigate({ page: "group", id: group.id })}
+      {...navigationHandlers}
       className="flex-shrink-0 w-[160px] cursor-pointer group rounded overflow-hidden bg-card border border-border hover:border-accent/50 transition-colors"
       style={{ scrollSnapAlign: "start" }}
     >

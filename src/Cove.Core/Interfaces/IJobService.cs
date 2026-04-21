@@ -1,3 +1,4 @@
+using Cove.Core.DTOs;
 using Cove.Core.Events;
 
 namespace Cove.Core.Interfaces;
@@ -69,7 +70,9 @@ public interface ICleanService
 
 public interface IBackupService
 {
+    Task<BackupResultDto> CreateBackupAsync(string? reason = null, CancellationToken ct = default);
     string StartBackup();
+    Task RestoreBackupAsync(string backupPath, CancellationToken ct = default);
     Task<string?> GetLatestBackupPathAsync(CancellationToken ct = default);
 }
 

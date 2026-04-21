@@ -15,6 +15,7 @@ import { QuickViewDialog } from "../components/QuickViewDialog";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 interface Props {
   id: number;
@@ -365,10 +366,12 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
 
 function GalleryPerformerCard({ performer, onClick }: { performer: { id: number; name: string; disambiguation?: string; imagePath?: string }; onClick: () => void }) {
   const imageUrl = performer.imagePath || entityImages.performerImageUrl(performer.id);
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onClick);
 
   return (
     <button
-      onClick={onClick}
+      type="button"
+      {...navigationHandlers}
       className="w-[180px] overflow-hidden rounded-lg border border-border bg-surface text-left transition-colors hover:border-accent/60"
     >
       <div className="aspect-[2/3] overflow-hidden bg-card">

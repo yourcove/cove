@@ -21,6 +21,8 @@ import { InteractiveRating } from "../components/Rating";
 import { useSceneQueue } from "../state/SceneQueueContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface Props {
   id: number;
@@ -78,7 +80,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
     return () => document.documentElement.classList.remove("theater-mode");
   }, [theaterMode]);
 
-  // Keyboard shortcuts: "," for theater mode, a/e/k/i/h for tab navigation, o for O-counter
+  // Keyboard shortcuts: "," for theater mode, a/e/k/i/h for tab navigation, o to increment favorites
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
@@ -389,8 +391,8 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
               {activeTab === "filters" && (
                 <VideoFiltersTab filters={videoFilters} onChange={setVideoFilters} />
               )}
-              {activeTab === "file-info" && file && (
-                <FileInfoTab file={file} />
+              {activeTab === "file-info" && scene.files.length > 0 && (
+                <FileInfoTab files={scene.files} />
               )}
               {activeTab === "history" && (
                 <HistoryTab scene={scene} />
@@ -472,7 +474,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
 }
 
 // Details Tab Content
-function DetailsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) => void }) {
+export function DetailsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) => void }) {
   return (
     <div className="space-y-4">
       {/* Created/Updated + Code/Director at top like original */}
@@ -483,7 +485,7 @@ function DetailsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) 
         <dd className="text-foreground">{formatDate(scene.updatedAt)}</dd>
         {scene.code && (
           <>
-            <dt className="text-muted pr-3">Scene Code</dt>
+            <dt className="text-muted pr-3">Studio Code</dt>
             <dd className="text-foreground">{scene.code}</dd>
           </>
         )}
@@ -522,16 +524,17 @@ function DetailsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) 
         </div>
       )}
 
-      {/* Performers — larger cards matching original's 15rem width */}
+      {/* Performers */}
       {scene.performers.length > 0 && (
         <div>
           <h6 className="text-sm text-muted mb-2">Performer{scene.performers.length > 1 ? "s" : ""}</h6>
-          <div className="flex flex-wrap gap-3">
+          <div className={scene.performers.length > 1 ? "grid grid-cols-2 gap-3" : "flex flex-wrap gap-3"}>
             {scene.performers.map((performer: any) => (
               <PerformerCard 
                 key={performer.id} 
                 performer={performer}
                 sceneDate={scene.date}
+                fullWidth={scene.performers.length > 1}
                 onClick={() => onNavigate({ page: "performer", id: performer.id })}
               />
             ))}
@@ -590,21 +593,26 @@ function GroupsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) =
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {scene.groups.map((group) => (
-        <button
-          key={group.id}
-          onClick={() => onNavigate({ page: "group", id: group.id })}
-          className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-accent/60"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-foreground">{group.name}</div>
-              <div className="mt-1 text-xs text-secondary">Scene #{group.sceneIndex}</div>
+      {scene.groups.map((group) => {
+        const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
+
+        return (
+          <button
+            key={group.id}
+            type="button"
+            {...navigationHandlers}
+            className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-accent/60"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">{group.name}</div>
+                <div className="mt-1 text-xs text-secondary">Scene #{group.sceneIndex}</div>
+              </div>
+              <Layers className="h-5 w-5 text-muted" />
             </div>
-            <Layers className="h-5 w-5 text-muted" />
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -621,32 +629,37 @@ function GalleriesTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {scene.galleries.map((gallery) => (
-        <button
-          key={gallery.id}
-          onClick={() => onNavigate({ page: "gallery", id: gallery.id })}
-          className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60"
-        >
-          <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card">
-            <FolderOpen className="h-10 w-10 text-muted" />
-          </div>
-          <div className="p-3">
-            <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">
-              {gallery.title || "Untitled"}
-            </p>
-            {gallery.date && (
-              <p className="mt-1 text-xs text-secondary">{formatDate(gallery.date)}</p>
-            )}
-          </div>
-        </button>
-      ))}
+      {scene.galleries.map((gallery) => {
+        const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "gallery", id: gallery.id }, () => onNavigate({ page: "gallery", id: gallery.id }));
+
+        return (
+          <button
+            key={gallery.id}
+            type="button"
+            {...navigationHandlers}
+            className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60"
+          >
+            <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card">
+              <FolderOpen className="h-10 w-10 text-muted" />
+            </div>
+            <div className="p-3">
+              <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">
+                {gallery.title || "Untitled"}
+              </p>
+              {gallery.date && (
+                <p className="mt-1 text-xs text-secondary">{formatDate(gallery.date)}</p>
+              )}
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-// Performer Card standard layout — ~200px wide with taller image
-function PerformerCard({ performer, sceneDate, onClick }: { performer: any; sceneDate?: string; onClick: () => void }) {
+function PerformerCard({ performer, sceneDate, fullWidth = false, onClick }: { performer: any; sceneDate?: string; fullWidth?: boolean; onClick: () => void }) {
   const imageUrl = performer.imagePath;
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onClick);
   // Calculate age at scene date
   const ageAtScene = (() => {
     if (!sceneDate || !performer.birthdate) return null;
@@ -660,9 +673,10 @@ function PerformerCard({ performer, sceneDate, onClick }: { performer: any; scen
 
   return (
     <button
-      onClick={onClick}
-      className="bg-card border border-border rounded overflow-hidden hover:border-accent/60 transition-colors text-left"
-      style={{ width: "200px" }}
+      type="button"
+      {...navigationHandlers}
+      className={`bg-card border border-border rounded overflow-hidden hover:border-accent/60 transition-colors text-left ${fullWidth ? "w-full" : ""}`}
+      style={fullWidth ? undefined : { width: "200px" }}
     >
       <div className="aspect-[2/3] bg-surface flex items-center justify-center relative">
         {imageUrl ? (
@@ -690,49 +704,64 @@ function PerformerCard({ performer, sceneDate, onClick }: { performer: any; scen
   );
 }
 
-// File Info Tab — dl grid matching original's details-list
-function FileInfoTab({ file }: { file: any }) {
+// File Info Tab — show every underlying scene file rather than only the first one.
+export function FileInfoTab({ files }: { files: Scene["files"] }) {
   return (
-    <div className="space-y-3 text-sm">
-      <dl className="grid gap-y-1.5" style={{ gridTemplateColumns: "minmax(100px, auto) 1fr" }}>
-        <dt className="text-muted">Path</dt>
-        <dd className="text-foreground break-all font-mono text-xs">{file.path}</dd>
+    <div className="space-y-4 text-sm">
+      {files.map((file, index) => {
+        const sectionLabel = file.basename || file.path.split(/[\\/]/).pop() || `File ${index + 1}`;
 
-        <dt className="text-muted">File Size</dt>
-        <dd className="text-foreground">{formatFileSize(file.size)}</dd>
+        return (
+          <section key={file.id ?? `${file.path}-${index}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+            {files.length > 1 && (
+              <div>
+                <h6 className="text-sm font-semibold text-foreground">{sectionLabel}</h6>
+                <p className="text-xs text-muted">File {index + 1} of {files.length}</p>
+              </div>
+            )}
 
-        <dt className="text-muted">Duration</dt>
-        <dd className="text-foreground">{formatDuration(file.duration)}</dd>
+            <dl className="grid gap-y-1.5" style={{ gridTemplateColumns: "minmax(100px, auto) 1fr" }}>
+              <dt className="text-muted">Path</dt>
+              <dd className="text-foreground break-all font-mono text-xs">{file.path}</dd>
 
-        <dt className="text-muted">Dimensions</dt>
-        <dd className="text-foreground">{file.width}×{file.height}</dd>
+              <dt className="text-muted">File Size</dt>
+              <dd className="text-foreground">{formatFileSize(file.size)}</dd>
 
-        <dt className="text-muted">Frame Rate</dt>
-        <dd className="text-foreground">{file.frameRate.toFixed(2)} fps</dd>
+              <dt className="text-muted">Duration</dt>
+              <dd className="text-foreground">{formatDuration(file.duration)}</dd>
 
-        <dt className="text-muted">Bitrate</dt>
-        <dd className="text-foreground">{Math.round(file.bitRate / 1000)} kbps</dd>
+              <dt className="text-muted">Dimensions</dt>
+              <dd className="text-foreground">{file.width}×{file.height}</dd>
 
-        <dt className="text-muted">Video Codec</dt>
-        <dd className="text-foreground">{file.videoCodec}</dd>
+              <dt className="text-muted">Frame Rate</dt>
+              <dd className="text-foreground">{file.frameRate.toFixed(2)} fps</dd>
 
-        <dt className="text-muted">Audio Codec</dt>
-        <dd className="text-foreground">{file.audioCodec}</dd>
-      </dl>
+              <dt className="text-muted">Bitrate</dt>
+              <dd className="text-foreground">{Math.round(file.bitRate / 1000)} kbps</dd>
 
-      {file.fingerprints && file.fingerprints.length > 0 && (
-        <div>
-          <h6 className="text-sm text-muted mb-1 font-medium">Fingerprints</h6>
-          <dl className="grid gap-y-1" style={{ gridTemplateColumns: "auto 1fr" }}>
-            {file.fingerprints.map((fp: any) => (
-              <Fragment key={fp.type}>
-                <dt className="text-muted text-xs pr-3">{fp.type}</dt>
-                <dd className="text-foreground font-mono text-xs break-all">{fp.value}</dd>
-              </Fragment>
-            ))}
-          </dl>
-        </div>
-      )}
+              <dt className="text-muted">Video Codec</dt>
+              <dd className="text-foreground">{file.videoCodec}</dd>
+
+              <dt className="text-muted">Audio Codec</dt>
+              <dd className="text-foreground">{file.audioCodec}</dd>
+            </dl>
+
+            {file.fingerprints && file.fingerprints.length > 0 && (
+              <div>
+                <h6 className="text-sm text-muted mb-1 font-medium">Fingerprints</h6>
+                <dl className="grid gap-y-1" style={{ gridTemplateColumns: "auto 1fr" }}>
+                  {file.fingerprints.map((fp: any) => (
+                    <Fragment key={`${file.id ?? index}-${fp.type}`}>
+                      <dt className="text-muted text-xs pr-3">{fp.type}</dt>
+                      <dd className="text-foreground font-mono text-xs break-all">{fp.value}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -788,13 +817,13 @@ function HistoryTab({ scene }: { scene: Scene }) {
         )}
       </div>
 
-      {/* O-Counter History */}
+      {/* Favorites History */}
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-muted uppercase tracking-wide">O-Counter</h3>
+          <h3 className="text-sm font-semibold text-muted uppercase tracking-wide">Favorites</h3>
           <div className="flex gap-1">
-            <button onClick={() => decrementOMut.mutate()} className={btnCls} title="Decrement O-counter">-1</button>
-            <button onClick={() => resetOMut.mutate()} className={btnCls} title="Reset O-counter">Reset</button>
+            <button onClick={() => decrementOMut.mutate()} className={btnCls} title="Remove favorite">-1</button>
+            <button onClick={() => resetOMut.mutate()} className={btnCls} title="Reset favorites">Reset</button>
           </div>
         </div>
         <div className="mb-2">
@@ -1842,7 +1871,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   const [director, setDirector] = useState(scene.director || "");
   const [date, setDate] = useState(scene.date || "");
   const [rating, setRating] = useState<number | undefined>(scene.rating ?? undefined);
-  const [urls, setUrls] = useState(scene.urls.join("\n"));
+  const [urls, setUrls] = useState(scene.urls.length > 0 ? scene.urls : [""]);
   const [studioId, setStudioId] = useState<number | undefined>(scene.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(scene.tags.map((t) => t.id));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(scene.performers.map((p) => p.id));
@@ -1865,7 +1894,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   useEffect(() => {
     setTitle(scene.title || ""); setCode(scene.code || ""); setDetails(scene.details || "");
     setDirector(scene.director || ""); setDate(scene.date || ""); setRating(scene.rating ?? undefined);
-    setUrls(scene.urls.join("\n")); setStudioId(scene.studioId ?? undefined);
+    setUrls(scene.urls.length > 0 ? scene.urls : [""]); setStudioId(scene.studioId ?? undefined);
     setSelectedTagIds(scene.tags.map((t) => t.id)); setSelectedPerformerIds(scene.performers.map((p) => p.id));
     setSelectedGalleryIds(scene.galleries.map((g) => g.id));
     setSelectedGroups(scene.groups.map((g) => ({ groupId: g.id, sceneIndex: g.sceneIndex })));
@@ -1877,7 +1906,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   });
 
   const handleSave = () => {
-    const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
+    const urlList = urls.map((url) => url.trim()).filter(Boolean);
     mutation.mutate({ title: title || undefined, code: code || undefined, details: details || undefined,
       director: director || undefined, date: date || undefined, rating, studioId,
       urls: urlList, tagIds: selectedTagIds, performerIds: selectedPerformerIds, galleryIds: selectedGalleryIds, groups: selectedGroups });
@@ -1901,7 +1930,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
         <label className="space-y-1"><span className="text-xs text-secondary">Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} /></label>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <label className="space-y-1"><span className="text-xs text-secondary">Code</span><input value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} /></label>
+        <label className="space-y-1"><span className="text-xs text-secondary">Studio Code</span><input value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} /></label>
         <label className="space-y-1"><span className="text-xs text-secondary">Director</span><input value={director} onChange={(e) => setDirector(e.target.value)} className={inputCls} /></label>
       </div>
       <label className="block space-y-1"><span className="text-xs text-secondary">Details</span><textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={3} className={inputCls} /></label>
@@ -1928,7 +1957,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
           </>
         )}
       </div>
-      <label className="block space-y-1"><span className="text-xs text-secondary">URLs (one per line)</span><textarea value={urls} onChange={(e) => setUrls(e.target.value)} rows={2} className={inputCls} /></label>
+      <div className="space-y-1"><span className="text-xs text-secondary">URLs</span><StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" /></div>
 
       {/* Tags */}
       <div className="space-y-1">

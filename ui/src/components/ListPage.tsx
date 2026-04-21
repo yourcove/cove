@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, LayoutGrid, List, Columns3, Grid3X3, ZoomIn, ZoomOut, SlidersHorizontal, X } from "lucide-react";
 import type { FindFilter } from "../api/types";
@@ -39,6 +39,13 @@ interface ListPageProps {
 }
 
 const PER_PAGE_OPTIONS = [20, 40, 60, 120, 250, 500, 1000];
+const DEFAULT_ZOOM_LEVEL = 1;
+const MIN_ZOOM_LEVEL = 0;
+const MAX_ZOOM_LEVEL = 5;
+
+function clampZoomLevel(value: number) {
+  return Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, value));
+}
 
 const CHIP_MODIFIER_LABELS: Record<string, string> = {
   EQUALS: "=",
@@ -187,7 +194,8 @@ export function ListPage({
   const [searchText, setSearchText] = useState(filter.q ?? "");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
-  const [zoomLevel, setZoomLevel] = useState(1); // 0-5 range: 0=smallest (240px), 5=largest (540px)
+  const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM_LEVEL); // 0-5 range: 0=smallest (240px), 5=largest (540px)
+  const restoredPrefsRef = useRef(false);
 
   // Determine which entity types are used in active filters for name resolution
   const activeEntityTypes = useMemo(() => {
@@ -245,11 +253,53 @@ export function ListPage({
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
   const start = (page - 1) * perPage + 1;
   const end = Math.min(page * perPage, totalCount);
+  const sortedSortOptions = useMemo(
+    () => (sortOptions ? [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)) : undefined),
+    [sortOptions]
+  );
   const slotContext = { pageKey, title, filter, onFilterChange, totalCount, isLoading };
   const selecting = selectedIds && selectedIds.size > 0;
   const toolbarSegmentClass = "flex items-center gap-1 rounded-lg border border-border bg-card/70 px-1.5 py-1 shadow-sm";
-  const toolbarSelectClass = "min-h-[30px] rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent";
+  const toolbarSelectClass = "min-h-[30px] rounded-md border border-border/60 bg-input px-2 py-1 text-xs text-foreground shadow-inner focus:outline-none focus:border-accent";
   const toolbarIconButtonClass = "rounded-md border border-transparent p-1.5 text-secondary hover:bg-card/80 hover:text-foreground focus:outline-none focus:border-accent";
+
+  useEffect(() => {
+    if (!pageKey || restoredPrefsRef.current) {
+      return;
+    }
+
+    restoredPrefsRef.current = true;
+
+    try {
+      const raw = localStorage.getItem(`cove-list-prefs-${pageKey}`);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as { perPage?: number; zoomLevel?: number };
+      if (typeof parsed.zoomLevel === "number") {
+        setZoomLevel(clampZoomLevel(parsed.zoomLevel));
+      }
+
+      const hasPerPageOverride = new URLSearchParams(window.location.search).has("perPage");
+      if (!hasPerPageOverride && typeof parsed.perPage === "number" && parsed.perPage > 0 && parsed.perPage !== perPage) {
+        onFilterChange({ ...filter, perPage: parsed.perPage, page: 1 });
+      }
+    } catch {
+      // Ignore invalid persisted list preferences.
+    }
+  }, [filter, onFilterChange, pageKey, perPage]);
+
+  useEffect(() => {
+    if (!pageKey) {
+      return;
+    }
+
+    localStorage.setItem(
+      `cove-list-prefs-${pageKey}`,
+      JSON.stringify({ perPage, zoomLevel: clampZoomLevel(zoomLevel) })
+    );
+  }, [pageKey, perPage, zoomLevel]);
 
   useEffect(() => {
     setSearchText(filter.q ?? "");
@@ -331,14 +381,14 @@ export function ListPage({
         </form>
 
         {/* Sort */}
-        {sortOptions && (
+        {sortedSortOptions && (
           <div className={toolbarSegmentClass}>
             <select
               value={filter.sort ?? ""}
               onChange={(e) => onFilterChange({ ...filter, sort: e.target.value || undefined, page: 1 })}
               className={`${toolbarSelectClass} min-w-[8.5rem] max-w-[10rem]`}
             >
-              {sortOptions.map((o) => (
+              {sortedSortOptions.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
@@ -443,7 +493,7 @@ export function ListPage({
                 max={5}
                 step={0.25}
                 value={zoomLevel}
-                onChange={(e) => setZoomLevel(Number(e.target.value))}
+                onChange={(e) => setZoomLevel(clampZoomLevel(Number(e.target.value)))}
                 className="w-16 sm:w-20 h-1 accent-accent cursor-pointer"
                 title={`Card size: ${Math.round(240 + zoomLevel * 60)}px`}
               />

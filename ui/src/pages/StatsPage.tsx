@@ -6,6 +6,7 @@ import {
   Clock, Play, ChevronLeft, ChevronRight, Star, Calendar, TrendingUp,
 } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 interface StatsPageProps {
   onNavigate?: (route: any) => void;
@@ -316,10 +317,12 @@ function SceneCard({ scene, onNavigate }: { scene: Scene; onNavigate?: (r: { pag
   };
 
   const duration = scene.files?.[0]?.duration;
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, () => onNavigate?.({ page: "scene", id: scene.id }));
 
   return (
     <button
-      onClick={() => onNavigate?.({ page: "scene", id: scene.id })}
+      type="button"
+      {...navigationHandlers}
       className="flex-shrink-0 w-56 snap-start group text-left"
     >
       <div className="relative aspect-video rounded-lg overflow-hidden bg-card mb-2">
@@ -348,9 +351,12 @@ function SceneCard({ scene, onNavigate }: { scene: Scene; onNavigate?: (r: { pag
 
 // ===== Performer Card =====
 function PerformerCard({ performer, onNavigate }: { performer: Performer; onNavigate?: (r: { page: string; id?: number }) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, () => onNavigate?.({ page: "performer", id: performer.id }));
+
   return (
     <button
-      onClick={() => onNavigate?.({ page: "performer", id: performer.id })}
+      type="button"
+      {...navigationHandlers}
       className="flex-shrink-0 w-36 snap-start group text-left"
     >
       <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-card mb-2">
@@ -384,9 +390,12 @@ function PerformerCard({ performer, onNavigate }: { performer: Performer; onNavi
 
 // ===== Image Card =====
 function ImageCard({ image, onNavigate }: { image: Image; onNavigate?: (r: { page: string; id?: number }) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "image", id: image.id }, () => onNavigate?.({ page: "image", id: image.id }));
+
   return (
     <button
-      onClick={() => onNavigate?.({ page: "image", id: image.id })}
+      type="button"
+      {...navigationHandlers}
       className="flex-shrink-0 w-44 snap-start group text-left"
     >
       <div className="relative aspect-square rounded-lg overflow-hidden bg-card mb-2">
@@ -406,9 +415,12 @@ function ImageCard({ image, onNavigate }: { image: Image; onNavigate?: (r: { pag
 
 // ===== Studio Card =====
 function StudioCard({ studio, onNavigate }: { studio: Studio; onNavigate?: (r: { page: string; id?: number }) => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "studio", id: studio.id }, () => onNavigate?.({ page: "studio", id: studio.id }));
+
   return (
     <button
-      onClick={() => onNavigate?.({ page: "studio", id: studio.id })}
+      type="button"
+      {...navigationHandlers}
       className="flex-shrink-0 w-40 snap-start group text-left"
     >
       <div className="relative aspect-video rounded-lg overflow-hidden bg-card mb-2 flex items-center justify-center">

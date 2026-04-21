@@ -16,6 +16,8 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 
 interface Props {
   id: number;
@@ -24,16 +26,6 @@ interface Props {
 
 type TabKey = "scenes" | "galleries" | "images" | "groups" | "appearsWith" | (string & {});
 
-const SCENE_SORT = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "rating", label: "Rating" },
-  { value: "duration", label: "Duration" },
-  { value: "file_size", label: "File Size" },
-  { value: "random", label: "Random" },
-];
 const IMAGE_SORT = [
   { value: "updated_at", label: "Recently Updated" },
   { value: "created_at", label: "Recently Added" },
@@ -600,7 +592,7 @@ function PerformerScenesPanel({ performerId, filter, setFilter, onNavigate }: {
 
   return (
     <>
-      <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} sortOptions={SCENE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="scenes" selectedIds={selectedIds} onDone={selectNone} sceneItems={data.items} onNavigate={onNavigate} />} />
+      <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} sortOptions={SCENE_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="scenes" selectedIds={selectedIds} onDone={selectNone} sceneItems={data.items} onNavigate={onNavigate} />} />
       <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${220 + zoomLevel * 50}px, 1fr))` }}>
         {data.items.map((scene) => (
           <SceneCard key={scene.id} scene={scene} onClick={() => selecting ? toggle(scene.id) : onNavigate({ page: "scene", id: scene.id })} onNavigate={onNavigate} onQuickView={() => setQuickViewId(scene.id)} selected={selectedIds.has(scene.id)} onSelect={() => toggle(scene.id)} selecting={selecting} />
@@ -716,17 +708,21 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
   return (
     <>
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
-        {paginated.map((group) => (
-          <button key={group.id} onClick={() => onNavigate({ page: "group", id: group.id })} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
-            <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card">
-              <Layers className="h-10 w-10 text-muted" />
-            </div>
-            <div className="p-3">
-              <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{group.name}</p>
-              <p className="mt-1 text-xs text-secondary">{group.sceneCount} scene{group.sceneCount !== 1 ? "s" : ""}</p>
-            </div>
-          </button>
-        ))}
+        {paginated.map((group) => {
+          const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
+
+          return (
+            <button key={group.id} type="button" {...navigationHandlers} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
+              <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card">
+                <Layers className="h-10 w-10 text-muted" />
+              </div>
+              <div className="p-3">
+                <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{group.name}</p>
+                <p className="mt-1 text-xs text-secondary">{group.sceneCount} scene{group.sceneCount !== 1 ? "s" : ""}</p>
+              </div>
+            </button>
+          );
+        })}
       </div>
       <Pager filter={filter} setFilter={setFilter} totalCount={uniqueGroups.length} />
     </>
@@ -773,23 +769,27 @@ function PerformerAppearsWithPanel({ performerId, filter, setFilter, onNavigate 
   return (
     <>
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
-        {paginated.map(({ performer: p, count }) => (
-          <button key={p.id} onClick={() => onNavigate({ page: "performer", id: p.id })} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
-            <div className="aspect-[2/3] bg-gradient-to-b from-card to-surface overflow-hidden">
-              <img
-                src={entityImages.performerImageUrl(p.id)}
-                alt={p.name}
-                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                loading="lazy"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-              />
-            </div>
-            <div className="p-3">
-              <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{p.name}</p>
-              <p className="mt-1 text-xs text-secondary">{count} scene{count !== 1 ? "s" : ""} together</p>
-            </div>
-          </button>
-        ))}
+        {paginated.map(({ performer: p, count }) => {
+          const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, () => onNavigate({ page: "performer", id: p.id }));
+
+          return (
+            <button key={p.id} type="button" {...navigationHandlers} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
+              <div className="aspect-[2/3] bg-gradient-to-b from-card to-surface overflow-hidden">
+                <img
+                  src={entityImages.performerImageUrl(p.id)}
+                  alt={p.name}
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  loading="lazy"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              </div>
+              <div className="p-3">
+                <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{p.name}</p>
+                <p className="mt-1 text-xs text-secondary">{count} scene{count !== 1 ? "s" : ""} together</p>
+              </div>
+            </button>
+          );
+        })}
       </div>
       <Pager filter={filter} setFilter={setFilter} totalCount={coStars.length} />
     </>

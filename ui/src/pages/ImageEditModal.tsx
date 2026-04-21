@@ -5,6 +5,7 @@ import type { Image, ImageCreate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface ImageEditProps {
   image: Image;
@@ -26,7 +27,7 @@ interface ImageFormState {
   date: string;
   rating: number | undefined;
   organized: boolean;
-  urls: string;
+  urls: string[];
   studioId: number | undefined;
   selectedTagIds: number[];
   selectedPerformerIds: number[];
@@ -53,7 +54,7 @@ const EMPTY_FORM_STATE: ImageFormState = {
   date: "",
   rating: undefined,
   organized: false,
-  urls: "",
+  urls: [""],
   studioId: undefined,
   selectedTagIds: [],
   selectedPerformerIds: [],
@@ -78,7 +79,7 @@ function toFormState(image?: Image): ImageFormState {
     date: image.date || "",
     rating: image.rating ?? undefined,
     organized: image.organized,
-    urls: image.urls.join("\n"),
+    urls: image.urls.length > 0 ? image.urls : [""],
     studioId: image.studioId ?? undefined,
     selectedTagIds: image.tags.map((tag) => tag.id),
     selectedPerformerIds: image.performers.map((performer) => performer.id),
@@ -90,6 +91,7 @@ function toFormState(image?: Image): ImageFormState {
 function cloneFormState(state: ImageFormState): ImageFormState {
   return {
     ...state,
+    urls: [...state.urls],
     selectedTagIds: [...state.selectedTagIds],
     selectedPerformerIds: [...state.selectedPerformerIds],
     selectedGalleryIds: [...state.selectedGalleryIds],
@@ -136,7 +138,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
   }, [initialState, open]);
 
   const handleSave = () => {
-    const urlList = form.urls.split("\n").map((url) => url.trim()).filter(Boolean);
+    const urlList = form.urls.map((url) => url.trim()).filter(Boolean);
     onSubmit({
       title: form.title.trim() || undefined,
       code: form.code.trim() || undefined,
@@ -210,8 +212,8 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
         </Field>
       </div>
 
-      <Field label="URLs (one per line)">
-        <TextArea value={form.urls} onChange={(value) => setForm({ ...form, urls: value })} placeholder="https://..." rows={2} />
+      <Field label="URLs">
+        <StringListEditor values={form.urls} onChange={(value) => setForm({ ...form, urls: value })} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
       <Field label="Tags">

@@ -14,17 +14,9 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 
-const SCENE_SORT = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "rating", label: "Rating" },
-  { value: "duration", label: "Duration" },
-  { value: "file_size", label: "File Size" },
-  { value: "random", label: "Random" },
-];
 const PERFORMER_SORT = [
   { value: "name", label: "Name" },
   { value: "updated_at", label: "Recently Updated" },
@@ -397,7 +389,7 @@ function TagScenesPanel({ tagId, filter, setFilter, onNavigate }: {
 
   return (
     <>
-      <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} sortOptions={SCENE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="scenes" selectedIds={selectedIds} onDone={selectNone} />} />
+      <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} sortOptions={SCENE_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="scenes" selectedIds={selectedIds} onDone={selectNone} />} />
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${220 + zoomLevel * 50}px, 1fr))` }}>
         {data.items.map((scene) => (
           <SceneCard key={scene.id} scene={scene} onClick={() => selecting ? toggle(scene.id) : onNavigate({ page: "scene", id: scene.id })} onNavigate={onNavigate} onQuickView={() => setQuickViewId(scene.id)} selected={selectedIds.has(scene.id)} onSelect={() => toggle(scene.id)} selecting={selecting} />
@@ -516,29 +508,34 @@ function TagMarkersPanel({ tagId, onNavigate }: { tagId: number; onNavigate: (r:
 
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-      {data.map((marker) => (
-        <button
-          key={marker.id}
-          onClick={() => onNavigate({ page: "scene", id: marker.sceneId })}
-          className="group text-left"
-        >
-          <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-card shadow-md shadow-black/30">
-            <img
-              src={scenes.screenshotUrl(marker.sceneId)}
-              alt={marker.title}
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-              loading="lazy"
-            />
-            <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">
-              {formatDuration(marker.seconds)}
-            </span>
-          </div>
-          <div className="pt-2">
-            <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{marker.title}</p>
-            <p className="mt-0.5 truncate text-xs text-secondary">{marker.sceneTitle || "Untitled Scene"}</p>
-          </div>
-        </button>
-      ))}
+      {data.map((marker) => {
+        const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: marker.sceneId }, () => onNavigate({ page: "scene", id: marker.sceneId }));
+
+        return (
+          <button
+            key={marker.id}
+            type="button"
+            {...navigationHandlers}
+            className="group text-left"
+          >
+            <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-card shadow-md shadow-black/30">
+              <img
+                src={scenes.screenshotUrl(marker.sceneId)}
+                alt={marker.title}
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+              />
+              <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">
+                {formatDuration(marker.seconds)}
+              </span>
+            </div>
+            <div className="pt-2">
+              <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{marker.title}</p>
+              <p className="mt-0.5 truncate text-xs text-secondary">{marker.sceneTitle || "Untitled Scene"}</p>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }

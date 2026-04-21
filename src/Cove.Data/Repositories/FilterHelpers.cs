@@ -1,4 +1,7 @@
 using System.Linq.Expressions;
+using System.Globalization;
+using System.Text.RegularExpressions;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -52,8 +55,11 @@ internal static class FilterHelpers
     /// <summary>Apply a studio (single FK) MultiIdCriterion.</summary>
     public static IQueryable<T> ApplyStudioCriterion<T>(IQueryable<T> query, MultiIdCriterion? criterion, Expression<Func<T, int?>> studioIdSelector)
     {
-        if (criterion == null) return query;
-        var ids = criterion.Value;
+        if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0)))
+        {
+            return query;
+        }
+
         var param = studioIdSelector.Parameters[0];
         var body = studioIdSelector.Body;
 
@@ -64,17 +70,35 @@ internal static class FilterHelpers
         var containsMethod = typeof(Enumerable).GetMethods()
             .First(m => m.Name == nameof(Enumerable.Contains) && m.GetParameters().Length == 2)
             .MakeGenericMethod(typeof(int));
-        var idsConst = Expression.Constant(ids.ToArray());
-        var contains = Expression.Call(null, containsMethod, idsConst, value);
+        Expression? predicate = null;
 
-        Expression predicate = criterion.Modifier switch
+        if (criterion.Value.Count > 0)
         {
-            CriterionModifier.Includes => Expression.AndAlso(hasValue, contains),
-            CriterionModifier.Excludes => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
-            CriterionModifier.IncludesAll => Expression.AndAlso(hasValue, contains),
-            CriterionModifier.ExcludesAll => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
-            _ => Expression.AndAlso(hasValue, contains),
-        };
+            var idsConst = Expression.Constant(criterion.Value.ToArray());
+            var contains = Expression.Call(null, containsMethod, idsConst, value);
+
+            predicate = criterion.Modifier switch
+            {
+                CriterionModifier.Includes => Expression.AndAlso(hasValue, contains),
+                CriterionModifier.Excludes => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
+                CriterionModifier.IncludesAll => Expression.AndAlso(hasValue, contains),
+                CriterionModifier.ExcludesAll => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
+                _ => Expression.AndAlso(hasValue, contains),
+            };
+        }
+
+        if (criterion.Excludes is { Count: > 0 })
+        {
+            var excludedConst = Expression.Constant(criterion.Excludes.ToArray());
+            var excludedContains = Expression.Call(null, containsMethod, excludedConst, value);
+            var excludesPredicate = Expression.OrElse(Expression.Not(hasValue), Expression.Not(excludedContains));
+            predicate = predicate == null ? excludesPredicate : Expression.AndAlso(predicate, excludesPredicate);
+        }
+
+        if (predicate == null)
+        {
+            return query;
+        }
 
         return query.Where(Expression.Lambda<Func<T, bool>>(predicate, param));
     }
@@ -96,10 +120,60 @@ internal static class FilterHelpers
             CriterionModifier.NotEquals => WhereStringNotEquals(query, param, body, val),
             CriterionModifier.Includes => WhereStringContains(query, param, body, val),
             CriterionModifier.Excludes => WhereStringNotContains(query, param, body, val),
+            CriterionModifier.MatchesRegex => WhereStringMatchesRegex(query, param, body, val),
+            CriterionModifier.NotMatchesRegex => WhereStringNotMatchesRegex(query, param, body, val),
             CriterionModifier.IsNull => WhereStringIsNull(query, param, body),
             CriterionModifier.NotNull => WhereStringNotNull(query, param, body),
             _ => query,
         };
+    }
+
+    /// <summary>Apply a StringCriterion to a normalized full file path derived from a file collection.</summary>
+    public static IQueryable<T> ApplyFilePath<T, TFile>(
+        IQueryable<T> query,
+        StringCriterion? criterion,
+        Expression<Func<T, IEnumerable<TFile>>> filesSelector)
+        where TFile : BaseFileEntity
+    {
+        if (criterion == null) return query;
+
+        var value = NormalizePathValue(criterion.Value);
+        var entityParam = filesSelector.Parameters[0];
+        var fileParam = Expression.Parameter(typeof(TFile), "file");
+        var fullPath = BuildNormalizedFilePathExpression(fileParam);
+        var fullPathOrEmpty = Expression.Coalesce(fullPath, Expression.Constant(string.Empty));
+        var equals = Expression.Equal(fullPathOrEmpty, Expression.Constant(value));
+        var notEmpty = Expression.NotEqual(fullPathOrEmpty, Expression.Constant(string.Empty));
+
+        var toLower = typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!;
+        var containsMethod = typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
+        var contains = Expression.Call(
+            Expression.Call(fullPathOrEmpty, toLower),
+            containsMethod,
+            Expression.Constant(value.ToLower()));
+
+        var regexMatch = Expression.Call(
+            typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
+            fullPathOrEmpty,
+            Expression.Constant(value),
+            Expression.Constant(RegexOptions.IgnoreCase));
+
+        Expression? predicate = criterion.Modifier switch
+        {
+            CriterionModifier.Equals => Any(filesSelector.Body, fileParam, equals),
+            CriterionModifier.NotEquals => Expression.Not(Any(filesSelector.Body, fileParam, equals)),
+            CriterionModifier.Includes => Any(filesSelector.Body, fileParam, contains),
+            CriterionModifier.Excludes => Expression.Not(Any(filesSelector.Body, fileParam, contains)),
+            CriterionModifier.MatchesRegex => Any(filesSelector.Body, fileParam, regexMatch),
+            CriterionModifier.NotMatchesRegex => Expression.Not(Any(filesSelector.Body, fileParam, regexMatch)),
+            CriterionModifier.IsNull => Expression.Not(Any(filesSelector.Body, fileParam, notEmpty)),
+            CriterionModifier.NotNull => Any(filesSelector.Body, fileParam, notEmpty),
+            _ => null,
+        };
+
+        return predicate == null
+            ? query
+            : query.Where(Expression.Lambda<Func<T, bool>>(predicate, entityParam));
     }
 
     /// <summary>Apply a DateCriterion to a DateOnly? property.</summary>
@@ -147,8 +221,10 @@ internal static class FilterHelpers
     public static IQueryable<T> ApplyTimestamp<T>(IQueryable<T> query, TimestampCriterion? criterion, Expression<Func<T, DateTime>> selector)
     {
         if (criterion == null) return query;
-        if (!DateTime.TryParse(criterion.Value, out var ts1)) return query;
-        DateTime.TryParse(criterion.Value2, out var ts2);
+        if (criterion.Modifier == CriterionModifier.IsNull) return query.Where(_ => false);
+        if (criterion.Modifier == CriterionModifier.NotNull) return query;
+        if (!TryParseTimestamp(criterion.Value, out var ts1)) return query;
+        var ts2 = TryParseTimestamp(criterion.Value2, out var parsedTs2) ? parsedTs2 : ts1;
 
         var param = selector.Parameters[0];
         var body = selector.Body;
@@ -189,8 +265,8 @@ internal static class FilterHelpers
         if (criterion.Modifier == CriterionModifier.NotNull)
             return query.Where(Expression.Lambda<Func<T, bool>>(hasValue, param));
 
-        if (!DateTime.TryParse(criterion.Value, out var ts1)) return query;
-        DateTime.TryParse(criterion.Value2, out var ts2);
+        if (!TryParseTimestamp(criterion.Value, out var ts1)) return query;
+        var ts2 = TryParseTimestamp(criterion.Value2, out var parsedTs2) ? parsedTs2 : ts1;
         var value = Expression.Property(body, "Value");
 
         return criterion.Modifier switch
@@ -267,6 +343,32 @@ internal static class FilterHelpers
         return query.Where(Expression.Lambda<Func<T, bool>>(pred, param));
     }
 
+    private static IQueryable<T> WhereStringMatchesRegex<T>(IQueryable<T> query, ParameterExpression param, Expression body, string val)
+    {
+        var notNull = Expression.NotEqual(body, Expression.Constant(null, typeof(string)));
+        var coalesced = Expression.Coalesce(body, Expression.Constant(string.Empty, typeof(string)));
+        var isMatch = Expression.Call(
+            typeof(Regex).GetMethod(nameof(Regex.IsMatch), new[] { typeof(string), typeof(string), typeof(RegexOptions) })!,
+            coalesced,
+            Expression.Constant(val),
+            Expression.Constant(RegexOptions.IgnoreCase));
+        var pred = Expression.AndAlso(notNull, isMatch);
+        return query.Where(Expression.Lambda<Func<T, bool>>(pred, param));
+    }
+
+    private static IQueryable<T> WhereStringNotMatchesRegex<T>(IQueryable<T> query, ParameterExpression param, Expression body, string val)
+    {
+        var isNull = Expression.Equal(body, Expression.Constant(null, typeof(string)));
+        var coalesced = Expression.Coalesce(body, Expression.Constant(string.Empty, typeof(string)));
+        var isMatch = Expression.Call(
+            typeof(Regex).GetMethod(nameof(Regex.IsMatch), new[] { typeof(string), typeof(string), typeof(RegexOptions) })!,
+            coalesced,
+            Expression.Constant(val),
+            Expression.Constant(RegexOptions.IgnoreCase));
+        var pred = Expression.OrElse(isNull, Expression.Not(isMatch));
+        return query.Where(Expression.Lambda<Func<T, bool>>(pred, param));
+    }
+
     private static IQueryable<T> WhereStringIsNull<T>(IQueryable<T> query, ParameterExpression param, Expression body)
     {
         var isNull = Expression.Equal(body, Expression.Constant(null, typeof(string)));
@@ -282,4 +384,57 @@ internal static class FilterHelpers
         var pred = Expression.AndAlso(notNull, notEmpty);
         return query.Where(Expression.Lambda<Func<T, bool>>(pred, param));
     }
+
+    private static bool TryParseTimestamp(string? value, out DateTime timestamp)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            timestamp = default;
+            return false;
+        }
+
+        if (!DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal, out var parsed))
+        {
+            timestamp = default;
+            return false;
+        }
+
+        timestamp = parsed.Kind switch
+        {
+            DateTimeKind.Utc => parsed,
+            DateTimeKind.Local => parsed.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(parsed, DateTimeKind.Local).ToUniversalTime(),
+        };
+        return true;
+    }
+
+    private static Expression Any(Expression source, ParameterExpression itemParam, Expression predicate)
+    {
+        var anyMethod = typeof(Enumerable).GetMethods()
+            .First(method => method.Name == nameof(Enumerable.Any) && method.GetParameters().Length == 2)
+            .MakeGenericMethod(itemParam.Type);
+
+        return Expression.Call(anyMethod, source, Expression.Lambda(predicate, itemParam));
+    }
+
+    private static Expression BuildNormalizedFilePathExpression(ParameterExpression fileParam)
+    {
+        var basename = Expression.Property(fileParam, nameof(BaseFileEntity.Basename));
+        var parentFolder = Expression.Property(fileParam, nameof(BaseFileEntity.ParentFolder));
+        var folderPath = Expression.Property(parentFolder, nameof(Folder.Path));
+        var replaceMethod = typeof(string).GetMethod(nameof(string.Replace), [typeof(string), typeof(string)])!;
+        var normalizedFolderPath = Expression.Call(folderPath, replaceMethod, Expression.Constant("\\"), Expression.Constant("/"));
+        var combinedPath = Expression.Call(
+            typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string), typeof(string)])!,
+            normalizedFolderPath,
+            Expression.Constant("/"),
+            basename);
+
+        return Expression.Condition(
+            Expression.Equal(parentFolder, Expression.Constant(null, typeof(Folder))),
+            basename,
+            combinedPath);
+    }
+
+    private static string NormalizePathValue(string value) => value.Replace("\\", "/");
 }

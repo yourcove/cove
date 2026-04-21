@@ -40,7 +40,10 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   type: CriterionType;
   entityType?: EntityType;
   filterKey: TFilterKey;
+  modifiers?: CriterionModifier[];
   options?: { value: string; label: string }[];
+  multiSelectOptions?: boolean;
+  hierarchyToggleLabel?: string;
 }
 
 type CriteriaDefinitionList<TFilterCriteria> = CriterionDefinition<Extract<keyof TFilterCriteria, string>>[];
@@ -77,15 +80,97 @@ const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   enum: ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"],
 };
 
+const NON_NULL_NUMBER_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"];
+const NON_NULL_TIMESTAMP_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"];
+const VALUE_ONLY_ENUM_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS"];
+const NULL_VALUE_MODIFIERS = new Set<CriterionModifier>(["IS_NULL", "NOT_NULL"]);
+const RANGE_VALUE_MODIFIERS = new Set<CriterionModifier>(["BETWEEN", "NOT_BETWEEN"]);
+
+function hasStringCriterionValue(criterion: { modifier?: CriterionModifier; value?: string; value2?: string }) {
+  const modifier = criterion.modifier ?? "EQUALS";
+  if (NULL_VALUE_MODIFIERS.has(modifier)) {
+    return true;
+  }
+
+  const value = criterion.value?.trim() ?? "";
+  if (value === "") {
+    return false;
+  }
+
+  if (RANGE_VALUE_MODIFIERS.has(modifier)) {
+    return (criterion.value2?.trim() ?? "") !== "";
+  }
+
+  return true;
+}
+
+function hasNumericCriterionValue(criterion: { modifier?: CriterionModifier; value?: number; value2?: number }) {
+  const modifier = criterion.modifier ?? "EQUALS";
+  if (NULL_VALUE_MODIFIERS.has(modifier)) {
+    return true;
+  }
+
+  if (typeof criterion.value !== "number" || Number.isNaN(criterion.value)) {
+    return false;
+  }
+
+  if (RANGE_VALUE_MODIFIERS.has(modifier)) {
+    return typeof criterion.value2 === "number" && !Number.isNaN(criterion.value2);
+  }
+
+  return true;
+}
+
+function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
+  if (value == null) {
+    return false;
+  }
+
+  switch (criterion.type) {
+    case "bool":
+      return typeof (value as BoolCriterion).value === "boolean";
+    case "multiId": {
+      const ids = (value as MultiIdCriterion).value;
+      return Array.isArray(ids) && ids.length > 0;
+    }
+    case "string":
+    case "date":
+    case "timestamp":
+    case "enum":
+      return hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
+    case "number":
+    case "duration":
+    case "rating":
+    case "resolution":
+      return hasNumericCriterionValue(value as { modifier?: CriterionModifier; value?: number; value2?: number });
+    default:
+      return true;
+  }
+}
+
+function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: CriterionDefinition[]) {
+  const criteriaByKey = new Map(criteria.map((criterion) => [criterion.filterKey, criterion]));
+
+  return Object.fromEntries(
+    Object.entries(filter).filter(([filterKey, value]) => {
+      const criterion = criteriaByKey.get(filterKey);
+      return criterion != null && isCriterionValueValid(value, criterion);
+    }),
+  );
+}
+
 // Scene criterion definitions
 export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
-  { id: "code", label: "Scene Code", type: "string", filterKey: "codeCriterion" },
+  { id: "code", label: "Studio Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "director", label: "Director", type: "string", filterKey: "directorCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "hash", label: "Hash", type: "string", filterKey: "hashCriterion" },
+  { id: "checksum", label: "Checksum", type: "string", filterKey: "checksumCriterion" },
+  { id: "duplicatedPhash", label: "Duplicated (pHash)", type: "bool", filterKey: "duplicatedPhashCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
-  { id: "oCounter", label: "O-Counter", type: "number", filterKey: "oCounterCriterion" },
+  { id: "oCounter", label: "Favorites", type: "number", filterKey: "oCounterCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
   { id: "duration", label: "Duration", type: "duration", filterKey: "durationCriterion" },
   { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
@@ -93,8 +178,6 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
   { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
   { id: "hasMarkers", label: "Has Markers", type: "bool", filterKey: "hasMarkersCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
-  { id: "interactive", label: "Interactive", type: "bool", filterKey: "interactiveCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
@@ -105,7 +188,7 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "videoCodec", label: "Video Codec", type: "string", filterKey: "videoCodecCriterion" },
   { id: "audioCodec", label: "Audio Codec", type: "string", filterKey: "audioCodecCriterion" },
-  { id: "frameRate", label: "Frame Rate", type: "number", filterKey: "frameRateCriterion" },
+  { id: "frameRate", label: "Frame Rate", type: "number", filterKey: "frameRateCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "bitrate", label: "Bitrate", type: "number", filterKey: "bitrateInterval" },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion" },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
@@ -117,8 +200,7 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" },
   { id: "captions", label: "Captions", type: "string", filterKey: "captionsCriterion" },
-  { id: "interactiveSpeed", label: "Interactive Speed", type: "number", filterKey: "interactiveSpeedCriterion" },
-  { id: "orientation", label: "Orientation", type: "enum", filterKey: "orientationCriterion", options: [
+  { id: "orientation", label: "Orientation", type: "enum", filterKey: "orientationCriterion", modifiers: VALUE_ONLY_ENUM_MODIFIERS, options: [
     { value: "landscape", label: "Landscape" },
     { value: "portrait", label: "Portrait" },
     { value: "square", label: "Square" },
@@ -126,10 +208,11 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
 ];
 
 export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria> = [
+  { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "age", label: "Age", type: "number", filterKey: "ageCriterion" },
-  { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", options: [
+  { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [
     { value: "Male", label: "Male" },
     { value: "Female", label: "Female" },
     { value: "TransgenderMale", label: "Transgender Male" },
@@ -140,18 +223,18 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "ethnicity", label: "Ethnicity", type: "string", filterKey: "ethnicityCriterion" },
   { id: "country", label: "Country", type: "string", filterKey: "countryCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
-  { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
-  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
-  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
+  { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
+  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion", modifiers: TYPE_MODIFIERS.number },
+  { id: "studioCount", label: "Studio Count", type: "number", filterKey: "studioCountCriterion", modifiers: TYPE_MODIFIERS.number },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "birthdate", label: "Birthdate", type: "date", filterKey: "birthdateCriterion" },
   { id: "height", label: "Height (cm)", type: "number", filterKey: "heightCriterion" },
   { id: "weight", label: "Weight", type: "number", filterKey: "weightCriterion" },
-  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "remoteId", label: "Remote ID Provider", type: "string", filterKey: "remoteIdCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
-  { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
-  { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
+  { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion", modifiers: NON_NULL_TIMESTAMP_MODIFIERS },
+  { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion", modifiers: NON_NULL_TIMESTAMP_MODIFIERS },
   { id: "disambiguation", label: "Disambiguation", type: "string", filterKey: "disambiguationCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "eyeColor", label: "Eye Color", type: "string", filterKey: "eyeColorCriterion" },
@@ -169,13 +252,12 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "piercings", label: "Piercings", type: "string", filterKey: "piercingsCriterion" },
   { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
   { id: "deathDate", label: "Death Date", type: "date", filterKey: "deathDateCriterion" },
-  { id: "markerCount", label: "Marker Count", type: "number", filterKey: "markerCountCriterion" },
-  { id: "playCount", label: "Play Count", type: "number", filterKey: "playCountCriterion" },
-  { id: "oCounter", label: "O-Counter", type: "number", filterKey: "oCounterCriterion" },
+  { id: "markerCount", label: "Marker Count", type: "number", filterKey: "markerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "playCount", label: "Play Count", type: "number", filterKey: "playCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "oCounter", label: "Favorites", type: "number", filterKey: "oCounterCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
-  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
 ];
 
 export const TAG_CRITERIA: CriteriaDefinitionList<TagFilterCriteria> = [
@@ -198,7 +280,6 @@ export const TAG_CRITERIA: CriteriaDefinitionList<TagFilterCriteria> = [
   { id: "parentCount", label: "Parent Count", type: "number", filterKey: "parentCountCriterion" },
   { id: "childCount", label: "Child Count", type: "number", filterKey: "childCountCriterion" },
   { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
 ];
 
 export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
@@ -219,7 +300,6 @@ export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
   { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion" },
   { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
   { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
 ];
@@ -233,7 +313,6 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
@@ -258,8 +337,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
-  { id: "oCounter", label: "O-Counter", type: "number", filterKey: "oCounterCriterion" },
+  { id: "oCounter", label: "Favorites", type: "number", filterKey: "oCounterCriterion" },
   { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
@@ -286,7 +364,6 @@ export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
-  { id: "isMissing", label: "Is Missing", type: "bool", filterKey: "isMissingCriterion" },
   { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
   { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
@@ -349,6 +426,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }
   }, [open, preselectCriterion]);
 
+  useEffect(() => {
+    if (open) {
+      setEditFilter(JSON.parse(JSON.stringify(activeFilter ?? {})) as Record<string, unknown>);
+    }
+  }, [activeFilter, open]);
+
   const activeCriterionCount = useMemo(() => {
     return criteria.filter((c) => editFilter[c.filterKey] !== undefined).length;
   }, [criteria, editFilter]);
@@ -364,7 +447,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   }, []);
 
   const handleApply = () => {
-    onApply(editFilter);
+    onApply(sanitizeFilterCriteria(editFilter, criteria));
     onClose();
   };
 
@@ -375,10 +458,18 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div
         className="bg-surface border border-border sm:rounded-lg shadow-xl w-full sm:max-w-lg h-[85vh] sm:h-auto sm:max-h-[80vh] flex flex-col rounded-t-lg"
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -564,26 +655,29 @@ function CriterionEditor({
   onChange: (v: unknown) => void;
 }) {
   const { type, entityType } = criterion;
+  const modifiers = criterion.modifiers ?? TYPE_MODIFIERS[type];
 
   switch (type) {
     case "bool":
       return <BoolEditor value={value as BoolCriterion | undefined} onChange={onChange} />;
     case "rating":
-      return <RatingFilterEditor value={value as IntCriterion | undefined} onChange={onChange} />;
+      return <RatingFilterEditor value={value as IntCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "number":
     case "duration":
     case "resolution":
-      return <NumberEditor value={value as IntCriterion | undefined} onChange={onChange} type={type} />;
+      return <NumberEditor value={value as IntCriterion | undefined} onChange={onChange} type={type} modifiers={modifiers} />;
     case "string":
-      return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} />;
+      return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "enum":
-      return <EnumEditor value={value as StringCriterion | undefined} onChange={onChange} options={criterion.options ?? []} />;
+      return criterion.multiSelectOptions
+        ? <MultiEnumEditor value={value as StringCriterion | undefined} onChange={onChange} options={criterion.options ?? []} />
+        : <EnumEditor value={value as StringCriterion | undefined} onChange={onChange} options={criterion.options ?? []} modifiers={modifiers} />;
     case "date":
-      return <DateEditor value={value as DateCriterion | undefined} onChange={onChange} />;
+      return <DateEditor value={value as DateCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "timestamp":
-      return <TimestampEditor value={value as TimestampCriterion | undefined} onChange={onChange} />;
+      return <TimestampEditor value={value as TimestampCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "multiId":
-      return <MultiIdEditor value={value as MultiIdCriterion | undefined} onChange={onChange} entityType={entityType!} />;
+      return <MultiIdEditor value={value as MultiIdCriterion | undefined} onChange={onChange} entityType={entityType!} hierarchyToggleLabel={criterion.hierarchyToggleLabel} />;
     default:
       return null;
   }
@@ -612,14 +706,13 @@ function BoolEditor({ value, onChange }: { value?: BoolCriterion; onChange: (v: 
 
 // ===== Number Editor =====
 
-function NumberEditor({ value, onChange, type }: { value?: IntCriterion; onChange: (v: unknown) => void; type: CriterionType }) {
-  const modifiers = TYPE_MODIFIERS[type];
+function NumberEditor({ value, onChange, type, modifiers }: { value?: IntCriterion; onChange: (v: unknown) => void; type: CriterionType; modifiers: CriterionModifier[] }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
 
   const update = (patch: Partial<IntCriterion>) => {
-    onChange({ value: value?.value ?? 0, modifier, ...value, ...patch });
+    onChange({ modifier, ...value, ...patch });
   };
 
   return (
@@ -634,8 +727,8 @@ function NumberEditor({ value, onChange, type }: { value?: IntCriterion; onChang
           ) : (
             <input
               type="number"
-              value={value?.value ?? 0}
-              onChange={(e) => update({ value: Number(e.target.value) })}
+              value={value?.value ?? ""}
+              onChange={(e) => update({ value: e.target.value === "" ? undefined : Number(e.target.value) })}
               className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             />
           )}
@@ -647,8 +740,8 @@ function NumberEditor({ value, onChange, type }: { value?: IntCriterion; onChang
               ) : (
                 <input
                   type="number"
-                  value={value?.value2 ?? 0}
-                  onChange={(e) => update({ value2: Number(e.target.value) })}
+                  value={value?.value2 ?? ""}
+                  onChange={(e) => update({ value2: e.target.value === "" ? undefined : Number(e.target.value) })}
                   className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
                 />
               )}
@@ -776,8 +869,7 @@ function RatingFilterInput({
   );
 }
 
-function RatingFilterEditor({ value, onChange }: { value?: IntCriterion; onChange: (v: unknown) => void }) {
-  const modifiers = TYPE_MODIFIERS.rating;
+function RatingFilterEditor({ value, onChange, modifiers }: { value?: IntCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
@@ -806,8 +898,7 @@ function RatingFilterEditor({ value, onChange }: { value?: IntCriterion; onChang
 
 // ===== String Editor =====
 
-function StringEditor({ value, onChange }: { value?: StringCriterion; onChange: (v: unknown) => void }) {
-  const modifiers = TYPE_MODIFIERS.string;
+function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
 
@@ -829,8 +920,7 @@ function StringEditor({ value, onChange }: { value?: StringCriterion; onChange: 
 
 // ===== Enum Editor =====
 
-function EnumEditor({ value, onChange, options }: { value?: StringCriterion; onChange: (v: unknown) => void; options: { value: string; label: string }[] }) {
-  const modifiers = TYPE_MODIFIERS.enum;
+function EnumEditor({ value, onChange, options, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; options: { value: string; label: string }[]; modifiers: CriterionModifier[] }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
 
@@ -853,10 +943,110 @@ function EnumEditor({ value, onChange, options }: { value?: StringCriterion; onC
   );
 }
 
+function MultiEnumEditor({ value, onChange, options }: { value?: StringCriterion; onChange: (v: unknown) => void; options: { value: string; label: string }[] }) {
+  const selectionMode = value?.modifier === "NOT_MATCHES_REGEX"
+    ? "exclude"
+    : value?.modifier === "IS_NULL"
+    ? "isNull"
+    : value?.modifier === "NOT_NULL"
+    ? "notNull"
+    : "include";
+  const selectedValues = useMemo(() => {
+    const storedValues = (value as { _selectedValues?: string[] } | undefined)?._selectedValues;
+    if (Array.isArray(storedValues) && storedValues.length > 0) {
+      return options.filter((option) => storedValues.includes(option.value)).map((option) => option.value);
+    }
+
+    if (!value?.value) {
+      return [];
+    }
+
+    if (value.modifier === "MATCHES_REGEX" || value.modifier === "NOT_MATCHES_REGEX") {
+      try {
+        const regex = new RegExp(value.value, "i");
+        return options.filter((option) => regex.test(option.value)).map((option) => option.value);
+      } catch {
+        return [];
+      }
+    }
+
+    return options.some((option) => option.value === value.value) ? [value.value] : [];
+  }, [options, value]);
+
+  const buildCriterion = (nextSelectedValues: string[], nextMode: "include" | "exclude" | "isNull" | "notNull") => {
+    if (nextMode === "isNull") {
+      onChange({ value: "", modifier: "IS_NULL", _selectedValues: nextSelectedValues });
+      return;
+    }
+
+    if (nextMode === "notNull") {
+      onChange({ value: "", modifier: "NOT_NULL", _selectedValues: nextSelectedValues });
+      return;
+    }
+
+    const escapedValues = nextSelectedValues.map((selectedValue) => selectedValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    onChange({
+      value: escapedValues.length > 0 ? `^(?:${escapedValues.join("|")})$` : "",
+      modifier: nextMode === "exclude" ? "NOT_MATCHES_REGEX" : "MATCHES_REGEX",
+      _selectedValues: nextSelectedValues,
+    });
+  };
+
+  const toggleValue = (optionValue: string) => {
+    const nextSelectedValues = selectedValues.includes(optionValue)
+      ? selectedValues.filter((selectedValue) => selectedValue !== optionValue)
+      : [...selectedValues, optionValue];
+    buildCriterion(nextSelectedValues, selectionMode);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1">
+        {([
+          ["include", "Any Of"],
+          ["exclude", "None Of"],
+          ["isNull", "No Value"],
+          ["notNull", "Has Value"],
+        ] as const).map(([mode, label]) => (
+          <button
+            key={mode}
+            onClick={() => buildCriterion(selectedValues, mode)}
+            className={`px-2 py-0.5 rounded text-[10px] border ${
+              selectionMode === mode
+                ? "bg-accent text-white border-accent"
+                : "border-border text-secondary hover:text-foreground hover:border-accent/50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {(selectionMode === "include" || selectionMode === "exclude") && (
+        <div className="grid gap-1 sm:grid-cols-2">
+          {options.map((option) => {
+            const checked = selectedValues.includes(option.value);
+
+            return (
+              <label key={option.value} className="flex items-center gap-2 rounded border border-border bg-input px-2 py-1 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleValue(option.value)}
+                  className="accent-accent h-3.5 w-3.5"
+                />
+                <span>{option.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ===== Date Editor =====
 
-function DateEditor({ value, onChange }: { value?: DateCriterion; onChange: (v: unknown) => void }) {
-  const modifiers = TYPE_MODIFIERS.date;
+function DateEditor({ value, onChange, modifiers }: { value?: DateCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
@@ -891,20 +1081,57 @@ function DateEditor({ value, onChange }: { value?: DateCriterion; onChange: (v: 
 
 // ===== Timestamp Editor =====
 
-function TimestampEditor({ value, onChange }: { value?: TimestampCriterion; onChange: (v: unknown) => void }) {
-  const modifiers = TYPE_MODIFIERS.timestamp;
+function getDefaultLocalTimestampValue() {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+
+  const pad = (part: number) => String(part).padStart(2, "0");
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function TimestampEditor({ value, onChange, modifiers }: { value?: TimestampCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
+  const ensureTimestampValue = (current?: string) => (current && current.length > 0 ? current : getDefaultLocalTimestampValue());
+
+  useEffect(() => {
+    if (isNull) {
+      return;
+    }
+
+    if (value?.value && (!isBetween || value.value2)) {
+      return;
+    }
+
+    onChange({
+      value: ensureTimestampValue(value?.value),
+      value2: isBetween ? ensureTimestampValue(value?.value2) : undefined,
+      modifier,
+    });
+  }, [isBetween, isNull, modifier, onChange, value?.value, value?.value2]);
 
   return (
     <div className="space-y-2">
-      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(m) => {
+          const nextIsNull = m === "IS_NULL" || m === "NOT_NULL";
+          const nextIsBetween = m === "BETWEEN" || m === "NOT_BETWEEN";
+          onChange({
+            value: nextIsNull ? (value?.value ?? "") : ensureTimestampValue(value?.value),
+            value2: nextIsBetween ? ensureTimestampValue(value?.value2) : undefined,
+            modifier: m,
+          });
+        }}
+      />
       {!isNull && (
         <div className="flex items-center gap-2">
           <input
             type="datetime-local"
-            value={value?.value ?? ""}
+            value={value?.value ?? ensureTimestampValue(value?.value)}
             onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
             className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
           />
@@ -913,7 +1140,7 @@ function TimestampEditor({ value, onChange }: { value?: TimestampCriterion; onCh
               <span className="text-xs text-muted">and</span>
               <input
                 type="datetime-local"
-                value={value?.value2 ?? ""}
+                value={value?.value2 ?? ensureTimestampValue(value?.value2)}
                 onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
                 className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
               />
@@ -927,11 +1154,11 @@ function TimestampEditor({ value, onChange }: { value?: TimestampCriterion; onCh
 
 // ===== MultiId Editor =====
 
-function MultiIdEditor({ value, onChange, entityType }: { value?: MultiIdCriterion; onChange: (v: unknown) => void; entityType: EntityType }) {
+function MultiIdEditor({ value, onChange, entityType, hierarchyToggleLabel }: { value?: MultiIdCriterion; onChange: (v: unknown) => void; entityType: EntityType; hierarchyToggleLabel?: string }) {
   const modifier = value?.modifier ?? "INCLUDES_ALL";
   const includedIds = value?.value ?? [];
   const excludedIds = value?.excludes ?? [];
-  const includeSubTags = (value as any)?.depth === -1;
+  const includeHierarchy = (value as any)?.depth === -1;
   const existingNames: Record<string, string> = (value as any)?._names ?? {};
   const [searchText, setSearchText] = useState("");
 
@@ -957,7 +1184,7 @@ function MultiIdEditor({ value, onChange, entityType }: { value?: MultiIdCriteri
     return map;
   }, [entities, existingNames]);
 
-  const buildCriterion = (inc: number[], exc: number[], mod: string, subTags: boolean) => {
+  const buildCriterion = (inc: number[], exc: number[], mod: string, includeChildren: boolean) => {
     // Include _names so filter chips can display entity names without waiting for queries
     const names: Record<string, string> = {};
     for (const id of [...inc, ...exc]) {
@@ -967,7 +1194,7 @@ function MultiIdEditor({ value, onChange, entityType }: { value?: MultiIdCriteri
       value: inc,
       modifier: mod,
       excludes: exc.length > 0 ? exc : undefined,
-      ...(subTags ? { depth: -1 } : {}),
+      ...(includeChildren ? { depth: -1 } : {}),
       _names: Object.keys(names).length > 0 ? names : undefined,
     };
   };
@@ -981,19 +1208,19 @@ function MultiIdEditor({ value, onChange, entityType }: { value?: MultiIdCriteri
   const addInclude = (id: number) => {
     const nextInc = includedIds.includes(id) ? includedIds : [...includedIds, id];
     const nextExc = excludedIds.filter((i) => i !== id);
-    onChange(buildCriterion(nextInc, nextExc, modifier, includeSubTags));
+    onChange(buildCriterion(nextInc, nextExc, modifier, includeHierarchy));
   };
 
   const addExclude = (id: number) => {
     const nextInc = includedIds.filter((i) => i !== id);
     const nextExc = excludedIds.includes(id) ? excludedIds : [...excludedIds, id];
-    onChange(buildCriterion(nextInc, nextExc, modifier, includeSubTags));
+    onChange(buildCriterion(nextInc, nextExc, modifier, includeHierarchy));
   };
 
   const removeId = (id: number) => {
     const nextInc = includedIds.filter((i) => i !== id);
     const nextExc = excludedIds.filter((i) => i !== id);
-    onChange(buildCriterion(nextInc, nextExc, modifier, includeSubTags));
+    onChange(buildCriterion(nextInc, nextExc, modifier, includeHierarchy));
   };
 
   const getName = (e: any) => e.name || e.title || `#${e.id}`;
@@ -1005,7 +1232,7 @@ function MultiIdEditor({ value, onChange, entityType }: { value?: MultiIdCriteri
         {(["INCLUDES", "INCLUDES_ALL"] as CriterionModifier[]).map((m) => (
           <button
             key={m}
-            onClick={() => onChange(buildCriterion(includedIds, excludedIds, m, includeSubTags))}
+            onClick={() => onChange(buildCriterion(includedIds, excludedIds, m, includeHierarchy))}
             className={`px-2 py-0.5 rounded text-[10px] border ${
               m === modifier
                 ? "bg-accent text-white border-accent"
@@ -1017,17 +1244,17 @@ function MultiIdEditor({ value, onChange, entityType }: { value?: MultiIdCriteri
         ))}
       </div>
       {/* Sub-tag checkbox (only for tags) */}
-      {entityType === "tags" && (
+      {(entityType === "tags" || hierarchyToggleLabel) && (
         <label className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer select-none">
           <input
             type="checkbox"
-            checked={includeSubTags}
+            checked={includeHierarchy}
             onChange={(e) => {
               onChange(buildCriterion(includedIds, excludedIds, modifier, e.target.checked));
             }}
             className="accent-accent w-3.5 h-3.5"
           />
-          Include sub-tags (child tags)
+          {hierarchyToggleLabel ?? "Include sub-tags (child tags)"}
         </label>
       )}
       {/* Selected items: included */}

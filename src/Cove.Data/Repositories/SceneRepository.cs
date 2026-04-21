@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 
@@ -133,7 +134,7 @@ public class SceneRepository : ISceneRepository
         return (sorted, totalCount);
     }
 
-    private static IQueryable<Scene> ApplyFilters(IQueryable<Scene> query, SceneFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null)
+    private IQueryable<Scene> ApplyFilters(IQueryable<Scene> query, SceneFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null)
     {
         if (filter == null) return query;
             if (!string.IsNullOrEmpty(filter.Title))
@@ -162,16 +163,16 @@ public class SceneRepository : ISceneRepository
                 query = ApplyIntCriterion(query, filter.PerformerCountCriterion, s => s.ScenePerformers.Count);
 
             if (filter.DurationCriterion != null)
-                query = ApplyIntCriterion(query, filter.DurationCriterion, s => (int)(s.Files.Select(f => f.Duration).Max()));
+                query = ApplyIntCriterion(query, filter.DurationCriterion, s => (int)(s.Files.Select(f => (double?)f.Duration).Max() ?? 0));
 
             if (filter.ResolutionCriterion != null)
-                query = ApplyIntCriterion(query, filter.ResolutionCriterion, s => s.Files.Select(f => f.Height).Max());
+                query = ApplyIntCriterion(query, filter.ResolutionCriterion, s => s.Files.Select(f => (int?)f.Height).Max() ?? 0);
 
             if (filter.FrameRateCriterion != null)
-                query = ApplyIntCriterion(query, filter.FrameRateCriterion, s => (int)(s.Files.Select(f => f.FrameRate).Max()));
+                query = ApplyIntCriterion(query, filter.FrameRateCriterion, s => (int)(s.Files.Select(f => (double?)f.FrameRate).Max() ?? 0));
 
             if (filter.BitrateInterval != null)
-                query = ApplyIntCriterion(query, filter.BitrateInterval, s => (int)(s.Files.Select(f => f.BitRate).Max() / 1000));
+                query = ApplyIntCriterion(query, filter.BitrateInterval, s => (int)((s.Files.Select(f => (long?)f.BitRate).Max() ?? 0) / 1000));
 
             if (filter.FileCountCriterion != null)
                 query = ApplyIntCriterion(query, filter.FileCountCriterion, s => s.Files.Count);
@@ -203,42 +204,18 @@ public class SceneRepository : ISceneRepository
             if (filter.InteractiveCriterion != null)
                 query = query.Where(s => s.Files.Any(f => f.Interactive == filter.InteractiveCriterion.Value));
 
-            if (filter.PathCriterion != null)
-            {
-                var val = filter.PathCriterion.Value;
-                query = filter.PathCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Files.Any(f => f.Basename == val)),
-                    CriterionModifier.NotEquals => query.Where(s => !s.Files.Any(f => f.Basename == val)),
-                    CriterionModifier.Includes => query.Where(s => s.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                    CriterionModifier.MatchesRegex => query.Where(s => s.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                    CriterionModifier.NotMatchesRegex => query.Where(s => !s.Files.Any(f => EF.Functions.ILike(f.Basename, $"%{val}%"))),
-                    _ => query,
-                };
-            }
+            query = ApplyFingerprintCriterion(query, filter.HashCriterion, "oshash");
 
-            if (filter.VideoCodecCriterion != null)
-            {
-                var val = filter.VideoCodecCriterion.Value;
-                query = filter.VideoCodecCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Files.Any(f => f.VideoCodec == val)),
-                    CriterionModifier.NotEquals => query.Where(s => !s.Files.Any(f => f.VideoCodec == val)),
-                    _ => query.Where(s => s.Files.Any(f => EF.Functions.ILike(f.VideoCodec, $"%{val}%"))),
-                };
-            }
+            query = ApplyFingerprintCriterion(query, filter.ChecksumCriterion, "md5");
 
-            if (filter.AudioCodecCriterion != null)
-            {
-                var val = filter.AudioCodecCriterion.Value;
-                query = filter.AudioCodecCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Files.Any(f => f.AudioCodec == val)),
-                    CriterionModifier.NotEquals => query.Where(s => !s.Files.Any(f => f.AudioCodec == val)),
-                    _ => query.Where(s => s.Files.Any(f => EF.Functions.ILike(f.AudioCodec, $"%{val}%"))),
-                };
-            }
+            if (filter.DuplicatedPhashCriterion != null)
+                query = ApplyDuplicatedPhashCriterion(query, filter.DuplicatedPhashCriterion);
+
+            query = ApplyPathCriterion(query, filter.PathCriterion);
+
+            query = ApplyVideoCodecCriterion(query, filter.VideoCodecCriterion);
+
+            query = ApplyAudioCodecCriterion(query, filter.AudioCodecCriterion);
 
             if (filter.DateCriterion != null)
             {
@@ -276,67 +253,13 @@ public class SceneRepository : ISceneRepository
                 };
             }
 
-            // Title criterion
-            if (filter.TitleCriterion != null)
-            {
-                var val = filter.TitleCriterion.Value;
-                query = filter.TitleCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Title == val),
-                    CriterionModifier.NotEquals => query.Where(s => s.Title != val),
-                    CriterionModifier.Includes => query.Where(s => s.Title != null && EF.Functions.ILike(s.Title, $"%{val}%")),
-                    CriterionModifier.Excludes => query.Where(s => s.Title == null || !EF.Functions.ILike(s.Title, $"%{val}%")),
-                    CriterionModifier.IsNull => query.Where(s => s.Title == null || s.Title == ""),
-                    CriterionModifier.NotNull => query.Where(s => s.Title != null && s.Title != ""),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyString(query, filter.TitleCriterion, s => s.Title);
 
-            // Code criterion
-            if (filter.CodeCriterion != null)
-            {
-                var val = filter.CodeCriterion.Value;
-                query = filter.CodeCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Code == val),
-                    CriterionModifier.NotEquals => query.Where(s => s.Code != val),
-                    CriterionModifier.Includes => query.Where(s => s.Code != null && EF.Functions.ILike(s.Code, $"%{val}%")),
-                    CriterionModifier.Excludes => query.Where(s => s.Code == null || !EF.Functions.ILike(s.Code, $"%{val}%")),
-                    CriterionModifier.IsNull => query.Where(s => s.Code == null || s.Code == ""),
-                    CriterionModifier.NotNull => query.Where(s => s.Code != null && s.Code != ""),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyString(query, filter.CodeCriterion, s => s.Code);
 
-            // Details criterion
-            if (filter.DetailsCriterion != null)
-            {
-                var val = filter.DetailsCriterion.Value;
-                query = filter.DetailsCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Details != null && EF.Functions.ILike(s.Details, $"%{val}%")),
-                    CriterionModifier.Excludes => query.Where(s => s.Details == null || !EF.Functions.ILike(s.Details, $"%{val}%")),
-                    CriterionModifier.IsNull => query.Where(s => s.Details == null || s.Details == ""),
-                    CriterionModifier.NotNull => query.Where(s => s.Details != null && s.Details != ""),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, s => s.Details);
 
-            // Director criterion
-            if (filter.DirectorCriterion != null)
-            {
-                var val = filter.DirectorCriterion.Value;
-                query = filter.DirectorCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Director == val),
-                    CriterionModifier.NotEquals => query.Where(s => s.Director != val),
-                    CriterionModifier.Includes => query.Where(s => s.Director != null && EF.Functions.ILike(s.Director, $"%{val}%")),
-                    CriterionModifier.Excludes => query.Where(s => s.Director == null || !EF.Functions.ILike(s.Director, $"%{val}%")),
-                    CriterionModifier.IsNull => query.Where(s => s.Director == null || s.Director == ""),
-                    CriterionModifier.NotNull => query.Where(s => s.Director != null && s.Director != ""),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyString(query, filter.DirectorCriterion, s => s.Director);
 
             // Tag count criterion
             if (filter.TagCountCriterion != null)
@@ -387,31 +310,7 @@ public class SceneRepository : ISceneRepository
             }
 
             // Performer age criterion (age at time of scene based on scene date and performer birthdate)
-            if (filter.PerformerAgeCriterion != null)
-            {
-                var ageVal = filter.PerformerAgeCriterion.Value;
-                var ageVal2 = filter.PerformerAgeCriterion.Value2 ?? ageVal;
-                query = filter.PerformerAgeCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
-                        sp.Performer!.Birthdate != null &&
-                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) == ageVal)),
-                    CriterionModifier.NotEquals => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
-                        sp.Performer!.Birthdate != null &&
-                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) != ageVal)),
-                    CriterionModifier.GreaterThan => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
-                        sp.Performer!.Birthdate != null &&
-                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) > ageVal)),
-                    CriterionModifier.LessThan => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
-                        sp.Performer!.Birthdate != null &&
-                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) < ageVal)),
-                    CriterionModifier.Between => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
-                        sp.Performer!.Birthdate != null &&
-                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) >= ageVal &&
-                        (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year) <= ageVal2)),
-                    _ => query,
-                };
-            }
+            query = ApplyPerformerAgeCriterion(query, filter.PerformerAgeCriterion);
 
             // Captions criterion (filter by caption content)
             query = FilterHelpers.ApplyString(query, filter.CaptionsCriterion, s => s.Captions);
@@ -441,8 +340,11 @@ public class SceneRepository : ISceneRepository
         // Seeded random: stable deterministic ordering using a seed value
         if (sort == "random" && seed.HasValue)
         {
-            var s = seed.Value;
-            return query.OrderBy(scene => (scene.Id * s) % 2147483647);
+            var normalizedSeed = Math.Abs((long)seed.Value);
+            if (normalizedSeed == 0)
+                return query.OrderBy(scene => scene.Id);
+
+            return query.OrderBy(scene => ((long)scene.Id * normalizedSeed) % 2147483647L);
         }
         return ApplySortingSwitch(query, sort, desc);
     }
@@ -456,8 +358,11 @@ public class SceneRepository : ISceneRepository
         "rating" => desc ? query.OrderByDescending(s => s.Rating ?? -1) : query.OrderBy(s => s.Rating ?? -1),
         "play_count" => desc ? query.OrderByDescending(s => s.PlayCount) : query.OrderBy(s => s.PlayCount),
         "o_counter" => desc ? query.OrderByDescending(s => s.OCounter) : query.OrderBy(s => s.OCounter),
+        "last_o_at" => ApplyLastFavoriteSort(query, desc),
         "organized" => desc ? query.OrderByDescending(s => s.Organized) : query.OrderBy(s => s.Organized),
-        "last_played_at" => desc ? query.OrderByDescending(s => s.LastPlayedAt) : query.OrderBy(s => s.LastPlayedAt),
+        "last_played_at" => desc
+            ? query.OrderBy(s => s.LastPlayedAt == null ? 1 : 0).ThenByDescending(s => s.LastPlayedAt)
+            : query.OrderBy(s => s.LastPlayedAt == null ? 1 : 0).ThenBy(s => s.LastPlayedAt),
         "play_duration" => desc ? query.OrderByDescending(s => s.PlayDuration) : query.OrderBy(s => s.PlayDuration),
         "resume_time" => desc ? query.OrderByDescending(s => s.ResumeTime) : query.OrderBy(s => s.ResumeTime),
         "random" => query.OrderBy(_ => EF.Functions.Random()),
@@ -467,9 +372,11 @@ public class SceneRepository : ISceneRepository
         "file_size" => desc
             ? query.OrderByDescending(s => s.Files.Select(file => (long?)file.Size).Max() ?? 0)
             : query.OrderBy(s => s.Files.Select(file => (long?)file.Size).Max() ?? 0),
+        "file_mod_time" => ApplyFileModTimeSort(query, desc),
         "file_count" => desc
             ? query.OrderByDescending(s => s.Files.Count)
             : query.OrderBy(s => s.Files.Count),
+        "path" => ApplyPathSort(query, desc),
         "resolution" => desc
             ? query.OrderByDescending(s => s.Files.Select(file => file.Height).Max())
             : query.OrderBy(s => s.Files.Select(file => file.Height).Max()),
@@ -479,15 +386,352 @@ public class SceneRepository : ISceneRepository
         "bitrate" => desc
             ? query.OrderByDescending(s => s.Files.Select(file => file.BitRate).Max())
             : query.OrderBy(s => s.Files.Select(file => file.BitRate).Max()),
+        "phash" => ApplyPhashSort(query, desc),
+        "perceptual_similarity" => ApplyPhashSort(query, desc),
         "tag_count" => desc
             ? query.OrderByDescending(s => s.SceneTags.Count)
             : query.OrderBy(s => s.SceneTags.Count),
         "performer_count" => desc
             ? query.OrderByDescending(s => s.ScenePerformers.Count)
             : query.OrderBy(s => s.ScenePerformers.Count),
+        "performer_age" => ApplyPerformerAgeSort(query, desc),
+        "studio" => ApplyStudioSort(query, desc),
+        "code" => ApplyStudioCodeSort(query, desc),
+        "studio_code" => ApplyStudioCodeSort(query, desc),
         "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
         _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
     };
+
+    private static IQueryable<Scene> ApplyLastFavoriteSort(IQueryable<Scene> query, bool desc)
+    {
+        var sortQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            LastFavoriteAt = scene.OHistory.Select(history => (DateTime?)history.OccurredAt).Max(),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenByDescending(item => item.LastFavoriteAt).Select(item => item.Scene)
+            : sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenBy(item => item.LastFavoriteAt).Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyFileModTimeSort(IQueryable<Scene> query, bool desc)
+    {
+        var sortQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            FileModTime = scene.Files.Select(file => (DateTime?)file.ModTime).Max(),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).Select(item => item.Scene)
+            : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyPathSort(IQueryable<Scene> query, bool desc)
+    {
+        if (desc)
+        {
+            var descendingQuery = query.Select(scene => new
+            {
+                Scene = scene,
+                Path = scene.Files
+                    .Select(file => file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename)
+                    .OrderByDescending(path => path)
+                    .FirstOrDefault(),
+            });
+
+            return descendingQuery
+                .OrderBy(item => item.Path == null ? 1 : 0)
+                .ThenByDescending(item => item.Path)
+                .Select(item => item.Scene);
+        }
+
+        var ascendingQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            Path = scene.Files
+                .Select(file => file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename)
+                .OrderBy(path => path)
+                .FirstOrDefault(),
+        });
+
+        return ascendingQuery
+            .OrderBy(item => item.Path == null ? 1 : 0)
+            .ThenBy(item => item.Path)
+            .Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyPhashSort(IQueryable<Scene> query, bool desc)
+    {
+        if (desc)
+        {
+            var descendingQuery = query.Select(scene => new
+            {
+                Scene = scene,
+                Phash = scene.Files
+                    .SelectMany(file => file.Fingerprints
+                        .Where(fingerprint => fingerprint.Type == "phash" && fingerprint.Value != "")
+                        .Select(fingerprint => fingerprint.Value))
+                    .OrderByDescending(value => value)
+                    .FirstOrDefault(),
+            });
+
+            return descendingQuery
+                .OrderBy(item => item.Phash == null ? 1 : 0)
+                .ThenByDescending(item => item.Phash)
+                .Select(item => item.Scene);
+        }
+
+        var ascendingQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            Phash = scene.Files
+                .SelectMany(file => file.Fingerprints
+                    .Where(fingerprint => fingerprint.Type == "phash" && fingerprint.Value != "")
+                    .Select(fingerprint => fingerprint.Value))
+                .OrderBy(value => value)
+                .FirstOrDefault(),
+        });
+
+        return ascendingQuery
+            .OrderBy(item => item.Phash == null ? 1 : 0)
+            .ThenBy(item => item.Phash)
+            .Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyStudioSort(IQueryable<Scene> query, bool desc)
+    {
+        var sortQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            StudioName = scene.Studio != null ? scene.Studio.Name : null,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).Select(item => item.Scene)
+            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyStudioCodeSort(IQueryable<Scene> query, bool desc)
+    {
+        var sortQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            Code = scene.Code,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenByDescending(item => item.Code).Select(item => item.Scene)
+            : sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenBy(item => item.Code).Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyPerformerAgeSort(IQueryable<Scene> query, bool desc)
+    {
+        if (desc)
+        {
+            var descendingQuery = query.Select(scene => new
+            {
+                Scene = scene,
+                PerformerAge = scene.ScenePerformers
+                    .Where(sp => scene.Date != null && sp.Performer!.Birthdate != null)
+                    .Select(sp => (int?)(
+                        scene.Date!.Value.Year - sp.Performer!.Birthdate!.Value.Year
+                        - ((scene.Date!.Value.Month < sp.Performer!.Birthdate!.Value.Month
+                            || (scene.Date!.Value.Month == sp.Performer!.Birthdate!.Value.Month && scene.Date!.Value.Day < sp.Performer!.Birthdate!.Value.Day)) ? 1 : 0)))
+                    .Max(),
+            });
+
+            return descendingQuery
+                .OrderBy(item => item.PerformerAge == null ? 1 : 0)
+                .ThenByDescending(item => item.PerformerAge)
+                .Select(item => item.Scene);
+        }
+
+        var ascendingQuery = query.Select(scene => new
+        {
+            Scene = scene,
+            PerformerAge = scene.ScenePerformers
+                .Where(sp => scene.Date != null && sp.Performer!.Birthdate != null)
+                .Select(sp => (int?)(
+                    scene.Date!.Value.Year - sp.Performer!.Birthdate!.Value.Year
+                    - ((scene.Date!.Value.Month < sp.Performer!.Birthdate!.Value.Month
+                        || (scene.Date!.Value.Month == sp.Performer!.Birthdate!.Value.Month && scene.Date!.Value.Day < sp.Performer!.Birthdate!.Value.Day)) ? 1 : 0)))
+                .Min(),
+        });
+
+        return ascendingQuery
+            .OrderBy(item => item.PerformerAge == null ? 1 : 0)
+            .ThenBy(item => item.PerformerAge)
+            .Select(item => item.Scene);
+    }
+
+    private static IQueryable<Scene> ApplyPathCriterion(IQueryable<Scene> query, StringCriterion? criterion)
+    {
+        if (criterion == null) return query;
+
+        var value = NormalizePathValue(criterion.Value);
+        var pattern = $"%{value}%";
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(s => s.Files.Any(f =>
+                (f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename) == value)),
+            CriterionModifier.NotEquals => query.Where(s => !s.Files.Any(f =>
+                (f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename) == value)),
+            CriterionModifier.Includes => query.Where(s => s.Files.Any(f =>
+                EF.Functions.ILike(
+                    f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename,
+                    pattern))),
+            CriterionModifier.Excludes => query.Where(s => !s.Files.Any(f =>
+                EF.Functions.ILike(
+                    f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename,
+                    pattern))),
+            CriterionModifier.MatchesRegex => query.Where(s => s.Files.Any(f =>
+                Regex.IsMatch(
+                    f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename,
+                    value,
+                    RegexOptions.IgnoreCase))),
+            CriterionModifier.NotMatchesRegex => query.Where(s => !s.Files.Any(f =>
+                Regex.IsMatch(
+                    f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename,
+                    value,
+                    RegexOptions.IgnoreCase))),
+            CriterionModifier.IsNull => query.Where(s => !s.Files.Any(f =>
+                (f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename) != "")),
+            CriterionModifier.NotNull => query.Where(s => s.Files.Any(f =>
+                (f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename) != "")),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<Scene> ApplyFingerprintCriterion(IQueryable<Scene> query, StringCriterion? criterion, string fingerprintType)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value;
+        var pattern = $"%{value}%";
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(scene => scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value == value))),
+            CriterionModifier.NotEquals => query.Where(scene => !scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value == value))),
+            CriterionModifier.Includes => query.Where(scene => scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && EF.Functions.ILike(fingerprint.Value, pattern)))),
+            CriterionModifier.Excludes => query.Where(scene => !scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && EF.Functions.ILike(fingerprint.Value, pattern)))),
+            CriterionModifier.MatchesRegex => query.Where(scene => scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && Regex.IsMatch(fingerprint.Value, value, RegexOptions.IgnoreCase)))),
+            CriterionModifier.NotMatchesRegex => query.Where(scene => !scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && Regex.IsMatch(fingerprint.Value, value, RegexOptions.IgnoreCase)))),
+            CriterionModifier.IsNull => query.Where(scene => !scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
+            CriterionModifier.NotNull => query.Where(scene => scene.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
+            _ => query,
+        };
+    }
+
+    private IQueryable<Scene> ApplyDuplicatedPhashCriterion(IQueryable<Scene> query, BoolCriterion criterion)
+    {
+        var duplicatedQuery = query.Where(scene => scene.Files
+            .SelectMany(file => file.Fingerprints
+                .Where(fingerprint => fingerprint.Type == "phash" && fingerprint.Value != "")
+                .Select(fingerprint => fingerprint.Value))
+            .Any(phash => _db.VideoFiles.Any(otherFile =>
+                otherFile.SceneId.HasValue
+                && otherFile.SceneId.Value != scene.Id
+                && otherFile.Fingerprints.Any(otherFingerprint => otherFingerprint.Type == "phash" && otherFingerprint.Value == phash))));
+
+        return criterion.Value ? duplicatedQuery : query.Where(scene => !duplicatedQuery.Select(item => item.Id).Contains(scene.Id));
+    }
+
+    private static IQueryable<Scene> ApplyVideoCodecCriterion(IQueryable<Scene> query, StringCriterion? criterion)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value;
+        var pattern = $"%{value}%";
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(s => s.Files.Any(f => f.VideoCodec == value)),
+            CriterionModifier.NotEquals => query.Where(s => !s.Files.Any(f => f.VideoCodec == value)),
+            CriterionModifier.Includes => query.Where(s => s.Files.Any(f => EF.Functions.ILike(f.VideoCodec, pattern))),
+            CriterionModifier.Excludes => query.Where(s => !s.Files.Any(f => EF.Functions.ILike(f.VideoCodec, pattern))),
+            CriterionModifier.MatchesRegex => query.Where(s => s.Files.Any(f => Regex.IsMatch(f.VideoCodec ?? string.Empty, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.NotMatchesRegex => query.Where(s => !s.Files.Any(f => Regex.IsMatch(f.VideoCodec ?? string.Empty, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.IsNull => query.Where(s => !s.Files.Any(f => f.VideoCodec != null && f.VideoCodec != "")),
+            CriterionModifier.NotNull => query.Where(s => s.Files.Any(f => f.VideoCodec != null && f.VideoCodec != "")),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<Scene> ApplyAudioCodecCriterion(IQueryable<Scene> query, StringCriterion? criterion)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value;
+        var pattern = $"%{value}%";
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(s => s.Files.Any(f => f.AudioCodec == value)),
+            CriterionModifier.NotEquals => query.Where(s => !s.Files.Any(f => f.AudioCodec == value)),
+            CriterionModifier.Includes => query.Where(s => s.Files.Any(f => EF.Functions.ILike(f.AudioCodec, pattern))),
+            CriterionModifier.Excludes => query.Where(s => !s.Files.Any(f => EF.Functions.ILike(f.AudioCodec, pattern))),
+            CriterionModifier.MatchesRegex => query.Where(s => s.Files.Any(f => Regex.IsMatch(f.AudioCodec ?? string.Empty, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.NotMatchesRegex => query.Where(s => !s.Files.Any(f => Regex.IsMatch(f.AudioCodec ?? string.Empty, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.IsNull => query.Where(s => !s.Files.Any(f => f.AudioCodec != null && f.AudioCodec != "")),
+            CriterionModifier.NotNull => query.Where(s => s.Files.Any(f => f.AudioCodec != null && f.AudioCodec != "")),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<Scene> ApplyPerformerAgeCriterion(IQueryable<Scene> query, IntCriterion? criterion)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value;
+        var value2 = criterion.Value2 ?? value;
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                sp.Performer!.Birthdate != null &&
+                (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year
+                    - ((s.Date.Value.Month < sp.Performer.Birthdate.Value.Month
+                        || (s.Date.Value.Month == sp.Performer.Birthdate.Value.Month && s.Date.Value.Day < sp.Performer.Birthdate.Value.Day)) ? 1 : 0)) == value)),
+            CriterionModifier.NotEquals => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                sp.Performer!.Birthdate != null &&
+                (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year
+                    - ((s.Date.Value.Month < sp.Performer.Birthdate.Value.Month
+                        || (s.Date.Value.Month == sp.Performer.Birthdate.Value.Month && s.Date.Value.Day < sp.Performer.Birthdate.Value.Day)) ? 1 : 0)) != value)),
+            CriterionModifier.GreaterThan => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                sp.Performer!.Birthdate != null &&
+                (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year
+                    - ((s.Date.Value.Month < sp.Performer.Birthdate.Value.Month
+                        || (s.Date.Value.Month == sp.Performer.Birthdate.Value.Month && s.Date.Value.Day < sp.Performer.Birthdate.Value.Day)) ? 1 : 0)) > value)),
+            CriterionModifier.LessThan => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                sp.Performer!.Birthdate != null &&
+                (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year
+                    - ((s.Date.Value.Month < sp.Performer.Birthdate.Value.Month
+                        || (s.Date.Value.Month == sp.Performer.Birthdate.Value.Month && s.Date.Value.Day < sp.Performer.Birthdate.Value.Day)) ? 1 : 0)) < value)),
+            CriterionModifier.Between => query.Where(s => s.Date != null && s.ScenePerformers.Any(sp =>
+                sp.Performer!.Birthdate != null &&
+                (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year
+                    - ((s.Date.Value.Month < sp.Performer.Birthdate.Value.Month
+                        || (s.Date.Value.Month == sp.Performer.Birthdate.Value.Month && s.Date.Value.Day < sp.Performer.Birthdate.Value.Day)) ? 1 : 0)) >= value &&
+                (s.Date.Value.Year - sp.Performer.Birthdate.Value.Year
+                    - ((s.Date.Value.Month < sp.Performer.Birthdate.Value.Month
+                        || (s.Date.Value.Month == sp.Performer.Birthdate.Value.Month && s.Date.Value.Day < sp.Performer.Birthdate.Value.Day)) ? 1 : 0)) <= value2)),
+            _ => query,
+        };
+    }
+
+    private static string NormalizePathValue(string value) => value.Replace("\\", "/");
 
     // Helper methods for criterion-based filtering
     private static IQueryable<Scene> ApplyIntCriterion(IQueryable<Scene> query, IntCriterion? criterion, System.Linq.Expressions.Expression<Func<Scene, int>> selector)

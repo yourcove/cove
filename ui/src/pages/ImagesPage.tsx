@@ -14,12 +14,14 @@ import { ImageCreateModal } from "./ImageEditModal";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { QuickViewDialog } from "../components/QuickViewDialog";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 const SORT_OPTIONS = [
   { value: "updated_at", label: "Recently Updated" },
   { value: "created_at", label: "Recently Added" },
   { value: "title", label: "Title" },
   { value: "rating", label: "Rating" },
+  { value: "o_counter", label: "Favorites" },
   { value: "random", label: "Random" },
 ];
 
@@ -250,7 +252,7 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
             </PopoverButton>
           )}
           {image.oCounter > 0 && (
-            <span className="flex items-center gap-0.5 text-xs text-muted" title="O-counter">
+            <span className="flex items-center gap-0.5 text-xs text-muted" title="Favorites">
               <Heart className="w-3 h-3" /> {image.oCounter}
             </span>
           )}
@@ -271,9 +273,11 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
 }
 
 function ImageWallCard({ image, onClick }: { image: Image; onClick: () => void }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
+
   return (
     <div
-      onClick={onClick}
+      {...navigationHandlers}
       className="break-inside-avoid cursor-pointer rounded overflow-hidden border border-border hover:border-accent/60 transition-all"
     >
       <img

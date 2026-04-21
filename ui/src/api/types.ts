@@ -102,6 +102,7 @@ export interface PerformerSummary {
   name: string;
   disambiguation?: string;
   gender?: string;
+  birthdate?: string;
   favorite: boolean;
   imagePath?: string;
 }
@@ -858,6 +859,9 @@ export interface SceneFilterCriteria {
   hasMarkersCriterion?: BoolCriterion;
   interactiveCriterion?: BoolCriterion;
   pathCriterion?: StringCriterion;
+  hashCriterion?: StringCriterion;
+  checksumCriterion?: StringCriterion;
+  duplicatedPhashCriterion?: BoolCriterion;
   urlCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
   createdAtCriterion?: TimestampCriterion;
@@ -892,6 +896,7 @@ export interface PerformerFilterCriteria {
   favorite?: boolean;
   rating?: number;
   tagIds?: number[];
+  nameCriterion?: StringCriterion;
   ratingCriterion?: IntCriterion;
   ageCriterion?: IntCriterion;
   genderCriterion?: StringCriterion;
@@ -901,6 +906,7 @@ export interface PerformerFilterCriteria {
   tagsCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
   sceneCountCriterion?: IntCriterion;
+  studioCountCriterion?: IntCriterion;
   imageCountCriterion?: IntCriterion;
   galleryCountCriterion?: IntCriterion;
   birthdateCriterion?: DateCriterion;

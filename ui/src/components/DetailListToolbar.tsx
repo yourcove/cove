@@ -1,6 +1,6 @@
 import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, ZoomIn, ZoomOut } from "lucide-react";
 import type { FindFilter } from "../api/types";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 const PER_PAGE_OPTIONS = [20, 40, 60, 120, 250];
 
@@ -25,6 +25,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const start = (page - 1) * perPage + 1;
   const end = Math.min(page * perPage, totalCount);
   const [searchText, setSearchText] = useState(filter.q ?? "");
+  const sortedSortOptions = useMemo(
+    () => [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)),
+    [sortOptions]
+  );
 
   return (
     <div className="mx-auto max-w-7xl flex flex-wrap items-center gap-2 mb-4 text-sm">
@@ -62,11 +66,11 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
       {/* Sort */}
       <select
-        value={filter.sort ?? sortOptions[0]?.value ?? ""}
+        value={filter.sort ?? sortedSortOptions[0]?.value ?? ""}
         onChange={(e) => onFilterChange({ ...filter, sort: e.target.value, page: 1 })}
         className="rounded border border-border bg-input px-2 py-1 text-xs text-foreground"
       >
-        {sortOptions.map((opt) => (
+        {sortedSortOptions.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>

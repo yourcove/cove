@@ -4,6 +4,7 @@ import { scenes } from "../api/client";
 import type { Scene, SceneMarkerSummary } from "../api/types";
 import { formatDuration } from "../components/shared";
 import { Bookmark, Search, ArrowUpDown } from "lucide-react";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 interface MarkerWithScene extends SceneMarkerSummary {
   sceneId: number;
@@ -215,10 +216,11 @@ export function SceneMarkersPage({ onNavigate }: Props) {
 
 function MarkerCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () => void }) {
   const screenshotUrl = scenes.screenshotUrl(marker.sceneId);
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: marker.sceneId }, onClick);
 
   return (
     <div
-      onClick={onClick}
+      {...navigationHandlers}
       className="cursor-pointer group rounded border border-border bg-card overflow-hidden hover:border-accent transition-colors"
     >
       <div className="relative aspect-video bg-card overflow-hidden">
@@ -260,10 +262,11 @@ function MarkerCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () 
 
 function MarkerWallCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () => void }) {
   const screenshotUrl = scenes.screenshotUrl(marker.sceneId);
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: marker.sceneId }, onClick);
 
   return (
     <div
-      onClick={onClick}
+      {...navigationHandlers}
       className="cursor-pointer relative mb-1 break-inside-avoid group"
     >
       <img

@@ -7,6 +7,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ImageEditModal } from "./ImageEditModal";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { InteractiveRating } from "../components/Rating";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 interface Props {
   id: number;
@@ -150,16 +151,16 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
               </div>
             </div>
 
-            {/* Rating + O-counter + Organized */}
+            {/* Rating + Favorites + Organized */}
             <div className="space-y-2">
               <InteractiveRating value={image.rating} onChange={(value) => updateMut.mutate({ rating: value })} />
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5 text-sm text-secondary">
                   <Heart className={`w-4 h-4 ${image.oCounter > 0 ? "fill-accent text-accent" : ""}`} />
                   <span>{image.oCounter}</span>
-                  <button onClick={() => incrementOMut.mutate()} className="p-0.5 hover:text-accent rounded" title="Increment O"><Plus className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => decrementOMut.mutate()} className="p-0.5 hover:text-accent rounded" title="Decrement O" disabled={image.oCounter === 0}><Minus className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => { decrementOMut.mutate(); decrementOMut.mutate(); }} className="p-0.5 hover:text-accent rounded" title="Reset O"><RotateCcw className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => incrementOMut.mutate()} className="p-0.5 hover:text-accent rounded" title="Add favorite"><Plus className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => decrementOMut.mutate()} className="p-0.5 hover:text-accent rounded" title="Remove favorite" disabled={image.oCounter === 0}><Minus className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => { decrementOMut.mutate(); decrementOMut.mutate(); }} className="p-0.5 hover:text-accent rounded" title="Reset favorites"><RotateCcw className="w-3.5 h-3.5" /></button>
                 </div>
                 <button
                   onClick={() => updateMut.mutate({ organized: !image.organized })}
@@ -181,22 +182,27 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">Performers</h3>
                 <div className="flex flex-wrap gap-2">
-                  {image.performers.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => onNavigate({ page: "performer", id: p.id })}
-                      className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2 hover:border-accent/60 transition-colors"
-                    >
-                      <div className="w-7 h-7 rounded-full bg-surface overflow-hidden flex items-center justify-center text-xs text-muted">
-                        {p.imagePath ? (
-                          <img src={p.imagePath} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          p.name[0]
-                        )}
-                      </div>
-                      <span className="text-sm text-foreground">{p.name}</span>
-                    </button>
-                  ))}
+                  {image.performers.map((p) => {
+                    const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, () => onNavigate({ page: "performer", id: p.id }));
+
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        {...navigationHandlers}
+                        className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2 hover:border-accent/60 transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-surface overflow-hidden flex items-center justify-center text-xs text-muted">
+                          {p.imagePath ? (
+                            <img src={p.imagePath} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            p.name[0]
+                          )}
+                        </div>
+                        <span className="text-sm text-foreground">{p.name}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -232,7 +238,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">Details</h3>
               <dl className="space-y-1.5 text-xs">
-                <div className="flex justify-between"><dt className="text-muted">O-Counter</dt><dd className="text-foreground">{image.oCounter}</dd></div>
+                <div className="flex justify-between"><dt className="text-muted">Favorites</dt><dd className="text-foreground">{image.oCounter}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted">Organized</dt><dd className="text-foreground">{image.organized ? "Yes" : "No"}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted">Created</dt><dd className="text-foreground">{formatDate(image.createdAt)}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted">Updated</dt><dd className="text-foreground">{formatDate(image.updatedAt)}</dd></div>

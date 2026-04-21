@@ -129,6 +129,7 @@ public class FilterCriteriaParityTests
     public void PerformerFilter_HasAllNewCriteria()
     {
         var filter = new PerformerFilter();
+        Assert.Null(filter.NameCriterion);
         Assert.Null(filter.DisambiguationCriterion);
         Assert.Null(filter.DetailsCriterion);
         Assert.Null(filter.EyeColorCriterion);
@@ -149,6 +150,39 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.GroupsCriterion);
         Assert.Null(filter.IgnoreAutoTagCriterion);
         Assert.Null(filter.TagCountCriterion);
+        Assert.Null(filter.StudioCountCriterion);
+    }
+
+    [Fact]
+    public void PerformerFilter_NameCriterion_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "nameCriterion": { "value": "alice", "modifier": "includes" }
+            }
+        }
+        """;
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+        Assert.NotNull(result?.ObjectFilter?.NameCriterion);
+        Assert.Equal("alice", result.ObjectFilter.NameCriterion.Value);
+        Assert.Equal(CriterionModifier.Includes, result.ObjectFilter.NameCriterion.Modifier);
+    }
+
+    [Fact]
+    public void PerformerFilter_StudioCountCriterion_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "studioCountCriterion": { "value": 2, "modifier": "equals" }
+            }
+        }
+        """;
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+        Assert.NotNull(result?.ObjectFilter?.StudioCountCriterion);
+        Assert.Equal(2, result.ObjectFilter.StudioCountCriterion.Value);
+        Assert.Equal(CriterionModifier.Equals, result.ObjectFilter.StudioCountCriterion.Modifier);
     }
 
     [Fact]

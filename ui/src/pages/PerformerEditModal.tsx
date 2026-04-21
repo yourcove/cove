@@ -6,6 +6,7 @@ import type { Performer, PerformerUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, NumberInput, SaveButton } from "../components/EditModal";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface Props {
   performer: Performer;
@@ -53,7 +54,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [careerEnd, setCareerEnd] = useState(performer.careerEnd || "");
   const [favorite, setFavorite] = useState(performer.favorite);
   const [ignoreAutoTag, setIgnoreAutoTag] = useState(performer.ignoreAutoTag ?? false);
-  const [urls, setUrls] = useState(performer.urls.join("\n"));
+  const [urls, setUrls] = useState(performer.urls.length > 0 ? performer.urls : [""]);
   const [aliases, setAliases] = useState(performer.aliases.join(", "));
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(performer.tags.map((t) => t.id));
   const [tagSearch, setTagSearch] = useState("");
@@ -90,7 +91,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     setCareerEnd(performer.careerEnd || "");
     setFavorite(performer.favorite);
     setIgnoreAutoTag(performer.ignoreAutoTag ?? false);
-    setUrls(performer.urls.join("\n"));
+    setUrls(performer.urls.length > 0 ? performer.urls : [""]);
     setAliases(performer.aliases.join(", "));
     setSelectedTagIds(performer.tags.map((t) => t.id));
     setCustomFields(Object.fromEntries(Object.entries(performer.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])));
@@ -106,7 +107,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   });
 
   const handleSave = () => {
-    const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
+    const urlList = urls.map((url) => url.trim()).filter(Boolean);
     const aliasList = aliases.split(",").map((a) => a.trim()).filter(Boolean);
     mutation.mutate({
       name,
@@ -283,8 +284,8 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
         </Field>
       </div>
 
-      <Field label="URLs (one per line)">
-        <TextArea value={urls} onChange={setUrls} placeholder="https://..." rows={2} />
+      <Field label="URLs">
+        <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
       {/* Tags */}

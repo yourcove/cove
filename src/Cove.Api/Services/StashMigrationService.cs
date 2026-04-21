@@ -101,7 +101,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         var folderIdMap = await ImportFoldersAsync(conn, ct);
         var studioIdMap = await ImportStudiosAsync(conn, blobMap, ct);
         var tagIdMap = await ImportTagsAsync(conn, blobMap, ct);
-        var performerIdMap = await ImportPerformersAsync(conn, blobMap, ct);
+        var performerIdMap = await ImportPerformersAsync(conn, blobMap, tagIdMap, ct);
         var groupIdMap = await ImportGroupsAsync(conn, studioIdMap, ct);
         var (sceneCount, sceneGeneratedMap) = await ImportScenesAsync(conn, blobMap, folderIdMap, studioIdMap, tagIdMap, performerIdMap, groupIdMap, ct);
         var imageIdMap = await ImportImagesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, ct);
@@ -281,7 +281,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Performers ────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<int, int>> ImportPerformersAsync(SqliteConnection conn, Dictionary<string, string> blobMap, CancellationToken ct)
+    private async Task<Dictionary<int, int>> ImportPerformersAsync(SqliteConnection conn, Dictionary<string, string> blobMap, Dictionary<int, int> tagIdMap, CancellationToken ct)
     {
         var rows = new List<(int Id, string Name, string? Disambiguation, string? Gender, string? Birthdate,
             string? Ethnicity, string? Country, string? EyeColor, string? HairColor, int? Height, int? Weight,
@@ -307,6 +307,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         }
         var urls = await ReadUrlsAsync(conn, "performer_urls", "performer_id", ct);
         var aliases = await ReadAliasesAsync(conn, "performer_aliases", "performer_id", ct);
+        var performerTagMap = await ReadJunctionAsync(conn, "performers_tags", "performer_id", "tag_id", ct);
 
         // Performer stash IDs
         var performerStashIds = new Dictionary<int, List<(string Ep, string Rid)>>();
@@ -355,6 +356,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 ImageBlobId = GetBlobId(blobMap, row.ImageBlob),
                 Urls = urls.GetValueOrDefault(row.Id, []).Select(u => new PerformerUrl { Url = u }).ToList(),
                 Aliases = aliases.GetValueOrDefault(row.Id, []).Select(a => new PerformerAlias { Alias = a }).ToList(),
+                PerformerTags = performerTagMap.GetValueOrDefault(row.Id, [])
+                    .Where(tagIdMap.ContainsKey)
+                    .Select(tagId => new PerformerTag { TagId = tagIdMap[tagId] }).ToList(),
                 RemoteIds = performerStashIds.GetValueOrDefault(row.Id, [])
                     .Select(s => new PerformerRemoteId { Endpoint = s.Ep, RemoteId = s.Rid }).ToList(),
             };
@@ -418,19 +422,21 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         // Load scene rows
         var sceneRows = new List<(int Id, string? Title, string? Details, string? Date, int? Rating,
             int? StudioId, bool Organized, string? Code, string? Director,
-            double ResumeTime, double PlayDuration, string CreatedAt, string UpdatedAt, string? CoverBlob)>();
+            double ResumeTime, double PlayDuration, string CreatedAt, string UpdatedAt, string? CoverBlob, string? LastPlayedAt)>();
         var hasSceneCoverBlob = await ColumnExistsAsync(conn, "scenes", "cover_blob", ct);
+        var hasSceneLastPlayedAt = await ColumnExistsAsync(conn, "scenes", "last_played_at", ct);
         await using (var cmd = conn.CreateCommand())
         {
             var coverBlobExpr = hasSceneCoverBlob ? "cover_blob" : "NULL";
+            var lastPlayedAtExpr = hasSceneLastPlayedAt ? "last_played_at" : "NULL";
             cmd.CommandText = $@"SELECT id, title, details, date, rating, studio_id, organized, code, director,
-                resume_time, play_duration, created_at, updated_at, {coverBlobExpr} AS cover_blob FROM scenes";
+                resume_time, play_duration, created_at, updated_at, {coverBlobExpr} AS cover_blob, {lastPlayedAtExpr} AS last_played_at FROM scenes";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 sceneRows.Add((r.GetInt32(0), ReadStringNull(r, 1), ReadStringNull(r, 2), ReadStringNull(r, 3),
                     ReadIntNull(r, 4), ReadIntNull(r, 5), ReadBool(r, 6), ReadStringNull(r, 7),
                     ReadStringNull(r, 8), r.GetDouble(9), r.GetDouble(10), r.GetString(11), r.GetString(12),
-                    ReadStringNull(r, 13)));
+                    ReadStringNull(r, 13), ReadStringNull(r, 14)));
         }
 
         // Load all supporting data up front
@@ -543,6 +549,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         {
             var oHistory = sceneODates.GetValueOrDefault(row.Id, []);
             var viewHistory = sceneViewDates.GetValueOrDefault(row.Id, []);
+            var importedLastPlayedAt = ParseDateTimeOrNull(row.LastPlayedAt);
 
             var scene = new Scene
             {
@@ -558,7 +565,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 PlayDuration = row.PlayDuration,
                 OCounter = oHistory.Count,
                 PlayCount = viewHistory.Count,
-                LastPlayedAt = viewHistory.Count > 0 ? viewHistory.Max() : null,
+                LastPlayedAt = importedLastPlayedAt ?? (viewHistory.Count > 0 ? viewHistory.Max() : null),
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
                 Urls = sceneUrls.GetValueOrDefault(row.Id, []).Select(u => new SceneUrl { Url = u }).ToList(),
@@ -590,7 +597,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                     Size = fd.Size,
                     ModTime = fd.ModTime,
                     CreatedAt = fd.CreatedAt,
-                    UpdatedAt = fd.CreatedAt,
+                    UpdatedAt = fd.ModTime,
                     Duration = vd.Duration,
                     VideoCodec = vd.VideoCodec,
                     Format = vd.Format,
@@ -682,7 +689,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 ParentFolderId = fd.ParentId.HasValue && folderIdMap.TryGetValue(fd.ParentId.Value, out var pfId) ? pfId : null,
                 ModTime = fd.ModTime,
                 CreatedAt = fd.CreatedAt,
-                UpdatedAt = fd.CreatedAt,
+                UpdatedAt = fd.ModTime,
             };
             db.Folders.Add(folder);
             await db.SaveChangesAsync(ct);
@@ -795,7 +802,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                         Size = fd.Size,
                         ModTime = fd.ModTime,
                         CreatedAt = fd.CreatedAt,
-                        UpdatedAt = fd.CreatedAt,
+                        UpdatedAt = fd.ModTime,
                     };
                     if (imageFileData.TryGetValue(fileId, out var ifd))
                     {
@@ -894,6 +901,19 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 fileData[r.GetInt32(0)] = (r.GetString(1), r.GetInt32(2), r.GetInt64(3),
                     ParseDateTime(r.GetString(4)), ParseDateTime(r.GetString(5)));
         }
+        var stashFolderNames = new Dictionary<int, string>();
+        if (await TableExistsAsync(conn, "folders", ct))
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, path FROM folders";
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                var path = r.GetString(1);
+                var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                stashFolderNames[r.GetInt32(0)] = string.IsNullOrWhiteSpace(name) ? path : name;
+            }
+        }
 
         // Load all gallery rows
         var galleryRows = new List<(int StashId, int? FolderId, string? Title, string? Date, string? Details,
@@ -915,7 +935,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
             var gallery = new Gallery
             {
-                Title = row.Title,
+                Title = ResolveImportedGalleryTitle(row.Title, row.FolderId, stashId, galleryToFile, fileData, stashFolderNames),
                 Code = row.Code,
                 Date = ParseDate(row.Date),
                 Details = row.Details,
@@ -951,7 +971,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                     Size = fd.Size,
                     ModTime = fd.ModTime,
                     CreatedAt = fd.CreatedAt,
-                    UpdatedAt = fd.CreatedAt,
+                    UpdatedAt = fd.ModTime,
                 });
             }
 
@@ -1244,6 +1264,29 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
     private static DateTime ParseDateTime(string s) =>
         DateTime.TryParse(s, null, System.Globalization.DateTimeStyles.RoundtripKind, out var d)
             ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : DateTime.UtcNow;
+
+    private static DateTime? ParseDateTimeOrNull(string? s) =>
+        string.IsNullOrWhiteSpace(s) ? null : ParseDateTime(s);
+
+    private static string? ResolveImportedGalleryTitle(
+        string? explicitTitle,
+        int? folderId,
+        int stashGalleryId,
+        IReadOnlyDictionary<int, int> galleryToFile,
+        IReadOnlyDictionary<int, (string Basename, int FolderId, long Size, DateTime ModTime, DateTime CreatedAt)> fileData,
+        IReadOnlyDictionary<int, string> stashFolderNames)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitTitle))
+            return explicitTitle;
+
+        if (galleryToFile.TryGetValue(stashGalleryId, out var fileId) && fileData.TryGetValue(fileId, out var file))
+            return Path.GetFileNameWithoutExtension(file.Basename);
+
+        if (folderId.HasValue && stashFolderNames.TryGetValue(folderId.Value, out var folderName) && !string.IsNullOrWhiteSpace(folderName))
+            return folderName;
+
+        return null;
+    }
 
     private static string? GetBlobId(Dictionary<string, string> blobMap, string? checksum) =>
         checksum != null && blobMap.TryGetValue(checksum, out var id) ? id : null;

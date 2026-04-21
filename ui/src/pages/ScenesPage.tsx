@@ -18,29 +18,9 @@ import { IdentifyDialog } from "../components/IdentifyDialog";
 import { SceneQueue } from "../components/SceneQueue";
 import { SceneCard } from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-
-const SORT_OPTIONS = [
-  { value: "updated_at", label: "Updated Date" },
-  { value: "created_at", label: "Added Date" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "rating", label: "Rating" },
-  { value: "play_count", label: "Play Count" },
-  { value: "o_counter", label: "Favorites" },
-  { value: "duration", label: "Duration" },
-  { value: "file_size", label: "File Size" },
-  { value: "file_count", label: "File Count" },
-  { value: "resolution", label: "Resolution" },
-  { value: "framerate", label: "Frame Rate" },
-  { value: "bitrate", label: "Bitrate" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "performer_count", label: "Performer Count" },
-  { value: "last_played_at", label: "Last Played" },
-  { value: "play_duration", label: "Play Duration" },
-  { value: "resume_time", label: "Resume Time" },
-  { value: "organized", label: "Organized" },
-  { value: "random", label: "Random" },
-];
+import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { StringListEditor } from "../components/StringListEditor";
+import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
@@ -150,7 +130,7 @@ export function ScenesPage({ onNavigate }: Props) {
       onFilterChange={handleFilterChange}
       totalCount={data?.totalCount ?? 0}
       isLoading={isLoading}
-      sortOptions={SORT_OPTIONS}
+      sortOptions={SCENE_SORT_OPTIONS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={["grid", "list", "wall", "tagger"]}
@@ -298,7 +278,7 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   const [director, setDirector] = useState("");
   const [rating, setRating] = useState<number | undefined>(undefined);
   const [organized, setOrganized] = useState(false);
-  const [urls, setUrls] = useState("");
+  const [urls, setUrls] = useState<string[]>([""]);
   const [studioId, setStudioId] = useState<number | undefined>(undefined);
 
   const [tagSearch, setTagSearch] = useState("");
@@ -342,7 +322,7 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
       setDirector("");
       setRating(undefined);
       setOrganized(false);
-      setUrls("");
+      setUrls([""]);
       setStudioId(undefined);
       setSelectedTags([]);
       setSelectedPerformers([]);
@@ -353,7 +333,7 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   });
 
   const handleSave = () => {
-    const urlList = urls.split("\n").map((u) => u.trim()).filter(Boolean);
+    const urlList = urls.map((url) => url.trim()).filter(Boolean);
     createMut.mutate({
       title: title || undefined,
       code: code || undefined,
@@ -387,8 +367,8 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Code">
-          <TextInput value={code} onChange={setCode} placeholder="Scene code" />
+        <Field label="Studio Code">
+          <TextInput value={code} onChange={setCode} placeholder="Studio code" />
         </Field>
         <Field label="Director">
           <TextInput value={director} onChange={setDirector} placeholder="Director" />
@@ -415,8 +395,8 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
         </Field>
       </div>
 
-      <Field label="URLs (one per line)">
-        <TextArea value={urls} onChange={setUrls} placeholder="https://..." rows={2} />
+      <Field label="URLs">
+        <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
       <label className="flex items-center gap-2 text-sm mb-2">
@@ -596,9 +576,10 @@ function SceneListTable({ scenes, onNavigate, selectedIds, onToggle }: { scenes:
 function SceneWallCard({ scene, onClick }: { scene: Scene; onClick: () => void }) {
   const file = scene.files[0];
   const screenshotUrl = scenes.screenshotUrl(scene.id);
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, onClick);
 
   return (
-    <div onClick={onClick} className="mb-1 cursor-pointer group break-inside-avoid">
+    <div {...navigationHandlers} className="mb-1 cursor-pointer group break-inside-avoid">
       <div className="relative rounded overflow-hidden">
         <img
           src={screenshotUrl}

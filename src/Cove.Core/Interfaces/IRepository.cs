@@ -119,6 +119,9 @@ public class SceneFilter
     public BoolCriterion? HasMarkersCriterion { get; set; }
     public BoolCriterion? InteractiveCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
+    public StringCriterion? HashCriterion { get; set; }
+    public StringCriterion? ChecksumCriterion { get; set; }
+    public BoolCriterion? DuplicatedPhashCriterion { get; set; }
     public StringCriterion? UrlCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
@@ -156,6 +159,7 @@ public class PerformerFilter
     public List<int>? TagIds { get; set; }
     public int? StudioId { get; set; }
     // Advanced criteria
+    public StringCriterion? NameCriterion { get; set; }
     public IntCriterion? RatingCriterion { get; set; }
     public IntCriterion? AgeCriterion { get; set; }
     public StringCriterion? GenderCriterion { get; set; }
@@ -165,6 +169,7 @@ public class PerformerFilter
     public MultiIdCriterion? TagsCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public IntCriterion? SceneCountCriterion { get; set; }
+    public IntCriterion? StudioCountCriterion { get; set; }
     public IntCriterion? ImageCountCriterion { get; set; }
     public IntCriterion? GalleryCountCriterion { get; set; }
     public DateCriterion? BirthdateCriterion { get; set; }

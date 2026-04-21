@@ -6,6 +6,20 @@ import type { Gallery, Group, Image, Performer, Scene, Studio } from "../api/typ
 import { formatDuration, formatFileSize, getResolutionLabel } from "./shared";
 import { RatingBanner, RatingBadge } from "./Rating";
 import { Building2, FolderOpen, Layers, Tag, User, Film, MapPin, Box, Images as ImagesIcon, Heart, Eye } from "lucide-react";
+import { createCardNavigationHandlers, createNestedCardNavigationHandlers } from "./cardNavigation";
+
+function createNestedEntityNavigationHandlers<T extends HTMLElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
+  return createNestedCardNavigationHandlers<T>(route, () => onNavigate?.(route));
+}
+
+function FavoriteCounter({ count }: { count: number }) {
+  return (
+    <span className="flex items-center gap-1 p-1 text-muted" title={`Favorites: ${count}`}>
+      <Heart className="h-3.5 w-3.5 fill-accent text-accent" />
+      <span className="text-xs">{count}</span>
+    </span>
+  );
+}
 
 // ===== PopoverButton (shared hover popover) =====
 
@@ -47,7 +61,13 @@ export function PopoverButton({ icon, count, title, children, wide, preferBelow 
 
   return (
     <div className="relative" ref={buttonRef} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      <button className="flex items-center gap-1 px-1.5 py-1 text-secondary hover:text-accent rounded text-xs transition-colors" title={title} onClick={(e) => e.stopPropagation()}>
+      <button
+        className="flex items-center gap-1 px-1.5 py-1 text-secondary hover:text-accent rounded text-xs transition-colors"
+        title={title}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onAuxClick={(e) => e.stopPropagation()}
+      >
         {icon}
         <span className="font-medium">{count}</span>
       </button>
@@ -234,63 +254,75 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
         {scene.performers.length > 0 && (
           <PopoverButton icon={<User className="w-3.5 h-3.5" />} count={scene.performers.length} title="Performers" wide preferBelow>
             <div className="grid grid-cols-2 gap-2">
-              {scene.performers.map((p: any) => (
-                <button key={p.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "performer", id: p.id }); }}
+              {scene.performers.map((p: any) => {
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, onNavigate);
+
+                return (
+                <button key={p.id} type="button" {...navigationHandlers}
                   className="flex flex-col items-center gap-1.5 text-center cursor-pointer rounded hover:bg-card-hover p-1.5 group/perf transition-colors">
                   <div className="w-20 h-28 rounded overflow-hidden bg-surface flex-shrink-0">
                     {p.imagePath ? <img src={p.imagePath} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><User className="w-8 h-8 text-muted" /></div>}
                   </div>
                   <span className="text-xs text-accent group-hover/perf:underline truncate w-full font-medium">{p.name}</span>
                 </button>
-              ))}
+              );})}
             </div>
           </PopoverButton>
         )}
         {scene.tags.length > 0 && (
           <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={scene.tags.length} title="Tags" preferBelow>
             <div className="flex flex-wrap gap-1">
-              {scene.tags.map((t: any) => (
-                <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+              {scene.tags.map((t: any) => {
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "tag", id: t.id }, onNavigate);
+
+                return (
+                <button key={t.id} type="button" {...navigationHandlers}
                   className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                   {t.name}
                 </button>
-              ))}
+              );})}
             </div>
           </PopoverButton>
         )}
         {scene.oCounter > 0 && (
-          <span className="flex items-center gap-0.5 p-1 text-muted" title={`O-Counter: ${scene.oCounter}`}>
-            <span className="text-xs font-bold">O</span>
-            <span className="text-xs">{scene.oCounter}</span>
-          </span>
+          <FavoriteCounter count={scene.oCounter} />
         )}
         {scene.groups.length > 0 && (
           <PopoverButton icon={<Film className="w-3.5 h-3.5" />} count={scene.groups.length} title="Groups" preferBelow>
             <div className="flex flex-col gap-0.5">
-              {scene.groups.map((g: any) => (
-                <button key={g.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "group", id: g.id }); }}
+              {scene.groups.map((g: any) => {
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "group", id: g.id }, onNavigate);
+
+                return (
+                <button key={g.id} type="button" {...navigationHandlers}
                   className="text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{g.name}</button>
-              ))}
+              );})}
             </div>
           </PopoverButton>
         )}
         {scene.galleries.length > 0 && (
           <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={scene.galleries.length} title="Galleries" preferBelow>
             <div className="flex flex-col gap-0.5">
-              {scene.galleries.map((g: any) => (
-                <button key={g.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "gallery", id: g.id }); }}
+              {scene.galleries.map((g: any) => {
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "gallery", id: g.id }, onNavigate);
+
+                return (
+                <button key={g.id} type="button" {...navigationHandlers}
                   className="text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{g.title || "Untitled"}</button>
-              ))}
+              );})}
             </div>
           </PopoverButton>
         )}
         {scene.markers.length > 0 && (
           <PopoverButton icon={<MapPin className="w-3.5 h-3.5" />} count={scene.markers.length} title="Markers" preferBelow>
             <div className="flex flex-col gap-0.5">
-              {scene.markers.map((m: any) => (
-                <button key={m.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "scene", id: scene.id }); }}
+              {scene.markers.map((m: any) => {
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, onNavigate);
+
+                return (
+                <button key={m.id} type="button" {...navigationHandlers}
                   className="text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{m.title} ({formatDuration(m.seconds)})</button>
-              ))}
+              );})}
             </div>
           </PopoverButton>
         )}
@@ -304,7 +336,13 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
 
 // ===== PerformerBadge (hover popover with performer image) =====
 
-function PerformerBadge({ performer, onClick }: { performer: { id: number; name: string; imagePath?: string | null }; onClick: (e: React.MouseEvent) => void }) {
+function PerformerBadge({
+  performer,
+  navigationHandlers,
+}: {
+  performer: { id: number; name: string; imagePath?: string | null };
+  navigationHandlers: ReturnType<typeof createNestedCardNavigationHandlers<HTMLButtonElement>>;
+}) {
   const badgeRef = useRef<HTMLButtonElement>(null);
   const [hover, setHover] = useState(false);
   const [style, setStyle] = useState<React.CSSProperties>({});
@@ -338,7 +376,7 @@ function PerformerBadge({ performer, onClick }: { performer: { id: number; name:
 
   return (
     <>
-      <button ref={badgeRef} onClick={onClick} onMouseEnter={onEnter} onMouseLeave={onLeave}
+      <button ref={badgeRef} type="button" {...navigationHandlers} onMouseEnter={onEnter} onMouseLeave={onLeave}
         className="performer-badge flex items-center gap-1 rounded-full border border-border bg-surface px-1.5 py-0.5 min-w-0 hover:border-accent/50 transition-colors">
         {performer.imagePath ? (
           <img src={performer.imagePath} alt="" className="h-4 w-4 rounded-full object-cover flex-shrink-0" loading="lazy" />
@@ -379,13 +417,7 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
   const previewUrl = scenes.previewUrl(scene.id);
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressPercent = duration > 0 && scene.resumeTime ? Math.min(100, (scene.resumeTime / duration) * 100) : 0;
-
-  const handleAuxClick = useCallback((e: React.MouseEvent) => {
-    if (e.button === 1) {
-      e.preventDefault();
-      window.open(`/scene/${scene.id}`, "_blank");
-    }
-  }, [scene.id]);
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, onClick);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -401,7 +433,7 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
   }, []);
 
   return (
-    <div onClick={onClick} onAuxClick={handleAuxClick} className={`scene-card cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
+    <div {...navigationHandlers} className={`scene-card cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
       <div className="scene-card-preview relative aspect-video bg-black overflow-hidden">
         <img src={screenshotUrl} alt={scene.title || ""} className="scene-card-preview-image w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="scene-card-preview-video" />
@@ -450,9 +482,11 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
         </div>
         {scene.performers.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-hidden flex-wrap">
-            {scene.performers.slice(0, 4).map((performer) => (
-              <PerformerBadge key={performer.id} performer={performer} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "performer", id: performer.id }); }} />
-            ))}
+            {scene.performers.slice(0, 4).map((performer) => {
+              const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onNavigate);
+
+              return <PerformerBadge key={performer.id} performer={performer} navigationHandlers={navigationHandlers} />;
+            })}
             {scene.performers.length > 4 && <span className="text-[10px] text-muted">+{scene.performers.length - 4}</span>}
           </div>
         )}
@@ -474,9 +508,10 @@ export function SceneTile({ scene, onClick }: SceneTileProps) {
   const file = scene.files[0];
   const duration = file?.duration ?? 0;
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
+  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, onClick);
 
   return (
-    <button onClick={onClick} className="group text-left">
+    <button type="button" {...navigationHandlers} className="group text-left">
       <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-card shadow-md shadow-black/30">
         <img src={scenes.screenshotUrl(scene.id, scene.updatedAt)} alt={scene.title || ""} className="h-full w-full object-cover" loading="lazy" />
         {duration > 0 && <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">{formatDuration(duration)}</span>}
@@ -503,8 +538,10 @@ interface PerformerTileProps {
 }
 
 export function PerformerTile({ performer, onClick, onNavigate, selected, onSelect, selecting }: PerformerTileProps) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "performer", id: performer.id }, onClick);
+
   return (
-    <div onClick={onClick} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       <div className="aspect-[2/3] overflow-hidden bg-gradient-to-b from-card to-surface relative">
         <img src={entityImages.performerImageUrl(performer.id)} alt={performer.name} className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         <RatingBanner rating={performer.rating} />
@@ -534,12 +571,15 @@ export function PerformerTile({ performer, onClick, onNavigate, selected, onSele
             {performer.tags?.length > 0 && (
               <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={performer.tags.length} title="Tags" preferBelow>
                 <div className="flex flex-wrap gap-1">
-                  {performer.tags.map((t: any) => (
-                    <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+                  {performer.tags.map((t: any) => {
+                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "tag", id: t.id }, onNavigate);
+
+                    return (
+                    <button key={t.id} type="button" {...navigationHandlers}
                       className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                       {t.name}
                     </button>
-                  ))}
+                  );})}
                 </div>
               </PopoverButton>
             )}
@@ -572,8 +612,10 @@ interface StudioTileProps {
 }
 
 export function StudioTile({ studio, onClick, onNavigate, selected, onSelect, selecting }: StudioTileProps) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "studio", id: studio.id }, onClick);
+
   return (
-    <div onClick={onClick} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card relative">
         {studio.imagePath ? (
           <img src={studio.imagePath} alt={studio.name} className="h-full w-full object-contain p-4" loading="lazy" onError={(e) => { const el = e.target as HTMLImageElement; el.style.display = "none"; el.parentElement!.innerHTML = '<div class="flex items-center justify-center h-full w-full"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg></div>'; }} />
@@ -638,8 +680,9 @@ interface ImageTileProps {
 
 export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, onSelect, selecting }: ImageTileProps) {
   const hasFooter = (image.tags?.length ?? 0) > 0 || (image.performers?.length ?? 0) > 0 || image.oCounter > 0 || image.organized;
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
   return (
-    <div onClick={onClick} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       <div className="aspect-square overflow-hidden bg-surface relative">
         <img src={images.thumbnailUrl(image.id)} alt={image.title || ""} className="h-full w-full object-cover" loading="lazy" />
         <RatingBanner rating={image.rating} />
@@ -671,32 +714,35 @@ export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, o
             {(image.tags?.length ?? 0) > 0 && (
               <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={image.tags.length} title="Tags" preferBelow>
                 <div className="flex flex-wrap gap-1">
-                  {image.tags.map((t: any) => (
-                    <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+                  {image.tags.map((t: any) => {
+                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "tag", id: t.id }, onNavigate);
+
+                    return (
+                    <button key={t.id} type="button" {...navigationHandlers}
                       className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                       {t.name}
                     </button>
-                  ))}
+                  );})}
                 </div>
               </PopoverButton>
             )}
             {(image.performers?.length ?? 0) > 0 && (
               <PopoverButton icon={<User className="w-3.5 h-3.5" />} count={image.performers.length} title="Performers" wide preferBelow>
                 <div className="grid grid-cols-2 gap-2">
-                  {image.performers.map((p: any) => (
-                    <button key={p.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "performer", id: p.id }); }}
+                  {image.performers.map((p: any) => {
+                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, onNavigate);
+
+                    return (
+                    <button key={p.id} type="button" {...navigationHandlers}
                       className="flex flex-col items-center gap-1 text-center cursor-pointer rounded hover:bg-card-hover p-1.5 transition-colors">
                       <span className="text-xs text-accent hover:underline truncate w-full">{p.name}</span>
                     </button>
-                  ))}
+                  );})}
                 </div>
               </PopoverButton>
             )}
             {image.oCounter > 0 && (
-              <span className="flex items-center gap-0.5 p-1 text-muted" title={`O-Counter: ${image.oCounter}`}>
-                <span className="text-xs font-bold">O</span>
-                <span className="text-xs">{image.oCounter}</span>
-              </span>
+              <FavoriteCounter count={image.oCounter} />
             )}
             {image.organized && (
               <span className="p-1 text-muted" title="Organized"><Box className="w-3.5 h-3.5" /></span>
@@ -719,8 +765,10 @@ interface GalleryTileProps {
 }
 
 export function GalleryTile({ gallery, onClick, selected, onSelect, selecting }: GalleryTileProps) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, onClick);
+
   return (
-    <div onClick={onClick} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card relative overflow-hidden">
         {gallery.coverPath ? (
           <img src={gallery.coverPath} alt={gallery.title || ""} className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
@@ -753,8 +801,10 @@ interface GroupTileProps {
 }
 
 export function GroupTile({ group, onClick, selected, onSelect, selecting }: GroupTileProps) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "group", id: group.id }, onClick);
+
   return (
-    <div onClick={onClick} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card relative">
         <Layers className="h-10 w-10 text-muted" />
         <RatingBanner rating={group.rating} />

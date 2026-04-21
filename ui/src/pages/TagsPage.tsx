@@ -14,6 +14,7 @@ import { BulkEditDialog } from "../components/BulkEditDialog";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { useRouteRegistry } from "../router/RouteRegistry";
+import { createCardNavigationHandlers } from "../components/cardNavigation";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -209,13 +210,14 @@ function TagCard({ tag, onClick, onNavigate, selected, onSelect, selecting }: { 
   const { slots } = useRouteRegistry();
   const queryClient = useQueryClient();
   const hasExtensionFooter = slots.some((slot) => slot.slot === "tag-card-footer");
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "tag", id: tag.id }, onClick);
   const favMut = useMutation({
     mutationFn: () => tags.update(tag.id, { favorite: !tag.favorite }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tags"] }),
   });
 
   return (
-    <div className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`} onClick={onClick}>
+    <div {...navigationHandlers} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
       <div className="aspect-video bg-surface flex items-center justify-center relative overflow-hidden">
         <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
           <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />

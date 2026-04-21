@@ -86,6 +86,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function requestOptional<T>(path: string, options?: RequestInit): Promise<T | null> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API Error ${res.status}: ${text}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
 function buildQuery(filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams();
   if (filter?.q) params.set("q", filter.q);
@@ -483,6 +502,15 @@ export const metadata = {
 // ===== Database =====
 export const database = {
   backup: () => request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/backup", { method: "POST" }),
+  restore: (backupPath: string) =>
+    request<{ message: string; backupPath: string }>("/database/restore", {
+      method: "POST",
+      body: JSON.stringify({ backupPath }),
+    }),
+  latestBackup: async () => {
+    const result = await requestOptional<{ path: string }>("/jobs/backup/latest");
+    return result?.path ?? null;
+  },
   optimize: () => request<void>("/database/optimize", { method: "POST" }),
   wipe: () => request<{ message: string }>("/database/wipe", { method: "POST" }),
 };

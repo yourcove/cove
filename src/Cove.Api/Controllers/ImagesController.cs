@@ -145,7 +145,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
         i.Date?.ToString("yyyy-MM-dd"),
         i.Urls.Select(u => u.Url).ToList(),
         i.ImageTags.Where(it => it.Tag != null).Select(it => new TagDto(it.Tag!.Id, it.Tag.Name, it.Tag.Description, it.Tag.Favorite, it.Tag.IgnoreAutoTag, [])).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Favorite, ip.Performer.ImageBlobId != null ? $"/api/performers/{ip.Performer.Id}/image" : null)).ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Birthdate?.ToString("yyyy-MM-dd"), ip.Performer.Favorite, ip.Performer.ImageBlobId != null ? $"/api/performers/{ip.Performer.Id}/image" : null)).ToList(),
         galleryCount ?? i.ImageGalleries?.Count ?? 0,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
         i.Files?.Select(f => new ImageFileDto(f.Id, f.Path, f.Basename, f.Format ?? "", f.Width, f.Height, f.Size)).ToList() ?? [],
