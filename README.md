@@ -221,3 +221,9 @@ Users download one file (native) or pull one image (Docker) and everything works
 | Media    | FFmpeg with hwaccel (NVENC, VAAPI, QSV, Vulkan)|
 | Testing  | xUnit (.NET), Vitest (frontend)                |
 | CI/CD    | GitHub Actions, Docker (ghcr.io)               |
+
+## Disclaimer
+
+Cove was inspired in part by Stash and includes compatibility features for importing data from existing Stash libraries.
+
+Cove is an independent implementation and is not a fork of Stash. No Stash source code is included in this repository or distributed as part of Cove.
