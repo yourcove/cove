@@ -124,74 +124,157 @@ public class FingerprintService(
         return hash.ToString("x", CultureInfo.InvariantCulture);
     }
 
-    public Task<string?> ComputeVideoPhashAsync(string path, double duration, CancellationToken ct = default)
+    public async Task<string?> ComputeVideoPhashAsync(string path, double duration, CancellationToken ct = default)
     {
         if (!File.Exists(path))
-            return Task.FromResult<string?>(null);
+            return null;
 
         var ffmpegPath = FindFfmpeg();
         if (ffmpegPath == null)
         {
             logger.LogWarning("FFmpeg not found. Cannot compute video phash for {Path}", path);
-            return Task.FromResult<string?>(null);
+            return null;
         }
 
+        // Initialize FFmpeg.AutoGen bindings (idempotent) and check if in-process is usable.
+        FfmpegInProcess.EnsureInitialized(ffmpegPath);
+
+        var chunkCount = SpriteColumns * SpriteRows; // 25
+        var offset = 0.05 * duration;
+        var stepSize = (0.9 * duration) / chunkCount;
+        var timestamps = new double[chunkCount];
+        for (var i = 0; i < chunkCount; i++)
+            timestamps[i] = offset + i * stepSize;
+
+        if (FfmpegInProcess.IsAvailable)
+        {
+            // Fast path: in-process frame extraction (seeks directly, no process spawning).
+            try
+            {
+                var frames = FfmpegInProcess.ExtractFrames(path, timestamps, SpriteFrameSize, threadCount: 1, ct);
+                if (frames != null)
+                {
+                    try
+                    {
+                        return BuildSpritePhash(frames);
+                    }
+                    finally
+                    {
+                        foreach (var f in frames) f?.Dispose();
+                    }
+                }
+
+                logger.LogWarning("In-process frame extraction returned null for {Path}, falling back to process", path);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "In-process FFmpeg failed for {Path}, falling back to process spawn", path);
+            }
+        }
+
+        // Fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
+        // Works on any platform where FFmpeg is a statically-linked standalone binary (no
+        // separate shared .so/.dylib files for AutoGen's dynamic loader) — same as ThumbnailService.
+        return await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
+    }
+
+    private string? BuildSpritePhash(Image<Rgba32>[] frames)
+    {
+        var frameWidth = frames[0].Width;
+        var frameHeight = frames[0].Height;
+        using var sprite = new Image<Rgba32>(frameWidth * SpriteColumns, frameHeight * SpriteRows);
+        for (var index = 0; index < frames.Length; index++)
+        {
+            var x = frameWidth * (index % SpriteColumns);
+            var y = frameHeight * (int)Math.Floor((double)index / SpriteRows);
+            sprite.Mutate(ctx => ctx.DrawImage(frames[index], new SixLabors.ImageSharp.Point(x, y), 1f));
+        }
+        return ComputePerceptionHash(sprite);
+    }
+
+    /// <summary>
+    /// Process-based fallback: spawns ffmpeg (the CLI binary) once per timestamp to extract
+    /// a single scaled frame, then composes the sprite and computes the phash.
+    /// Slower than in-process but works on any platform regardless of shared library availability.
+    /// </summary>
+    private async Task<string?> ComputeVideoPhashViaProcessAsync(
+        string ffmpegPath, string videoPath, double[] timestamps, CancellationToken ct)
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), $"cove_phash_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
         try
         {
-            // Initialize FFmpeg.AutoGen with the same DLL directory as the ffmpeg binary
-            FfmpegInProcess.EnsureInitialized(ffmpegPath);
-
-            // Generate 25-frame sprite matching Go's videophash package.
-            // In-process extraction: opens the file once, seeks to each timestamp,
-            // and decodes one frame per seek — no process spawning overhead.
-            var chunkCount = SpriteColumns * SpriteRows; // 25
-            var offset = 0.05 * duration;
-            var stepSize = (0.9 * duration) / chunkCount;
-
-            var timestamps = new double[chunkCount];
-            for (var i = 0; i < chunkCount; i++)
-                timestamps[i] = offset + i * stepSize;
-
-            // Use thread_count=1 — outer parallelism (MaxParallelTasks) handles
-            // scene-level concurrency, so each scene uses exactly 1 CPU thread.
-            var frames = FfmpegInProcess.ExtractFrames(path, timestamps, SpriteFrameSize, threadCount: 1, ct);
-            if (frames == null)
+            var frames = new Image<Rgba32>[timestamps.Length];
+            for (var i = 0; i < timestamps.Length; i++)
             {
-                logger.LogWarning("Failed to extract frames from {Path}", path);
-                return Task.FromResult<string?>(null);
+                ct.ThrowIfCancellationRequested();
+                var framePath = Path.Combine(tmpDir, $"frame_{i:D3}.jpg");
+                var ts = timestamps[i];
+
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    // -ss before -i is fast (keyframe seek), -vframes 1 grabs one frame,
+                    // scale=W:-2 keeps aspect ratio with width=SpriteFrameSize.
+                    Arguments = $"-v error -ss {ts:F3} -i \"{videoPath}\" -vframes 1 -vf \"scale={SpriteFrameSize}:-2\" -q:v 3 -y \"{framePath}\"",
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+
+                using var proc = System.Diagnostics.Process.Start(psi)!;
+                var stderrTask = proc.StandardError.ReadToEndAsync(ct);
+
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
+                try
+                {
+                    await proc.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    logger.LogWarning("FFmpeg timed out extracting frame {Index} from {Path}", i, videoPath);
+                    DisposeFrames(frames);
+                    return null;
+                }
+
+                if (proc.ExitCode != 0 || !File.Exists(framePath))
+                {
+                    var err = await stderrTask;
+                    logger.LogWarning("FFmpeg failed extracting frame {Index} from {Path}: {Error}", i, videoPath, err);
+                    DisposeFrames(frames);
+                    return null;
+                }
+
+                frames[i] = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(framePath, ct);
             }
 
             try
             {
-                // Compose 5×5 sprite
-                var frameWidth = frames[0].Width;
-                var frameHeight = frames[0].Height;
-
-                using var sprite = new Image<Rgba32>(frameWidth * SpriteColumns, frameHeight * SpriteRows);
-                for (var index = 0; index < chunkCount; index++)
-                {
-                    var x = frameWidth * (index % SpriteColumns);
-                    var y = frameHeight * (int)Math.Floor((double)index / SpriteRows);
-                    sprite.Mutate(ctx => ctx.DrawImage(frames[index], new SixLabors.ImageSharp.Point(x, y), 1f));
-                }
-
-                return Task.FromResult<string?>(ComputePerceptionHash(sprite));
+                return BuildSpritePhash(frames);
             }
             finally
             {
-                foreach (var frame in frames)
-                    frame?.Dispose();
+                DisposeFrames(frames);
             }
         }
-        catch (OperationCanceledException)
-        {
-            throw; // Let cancellation propagate cleanly to the job runner
-        }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to compute video phash for {Path}", path);
-            return Task.FromResult<string?>(null);
+            logger.LogError(ex, "Process-based phash extraction failed for {Path}", videoPath);
+            return null;
         }
+        finally
+        {
+            try { Directory.Delete(tmpDir, recursive: true); } catch { }
+        }
+    }
+
+    private static void DisposeFrames(Image<Rgba32>?[] frames)
+    {
+        foreach (var f in frames) { try { f?.Dispose(); } catch { } }
     }
 
     /// <summary>

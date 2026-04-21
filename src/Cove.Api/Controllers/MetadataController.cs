@@ -50,8 +50,8 @@ public class MetadataController(
             var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
             var scenes = opts?.SceneIds != null && opts.SceneIds.Count > 0
-                ? await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).Where(s => opts.SceneIds.Contains(s.Id)).ToListAsync(ct)
-                : await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).ToListAsync(ct);
+                ? await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).Where(s => opts.SceneIds.Contains(s.Id)).AsSplitQuery().ToListAsync(ct)
+                : await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).AsSplitQuery().ToListAsync(ct);
 
             // Filter by paths if specified
             if (opts?.Paths is { Count: > 0 } paths)
@@ -358,6 +358,7 @@ public class MetadataController(
                     .Include(s => s.Studio)
                     .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
                     .AsNoTracking()
+                    .AsSplitQuery()
                     .ToListAsync(ct);
             }
 
@@ -577,14 +578,14 @@ public class MetadataController(
                     .Include(s => s.ScenePerformers)
                     .Include(s => s.RemoteIds)
                     .Include(s => s.Urls)
-                    .Where(s => opts.SceneIds.Contains(s.Id)).ToListAsync(ct)
+                    .Where(s => opts.SceneIds.Contains(s.Id)).AsSplitQuery().ToListAsync(ct)
                 : await dbCtx.Scenes
                     .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
                     .Include(s => s.SceneTags)
                     .Include(s => s.ScenePerformers)
                     .Include(s => s.RemoteIds)
                     .Include(s => s.Urls)
-                    .ToListAsync(ct);
+                    .AsSplitQuery().ToListAsync(ct);
 
             // Build import config from identify options
             var importConfig = new MetadataServerSceneImportRequestDto

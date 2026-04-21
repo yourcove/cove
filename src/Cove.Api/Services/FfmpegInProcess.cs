@@ -19,6 +19,13 @@ public static class FfmpegInProcess
     private static bool _initialized;
     private static readonly object InitLock = new();
 
+    /// <summary>
+    /// True if in-process FFmpeg bindings initialized and verified successfully.
+    /// False means the installed FFmpeg libraries are incompatible with FFmpeg.AutoGen;
+    /// callers should fall back to spawning the ffmpeg process.
+    /// </summary>
+    public static bool IsAvailable { get; private set; }
+
     // Preferred hwaccel order (best avg speedup first from benchmarks).
     // Probed once at init; null entries are removed if they fail to initialize.
     private static AVHWDeviceType[]? _availableHwAccels;
@@ -54,8 +61,23 @@ public static class FfmpegInProcess
 
             DynamicallyLoadedBindings.Initialize();
 
-            // Probe which hwaccel devices are available on this machine
-            _availableHwAccels = ProbeHwAccels();
+            // Probe: verify that the loaded libraries are actually compatible by calling a
+            // trivial function. If this throws, the installed FFmpeg is a standalone statically-
+            // linked binary (e.g. from evermeet.cx on macOS or BtbN on Linux) rather than
+            // separate shared library files (.so/.dylib) that AutoGen's dynamic loader needs.
+            try
+            {
+                var majorVer = (int)(ffmpeg.avformat_version() >> 16);
+                // Probe which hwaccel devices are available on this machine
+                _availableHwAccels = ProbeHwAccels();
+                IsAvailable = true;
+                System.Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer})");
+            }
+            catch (Exception ex) when (ex is NotSupportedException or EntryPointNotFoundException or DllNotFoundException)
+            {
+                IsAvailable = false;
+                System.Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg not available ({ex.GetType().Name}: {ex.Message}). Will fall back to spawning ffmpeg process.");
+            }
             _initialized = true;
         }
     }
