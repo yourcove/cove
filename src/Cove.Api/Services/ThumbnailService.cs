@@ -387,6 +387,12 @@ public class ThumbnailService(
             // Initialize FFmpeg.AutoGen with the same DLL directory as the ffmpeg binary
             FfmpegInProcess.EnsureInitialized(ffmpegPath);
 
+            if (!FfmpegInProcess.IsAvailable)
+            {
+                logger.LogWarning("In-process FFmpeg not available (shared library mismatch) — sprite generation for scene {SceneId} skipped", sceneId);
+                return;
+            }
+
             // Calculate grid dimensions
             var frameCount = Math.Min(SpriteFrameCount, Math.Max(1, (int)(duration / 2)));
             var cols = (int)Math.Ceiling(Math.Sqrt(frameCount));

@@ -387,7 +387,7 @@ try
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
             .Include(s => s.SceneTags).ThenInclude(st => st.Tag)
             .Include(s => s.ScenePerformers).ThenInclude(sp => sp.Performer)
-            .Take(1).AsSingleQuery().ToListAsync();
+            .Take(1).AsSplitQuery().ToListAsync();
         Log.Information("EF Core and connection pool pre-warmed");
     }
 
