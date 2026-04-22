@@ -58,6 +58,7 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
             config.FfmpegPath = pathResult;
             EnsureFfprobePath(Path.GetDirectoryName(pathResult)!);
             logger.LogInformation("FFmpeg found in PATH at {Path}", pathResult);
+            Console.WriteLine($"[FfmpegManagerService] FFmpeg found in PATH at {pathResult}");
             return;
         }
 
@@ -75,6 +76,7 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
                 logger.LogInformation(
                     "Managed FFmpeg is a standalone build — re-downloading shared-library build " +
                     "so in-process frame extraction (FFmpeg.AutoGen) works correctly...");
+                Console.WriteLine("[FfmpegManagerService] Managed FFmpeg exists but is legacy standalone — triggering re-download of shared-library build");
                 try { Directory.Delete(ManagedDir, recursive: true); } catch { /* best effort */ }
             }
             else
@@ -82,6 +84,7 @@ public class FfmpegManagerService(CoveConfiguration config, ILogger<FfmpegManage
                 config.FfmpegPath = managedFfmpeg;
                 EnsureFfprobePath(ManagedDir);
                 logger.LogInformation("FFmpeg found at managed location {Path}", managedFfmpeg);
+                Console.WriteLine($"[FfmpegManagerService] FFmpeg found at managed location {managedFfmpeg}");
                 return;
             }
         }

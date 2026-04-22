@@ -127,17 +127,28 @@ public class FingerprintService(
     public async Task<string?> ComputeVideoPhashAsync(string path, double duration, CancellationToken ct = default)
     {
         if (!File.Exists(path))
+        {
+            logger.LogWarning("[phash] Skipping {Path} — file does not exist", path);
             return null;
+        }
+
+        if (duration <= 0)
+        {
+            logger.LogWarning("[phash] Skipping {Path} — duration is {Duration}s (invalid)", path, duration);
+            return null;
+        }
 
         var ffmpegPath = FindFfmpeg();
         if (ffmpegPath == null)
         {
-            logger.LogWarning("FFmpeg not found. Cannot compute video phash for {Path}", path);
+            logger.LogError("[phash] FFmpeg not found in PATH or configured path. Cannot compute phash for {Path}", path);
             return null;
         }
 
         // Initialize FFmpeg.AutoGen bindings (idempotent) and check if in-process is usable.
         FfmpegInProcess.EnsureInitialized(ffmpegPath);
+        logger.LogInformation("[phash] FFmpeg setup: path={FfmpegPath}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
+            ffmpegPath, FfmpegInProcess.IsAvailable, duration, path);
 
         var chunkCount = SpriteColumns * SpriteRows; // 25
         var offset = 0.05 * duration;
@@ -149,11 +160,13 @@ public class FingerprintService(
         if (FfmpegInProcess.IsAvailable)
         {
             // Fast path: in-process frame extraction (seeks directly, no process spawning).
+            logger.LogInformation("[phash] Attempting in-process extraction for {Path}", path);
             try
             {
                 var frames = FfmpegInProcess.ExtractFrames(path, timestamps, SpriteFrameSize, threadCount: 1, ct);
                 if (frames != null)
                 {
+                    logger.LogDebug("[phash] In-process extraction succeeded for {Path}", path);
                     try
                     {
                         return BuildSpritePhash(frames);
@@ -164,18 +177,20 @@ public class FingerprintService(
                     }
                 }
 
-                logger.LogWarning("In-process frame extraction returned null for {Path}, falling back to process", path);
+                logger.LogWarning("[phash] In-process frame extraction returned null for {Path}, falling back to process spawn", path);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "In-process FFmpeg failed for {Path}, falling back to process spawn", path);
+                logger.LogWarning(ex, "[phash] In-process FFmpeg failed for {Path}, falling back to process spawn", path);
             }
+        }
+        else
+        {
+            logger.LogInformation("[phash] In-process FFmpeg unavailable — using process-spawn fallback for {Path}", path);
         }
 
         // Fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
-        // Works on any platform where FFmpeg is a statically-linked standalone binary (no
-        // separate shared .so/.dylib files for AutoGen's dynamic loader) — same as ThumbnailService.
         return await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
     }
 
@@ -293,43 +308,63 @@ public class FingerprintService(
     {
         return jobService.Enqueue("generate_scene_phashes", "Generating scene pHashes", async (progress, ct) =>
         {
+            logger.LogInformation("[phash] Scene phash generation job started");
+            Console.WriteLine("[phash] Scene phash generation job started");
             List<(int FileId, string Path, double Duration)> workItems;
 
             using (var scope = scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
+                var totalScenes = await db.VideoFiles.CountAsync(ct);
+
                 // Get IDs of files that already have a phash
-                var filesWithPhash = await db.FileFingerprints
+                var filesWithPhashIds = await db.FileFingerprints
                     .Where(fp => fp.Type == "phash")
                     .Select(fp => fp.FileId)
                     .Distinct()
                     .ToHashSetAsync(ct);
 
+                logger.LogInformation("[phash] Database check: {Total} video files total, {HasPhash} already have phash entries",
+                    totalScenes, filesWithPhashIds.Count);
+                Console.WriteLine($"[phash] Database check: {totalScenes} video files total, {filesWithPhashIds.Count} already have phash entries");
+
                 // Only load files that need phash generation
                 workItems = await db.VideoFiles
                     .Include(file => file.ParentFolder)
-                    .Where(file => !filesWithPhash.Contains(file.Id))
+                    .Where(file => !filesWithPhashIds.Contains(file.Id))
                     .OrderBy(file => file.Id)
                     .Select(file => new { file.Id, Path = file.ParentFolder != null ? file.ParentFolder.Path + System.IO.Path.DirectorySeparatorChar + file.Basename : file.Basename, file.Duration })
                     .ToListAsync(ct)
                     .ContinueWith(t => t.Result.Select(f => (f.Id, f.Path, f.Duration)).ToList(), ct);
             }
 
+            logger.LogInformation("[phash] Query complete: found {Pending} video files needing phash generation", workItems.Count);
+            Console.WriteLine($"[phash] Query complete: found {workItems.Count} video files needing phash generation");
+
             if (workItems.Count == 0)
             {
                 progress.Report(1.0, "All scenes already have pHashes");
+                logger.LogInformation("[phash] All video files already have pHashes — nothing to do");
+                Console.WriteLine("[phash] All video files already have pHashes — nothing to do");
                 return;
             }
 
-            logger.LogInformation("Generating pHashes for {Count} video files with parallelism={Parallelism}", workItems.Count, ResolveMaxParallelism());
+            logger.LogInformation("[phash] Starting phash generation for {Count} video files (parallelism={Parallelism})",
+                workItems.Count, ResolveMaxParallelism());
+            Console.WriteLine($"[phash] Starting phash generation for {workItems.Count} video files (parallelism={ResolveMaxParallelism()})");
             var completed = 0;
 
             await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = ResolveMaxParallelism(), CancellationToken = ct }, async (item, token) =>
             {
+                logger.LogInformation("[phash] Processing file {FileId}: {Path} (duration={Duration:F1}s)",
+                    item.FileId, item.Path, item.Duration);
+
                 var phash = await ComputeVideoPhashAsync(item.Path, item.Duration, token);
+
                 if (!string.IsNullOrWhiteSpace(phash))
                 {
+                    logger.LogInformation("[phash] Computed phash for file {FileId}: {Phash}", item.FileId, phash);
                     using var innerScope = scopeFactory.CreateScope();
                     var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
                     var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
@@ -337,7 +372,12 @@ public class FingerprintService(
                     {
                         innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
                         await innerDb.SaveChangesAsync(token);
+                        logger.LogInformation("[phash] Saved phash for file {FileId}", item.FileId);
                     }
+                }
+                else
+                {
+                    logger.LogWarning("[phash] No phash produced for file {FileId}: {Path}", item.FileId, item.Path);
                 }
 
                 var done = Interlocked.Increment(ref completed);

@@ -116,18 +116,23 @@ public class JobService : IJobService, IHostedService
 
             try
             {
-                _logger.LogInformation("Job {JobId} started: {Description}", entry.Id, entry.Description);
+                var msg = $"Job {entry.Id} started: {entry.Description}";
+                _logger.LogInformation("{Message}", msg);
+                Console.WriteLine($"[JobService] {msg}");
+
                 await entry.Work(progress, entry.Cts.Token);
-                entry.Status = entry.Cts.IsCancellationRequested ? JobStatus.Cancelled : JobStatus.Completed;
-                entry.Progress = 1.0;
-                entry.CompletedAt = DateTime.UtcNow;
-                _logger.LogInformation("Job {JobId} completed", entry.Id);
+
+                var statusMsg = $"Job {entry.Id} completed with status {entry.Status}";
+                _logger.LogInformation("{Message}", statusMsg);
+                Console.WriteLine($"[JobService] {statusMsg}");
             }
             catch (OperationCanceledException)
             {
                 entry.Status = JobStatus.Cancelled;
                 entry.CompletedAt = DateTime.UtcNow;
-                _logger.LogInformation("Job {JobId} cancelled", entry.Id);
+                var msg = $"Job {entry.Id} cancelled";
+                _logger.LogInformation("{Message}", msg);
+                Console.WriteLine($"[JobService] {msg}");
             }
             catch (Exception ex)
             {
@@ -135,6 +140,7 @@ public class JobService : IJobService, IHostedService
                 entry.Error = ex.Message;
                 entry.CompletedAt = DateTime.UtcNow;
                 _logger.LogError(ex, "Job {JobId} failed", entry.Id);
+                Console.WriteLine($"[JobService] Job {entry.Id} failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             }
 
             NotifyClients(entry);

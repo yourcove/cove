@@ -49,6 +49,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
     [HttpPost("generate-scene-phashes")]
     public ActionResult<object> GenerateScenePhashes()
     {
+        Console.WriteLine("[JobsController] Received request to generate scene phashes");
         var jobId = fingerprintService.StartGenerateScenePhashes();
         return Accepted(new { jobId });
     }

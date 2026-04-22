@@ -56,27 +56,32 @@ public static class FfmpegInProcess
             {
                 var dir = Path.GetDirectoryName(ffmpegPath);
                 if (!string.IsNullOrEmpty(dir))
+                {
                     DynamicallyLoadedBindings.LibrariesPath = dir;
+                    Console.WriteLine($"[FfmpegInProcess] Set DynamicallyLoadedBindings.LibrariesPath to: {dir}");
+                }
             }
 
-            DynamicallyLoadedBindings.Initialize();
-
-            // Probe: verify that the loaded libraries are actually compatible by calling a
-            // trivial function. If this throws, the installed FFmpeg is a standalone statically-
-            // linked binary (e.g. from evermeet.cx on macOS or BtbN on Linux) rather than
-            // separate shared library files (.so/.dylib) that AutoGen's dynamic loader needs.
             try
             {
+                Console.WriteLine($"[FfmpegInProcess] Calling DynamicallyLoadedBindings.Initialize()...");
+                DynamicallyLoadedBindings.Initialize();
+                Console.WriteLine($"[FfmpegInProcess] Bindings initialized successfully.");
+
                 var majorVer = (int)(ffmpeg.avformat_version() >> 16);
-                // Probe which hwaccel devices are available on this machine
+                Console.WriteLine($"[FfmpegInProcess] Probing hwaccels...");
                 _availableHwAccels = ProbeHwAccels();
                 IsAvailable = true;
-                System.Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer})");
+                Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer}, hwAccels={string.Join(",", _availableHwAccels)})");
             }
-            catch (Exception ex) when (ex is NotSupportedException or EntryPointNotFoundException or DllNotFoundException)
+            catch (Exception ex)
             {
                 IsAvailable = false;
-                System.Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg not available ({ex.GetType().Name}: {ex.Message}). Will fall back to spawning ffmpeg process.");
+                Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg initialization failed!");
+                Console.WriteLine($"[FfmpegInProcess] Exception: {ex.GetType().Name}: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"[FfmpegInProcess] Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                Console.WriteLine($"[FfmpegInProcess] StackTrace: {ex.StackTrace}");
             }
             _initialized = true;
         }
