@@ -54,16 +54,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove gnupg lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
-# Install FFmpeg with hwaccel support (BtbN GPL static builds)
-# These include NVENC, VAAPI, QSV, Vulkan — much more capable than Debian's ffmpeg
+# Install FFmpeg with hwaccel support (BtbN GPL-SHARED builds)
+# The gpl-shared variant includes the FFmpeg shared libraries (.so files) that
+# FFmpeg.AutoGen's DynamicallyLoadedBindings needs to dlopen for in-process
+# frame extraction (used by phash generation and sprite sheets).
+# Shared libs are symlinked into /usr/local/bin so that DynamicallyLoadedBindings
+# (which sets LibrariesPath to the directory of the ffmpeg binary) can find them.
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
-        amd64) FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" ;; \
-        arm64) FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz" ;; \
+        amd64) FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl-shared.tar.xz" ;; \
+        arm64) FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz" ;; \
         *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac \
-    && curl -fsSL "$FFMPEG_URL" | tar -Jx --strip-components=2 -C /usr/local/bin/ --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' \
-    && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+    && curl -fsSL "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz \
+    && mkdir -p /tmp/ffmpeg-extract \
+    && tar -Jx -C /tmp/ffmpeg-extract -f /tmp/ffmpeg.tar.xz \
+    && FFMPEG_DIR=$(ls -d /tmp/ffmpeg-extract/ffmpeg-*) \
+    && cp "$FFMPEG_DIR/bin/ffmpeg" "$FFMPEG_DIR/bin/ffprobe" /usr/local/bin/ \
+    && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
+    && mkdir -p /usr/local/lib/ffmpeg \
+    && cp "$FFMPEG_DIR/lib/"*.so* /usr/local/lib/ffmpeg/ \
+    && find /usr/local/lib/ffmpeg -name "*.so*" -exec ln -sf {} /usr/local/bin/ \; \
+    && echo "/usr/local/lib/ffmpeg" > /etc/ld.so.conf.d/ffmpeg.conf \
+    && ldconfig \
+    && rm -rf /tmp/ffmpeg-extract /tmp/ffmpeg.tar.xz
+
 
 # Install s6-overlay for multi-process supervision
 ARG S6_OVERLAY_VERSION=3.2.0.2
