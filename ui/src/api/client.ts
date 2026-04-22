@@ -325,9 +325,9 @@ export const images = {
   bulkUpdate: (data: BulkImageUpdate) => request<void>("/images/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/images/${id}`, { method: "DELETE" }),
   bulkDelete: (ids: number[]) => request<void>("/images/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
-  incrementO: (id: number) => request<void>(`/images/${id}/o`, { method: "POST" }),
-  decrementO: (id: number) => request<void>(`/images/${id}/o`, { method: "DELETE" }),
-  resetO: (id: number) => request<void>(`/images/${id}/o/reset`, { method: "POST" }),
+  incrementO: (id: number) => request<number>(`/images/${id}/o`, { method: "POST" }),
+  decrementO: (id: number) => request<number>(`/images/${id}/o`, { method: "DELETE" }),
+  resetO: (id: number) => request<number>(`/images/${id}/o/reset`, { method: "POST" }),
   imageUrl: (id: number) => `${API_BASE}/stream/image/${id}`,
   thumbnailUrl: (id: number) => `${API_BASE}/stream/image/${id}/thumbnail`,
 };

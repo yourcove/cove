@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { images } from "../api/client";
+import type { Image as ImageModel } from "../api/types";
 import { formatDate, TagBadge, CustomFieldsDisplay } from "../components/shared";
-import { ArrowLeft, Pencil, Trash2, Link as LinkIcon, Heart, Check, Minus, Plus, RotateCcw, Maximize, X } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Link as LinkIcon, Heart, Check, Maximize, X } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ImageEditModal } from "./ImageEditModal";
@@ -9,6 +10,7 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { InteractiveRating } from "../components/Rating";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { useBackNavigation } from "../hooks/useBackNavigation";
 
 interface Props {
   id: number;
@@ -24,9 +26,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { backLabel, goBack } = useBackNavigation({ page: "images" }, onNavigate);
   const deleteMut = useMutation({
     mutationFn: () => images.delete(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["images"] }); onNavigate({ page: "images" }); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["images"] }); goBack(); },
   });
   const updateMut = useMutation({
     mutationFn: (data: { organized?: boolean; rating?: number }) => images.update(id, data),
@@ -34,11 +37,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   });
   const incrementOMut = useMutation({
     mutationFn: () => images.incrementO(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["image", id] }),
-  });
-  const decrementOMut = useMutation({
-    mutationFn: () => images.decrementO(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["image", id] }),
+    onSuccess: (newCount) => {
+      queryClient.setQueryData<ImageModel>(["image", id], (current) => current ? { ...current, oCounter: newCount } : current);
+      queryClient.invalidateQueries({ queryKey: ["images"] });
+    },
   });
   const displayTitle = image ? getImageDisplayTitle(image) : `Image ${id}`;
 
@@ -74,7 +76,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   if (!image) return <div className="text-center text-secondary py-16">Image not found</div>;
 
   return (
-    <div className="-mx-6 -mt-5">
+    <div className="overflow-hidden">
       {image && <ImageEditModal image={image} open={editing} onClose={() => setEditing(false)} />}
       <ConfirmDialog open={confirmDelete} title="Delete Image" message={`Delete "${displayTitle}"? This cannot be undone.`} onConfirm={() => deleteMut.mutate()} onCancel={() => setConfirmDelete(false)} />
 
@@ -102,10 +104,10 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         <div className="image-detail-viewer flex-1 min-w-0 min-h-[50vh] bg-black/90 flex items-center justify-center relative group">
           {/* Floating back button */}
           <button
-            onClick={(e) => { e.stopPropagation(); onNavigate({ page: "images" }); }}
+            onClick={(e) => { e.stopPropagation(); goBack(); }}
             className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-3 py-1.5 text-sm bg-black/60 text-white hover:bg-black/80 rounded-lg backdrop-blur-sm transition-opacity opacity-0 group-hover:opacity-100"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to images
+            <ArrowLeft className="w-4 h-4" /> {backLabel}
           </button>
           <img
             src={images.imageUrl(id)}
@@ -158,13 +160,14 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             <div className="space-y-2">
               <InteractiveRating value={image.rating} onChange={(value) => updateMut.mutate({ rating: value })} />
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-sm text-secondary">
+                <button
+                  onClick={() => incrementOMut.mutate()}
+                  className="flex items-center gap-1 text-sm text-secondary hover:text-accent"
+                  title="Add favorite"
+                >
                   <Heart className={`w-4 h-4 ${image.oCounter > 0 ? "fill-accent text-accent" : ""}`} />
                   <span>{image.oCounter}</span>
-                  <button onClick={() => incrementOMut.mutate()} className="p-0.5 hover:text-accent rounded" title="Add favorite"><Plus className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => decrementOMut.mutate()} className="p-0.5 hover:text-accent rounded" title="Remove favorite" disabled={image.oCounter === 0}><Minus className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => { decrementOMut.mutate(); decrementOMut.mutate(); }} className="p-0.5 hover:text-accent rounded" title="Reset favorites"><RotateCcw className="w-3.5 h-3.5" /></button>
-                </div>
+                </button>
                 <button
                   onClick={() => updateMut.mutate({ organized: !image.organized })}
                   className={`p-1.5 rounded transition-colors ${image.organized ? "bg-green-600 text-white" : "bg-card text-muted hover:text-foreground border border-border"}`}

@@ -18,6 +18,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
+import { useBackNavigation } from "../hooks/useBackNavigation";
 
 interface Props {
   id: number;
@@ -71,12 +72,13 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const { backLabel, goBack } = useBackNavigation({ page: "performers" }, onNavigate);
 
   const deleteMut = useMutation({
     mutationFn: () => performers.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["performers"] });
-      onNavigate({ page: "performers" });
+      goBack();
     },
   });
 
@@ -152,10 +154,10 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         <div className="relative mx-auto max-w-7xl px-4 py-8">
           <div className="mb-5 flex items-center justify-between gap-4">
             <button
-              onClick={() => onNavigate({ page: "performers" })}
+              onClick={goBack}
               className="flex items-center gap-1 text-sm text-secondary hover:text-foreground"
             >
-              <ArrowLeft className="h-4 w-4" /> Back to performers
+              <ArrowLeft className="h-4 w-4" /> {backLabel}
             </button>
             <div className="flex items-center gap-2">
               <ExtensionSlot slot="performer-detail-actions" context={{ performer, onNavigate }} />

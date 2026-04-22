@@ -17,6 +17,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { useBackNavigation } from "../hooks/useBackNavigation";
 
 interface Props {
   id: number;
@@ -58,6 +59,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const { backLabel, goBack } = useBackNavigation({ page: "galleries" }, onNavigate);
 
   useEffect(() => {
     if (gallery) document.title = `${gallery.title || `Gallery ${id}`} | Cove`;
@@ -93,7 +95,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => galleries.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["galleries"] });
-      onNavigate({ page: "galleries" });
+      goBack();
     },
   });
 
@@ -176,10 +178,10 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         <div className="relative mx-auto max-w-7xl px-4 py-8">
           <div className="mb-5 flex items-center justify-between gap-4">
             <button
-              onClick={() => onNavigate({ page: "galleries" })}
+              onClick={goBack}
               className="flex items-center gap-1 text-sm text-secondary hover:text-foreground"
             >
-              <ArrowLeft className="h-4 w-4" /> Back to galleries
+              <ArrowLeft className="h-4 w-4" /> {backLabel}
             </button>
             <div className="flex items-center gap-2">
               <ExtensionSlot slot="gallery-detail-actions" context={{ gallery, onNavigate }} />

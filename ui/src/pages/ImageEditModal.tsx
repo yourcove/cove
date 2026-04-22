@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { images, tags as tagsApi, performers as performersApi, studios as studiosApi, galleries as galleriesApi } from "../api/client";
+import { images, tags as tagsApi, performers as performersApi, galleries as galleriesApi } from "../api/client";
 import type { Image, ImageCreate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
+import { StudioSelector } from "../components/StudioSelector";
 
 interface ImageEditProps {
   image: Image;
@@ -117,12 +118,6 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
     enabled: open,
   });
 
-  const { data: allStudios } = useQuery({
-    queryKey: ["studios-all"],
-    queryFn: () => studiosApi.find({ perPage: 500, sort: "name", direction: "asc" }),
-    enabled: open,
-  });
-
   const { data: allGalleries } = useQuery({
     queryKey: ["galleries-all"],
     queryFn: () => galleriesApi.find({ perPage: 500, sort: "title", direction: "asc" }),
@@ -184,7 +179,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Code">
+        <Field label="Studio Code">
           <TextInput value={form.code} onChange={(value) => setForm({ ...form, code: value })} placeholder="Image code" />
         </Field>
         <Field label="Photographer">
@@ -199,16 +194,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       <div className="grid grid-cols-2 gap-4">
         <RatingField value={form.rating} onChange={(value) => setForm({ ...form, rating: value })} />
         <Field label="Studio">
-          <select
-            value={form.studioId ?? ""}
-            onChange={(e) => setForm({ ...form, studioId: e.target.value ? Number(e.target.value) : undefined })}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          >
-            <option value="">None</option>
-            {allStudios?.items.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+          <StudioSelector value={form.studioId} onChange={(studioId) => setForm({ ...form, studioId })} />
         </Field>
       </div>
 

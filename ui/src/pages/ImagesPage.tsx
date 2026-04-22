@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { images } from "../api/client";
 import type { FindFilter, Image, ImageFilterCriteria } from "../api/types";
@@ -8,7 +8,7 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { ImageIcon, Users, Tag, Trash2, Loader2, Edit, Box, Heart, FolderOpen } from "lucide-react";
 import { IMAGE_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog, IMAGE_BULK_FIELDS } from "../components/BulkEditDialog";
-import { PopoverButton } from "../components/EntityCards";
+import { FavoriteCounter, GalleriesPopoverContent, PerformerPreviewGrid, PopoverButton } from "../components/EntityCards";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { ImageCreateModal } from "./ImageEditModal";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
@@ -21,9 +21,15 @@ import { useWallColumns } from "../hooks/useWallColumns";
 const SORT_OPTIONS = [
   { value: "updated_at", label: "Updated At" },
   { value: "created_at", label: "Created At" },
+  { value: "date", label: "Date" },
+  { value: "file_mod_time", label: "File Modification Time" },
+  { value: "file_size", label: "File Size" },
+  { value: "path", label: "Path" },
   { value: "title", label: "Title" },
   { value: "rating", label: "Rating" },
   { value: "o_counter", label: "Favorites" },
+  { value: "performer_count", label: "Performer Count" },
+  { value: "tag_count", label: "Tag Count" },
   { value: "random", label: "Random" },
 ];
 
@@ -52,6 +58,7 @@ export function ImagesPage({ onNavigate }: Props) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
+  const [wallColumnCount, setWallColumnCount] = useState(6);
   const queryClient = useQueryClient();
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
@@ -64,7 +71,7 @@ export function ImagesPage({ onNavigate }: Props) {
   });
 
   const items = data?.items ?? [];
-  const wallColumns = useWallColumns(items, 6);
+  const wallColumns = useWallColumns(items, wallColumnCount);
   const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(items);
   const selecting = selectedIds.size > 0;
 
@@ -72,6 +79,16 @@ export function ImagesPage({ onNavigate }: Props) {
     () => items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: getImageDisplayTitle(img) })),
     [items],
   );
+
+  const handleFilterChange = useCallback((next: typeof filter) => {
+    if (next.sort === "random" && filter.sort !== "random") {
+      setFilter({ ...next, seed: Math.floor(Math.random() * 2147483647) });
+    } else if (next.sort !== "random" && next.seed != null) {
+      setFilter({ ...next, seed: undefined });
+    } else {
+      setFilter(next);
+    }
+  }, [filter, setFilter]);
 
   const bulkDeleteMut = useMutation({
     mutationFn: () => images.bulkDelete([...selectedIds]),
@@ -93,9 +110,10 @@ export function ImagesPage({ onNavigate }: Props) {
     <ImageCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "image", id })} />
     <ListPage
       title="Images"
+      pageKey="images"
       filterMode="images"
       filter={filter}
-      onFilterChange={setFilter}
+      onFilterChange={handleFilterChange}
       totalCount={data?.totalCount ?? 0}
       isLoading={isLoading}
       sortOptions={SORT_OPTIONS}
@@ -106,6 +124,8 @@ export function ImagesPage({ onNavigate }: Props) {
       criteriaDefinitions={IMAGE_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
+      wallColumnCount={wallColumnCount}
+      onWallColumnCountChange={setWallColumnCount}
 
       selectedIds={selectedIds}
       onSelectAll={selectAll}
@@ -249,25 +269,16 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
           )}
           {image.performers.length > 0 && (
             <PopoverButton icon={<Users className="w-3.5 h-3.5" />} count={image.performers.length} title="Performers" wide preferBelow>
-              <div className="grid grid-cols-2 gap-2">
-                {image.performers.map((p: any) => (
-                  <button key={p.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "performer", id: p.id }); }}
-                    className="flex flex-col items-center gap-1.5 text-center cursor-pointer rounded hover:bg-card-hover p-1.5 group/perf transition-colors">
-                    <span className="text-xs text-accent group-hover/perf:underline truncate w-full font-medium">{p.name}</span>
-                  </button>
-                ))}
-              </div>
+              <PerformerPreviewGrid performers={image.performers} onNavigate={onNavigate} />
+            </PopoverButton>
+          )}
+          {image.galleries.length > 0 && (
+            <PopoverButton icon={<FolderOpen className="w-3.5 h-3.5" />} count={image.galleries.length} title="Galleries" wide preferBelow>
+              <GalleriesPopoverContent filter={{ imageId: image.id }} />
             </PopoverButton>
           )}
           {image.oCounter > 0 && (
-            <span className="flex items-center gap-0.5 text-xs text-muted" title="Favorites">
-              <Heart className="w-3 h-3" /> {image.oCounter}
-            </span>
-          )}
-          {image.galleryCount > 0 && (
-            <span className="flex items-center gap-0.5 text-xs text-muted" title="Galleries">
-              <FolderOpen className="w-3 h-3" /> {image.galleryCount}
-            </span>
+            <FavoriteCounter count={image.oCounter} />
           )}
           {image.organized && (
             <span className="text-muted" title="Organized">

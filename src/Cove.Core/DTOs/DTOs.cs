@@ -126,7 +126,7 @@ public record GalleryUpdateDto(string? Title, string? Code, string? Date, string
 public record ImageDto(int Id, string? Title, string? Code, string? Details, string? Photographer,
     int? Rating, bool Organized, int OCounter, int? StudioId, string? StudioName, string? Date,
     List<string> Urls, List<TagDto> Tags, List<PerformerSummaryDto> Performers,
-    int GalleryCount, List<int> GalleryIds, List<ImageFileDto> Files, Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt);
+    int GalleryCount, List<int> GalleryIds, List<GallerySummaryDto> Galleries, List<ImageFileDto> Files, Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt);
 
 public record ImageFileDto(int Id, string Path, string Basename, string Format, int Width, int Height, long Size);
 

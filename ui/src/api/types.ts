@@ -331,6 +331,7 @@ export interface Image {
   performers: PerformerSummary[];
   galleryCount: number;
   galleryIds: number[];
+  galleries: GallerySummary[];
   files: ImageFile[];
   customFields?: Record<string, unknown>;
   createdAt: string;
@@ -1043,6 +1044,7 @@ export interface ImageFilterCriteria {
   oCounterCriterion?: IntCriterion;
   resolutionCriterion?: IntCriterion;
   pathCriterion?: StringCriterion;
+  checksumCriterion?: StringCriterion;
   createdAtCriterion?: TimestampCriterion;
   updatedAtCriterion?: TimestampCriterion;
   performerFavoriteCriterion?: BoolCriterion;
@@ -1055,6 +1057,8 @@ export interface ImageFilterCriteria {
   fileCountCriterion?: IntCriterion;
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
+  performerAgeCriterion?: IntCriterion;
+  orientationCriterion?: StringCriterion;
   performerTagsCriterion?: MultiIdCriterion;
 }
 

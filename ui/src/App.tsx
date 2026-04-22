@@ -9,7 +9,7 @@ import { ExtensionLoaderProvider, useExtensions } from "./extensions/ExtensionLo
 import { SceneQueueProvider } from "./state/SceneQueueContext";
 import { SetupWizardPage } from "./pages/SetupWizardPage";
 import { useKeySequence } from "./hooks/useKeySequence";
-import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute } from "./router/location";
+import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, syncRouteHistory } from "./router/location";
 
 // Lazy-loaded page components for code splitting
 const ScenesPage = lazy(() => import("./pages/ScenesPage").then(m => ({ default: m.ScenesPage })));
@@ -50,10 +50,15 @@ export default function App() {
     if (window.location.pathname === "/home") {
       navigateToUrl(buildCurrentUrl("/", window.location.search), { replace: true });
     }
+
+    syncRouteHistory();
   }, []);
 
   useEffect(() => {
-    const handleLocationChange = () => setRoute(parseCurrentRoute());
+    const handleLocationChange = () => {
+      syncRouteHistory();
+      setRoute(parseCurrentRoute());
+    };
     window.addEventListener("popstate", handleLocationChange);
     window.addEventListener(LOCATION_CHANGE_EVENT, handleLocationChange);
     return () => {

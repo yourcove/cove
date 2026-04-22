@@ -956,7 +956,7 @@ function TaggerResultRow({
                       : "+ Will create — click to exclude"
                     }
                   >
-                    {skipStudio ? <Minus className="w-3 h-3" /> : isForceIncluded ? <Plus className="w-3 h-3" /> : willSkipByDefault ? <Plus className="w-3 h-3" /> : result.studioCandidate.existsLocally ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+                    {skipStudio ? <Minus className="w-3 h-3" /> : isForceIncluded ? <Check className="w-3 h-3" /> : willSkipByDefault ? <Plus className="w-3 h-3" /> : result.studioCandidate.existsLocally ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
                     {result.studioCandidate.name}
                   </span>
                 );
@@ -996,7 +996,7 @@ function TaggerResultRow({
                         : `+ Will create — click to exclude`
                       }
                     >
-                      {excluded ? <Minus className="w-3 h-3" /> : isForceIncluded ? <Plus className="w-3 h-3" /> : willSkipByDefault ? <Plus className="w-3 h-3" /> : perf.existsLocally ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+                      {excluded ? <Minus className="w-3 h-3" /> : isForceIncluded ? <Check className="w-3 h-3" /> : willSkipByDefault ? <Plus className="w-3 h-3" /> : perf.existsLocally ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
                       {perf.name}
                     </span>
                   );
@@ -1037,7 +1037,7 @@ function TaggerResultRow({
                         : `+ Will create — click to exclude`
                       }
                     >
-                      {excluded ? <Minus className="w-2.5 h-2.5" /> : isForceIncluded ? <Plus className="w-2.5 h-2.5" /> : willSkipByDefault ? <Plus className="w-2.5 h-2.5" /> : tag.existsLocally ? <Check className="w-2.5 h-2.5" /> : <Check className="w-2.5 h-2.5" />}
+                      {excluded ? <Minus className="w-2.5 h-2.5" /> : isForceIncluded ? <Check className="w-2.5 h-2.5" /> : willSkipByDefault ? <Plus className="w-2.5 h-2.5" /> : tag.existsLocally ? <Check className="w-2.5 h-2.5" /> : <Check className="w-2.5 h-2.5" />}
                       {tag.name}
                     </span>
                   );

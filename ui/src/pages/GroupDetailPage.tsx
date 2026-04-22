@@ -13,6 +13,7 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
+import { useBackNavigation } from "../hooks/useBackNavigation";
 
 interface Props {
   id: number;
@@ -36,6 +37,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   ], id);
   const [sceneFilter, setSceneFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "asc", sort: "date" });
   const queryClient = useQueryClient();
+  const { backLabel, goBack } = useBackNavigation({ page: "groups" }, onNavigate);
 
   useEffect(() => {
     if (group) document.title = `${group.name} | Cove`;
@@ -59,7 +61,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => groups.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
-      onNavigate({ page: "groups" });
+      goBack();
     },
   });
 
@@ -89,10 +91,10 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         <div className="mx-auto max-w-7xl px-4 py-8">
           <div className="mb-5 flex items-center justify-between gap-4">
             <button
-              onClick={() => onNavigate({ page: "groups" })}
+              onClick={goBack}
               className="flex items-center gap-1 text-sm text-secondary hover:text-foreground"
             >
-              <ArrowLeft className="h-4 w-4" /> Back to groups
+              <ArrowLeft className="h-4 w-4" /> {backLabel}
             </button>
             <div className="flex items-center gap-2">
               <ExtensionSlot slot="group-detail-actions" context={{ group, onNavigate }} />

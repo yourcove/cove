@@ -1,19 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 function getWallColumnCount(width: number, maxColumns: number) {
-  if (width >= 1280) {
-    return Math.min(maxColumns, 6);
-  }
-  if (width >= 1024) {
-    return Math.min(maxColumns, 5);
-  }
-  if (width >= 768) {
-    return Math.min(maxColumns, 4);
-  }
-  if (width >= 640) {
-    return Math.min(maxColumns, 3);
-  }
-  return Math.min(maxColumns, 2);
+  const responsiveLimit = Math.max(2, Math.floor(width / 180));
+  return Math.min(maxColumns, responsiveLimit);
 }
 
 export function useWallColumns<T>(items: T[], maxColumns: number) {

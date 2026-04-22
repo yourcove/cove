@@ -18,13 +18,14 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
         [FromQuery] string? title = null, [FromQuery] int? rating = null,
-        [FromQuery] bool? organized = null, [FromQuery] int? studioId = null,
+        [FromQuery] bool? organized = null, [FromQuery] int? studioId = null, [FromQuery] int? imageId = null,
         [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
         CancellationToken ct = default)
     {
         var filter = new GalleryFilter
         {
             Title = title, Rating = rating, Organized = organized, StudioId = studioId,
+            ImageId = imageId,
             TagIds = ParseIntList(tagIds), PerformerIds = ParseIntList(performerIds)
         };
         var findFilter = new FindFilter

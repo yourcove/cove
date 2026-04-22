@@ -166,7 +166,7 @@ public class SceneRepository : ISceneRepository
                 query = ApplyIntCriterion(query, filter.DurationCriterion, s => (int)(s.Files.Select(f => (double?)f.Duration).Max() ?? 0));
 
             if (filter.ResolutionCriterion != null)
-                query = ApplyIntCriterion(query, filter.ResolutionCriterion, s => s.Files.Select(f => (int?)f.Height).Max() ?? 0);
+                query = ApplyIntCriterion(query, filter.ResolutionCriterion, s => s.Files.Select(f => (int?)Math.Max(f.Width, f.Height)).Max() ?? 0);
 
             if (filter.FrameRateCriterion != null)
                 query = ApplyIntCriterion(query, filter.FrameRateCriterion, s => (int)(s.Files.Select(f => (double?)f.FrameRate).Max() ?? 0));

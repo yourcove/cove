@@ -17,6 +17,7 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
+import { useBackNavigation } from "../hooks/useBackNavigation";
 
 const PERFORMER_SORT = [
   { value: "name", label: "Name" },
@@ -86,6 +87,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const [childFilter, setChildFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
   const [groupFilter, setGroupFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
   const queryClient = useQueryClient();
+  const { backLabel, goBack } = useBackNavigation({ page: "studios" }, onNavigate);
 
   useEffect(() => {
     if (studio) document.title = `${studio.name} | Cove`;
@@ -121,7 +123,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => studios.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["studios"] });
-      onNavigate({ page: "studios" });
+      goBack();
     },
   });
 
@@ -165,10 +167,10 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         <div className="relative mx-auto max-w-7xl px-4 py-8">
           <div className="mb-5 flex items-center justify-between gap-4">
             <button
-              onClick={() => onNavigate({ page: "studios" })}
+              onClick={goBack}
               className="flex items-center gap-1 text-sm text-secondary hover:text-foreground"
             >
-              <ArrowLeft className="h-4 w-4" /> Back to studios
+              <ArrowLeft className="h-4 w-4" /> {backLabel}
             </button>
             <div className="flex items-center gap-2">
               <ExtensionSlot slot="studio-detail-actions" context={{ studio, onNavigate }} />

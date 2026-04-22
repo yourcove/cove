@@ -843,7 +843,9 @@ html[data-component-style*="animated"] .image-detail-viewer:hover .image-detail-
 .image-detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 384px);
-  min-height: calc(100vh - 64px);
+  height: calc(100dvh - 64px - 24px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .image-detail-sidebar {
@@ -852,10 +854,15 @@ html[data-component-style*="animated"] .image-detail-viewer:hover .image-detail-
   max-height: calc(100vh - 64px);
 }
 
+.image-detail-viewer {
+  min-height: 0;
+  overflow: hidden;
+}
+
 @media (max-width: 900px) {
   .image-detail-layout {
     grid-template-columns: 1fr;
-    min-height: auto;
+    height: auto;
   }
 
   .image-detail-sidebar {

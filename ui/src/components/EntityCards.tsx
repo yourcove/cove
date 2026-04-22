@@ -13,12 +13,71 @@ function createNestedEntityNavigationHandlers<T extends HTMLElement>(route: { pa
   return createNestedCardNavigationHandlers<T>(route, () => onNavigate?.(route));
 }
 
-function FavoriteCounter({ count }: { count: number }) {
+export function FavoriteCounter({ count }: { count: number }) {
   return (
     <span className="flex items-center gap-1 p-1 text-muted" title={`Favorites: ${count}`}>
       <Heart className="h-3.5 w-3.5 fill-accent text-accent" />
       <span className="text-xs">{count}</span>
     </span>
+  );
+}
+
+export function PerformerPreviewGrid({ performers: performerItems, onNavigate }: { performers: Array<{ id: number; name: string; imagePath?: string | null }>; onNavigate?: (route: any) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {performerItems.map((performer) => {
+        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onNavigate);
+
+        return (
+          <button
+            key={performer.id}
+            type="button"
+            {...navigationHandlers}
+            className="flex flex-col items-center gap-1.5 rounded p-1.5 text-center transition-colors hover:bg-card-hover group/perf"
+          >
+            <div className="w-20 h-28 rounded overflow-hidden bg-surface flex-shrink-0">
+              {performer.imagePath ? (
+                <img src={performer.imagePath} alt="" className="w-full h-full object-cover" loading="lazy" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center"><User className="w-8 h-8 text-muted" /></div>
+              )}
+            </div>
+            <span className="text-xs text-accent group-hover/perf:underline truncate w-full font-medium">{performer.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function GalleryPreviewList({ galleries: galleryItems, onNavigate }: { galleries: Array<{ id: number; title?: string | null; date?: string | null; coverPath?: string | null }>; onNavigate?: (route: any) => void }) {
+  return (
+    <div className="space-y-1">
+      {galleryItems.map((gallery) => {
+        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "gallery", id: gallery.id }, onNavigate);
+
+        return (
+          <button
+            key={gallery.id}
+            type="button"
+            {...navigationHandlers}
+            className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-card-hover"
+          >
+            <div className="h-12 w-12 overflow-hidden rounded bg-surface flex-shrink-0">
+              {gallery.coverPath ? (
+                <img src={gallery.coverPath} alt="" className="h-full w-full object-cover" loading="lazy" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center"><FolderOpen className="w-4 h-4 text-muted" /></div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-medium text-accent">{gallery.title || `Gallery ${gallery.id}`}</div>
+              {gallery.date && <div className="truncate text-[10px] text-muted">{gallery.date}</div>}
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -149,21 +208,7 @@ export function PerformersPopoverContent({ filter }: { filter: Record<string, st
   if (isLoading) return <p className="text-[11px] text-muted px-1">Loading…</p>;
   const items = data?.items ?? [];
   if (items.length === 0) return <p className="text-[11px] text-muted px-1">No performers</p>;
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {items.map((p) => (
-        <div key={p.id} className="flex flex-col items-center gap-1 text-center p-1.5 rounded hover:bg-card-hover transition-colors">
-          <div className="w-12 h-16 rounded overflow-hidden bg-surface flex-shrink-0">
-            {p.imagePath ? <img src={p.imagePath} alt="" className="w-full h-full object-cover" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center"><User className="w-5 h-5 text-muted" /></div>}
-          </div>
-          <span className="text-[11px] text-foreground truncate w-full font-medium">{p.name}</span>
-        </div>
-      ))}
-      {(data?.totalCount ?? 0) > 10 && (
-        <p className="col-span-2 text-[10px] text-muted px-1 pt-0.5">+ {(data!.totalCount) - 10} more</p>
-      )}
-    </div>
-  );
+  return <PerformerPreviewGrid performers={items} />;
 }
 
 // ===== Lazy gallery list popover content =====
@@ -176,19 +221,7 @@ export function GalleriesPopoverContent({ filter }: { filter: Record<string, str
   if (isLoading) return <p className="text-[11px] text-muted px-1">Loading…</p>;
   const items = data?.items ?? [];
   if (items.length === 0) return <p className="text-[11px] text-muted px-1">No galleries</p>;
-  return (
-    <div className="space-y-1">
-      {items.map((g) => (
-        <div key={g.id} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-card">
-          {g.coverPath ? <img src={g.coverPath} alt="" className="w-10 h-7 rounded object-cover flex-shrink-0 bg-surface" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} /> : <FolderOpen className="w-4 h-4 text-muted flex-shrink-0" />}
-          <span className="text-[11px] text-foreground truncate">{g.title || "Untitled"}</span>
-        </div>
-      ))}
-      {(data?.totalCount ?? 0) > 10 && (
-        <p className="text-[10px] text-muted px-1 pt-0.5">+ {(data!.totalCount) - 10} more</p>
-      )}
-    </div>
-  );
+  return <GalleryPreviewList galleries={items} />;
 }
 
 // ===== Lazy studio list popover content =====
@@ -254,20 +287,7 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
         {!hasPopovers && <span className="text-[10px] text-muted/30 select-none">&nbsp;</span>}
         {scene.performers.length > 0 && (
           <PopoverButton icon={<User className="w-3.5 h-3.5" />} count={scene.performers.length} title="Performers" wide preferBelow>
-            <div className="grid grid-cols-2 gap-2">
-              {scene.performers.map((p: any) => {
-                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, onNavigate);
-
-                return (
-                <button key={p.id} type="button" {...navigationHandlers}
-                  className="flex flex-col items-center gap-1.5 text-center cursor-pointer rounded hover:bg-card-hover p-1.5 group/perf transition-colors">
-                  <div className="w-20 h-28 rounded overflow-hidden bg-surface flex-shrink-0">
-                    {p.imagePath ? <img src={p.imagePath} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><User className="w-8 h-8 text-muted" /></div>}
-                  </div>
-                  <span className="text-xs text-accent group-hover/perf:underline truncate w-full font-medium">{p.name}</span>
-                </button>
-              );})}
-            </div>
+            <PerformerPreviewGrid performers={scene.performers} onNavigate={onNavigate} />
           </PopoverButton>
         )}
         {scene.tags.length > 0 && (
@@ -680,7 +700,7 @@ interface ImageTileProps {
 }
 
 export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, onSelect, selecting }: ImageTileProps) {
-  const hasFooter = (image.tags?.length ?? 0) > 0 || (image.performers?.length ?? 0) > 0 || image.oCounter > 0 || image.organized;
+  const hasFooter = (image.tags?.length ?? 0) > 0 || (image.performers?.length ?? 0) > 0 || (image.galleries?.length ?? 0) > 0 || image.oCounter > 0 || image.organized;
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
   const displayTitle = getImageDisplayTitle(image);
   return (
@@ -730,17 +750,12 @@ export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, o
             )}
             {(image.performers?.length ?? 0) > 0 && (
               <PopoverButton icon={<User className="w-3.5 h-3.5" />} count={image.performers.length} title="Performers" wide preferBelow>
-                <div className="grid grid-cols-2 gap-2">
-                  {image.performers.map((p: any) => {
-                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, onNavigate);
-
-                    return (
-                    <button key={p.id} type="button" {...navigationHandlers}
-                      className="flex flex-col items-center gap-1 text-center cursor-pointer rounded hover:bg-card-hover p-1.5 transition-colors">
-                      <span className="text-xs text-accent hover:underline truncate w-full">{p.name}</span>
-                    </button>
-                  );})}
-                </div>
+                <PerformerPreviewGrid performers={image.performers} onNavigate={onNavigate} />
+              </PopoverButton>
+            )}
+            {image.galleryCount > 0 && (
+              <PopoverButton icon={<FolderOpen className="w-3.5 h-3.5" />} count={image.galleryCount} title="Galleries" wide preferBelow>
+                <GalleriesPopoverContent filter={{ imageId: image.id }} />
               </PopoverButton>
             )}
             {image.oCounter > 0 && (

@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { scenes, tags, performers, studios, galleries } from "../api/client";
+import { scenes, tags, performers, galleries } from "../api/client";
 import type { FindFilter, Scene, SceneCreate, SceneFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { useListUrlState } from "../hooks/useListUrlState";
@@ -22,6 +22,7 @@ import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { StringListEditor } from "../components/StringListEditor";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useWallColumns } from "../hooks/useWallColumns";
+import { StudioSelector } from "../components/StudioSelector";
 
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
@@ -51,6 +52,7 @@ export function ScenesPage({ onNavigate }: Props) {
   const [showIdentify, setShowIdentify] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
+  const [wallColumnCount, setWallColumnCount] = useState(5);
   const queryClient = useQueryClient();
   const { setQueue } = useSceneQueue();
 
@@ -65,7 +67,7 @@ export function ScenesPage({ onNavigate }: Props) {
   });
 
   const items = data?.items ?? [];
-  const wallColumns = useWallColumns(items, 5);
+  const wallColumns = useWallColumns(items, wallColumnCount);
   const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(items);
   const selecting = selectedIds.size > 0;
 
@@ -140,6 +142,8 @@ export function ScenesPage({ onNavigate }: Props) {
       criteriaDefinitions={SCENE_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
+      wallColumnCount={wallColumnCount}
+      onWallColumnCountChange={setWallColumnCount}
       onNew={() => setShowCreate(true)}
       selectedIds={selectedIds}
       onSelectAll={selectAll}
@@ -290,11 +294,6 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   const [gallerySearch, setGallerySearch] = useState("");
   const [selectedGalleries, setSelectedGalleries] = useState<{ id: number; title: string }[]>([]);
 
-  const { data: studioResults } = useQuery({
-    queryKey: ["studios-all"],
-    queryFn: () => studios.find({ perPage: 500, sort: "name", direction: "asc" }),
-  });
-
   const { data: tagResults } = useQuery({
     queryKey: ["tags-search", tagSearch],
     queryFn: () => tags.find({ q: tagSearch, perPage: 20, sort: "name", direction: "asc" }),
@@ -384,16 +383,7 @@ function SceneCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
       <div className="grid grid-cols-2 gap-4">
         <RatingField value={rating} onChange={setRating} />
         <Field label="Studio">
-          <select
-            value={studioId ?? ""}
-            onChange={(e) => setStudioId(e.target.value ? Number(e.target.value) : undefined)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          >
-            <option value="">None</option>
-            {studioResults?.items.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+          <StudioSelector value={studioId} onChange={setStudioId} />
         </Field>
       </div>
 

@@ -888,13 +888,18 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         var imagePerformerMap = await ReadJunctionAsync(conn, "performers_images", "image_id", "performer_id", ct);
         var imageUrls = await ReadUrlsAsync(conn, "image_urls", "image_id", ct);
 
-        var imageToFile = new Dictionary<int, int>();
+        var imageToFiles = new Dictionary<int, List<int>>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT image_id, file_id FROM images_files WHERE [primary]=1";
+            cmd.CommandText = "SELECT image_id, file_id, [primary] FROM images_files ORDER BY image_id, [primary] DESC, file_id";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
-                imageToFile[r.GetInt32(0)] = r.GetInt32(1);
+            {
+                var imageId = r.GetInt32(0);
+                if (!imageToFiles.TryGetValue(imageId, out var fileIds))
+                    imageToFiles[imageId] = fileIds = [];
+                fileIds.Add(r.GetInt32(1));
+            }
         }
 
         var imageFileData = new Dictionary<int, (string Format, int Width, int Height)>();
@@ -964,25 +969,30 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                         .Select(p => new ImagePerformer { PerformerId = performerIdMap[p] }).ToList(),
                 };
 
-                if (imageToFile.TryGetValue(stashId, out var fileId) && fileData.TryGetValue(fileId, out var fd)
-                    && folderIdMap.TryGetValue(fd.FolderId, out var coveFolderId))
+                if (imageToFiles.TryGetValue(stashId, out var fileIds))
                 {
-                    var imgFile = new ImageFile
+                    foreach (var fileId in fileIds.Distinct())
                     {
-                        Basename = fd.Basename,
-                        ParentFolderId = coveFolderId,
-                        Size = fd.Size,
-                        ModTime = fd.ModTime,
-                        CreatedAt = fd.CreatedAt,
-                        UpdatedAt = fd.ModTime,
-                    };
-                    if (imageFileData.TryGetValue(fileId, out var ifd))
-                    {
-                        imgFile.Format = ifd.Format;
-                        imgFile.Width = ifd.Width;
-                        imgFile.Height = ifd.Height;
+                        if (!fileData.TryGetValue(fileId, out var fd) || !folderIdMap.TryGetValue(fd.FolderId, out var coveFolderId))
+                            continue;
+
+                        var imgFile = new ImageFile
+                        {
+                            Basename = fd.Basename,
+                            ParentFolderId = coveFolderId,
+                            Size = fd.Size,
+                            ModTime = fd.ModTime,
+                            CreatedAt = fd.CreatedAt,
+                            UpdatedAt = fd.ModTime,
+                        };
+                        if (imageFileData.TryGetValue(fileId, out var ifd))
+                        {
+                            imgFile.Format = ifd.Format;
+                            imgFile.Width = ifd.Width;
+                            imgFile.Height = ifd.Height;
+                        }
+                        image.Files.Add(imgFile);
                     }
-                    image.Files.Add(imgFile);
                 }
 
                 db.Images.Add(image);

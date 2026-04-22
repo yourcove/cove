@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { scenes, tags, entityImages, performers as performersApi, studios as studiosApi, galleries as galleriesApi, groups as groupsApi, metadata } from "../api/client";
 import { formatDuration, formatFileSize, formatDate, TagBadge, getResolutionLabel, CustomFieldsDisplay } from "../components/shared";
 import { 
-  Pencil, Plus, Trash2, Search, Eye, Heart, 
+  Pencil, Plus, Trash2, Search, Eye, Heart, ArrowLeft,
   Check, ChevronLeft, ChevronRight, MoreVertical, PanelLeftClose, PanelLeft,
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Gauge, Clapperboard, Monitor, FolderOpen, Layers,
@@ -23,6 +23,8 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { StringListEditor } from "../components/StringListEditor";
+import { StudioSelector } from "../components/StudioSelector";
+import { useBackNavigation } from "../hooks/useBackNavigation";
 
 interface Props {
   id: number;
@@ -49,6 +51,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
   const [showIdentify, setShowIdentify] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("details");
   const queryClient = useQueryClient();
+  const { backLabel, goBack } = useBackNavigation({ page: "scenes" }, onNavigate);
   const seekRef = useRef<((time: number) => void) | null>(null);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
@@ -130,7 +133,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
     mutationFn: (deleteFile?: boolean) => scenes.delete(id, deleteFile),
     onSuccess: () => { 
       queryClient.invalidateQueries({ queryKey: ["scenes"] }); 
-      onNavigate({ page: "scenes" }); 
+      goBack(); 
     },
   });
 
@@ -299,6 +302,13 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
               )}
 
               {/* Queue navigation removed - will be replaced later */}
+
+              <button
+                onClick={goBack}
+                className="mb-3 flex items-center gap-1 text-sm text-secondary hover:text-foreground"
+              >
+                <ArrowLeft className="h-4 w-4" /> {backLabel}
+              </button>
 
               {/* Title — large like original's h3 */}
               <h3 className="text-[1.5rem] font-semibold text-foreground leading-snug line-clamp-2 mt-1">
@@ -815,6 +825,10 @@ function HistoryTab({ scene }: { scene: Scene }) {
     queryKey: ["scene-history", scene.id],
     queryFn: () => scenes.getHistory(scene.id),
   });
+  const incrementOMut = useMutation({
+    mutationFn: () => scenes.incrementO(scene.id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["scene", scene.id] }); queryClient.invalidateQueries({ queryKey: ["scene-history", scene.id] }); },
+  });
 
   const resetPlayMut = useMutation({
     mutationFn: () => scenes.resetPlay(scene.id),
@@ -822,14 +836,6 @@ function HistoryTab({ scene }: { scene: Scene }) {
   });
   const deletePlayMut = useMutation({
     mutationFn: () => scenes.deletePlay(scene.id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["scene", scene.id] }); queryClient.invalidateQueries({ queryKey: ["scene-history", scene.id] }); },
-  });
-  const resetOMut = useMutation({
-    mutationFn: () => scenes.resetO(scene.id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["scene", scene.id] }); queryClient.invalidateQueries({ queryKey: ["scene-history", scene.id] }); },
-  });
-  const decrementOMut = useMutation({
-    mutationFn: () => scenes.decrementO(scene.id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["scene", scene.id] }); queryClient.invalidateQueries({ queryKey: ["scene-history", scene.id] }); },
   });
 
@@ -863,10 +869,10 @@ function HistoryTab({ scene }: { scene: Scene }) {
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-muted uppercase tracking-wide">Favorites</h3>
-          <div className="flex gap-1">
-            <button onClick={() => decrementOMut.mutate()} className={btnCls} title="Remove favorite">-1</button>
-            <button onClick={() => resetOMut.mutate()} className={btnCls} title="Reset favorites">Reset</button>
-          </div>
+          <button onClick={() => incrementOMut.mutate()} className="flex items-center gap-1.5 rounded border border-border bg-card px-2.5 py-1 text-xs text-secondary hover:border-accent/50 hover:text-accent" title="Add favorite">
+            <Heart className={`w-3.5 h-3.5 ${scene.oCounter > 0 ? "fill-accent text-accent" : ""}`} />
+            <span>{scene.oCounter}</span>
+          </button>
         </div>
         <div className="mb-2">
           <span className="text-muted">Count:</span> <span className="text-foreground">{scene.oCounter}</span>
@@ -1925,11 +1931,9 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
   const [perfSearch, setPerfSearch] = useState("");
   const [gallerySearch, setGallerySearch] = useState("");
   const [groupSearch, setGroupSearch] = useState("");
-  const [studioSearch, setStudioSearch] = useState("");
 
   const { data: allTags } = useQuery({ queryKey: ["tags-all"], queryFn: () => tags.find({ perPage: 500, sort: "name", direction: "asc" }) });
   const { data: allPerformers } = useQuery({ queryKey: ["performers-all"], queryFn: () => performersApi.find({ perPage: 500, sort: "name", direction: "asc" }) });
-  const { data: allStudios } = useQuery({ queryKey: ["studios-all"], queryFn: () => studiosApi.find({ perPage: 500, sort: "name", direction: "asc" }) });
   const { data: allGalleries } = useQuery({ queryKey: ["galleries-all"], queryFn: () => galleriesApi.find({ perPage: 500, sort: "title", direction: "asc" }) });
   const { data: allGroups } = useQuery({ queryKey: ["groups-all"], queryFn: () => groupsApi.find({ perPage: 500, sort: "name", direction: "asc" }) });
 
@@ -1978,26 +1982,7 @@ function SceneEditPanel({ scene, onSaved }: { scene: Scene; onSaved: () => void 
       <label className="block space-y-1"><span className="text-xs text-secondary">Details</span><textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={3} className={inputCls} /></label>
       <div className="space-y-1">
         <span className="text-xs text-secondary">Studio</span>
-        {studioId && allStudios?.items.find((s) => s.id === studioId) && (
-          <div className="flex items-center gap-1 mb-1">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-accent/20 text-accent">
-              {allStudios.items.find((s) => s.id === studioId)!.name}
-              <button onClick={() => setStudioId(undefined)} className="hover:text-white">×</button>
-            </span>
-          </div>
-        )}
-        {!studioId && (
-          <>
-            <input value={studioSearch} onChange={(e) => setStudioSearch(e.target.value)} placeholder="Search studios…" className={inputCls} />
-            {studioSearch && allStudios && (
-              <div className="max-h-24 overflow-y-auto bg-surface rounded border border-border">
-                {allStudios.items.filter((s) => s.name.toLowerCase().includes(studioSearch.toLowerCase())).slice(0, 10).map((s) => (
-                  <button key={s.id} onClick={() => { setStudioId(s.id); setStudioSearch(""); }} className="block w-full text-left px-3 py-1 text-sm text-foreground hover:bg-card">{s.name}</button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        <StudioSelector value={studioId} onChange={setStudioId} placeholder="Search studios..." />
       </div>
       <div className="space-y-1"><span className="text-xs text-secondary">URLs</span><StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" /></div>
 

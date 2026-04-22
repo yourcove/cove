@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Regex = System.Text.RegularExpressions.Regex;
+using RegexOptions = System.Text.RegularExpressions.RegexOptions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 
@@ -791,6 +793,7 @@ public class GalleryRepository : IGalleryRepository
             if (!string.IsNullOrEmpty(filter.Title)) query = query.Where(g => g.Title != null && EF.Functions.ILike(g.Title, $"%{filter.Title}%"));
             if (filter.Organized.HasValue) query = query.Where(g => g.Organized == filter.Organized.Value);
             if (filter.StudioId.HasValue) query = query.Where(g => g.StudioId == filter.StudioId.Value);
+            if (filter.ImageId.HasValue) query = query.Where(g => g.ImageGalleries.Any(ig => ig.ImageId == filter.ImageId.Value));
             if (filter.TagIds?.Count > 0) query = query.Where(g => g.GalleryTags.Any(gt => filter.TagIds.Contains(gt.TagId)));
             if (filter.PerformerIds?.Count > 0) query = query.Where(g => g.GalleryPerformers.Any(gp => filter.PerformerIds.Contains(gp.PerformerId)));
 
@@ -889,6 +892,14 @@ public class ImageRepository : IImageRepository
     private readonly CoveContext _db;
     public ImageRepository(CoveContext db) => _db = db;
 
+    private static readonly System.Linq.Expressions.Expression<Func<Image, string?>> DisplayTitleSelector = image =>
+        image.Title != null && image.Title != ""
+            ? image.Title
+            : image.Files
+                .OrderBy(file => file.Basename)
+                .Select(file => file.Basename)
+                .FirstOrDefault();
+
     public async Task<Image?> GetByIdAsync(int id, CancellationToken ct = default) => await _db.Images.FindAsync([id], ct);
 
     public async Task<Image?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default)
@@ -896,7 +907,7 @@ public class ImageRepository : IImageRepository
             .Include(i => i.Studio).Include(i => i.Urls)
             .Include(i => i.ImageTags).ThenInclude(it => it.Tag)
             .Include(i => i.ImagePerformers).ThenInclude(ip => ip.Performer)
-            .Include(i => i.ImageGalleries)
+            .Include(i => i.ImageGalleries).ThenInclude(ig => ig.Gallery)
             .Include(i => i.Files).ThenInclude(f => f.ParentFolder)
             .AsSplitQuery()
             .FirstOrDefaultAsync(i => i.Id == id, ct);
@@ -938,23 +949,32 @@ public class ImageRepository : IImageRepository
         var filterQuery = _db.Images.AsQueryable();
         filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups);
         if (findFilter != null && !string.IsNullOrEmpty(findFilter.Q))
-            filterQuery = filterQuery.Where(i => (i.Title != null && EF.Functions.ILike(i.Title, $"%{findFilter.Q}%")));
+        {
+            var searchTerm = findFilter.Q.ToLowerInvariant();
+            filterQuery = filterQuery.Where(i =>
+                (i.Title != null && i.Title.ToLower().Contains(searchTerm)) ||
+                (i.Details != null && i.Details.ToLower().Contains(searchTerm)) ||
+                (i.Code != null && i.Code.ToLower().Contains(searchTerm)) ||
+                (i.Photographer != null && i.Photographer.ToLower().Contains(searchTerm)) ||
+                i.Files.Any(f =>
+                    f.Basename.ToLower().Contains(searchTerm) ||
+                    (f.ParentFolder != null ? f.ParentFolder.Path.Replace("\\", "/") + "/" + f.Basename : f.Basename).ToLower().Contains(searchTerm)));
+        }
 
         var perPage = findFilter?.PerPage ?? 25;
+
+        if (perPage <= 0)
+        {
+            var count = await filterQuery.CountAsync(ct);
+            return (Array.Empty<Image>(), count);
+        }
+
         var totalCount = await filterQuery.AsNoTracking().CountAsync(ct);
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
         var sort = findFilter?.Sort ?? "updated_at";
         var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        filterQuery = sort switch
-        {
-            "title" => desc ? filterQuery.OrderByDescending(i => i.Title) : filterQuery.OrderBy(i => i.Title),
-            "rating" => desc ? filterQuery.OrderByDescending(i => i.Rating) : filterQuery.OrderBy(i => i.Rating),
-            "o_counter" => desc ? filterQuery.OrderByDescending(i => i.OCounter) : filterQuery.OrderBy(i => i.OCounter),
-            "random" => filterQuery.OrderBy(_ => EF.Functions.Random()),
-            "created_at" => desc ? filterQuery.OrderByDescending(i => i.CreatedAt) : filterQuery.OrderBy(i => i.CreatedAt),
-            _ => desc ? filterQuery.OrderByDescending(i => i.UpdatedAt) : filterQuery.OrderBy(i => i.UpdatedAt),
-        };
+        filterQuery = ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
@@ -968,10 +988,11 @@ public class ImageRepository : IImageRepository
 
         // Load full entities only for the paged IDs
         var items = await _db.Images
+            .Include(i => i.Studio)
             .Include(i => i.ImageTags).ThenInclude(it => it.Tag)
             .Include(i => i.ImagePerformers).ThenInclude(ip => ip.Performer)
-            .Include(i => i.ImageGalleries)
-            .Include(i => i.Files)
+            .Include(i => i.ImageGalleries).ThenInclude(ig => ig.Gallery)
+            .Include(i => i.Files).ThenInclude(f => f.ParentFolder)
             .AsSplitQuery()
             .Where(i => pagedIds.Contains(i.Id))
             .AsNoTracking()
@@ -989,7 +1010,8 @@ public class ImageRepository : IImageRepository
         if (filter == null) return query;
 
         // Simple filters
-        if (!string.IsNullOrEmpty(filter.Title)) query = query.Where(i => i.Title != null && EF.Functions.ILike(i.Title, $"%{filter.Title}%"));
+        if (!string.IsNullOrEmpty(filter.Title))
+            query = FilterHelpers.ApplyString(query, new StringCriterion { Value = filter.Title, Modifier = CriterionModifier.Includes }, DisplayTitleSelector);
         if (filter.Organized.HasValue) query = query.Where(i => i.Organized == filter.Organized.Value);
         if (filter.StudioId.HasValue) query = query.Where(i => i.StudioId == filter.StudioId.Value);
         if (filter.GalleryId.HasValue) query = query.Where(i => i.ImageGalleries.Any(ig => ig.GalleryId == filter.GalleryId.Value));
@@ -1004,7 +1026,7 @@ public class ImageRepository : IImageRepository
         if (filter.OrganizedCriterion != null)
             query = query.Where(i => i.Organized == filter.OrganizedCriterion.Value);
         if (filter.ResolutionCriterion != null)
-            query = FilterHelpers.ApplyInt(query, filter.ResolutionCriterion, i => i.Files.Select(f => f.Height).Max());
+            query = FilterHelpers.ApplyInt(query, filter.ResolutionCriterion, i => i.Files.Select(f => Math.Max(f.Width, f.Height)).Max());
 
         // Multi-ID criteria
         if (filter.TagsCriterion != null)
@@ -1019,6 +1041,8 @@ public class ImageRepository : IImageRepository
 
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, i => i.Files);
 
+        query = ApplyFingerprintCriterion(query, filter.ChecksumCriterion, "md5");
+
         if (filter.PerformerFavoriteCriterion != null)
             query = filter.PerformerFavoriteCriterion.Value
                 ? query.Where(i => i.ImagePerformers.Any(ip => ip.Performer!.Favorite))
@@ -1028,7 +1052,7 @@ public class ImageRepository : IImageRepository
         query = FilterHelpers.ApplyTimestamp(query, filter.UpdatedAtCriterion, i => i.UpdatedAt);
 
         // String criteria
-        query = FilterHelpers.ApplyString(query, filter.TitleCriterion, i => i.Title);
+        query = FilterHelpers.ApplyString(query, filter.TitleCriterion, DisplayTitleSelector);
         query = FilterHelpers.ApplyString(query, filter.CodeCriterion, i => i.Code);
         query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, i => i.Details);
         query = FilterHelpers.ApplyString(query, filter.PhotographerCriterion, i => i.Photographer);
@@ -1068,7 +1092,227 @@ public class ImageRepository : IImageRepository
             };
         }
 
+        query = ApplyPerformerAgeCriterion(query, filter.PerformerAgeCriterion);
+
+        if (filter.OrientationCriterion != null)
+            query = ApplyOrientationCriterion(query, filter.OrientationCriterion);
+
         return query;
+    }
+
+    private static IQueryable<Image> ApplySorting(IQueryable<Image> query, string sort, bool desc, int? seed = null)
+    {
+        if (sort == "random" && seed.HasValue)
+        {
+            var normalizedSeed = Math.Abs((long)seed.Value);
+            if (normalizedSeed == 0)
+                return query.OrderBy(image => image.Id);
+
+            return query.OrderBy(image => ((long)image.Id * normalizedSeed) % 2147483647L);
+        }
+
+        return ApplySortingSwitch(query, sort, desc);
+    }
+
+    private static IQueryable<Image> ApplySortingSwitch(IQueryable<Image> query, string sort, bool desc) => sort switch
+    {
+        "title" => ApplyDisplayTitleSort(query, desc),
+        "date" => desc ? query.OrderByDescending(i => i.Date ?? DateOnly.MinValue) : query.OrderBy(i => i.Date ?? DateOnly.MinValue),
+        "rating" => desc ? query.OrderByDescending(i => i.Rating ?? -1) : query.OrderBy(i => i.Rating ?? -1),
+        "o_counter" => desc ? query.OrderByDescending(i => i.OCounter) : query.OrderBy(i => i.OCounter),
+        "random" => query.OrderBy(_ => EF.Functions.Random()),
+        "file_mod_time" => ApplyFileModTimeSort(query, desc),
+        "file_size" => desc
+            ? query.OrderByDescending(i => i.Files.Select(file => (long?)file.Size).Max() ?? 0)
+            : query.OrderBy(i => i.Files.Select(file => (long?)file.Size).Max() ?? 0),
+        "path" => ApplyPathSort(query, desc),
+        "tag_count" => desc
+            ? query.OrderByDescending(i => i.ImageTags.Count)
+            : query.OrderBy(i => i.ImageTags.Count),
+        "performer_count" => desc
+            ? query.OrderByDescending(i => i.ImagePerformers.Count)
+            : query.OrderBy(i => i.ImagePerformers.Count),
+        "created_at" => desc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
+        _ => desc ? query.OrderByDescending(i => i.UpdatedAt) : query.OrderBy(i => i.UpdatedAt),
+    };
+
+    private static IQueryable<Image> ApplyDisplayTitleSort(IQueryable<Image> query, bool desc)
+    {
+        if (desc)
+        {
+            var descendingQuery = query.Select(image => new
+            {
+                Image = image,
+                DisplayTitle = image.Title != null && image.Title != ""
+                    ? image.Title
+                    : image.Files
+                        .OrderByDescending(file => file.Basename)
+                        .Select(file => file.Basename)
+                        .FirstOrDefault(),
+            });
+
+            return descendingQuery
+                .OrderBy(item => item.DisplayTitle == null ? 1 : 0)
+                .ThenByDescending(item => item.DisplayTitle)
+                .Select(item => item.Image);
+        }
+
+        var ascendingQuery = query.Select(image => new
+        {
+            Image = image,
+            DisplayTitle = image.Title != null && image.Title != ""
+                ? image.Title
+                : image.Files
+                    .OrderBy(file => file.Basename)
+                    .Select(file => file.Basename)
+                    .FirstOrDefault(),
+        });
+
+        return ascendingQuery
+            .OrderBy(item => item.DisplayTitle == null ? 1 : 0)
+            .ThenBy(item => item.DisplayTitle)
+            .Select(item => item.Image);
+    }
+
+    private static IQueryable<Image> ApplyFileModTimeSort(IQueryable<Image> query, bool desc)
+    {
+        var sortQuery = query.Select(image => new
+        {
+            Image = image,
+            FileModTime = image.Files.Select(file => (DateTime?)file.ModTime).Max(),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).Select(item => item.Image)
+            : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Image);
+    }
+
+    private static IQueryable<Image> ApplyPathSort(IQueryable<Image> query, bool desc)
+    {
+        if (desc)
+        {
+            var descendingQuery = query.Select(image => new
+            {
+                Image = image,
+                Path = image.Files
+                    .Select(file => file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename)
+                    .OrderByDescending(path => path)
+                    .FirstOrDefault(),
+            });
+
+            return descendingQuery
+                .OrderBy(item => item.Path == null ? 1 : 0)
+                .ThenByDescending(item => item.Path)
+                .Select(item => item.Image);
+        }
+
+        var ascendingQuery = query.Select(image => new
+        {
+            Image = image,
+            Path = image.Files
+                .Select(file => file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename)
+                .OrderBy(path => path)
+                .FirstOrDefault(),
+        });
+
+        return ascendingQuery
+            .OrderBy(item => item.Path == null ? 1 : 0)
+            .ThenBy(item => item.Path)
+            .Select(item => item.Image);
+    }
+
+    private static IQueryable<Image> ApplyFingerprintCriterion(IQueryable<Image> query, StringCriterion? criterion, string fingerprintType)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value;
+        var pattern = $"%{value}%";
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(image => image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value == value))),
+            CriterionModifier.NotEquals => query.Where(image => !image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value == value))),
+            CriterionModifier.Includes => query.Where(image => image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && EF.Functions.ILike(fingerprint.Value, pattern)))),
+            CriterionModifier.Excludes => query.Where(image => !image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && EF.Functions.ILike(fingerprint.Value, pattern)))),
+            CriterionModifier.MatchesRegex => query.Where(image => image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && Regex.IsMatch(fingerprint.Value, value, RegexOptions.IgnoreCase)))),
+            CriterionModifier.NotMatchesRegex => query.Where(image => !image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && Regex.IsMatch(fingerprint.Value, value, RegexOptions.IgnoreCase)))),
+            CriterionModifier.IsNull => query.Where(image => !image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
+            CriterionModifier.NotNull => query.Where(image => image.Files.Any(file =>
+                file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<Image> ApplyPerformerAgeCriterion(IQueryable<Image> query, IntCriterion? criterion)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value;
+        var value2 = criterion.Value2 ?? value;
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(i => i.Date != null && i.ImagePerformers.Any(ip =>
+                ip.Performer!.Birthdate != null &&
+                (i.Date.Value.Year - ip.Performer.Birthdate.Value.Year
+                    - ((i.Date.Value.Month < ip.Performer.Birthdate.Value.Month
+                        || (i.Date.Value.Month == ip.Performer.Birthdate.Value.Month && i.Date.Value.Day < ip.Performer.Birthdate.Value.Day)) ? 1 : 0)) == value)),
+            CriterionModifier.NotEquals => query.Where(i => i.Date != null && i.ImagePerformers.Any(ip =>
+                ip.Performer!.Birthdate != null &&
+                (i.Date.Value.Year - ip.Performer.Birthdate.Value.Year
+                    - ((i.Date.Value.Month < ip.Performer.Birthdate.Value.Month
+                        || (i.Date.Value.Month == ip.Performer.Birthdate.Value.Month && i.Date.Value.Day < ip.Performer.Birthdate.Value.Day)) ? 1 : 0)) != value)),
+            CriterionModifier.GreaterThan => query.Where(i => i.Date != null && i.ImagePerformers.Any(ip =>
+                ip.Performer!.Birthdate != null &&
+                (i.Date.Value.Year - ip.Performer.Birthdate.Value.Year
+                    - ((i.Date.Value.Month < ip.Performer.Birthdate.Value.Month
+                        || (i.Date.Value.Month == ip.Performer.Birthdate.Value.Month && i.Date.Value.Day < ip.Performer.Birthdate.Value.Day)) ? 1 : 0)) > value)),
+            CriterionModifier.LessThan => query.Where(i => i.Date != null && i.ImagePerformers.Any(ip =>
+                ip.Performer!.Birthdate != null &&
+                (i.Date.Value.Year - ip.Performer.Birthdate.Value.Year
+                    - ((i.Date.Value.Month < ip.Performer.Birthdate.Value.Month
+                        || (i.Date.Value.Month == ip.Performer.Birthdate.Value.Month && i.Date.Value.Day < ip.Performer.Birthdate.Value.Day)) ? 1 : 0)) < value)),
+            CriterionModifier.Between => query.Where(i => i.Date != null && i.ImagePerformers.Any(ip =>
+                ip.Performer!.Birthdate != null &&
+                (i.Date.Value.Year - ip.Performer.Birthdate.Value.Year
+                    - ((i.Date.Value.Month < ip.Performer.Birthdate.Value.Month
+                        || (i.Date.Value.Month == ip.Performer.Birthdate.Value.Month && i.Date.Value.Day < ip.Performer.Birthdate.Value.Day)) ? 1 : 0)) >= value &&
+                (i.Date.Value.Year - ip.Performer.Birthdate.Value.Year
+                    - ((i.Date.Value.Month < ip.Performer.Birthdate.Value.Month
+                        || (i.Date.Value.Month == ip.Performer.Birthdate.Value.Month && i.Date.Value.Day < ip.Performer.Birthdate.Value.Day)) ? 1 : 0)) <= value2)),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<Image> ApplyOrientationCriterion(IQueryable<Image> query, StringCriterion criterion)
+    {
+        var orientation = criterion.Value.ToLowerInvariant();
+
+        IQueryable<Image> matchingQuery = orientation switch
+        {
+            "landscape" => query.Where(i => i.Files.Any(f => f.Width > f.Height)),
+            "portrait" => query.Where(i => i.Files.Any(f => f.Height > f.Width)),
+            "square" => query.Where(i => i.Files.Any(f => f.Width == f.Height && f.Width > 0)),
+            _ => query,
+        };
+
+        if (ReferenceEquals(matchingQuery, query))
+            return query;
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.NotEquals => query.Where(i => !matchingQuery.Select(item => item.Id).Contains(i.Id)),
+            CriterionModifier.IsNull => query.Where(i => !i.Files.Any(f => f.Width > 0 && f.Height > 0)),
+            CriterionModifier.NotNull => query.Where(i => i.Files.Any(f => f.Width > 0 && f.Height > 0)),
+            _ => matchingQuery,
+        };
     }
 
     private sealed record ExpandedHierarchicalTagCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { galleries, studios, tags, performers, scenes as scenesApi } from "../api/client";
-import type { Gallery, GalleryUpdate, Studio, Tag, Performer } from "../api/types";
+import { galleries, tags, performers, scenes as scenesApi } from "../api/client";
+import type { Gallery, GalleryUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { Search, X } from "lucide-react";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
+import { StudioSelector } from "../components/StudioSelector";
 
 interface Props {
   gallery: Gallery;
@@ -38,7 +39,6 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
   const [performerSearch, setPerformerSearch] = useState("");
   const [sceneSearch, setSceneSearch] = useState("");
 
-  const { data: studioList } = useQuery({ queryKey: ["studios-all"], queryFn: () => studios.find({ perPage: 200 }) });
   const { data: tagResults } = useQuery({ queryKey: ["tags-search", tagSearch], queryFn: () => tags.find({ q: tagSearch, perPage: 20 }), enabled: tagSearch.length > 0 });
   const { data: performerResults } = useQuery({ queryKey: ["performers-search", performerSearch], queryFn: () => performers.find({ q: performerSearch, perPage: 20 }), enabled: performerSearch.length > 0 });
   const { data: sceneResults } = useQuery({ queryKey: ["scenes-search", sceneSearch], queryFn: () => scenesApi.find({ q: sceneSearch, perPage: 20 }), enabled: sceneSearch.length > 0 });
@@ -81,7 +81,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
             <TextInput value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
           </Field>
         </div>
-        <Field label="Code">
+        <Field label="Studio Code">
           <TextInput value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
         </Field>
         <Field label="Date">
@@ -92,14 +92,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
         </Field>
         <RatingField value={form.rating} onChange={(v) => setForm({ ...form, rating: v })} />
         <Field label="Studio">
-          <select
-            value={form.studioId ?? ""}
-            onChange={(e) => setForm({ ...form, studioId: e.target.value ? Number(e.target.value) : undefined })}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          >
-            <option value="">None</option>
-            {studioList?.items.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <StudioSelector value={form.studioId} onChange={(studioId) => setForm({ ...form, studioId })} />
         </Field>
         <div className="flex items-end pb-4">
           <label className="flex items-center gap-2 text-sm">

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus, Star } from "lucide-react";
-import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi } from "../api/client";
+import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, scenes as scenesApi } from "../api/client";
 import { useAppConfig } from "../state/AppConfigContext";
 import {
   normalizeRatingOptions,
@@ -307,7 +307,7 @@ export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
 
 export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
-  { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
+  { id: "code", label: "Studio Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
@@ -331,14 +331,15 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
 
 export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
-  { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
+  { id: "code", label: "Studio Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "checksum", label: "Checksum", type: "string", filterKey: "checksumCriterion" as Extract<keyof ImageFilterCriteria, string> },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
-  { id: "oCounter", label: "Favorites", type: "number", filterKey: "oCounterCriterion" },
+  { id: "oCounter", label: "Favorites", type: "number", filterKey: "oCounterCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
@@ -346,9 +347,15 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "galleries", label: "Galleries", type: "multiId", entityType: "galleries", filterKey: "galleriesCriterion" },
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
-  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion" },
+  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
   { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
+  { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" as Extract<keyof ImageFilterCriteria, string> },
+  { id: "orientation", label: "Orientation", type: "enum", filterKey: "orientationCriterion" as Extract<keyof ImageFilterCriteria, string>, modifiers: VALUE_ONLY_ENUM_MODIFIERS, options: [
+    { value: "landscape", label: "Landscape" },
+    { value: "portrait", label: "Portrait" },
+    { value: "square", label: "Square" },
+  ] },
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
@@ -436,6 +443,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setLastSyncedFilterSignature(activeFilterSignature);
       }
       return;
+    }
+
+    if (lastSyncedFilterSignature !== activeFilterSignature) {
+      setEditFilter(JSON.parse(activeFilterSignature) as Record<string, unknown>);
     }
 
     setLastSyncedFilterSignature(activeFilterSignature);
@@ -1181,6 +1192,8 @@ function MultiIdEditor({ value, onChange, entityType, hierarchyToggleLabel }: { 
         case "performers": return (await performersApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items;
         case "studios": return (await studiosApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items;
         case "groups": return (await groupsApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items;
+        case "galleries": return (await galleriesApi.find({ perPage: 5000, sort: "title", direction: "asc" })).items;
+        case "scenes": return (await scenesApi.find({ perPage: 5000, sort: "title", direction: "asc" })).items;
         default: return [];
       }
     },

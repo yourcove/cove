@@ -4,6 +4,7 @@ import { X, Plus, Minus } from "lucide-react";
 import { InteractiveRating } from "./Rating";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi } from "../api/client";
 import type { BulkUpdateMode } from "../api/types";
+import { StudioSelector } from "./StudioSelector";
 
 // ===== Generic Bulk Edit Dialog =====
 
@@ -191,7 +192,7 @@ function BulkFieldEditor({
             />
           )}
           {field.type === "select" && field.entityType === "studios" && (
-            <StudioBulkSelect value={value as number | undefined} onValueChange={onValueChange} />
+            <StudioSelector value={value as number | undefined} onChange={(nextValue) => onValueChange(nextValue)} />
           )}
           {field.type === "select" && field.entityType !== "studios" && (
             <select
@@ -224,88 +225,6 @@ function BulkFieldEditor({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function StudioBulkSelect({
-  value,
-  onValueChange,
-}: {
-  value: number | undefined;
-  onValueChange: (value: unknown) => void;
-}) {
-  const [searchText, setSearchText] = useState("");
-
-  const { data: searchResults, isLoading } = useQuery({
-    queryKey: ["bulk-edit", "studios", searchText],
-    queryFn: async () => {
-      const response = await studiosApi.find({
-        q: searchText || undefined,
-        perPage: 25,
-        sort: "name",
-        direction: "asc",
-      });
-
-      return response.items;
-    },
-    staleTime: 60000,
-  });
-
-  const selectedResult = searchResults?.find((studio) => studio.id === value);
-
-  const { data: selectedStudio } = useQuery({
-    queryKey: ["bulk-edit", "studio", value],
-    queryFn: async () => studiosApi.get(value as number),
-    enabled: typeof value === "number" && !selectedResult,
-    staleTime: 60000,
-  });
-
-  const visibleResults = (searchResults ?? []).filter((studio) => studio.id !== value);
-  const selectedLabel = selectedResult?.name ?? selectedStudio?.name;
-
-  return (
-    <div className="space-y-2">
-      {selectedLabel && (
-        <div className="flex flex-wrap gap-1">
-          <span className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground">
-            {selectedLabel}
-            <button onClick={() => onValueChange(undefined)} className="hover:text-red-400" aria-label="Clear selected studio">
-              <X className="h-2.5 w-2.5" />
-            </button>
-          </span>
-        </div>
-      )}
-
-      <input
-        type="text"
-        value={searchText}
-        onChange={(e) => setSearchText(e.target.value)}
-        placeholder="Search studios..."
-        className="w-full rounded border border-border bg-input px-2 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-      />
-
-      <div className="max-h-32 overflow-y-auto rounded border border-border bg-input">
-        {isLoading ? (
-          <div className="px-2 py-1 text-xs text-muted">Loading...</div>
-        ) : visibleResults.length === 0 ? (
-          <div className="px-2 py-1 text-xs text-muted">No studios found</div>
-        ) : (
-          visibleResults.map((studio) => (
-            <button
-              key={studio.id}
-              onClick={() => {
-                onValueChange(studio.id);
-                setSearchText("");
-              }}
-              className="flex w-full items-center gap-1 px-2 py-1 text-left text-xs text-foreground hover:bg-card"
-            >
-              <Plus className="h-3 w-3" />
-              {studio.name}
-            </button>
-          ))
-        )}
-      </div>
     </div>
   );
 }
@@ -446,7 +365,7 @@ export const SCENE_BULK_FIELDS: BulkEditField[] = [
   { key: "organized", label: "Organized", type: "bool" },
   { key: "studioId", label: "Studio", type: "select", entityType: "studios", nullable: true },
   { key: "date", label: "Date", type: "date" },
-  { key: "code", label: "Code", type: "string" },
+  { key: "code", label: "Studio Code", type: "string" },
   { key: "director", label: "Director", type: "string" },
   { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
   { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers", modeKey: "performerMode" },

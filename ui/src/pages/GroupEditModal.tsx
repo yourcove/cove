@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { groups, studios, tags as tagsApi, entityImages } from "../api/client";
-import type { Group, GroupUpdate, Tag } from "../api/types";
+import { groups, tags as tagsApi, entityImages } from "../api/client";
+import type { Group, GroupUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, NumberInput, SaveButton } from "../components/EditModal";
 import { ImageInput } from "../components/ImageInput";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
+import { StudioSelector } from "../components/StudioSelector";
 
 interface Props {
   group: Group;
@@ -36,12 +37,6 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   const { data: allTags } = useQuery({
     queryKey: ["tags-all"],
     queryFn: () => tagsApi.find({ perPage: 500, sort: "name", direction: "asc" }),
-  });
-
-  // Studios
-  const { data: allStudios } = useQuery({
-    queryKey: ["studios-all"],
-    queryFn: () => studios.find({ perPage: 500, sort: "name", direction: "asc" }),
   });
 
   useEffect(() => {
@@ -138,16 +133,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
         </Field>
         <RatingField value={rating} onChange={setRating} />
         <Field label="Studio">
-          <select
-            value={studioId ?? ""}
-            onChange={(e) => setStudioId(e.target.value ? Number(e.target.value) : undefined)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          >
-            <option value="">None</option>
-            {allStudios?.items.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+          <StudioSelector value={studioId} onChange={setStudioId} />
         </Field>
       </div>
 

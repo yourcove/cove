@@ -293,7 +293,7 @@ function GalleryCreateModal({ open, onClose, onCreated }: { open: boolean; onClo
       <Field label="Title">
         <TextInput value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
       </Field>
-      <Field label="Code">
+      <Field label="Studio Code">
         <TextInput value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
       </Field>
       <Field label="Date">

@@ -17,6 +17,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
     public async Task<ActionResult<PaginatedResponse<ImageDto>>> Find(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         [FromQuery] string? title = null, [FromQuery] int? rating = null,
         [FromQuery] bool? organized = null, [FromQuery] int? studioId = null,
         [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
@@ -32,7 +33,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc
+            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Seed = seed,
         };
 
         var (items, totalCount) = await imageRepo.FindAsync(filter, findFilter, ct);
@@ -148,6 +150,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
         i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Birthdate?.ToString("yyyy-MM-dd"), ip.Performer.Favorite, ip.Performer.ImageBlobId != null ? $"/api/performers/{ip.Performer.Id}/image" : null)).ToList(),
         galleryCount ?? i.ImageGalleries?.Count ?? 0,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
+        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
         i.Files?.Select(f => new ImageFileDto(f.Id, f.Path, f.Basename, f.Format ?? "", f.Width, f.Height, f.Size)).ToList() ?? [],
         i.CustomFields,
         i.CreatedAt.ToString("o"), i.UpdatedAt.ToString("o")
@@ -165,33 +168,33 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
     // ===== Activity Tracking =====
 
     [HttpPost("{id:int}/o")]
-    public async Task<IActionResult> IncrementO(int id, CancellationToken ct)
+    public async Task<ActionResult<int>> IncrementO(int id, CancellationToken ct)
     {
         var image = await imageRepo.GetByIdAsync(id, ct);
         if (image == null) return NotFound();
         image.OCounter++;
         await imageRepo.UpdateAsync(image, ct);
-        return NoContent();
+        return Ok(image.OCounter);
     }
 
     [HttpDelete("{id:int}/o")]
-    public async Task<IActionResult> DecrementO(int id, CancellationToken ct)
+    public async Task<ActionResult<int>> DecrementO(int id, CancellationToken ct)
     {
         var image = await imageRepo.GetByIdAsync(id, ct);
         if (image == null) return NotFound();
         image.OCounter = Math.Max(0, image.OCounter - 1);
         await imageRepo.UpdateAsync(image, ct);
-        return NoContent();
+        return Ok(image.OCounter);
     }
 
     [HttpPost("{id:int}/o/reset")]
-    public async Task<IActionResult> ResetO(int id, CancellationToken ct)
+    public async Task<ActionResult<int>> ResetO(int id, CancellationToken ct)
     {
         var image = await imageRepo.GetByIdAsync(id, ct);
         if (image == null) return NotFound();
         image.OCounter = 0;
         await imageRepo.UpdateAsync(image, ct);
-        return NoContent();
+        return Ok(image.OCounter);
     }
 
     // ===== Bulk Operations =====

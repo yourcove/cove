@@ -266,6 +266,7 @@ public class GalleryFilter
     public int? Rating { get; set; }
     public bool? Organized { get; set; }
     public int? StudioId { get; set; }
+    public int? ImageId { get; set; }
     public List<int>? TagIds { get; set; }
     public List<int>? PerformerIds { get; set; }
     // Advanced criteria
@@ -313,6 +314,7 @@ public class ImageFilter
     public IntCriterion? OCounterCriterion { get; set; }
     public IntCriterion? ResolutionCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
+    public StringCriterion? ChecksumCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
     public BoolCriterion? PerformerFavoriteCriterion { get; set; }
@@ -325,6 +327,8 @@ public class ImageFilter
     public IntCriterion? FileCountCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
+    public IntCriterion? PerformerAgeCriterion { get; set; }
+    public StringCriterion? OrientationCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
 }
 

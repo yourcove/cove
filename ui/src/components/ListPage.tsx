@@ -36,6 +36,8 @@ interface ListPageProps {
   onObjectFilterChange?: (filter: Record<string, unknown>) => void;
   // Quick filter buttons (standard layout's criterion shortcut row)
   quickFilterIds?: string[];
+  wallColumnCount?: number;
+  onWallColumnCountChange?: (count: number) => void;
 }
 
 const PER_PAGE_OPTIONS = [20, 40, 60, 120, 250, 500, 1000];
@@ -190,6 +192,8 @@ export function ListPage({
   objectFilter,
   onObjectFilterChange,
   quickFilterIds,
+  wallColumnCount,
+  onWallColumnCountChange,
 }: ListPageProps) {
   const [searchText, setSearchText] = useState(filter.q ?? "");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
@@ -276,9 +280,13 @@ export function ListPage({
         return;
       }
 
-      const parsed = JSON.parse(raw) as { perPage?: number; zoomLevel?: number };
+      const parsed = JSON.parse(raw) as { perPage?: number; zoomLevel?: number; wallColumnCount?: number };
       if (typeof parsed.zoomLevel === "number") {
         setZoomLevel(clampZoomLevel(parsed.zoomLevel));
+      }
+
+      if (typeof parsed.wallColumnCount === "number" && onWallColumnCountChange) {
+        onWallColumnCountChange(Math.min(12, Math.max(2, parsed.wallColumnCount)));
       }
 
       const hasPerPageOverride = new URLSearchParams(window.location.search).has("perPage");
@@ -288,7 +296,7 @@ export function ListPage({
     } catch {
       // Ignore invalid persisted list preferences.
     }
-  }, [filter, onFilterChange, pageKey, perPage]);
+  }, [filter, onFilterChange, onWallColumnCountChange, pageKey, perPage]);
 
   useEffect(() => {
     if (!pageKey) {
@@ -297,9 +305,9 @@ export function ListPage({
 
     localStorage.setItem(
       `cove-list-prefs-${pageKey}`,
-      JSON.stringify({ perPage, zoomLevel: clampZoomLevel(zoomLevel) })
+      JSON.stringify({ perPage, zoomLevel: clampZoomLevel(zoomLevel), wallColumnCount })
     );
-  }, [pageKey, perPage, zoomLevel]);
+  }, [pageKey, perPage, wallColumnCount, zoomLevel]);
 
   useEffect(() => {
     setSearchText(filter.q ?? "");
@@ -498,6 +506,22 @@ export function ListPage({
                 title={`Card size: ${Math.round(240 + zoomLevel * 60)}px`}
               />
               <ZoomIn className="w-3 h-3 text-muted" />
+            </div>
+          )}
+
+          {displayMode === "wall" && wallColumnCount != null && onWallColumnCountChange && (
+            <div className="flex items-center gap-1 pl-1">
+              <input
+                type="range"
+                min={2}
+                max={8}
+                step={1}
+                value={wallColumnCount}
+                onChange={(e) => onWallColumnCountChange(Number(e.target.value))}
+                className="w-16 sm:w-20 h-1 accent-accent cursor-pointer"
+                title={`Wall columns: ${wallColumnCount}`}
+              />
+              <span className="min-w-[1rem] text-[10px] text-muted">{wallColumnCount}</span>
             </div>
           )}
         </div>
