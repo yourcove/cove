@@ -44,7 +44,7 @@ public static class FfmpegInProcess
     /// Uses the directory containing the configured ffmpeg binary, or falls back to PATH.
     /// Safe to call multiple times (idempotent).
     /// </summary>
-    public static void EnsureInitialized(string? ffmpegPath)
+    public static void EnsureInitialized(string? ffmpegPath, bool enableHwAccel = false)
     {
         if (_initialized) return;
         lock (InitLock)
@@ -69,10 +69,20 @@ public static class FfmpegInProcess
                 Console.WriteLine($"[FfmpegInProcess] Bindings initialized successfully.");
 
                 var majorVer = (int)(ffmpeg.avformat_version() >> 16);
-                Console.WriteLine($"[FfmpegInProcess] Probing hwaccels...");
-                _availableHwAccels = ProbeHwAccels();
+                
+                if (enableHwAccel)
+                {
+                    Console.WriteLine($"[FfmpegInProcess] Probing hwaccels...");
+                    _availableHwAccels = ProbeHwAccels();
+                    Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer}, hwAccels={string.Join(",", _availableHwAccels)})");
+                }
+                else
+                {
+                    _availableHwAccels = [];
+                    Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer}, Hardware Acceleration: Disabled)");
+                }
+                
                 IsAvailable = true;
-                Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer}, hwAccels={string.Join(",", _availableHwAccels)})");
             }
             catch (Exception ex)
             {

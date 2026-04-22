@@ -207,6 +207,7 @@ public record CoveConfigDto
     public int Port { get; init; } = 9999;
     public int MaxParallelTasks { get; init; } = 1;
     public bool CalculateMd5 { get; init; }
+    public bool EnableFfmpegHwAccel { get; init; }
     public List<string> VideoExtensions { get; init; } = [];
     public List<string> ImageExtensions { get; init; } = [];
     public List<string> GalleryExtensions { get; init; } = [];
