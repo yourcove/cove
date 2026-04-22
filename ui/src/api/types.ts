@@ -919,6 +919,7 @@ export interface PerformerFilterCriteria {
   heightCriterion?: IntCriterion;
   isMissingCriterion?: BoolCriterion;
   remoteIdCriterion?: StringCriterion;
+  remoteIdValueCriterion?: StringCriterion;
   disambiguationCriterion?: StringCriterion;
   detailsCriterion?: StringCriterion;
   eyeColorCriterion?: StringCriterion;

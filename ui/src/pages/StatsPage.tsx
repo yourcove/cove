@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 interface StatsPageProps {
   onNavigate?: (route: any) => void;
@@ -391,6 +392,7 @@ function PerformerCard({ performer, onNavigate }: { performer: Performer; onNavi
 // ===== Image Card =====
 function ImageCard({ image, onNavigate }: { image: Image; onNavigate?: (r: { page: string; id?: number }) => void }) {
   const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "image", id: image.id }, () => onNavigate?.({ page: "image", id: image.id }));
+  const displayTitle = getImageDisplayTitle(image);
 
   return (
     <button
@@ -401,13 +403,13 @@ function ImageCard({ image, onNavigate }: { image: Image; onNavigate?: (r: { pag
       <div className="relative aspect-square rounded-lg overflow-hidden bg-card mb-2">
         <img
           src={imagesApi.thumbnailUrl(image.id)}
-          alt={image.title || ""}
+          alt={displayTitle}
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
         />
       </div>
       <div className="text-sm font-medium truncate group-hover:text-accent transition-colors">
-        {image.title || `Image ${image.id}`}
+        {displayTitle}
       </div>
     </button>
   );

@@ -86,7 +86,7 @@ describe("ListPage active filter chips", () => {
             totalCount={0}
             isLoading={false}
             sortOptions={[
-              { value: "updated_at", label: "Updated Date" },
+              { value: "updated_at", label: "Updated At" },
               { value: "title", label: "Title" },
               { value: "bitrate", label: "Bitrate" },
             ]}
@@ -101,7 +101,7 @@ describe("ListPage active filter chips", () => {
     expect(Array.from((sortSelect as HTMLSelectElement).options).map((option) => option.text)).toEqual([
       "Bitrate",
       "Title",
-      "Updated Date",
+      "Updated At",
     ]);
   });
 

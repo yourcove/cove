@@ -224,14 +224,15 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "country", label: "Country", type: "string", filterKey: "countryCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
-  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion", modifiers: TYPE_MODIFIERS.number },
-  { id: "studioCount", label: "Studio Count", type: "number", filterKey: "studioCountCriterion", modifiers: TYPE_MODIFIERS.number },
+  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "studioCount", label: "Studio Count", type: "number", filterKey: "studioCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "birthdate", label: "Birthdate", type: "date", filterKey: "birthdateCriterion" },
   { id: "height", label: "Height (cm)", type: "number", filterKey: "heightCriterion" },
   { id: "weight", label: "Weight", type: "number", filterKey: "weightCriterion" },
-  { id: "remoteId", label: "Remote ID Provider", type: "string", filterKey: "remoteIdCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdValueCriterion" },
+  { id: "remoteIdProvider", label: "Remote ID Provider", type: "string", filterKey: "remoteIdCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion", modifiers: NON_NULL_TIMESTAMP_MODIFIERS },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion", modifiers: NON_NULL_TIMESTAMP_MODIFIERS },
@@ -385,6 +386,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const [search, setSearch] = useState("");
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
+  const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
+  const [lastSyncedFilterSignature, setLastSyncedFilterSignature] = useState(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem("filter-pinned");
@@ -428,13 +431,30 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 
   useEffect(() => {
     if (open) {
-      setEditFilter(JSON.parse(JSON.stringify(activeFilter ?? {})) as Record<string, unknown>);
+      if (lastSyncedFilterSignature !== activeFilterSignature) {
+        setEditFilter(JSON.parse(activeFilterSignature) as Record<string, unknown>);
+        setLastSyncedFilterSignature(activeFilterSignature);
+      }
+      return;
     }
-  }, [activeFilter, open]);
+
+    setLastSyncedFilterSignature(activeFilterSignature);
+  }, [activeFilterSignature, lastSyncedFilterSignature, open]);
 
   const activeCriterionCount = useMemo(() => {
     return criteria.filter((c) => editFilter[c.filterKey] !== undefined).length;
   }, [criteria, editFilter]);
+
+  const handleRemoveCriterion = useCallback((filterKey: string, criterionId?: string) => {
+    setEditFilter((prev) => {
+      const { [filterKey]: _, ...rest } = prev;
+      return rest;
+    });
+
+    if (criterionId && expandedCriterion === criterionId) {
+      setExpandedCriterion(null);
+    }
+  }, [expandedCriterion]);
 
   const handleSetCriterion = useCallback((filterKey: string, value: unknown) => {
     setEditFilter((prev) => {
@@ -512,7 +532,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 >
                   {c.label}
                   <button
-                    onClick={() => handleSetCriterion(c.filterKey, undefined)}
+                    onClick={() => handleRemoveCriterion(c.filterKey, c.id)}
+                    aria-label={`Remove ${c.label} filter chip`}
                     className="hover:text-white"
                   >
                     <X className="w-3 h-3" />
@@ -535,6 +556,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     criterion={criterion}
                     value={editFilter[criterion.filterKey]}
                     onChange={(v) => handleSetCriterion(criterion.filterKey, v)}
+                    onRemove={() => handleRemoveCriterion(criterion.filterKey, criterion.id)}
                     expanded={expandedCriterion === criterion.id}
                     onToggleExpand={() => setExpandedCriterion(expandedCriterion === criterion.id ? null : criterion.id)}
                     pinned
@@ -552,6 +574,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 criterion={criterion}
                 value={editFilter[criterion.filterKey]}
                 onChange={(v) => handleSetCriterion(criterion.filterKey, v)}
+                onRemove={() => handleRemoveCriterion(criterion.filterKey, criterion.id)}
                 expanded={expandedCriterion === criterion.id}
                 onToggleExpand={() => setExpandedCriterion(expandedCriterion === criterion.id ? null : criterion.id)}
                 pinned={pinnedIds.has(criterion.id)}
@@ -588,6 +611,7 @@ function CriterionRow({
   criterion,
   value,
   onChange,
+  onRemove,
   expanded,
   onToggleExpand,
   pinned,
@@ -596,6 +620,7 @@ function CriterionRow({
   criterion: CriterionDefinition;
   value: unknown;
   onChange: (v: unknown) => void;
+  onRemove: () => void;
   expanded: boolean;
   onToggleExpand: () => void;
   pinned: boolean;
@@ -627,7 +652,8 @@ function CriterionRow({
         </button>
         {isActive && (
           <button
-            onClick={(e) => { e.stopPropagation(); onChange(undefined); }}
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            aria-label={`Remove ${criterion.label} filter row`}
             className="p-0.5 rounded hover:bg-red-900/20 text-muted hover:text-red-400"
           >
             <X className="w-3 h-3" />
@@ -1095,22 +1121,6 @@ function TimestampEditor({ value, onChange, modifiers }: { value?: TimestampCrit
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
   const ensureTimestampValue = (current?: string) => (current && current.length > 0 ? current : getDefaultLocalTimestampValue());
-
-  useEffect(() => {
-    if (isNull) {
-      return;
-    }
-
-    if (value?.value && (!isBetween || value.value2)) {
-      return;
-    }
-
-    onChange({
-      value: ensureTimestampValue(value?.value),
-      value2: isBetween ? ensureTimestampValue(value?.value2) : undefined,
-      modifier,
-    });
-  }, [isBetween, isNull, modifier, onChange, value?.value, value?.value2]);
 
   return (
     <div className="space-y-2">

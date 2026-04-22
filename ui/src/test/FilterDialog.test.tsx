@@ -58,4 +58,56 @@ describe("FilterDialog", () => {
       }),
     }));
   });
+
+  it("does not restore a removed criterion when the parent rerenders with the same active filter", () => {
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <FilterDialog
+        open
+        onClose={onClose}
+        criteria={SCENE_CRITERIA}
+        activeFilter={{ createdAtCriterion: { value: "2026-04-22T12:00", modifier: "EQUALS" } }}
+        onApply={onApply}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Created At filter chip" }));
+    expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
+
+    rerender(
+      <FilterDialog
+        open
+        onClose={onClose}
+        criteria={SCENE_CRITERIA}
+        activeFilter={{ createdAtCriterion: { value: "2026-04-22T12:00", modifier: "EQUALS" } }}
+        onApply={onApply}
+      />
+    );
+
+    expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Created At")).toHaveLength(1);
+  });
+
+  it("does not re-add an expanded timestamp criterion after removing it", () => {
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={SCENE_CRITERIA}
+        activeFilter={{ createdAtCriterion: { value: "2026-04-22T12:00", modifier: "EQUALS" } }}
+        onApply={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getAllByText("Created At")[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Created At filter row" }));
+
+    expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Created At")).toHaveLength(1);
+  });
 });

@@ -105,6 +105,40 @@ public class PerformerFilterBehaviorTests
     }
 
     [Fact]
+    public async Task StudiosCriterion_IncludesAll_WithHierarchy_RequiresMatchPerSelectedStudioGroup()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        var parentA = new Studio { Name = "Parent A" };
+        var childA = new Studio { Name = "Child A", Parent = parentA };
+        var parentB = new Studio { Name = "Parent B" };
+        var childB = new Studio { Name = "Child B", Parent = parentB };
+
+        context.Performers.AddRange(
+            CreatePerformer("both-groups", childA, childB),
+            CreatePerformer("only-first-group", childA),
+            CreatePerformer("only-second-group", childB));
+        await context.SaveChangesAsync();
+
+        var repository = new PerformerRepository(context);
+        var filter = new PerformerFilter
+        {
+            StudiosCriterion = new MultiIdCriterion
+            {
+                Value = [parentA.Id, parentB.Id],
+                Modifier = CriterionModifier.IncludesAll,
+                Depth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["both-groups"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task NameCriterion_FiltersByPerformerName()
     {
         await using var scope = await CreateContextAsync();
@@ -236,6 +270,42 @@ public class PerformerFilterBehaviorTests
         Assert.Equal(["Has PMVStash"], withProviderItems.Select(performer => performer.Name ?? string.Empty).ToArray());
         Assert.Equal(2, withoutProviderCount);
         Assert.Equal(["Has StashDB", "No Remote"], withoutProviderItems.Select(performer => performer.Name ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task RemoteIdValueCriterion_FiltersByRemoteIdValue()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        context.Performers.AddRange(
+            new Performer
+            {
+                Name = "Has PMV Value",
+                RemoteIds = [new PerformerRemoteId { Endpoint = "PMVStash", RemoteId = "pmv-123" }],
+            },
+            new Performer
+            {
+                Name = "Has Different Value",
+                RemoteIds = [new PerformerRemoteId { Endpoint = "PMVStash", RemoteId = "other-456" }],
+            },
+            new Performer { Name = "No Remote" });
+        await context.SaveChangesAsync();
+
+        var repository = new PerformerRepository(context);
+        var filter = new PerformerFilter
+        {
+            RemoteIdValueCriterion = new StringCriterion
+            {
+                Value = "pmv-123",
+                Modifier = CriterionModifier.Equals,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["Has PMV Value"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
     }
 
     private static Performer CreatePerformer(string name, params Studio[] studios)

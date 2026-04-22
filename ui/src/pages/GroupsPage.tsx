@@ -22,7 +22,7 @@ const SORT_OPTIONS = [
   { value: "date", label: "Date" },
   { value: "rating", label: "Rating" },
   { value: "random", label: "Random" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "created_at", label: "Created At" },
 ];
 
 interface Props {

@@ -833,6 +833,37 @@ html[data-component-style*="animated"] .scene-card:hover img,
 html[data-component-style*="animated"] .group:hover img {
   transform: scale(1.05);
 }
+html[data-component-style*="animated"] .image-detail-viewer .image-detail-primary-image {
+  transition: none;
+}
+html[data-component-style*="animated"] .image-detail-viewer:hover .image-detail-primary-image {
+  transform: none;
+}
+
+.image-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 384px);
+  min-height: calc(100vh - 64px);
+}
+
+.image-detail-sidebar {
+  min-width: 0;
+  border-left: 1px solid var(--color-border);
+  max-height: calc(100vh - 64px);
+}
+
+@media (max-width: 900px) {
+  .image-detail-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .image-detail-sidebar {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+    max-height: none;
+  }
+}
 
 /* Animated hover: pulse glow — continuous via --sv-hover-glow (0-100, default 67) */
 html[data-component-style*="animated"] .entity-card:hover,

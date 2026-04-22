@@ -151,6 +151,7 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.IgnoreAutoTagCriterion);
         Assert.Null(filter.TagCountCriterion);
         Assert.Null(filter.StudioCountCriterion);
+        Assert.Null(filter.RemoteIdValueCriterion);
     }
 
     [Fact]
@@ -183,6 +184,22 @@ public class FilterCriteriaParityTests
         Assert.NotNull(result?.ObjectFilter?.StudioCountCriterion);
         Assert.Equal(2, result.ObjectFilter.StudioCountCriterion.Value);
         Assert.Equal(CriterionModifier.Equals, result.ObjectFilter.StudioCountCriterion.Modifier);
+    }
+
+    [Fact]
+    public void PerformerFilter_RemoteIdValueCriterion_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "remoteIdValueCriterion": { "value": "pmv-1", "modifier": "includes" }
+            }
+        }
+        """;
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+        Assert.NotNull(result?.ObjectFilter?.RemoteIdValueCriterion);
+        Assert.Equal("pmv-1", result.ObjectFilter.RemoteIdValueCriterion.Value);
+        Assert.Equal(CriterionModifier.Includes, result.ObjectFilter.RemoteIdValueCriterion.Modifier);
     }
 
     [Fact]

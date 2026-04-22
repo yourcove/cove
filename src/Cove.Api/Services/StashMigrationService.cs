@@ -3,6 +3,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -11,10 +12,11 @@ namespace Cove.Api.Services;
 
 public record StashPreviewResult(bool IsValid, string? Error, int Scenes, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
 public record StashImportResult(int Scenes, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
+public record StashImportOptions(string? GeneratedPath, bool MigrateGeneratedContent = true);
 
 public sealed class StashMigrationInProgressException(string message) : InvalidOperationException(message);
 
-public class StashMigrationService(CoveContext db, IBlobService blobService, ConfigService configService, CoveConfiguration config, ILogger<StashMigrationService> logger)
+public class StashMigrationService(CoveContext db, IBlobService blobService, ConfigService configService, CoveConfiguration config, IJobService jobService, IServiceScopeFactory scopeFactory, ILogger<StashMigrationService> logger)
 {
     private sealed record SceneGeneratedData(string? Oshash, string? Md5, string? CoverBlobId);
     private sealed record StashConfigData(
@@ -23,8 +25,33 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         string VideoFileNamingAlgorithm);
 
     private static readonly object ImportSync = new();
-    private static Task<StashImportResult>? activeImportTask;
+    private static readonly Queue<string> importResultOrder = new();
+    private static readonly Dictionary<string, StashImportResult> importResults = [];
     private static string? activeImportPath;
+    private static string? activeImportJobId;
+
+    private const double BlobsStart = 0.02;
+    private const double BlobsEnd = 0.08;
+    private const double FoldersStart = 0.08;
+    private const double FoldersEnd = 0.12;
+    private const double StudiosStart = 0.12;
+    private const double StudiosEnd = 0.18;
+    private const double TagsStart = 0.18;
+    private const double TagsEnd = 0.24;
+    private const double PerformersStart = 0.24;
+    private const double PerformersEnd = 0.34;
+    private const double GroupsStart = 0.34;
+    private const double GroupsEnd = 0.38;
+    private const double ScenesStart = 0.38;
+    private const double ScenesEnd = 0.68;
+    private const double ImagesStart = 0.68;
+    private const double ImagesEnd = 0.92;
+    private const double GalleriesStart = 0.92;
+    private const double GalleriesEnd = 0.97;
+    private const double LibraryPathsStart = 0.97;
+    private const double LibraryPathsEnd = 0.985;
+    private const double GeneratedAssetsStart = 0.985;
+    private const double GeneratedAssetsEnd = 1.0;
 
     public async Task<StashPreviewResult> PreviewAsync(string stashDbPath, CancellationToken ct = default)
     {
@@ -50,45 +77,82 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         }
     }
 
-    public Task<StashImportResult> ImportAsync(string stashDbPath, CancellationToken ct = default)
+    public Task<StashImportResult> ImportAsync(string stashDbPath, StashImportOptions? options = null, CancellationToken ct = default)
+    {
+        return RunImportAsync(stashDbPath, options, NullJobProgress.Instance, ct);
+    }
+
+    public string StartImport(string stashDbPath, StashImportOptions? options = null)
     {
         if (string.IsNullOrWhiteSpace(stashDbPath))
             throw new ArgumentException("Stash database path is required.", nameof(stashDbPath));
 
+        options ??= new StashImportOptions(null, true);
+
         lock (ImportSync)
         {
-            if (activeImportTask is { IsCompleted: false })
+            if (!string.IsNullOrWhiteSpace(activeImportJobId))
             {
                 if (!string.Equals(activeImportPath, stashDbPath, StringComparison.OrdinalIgnoreCase))
                     throw new StashMigrationInProgressException($"A Stash migration is already running for {activeImportPath}.");
 
                 logger.LogInformation("Stash migration already running for {Path}; joining existing import", stashDbPath);
-                return activeImportTask;
+                return activeImportJobId;
             }
 
             activeImportPath = stashDbPath;
-            activeImportTask = ImportAndClearAsync(stashDbPath, ct);
-            return activeImportTask;
-        }
-    }
-
-    private async Task<StashImportResult> ImportAndClearAsync(string stashDbPath, CancellationToken ct)
-    {
-        try
-        {
-            return await ImportCoreAsync(stashDbPath, ct);
-        }
-        finally
-        {
-            lock (ImportSync)
+            string? jobId = null;
+            jobId = jobService.Enqueue("stash-import", "Importing Stash library", async (progress, ct) =>
             {
-                activeImportTask = null;
-                activeImportPath = null;
-            }
+                try
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    var scopedMigration = scope.ServiceProvider.GetRequiredService<StashMigrationService>();
+                    var result = await scopedMigration.RunImportAsync(stashDbPath, options, progress, ct);
+
+                    lock (ImportSync)
+                    {
+                        importResults[jobId!] = result;
+                        importResultOrder.Enqueue(jobId!);
+                        TrimImportResultsLocked();
+                    }
+                }
+                finally
+                {
+                    lock (ImportSync)
+                    {
+                        if (string.Equals(activeImportJobId, jobId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            activeImportJobId = null;
+                            activeImportPath = null;
+                        }
+                    }
+                }
+            });
+
+            activeImportJobId = jobId;
+            return jobId;
         }
     }
 
-    private async Task<StashImportResult> ImportCoreAsync(string stashDbPath, CancellationToken ct)
+    public StashImportResult? GetImportResult(string jobId)
+    {
+        lock (ImportSync)
+        {
+            return importResults.TryGetValue(jobId, out var result) ? result : null;
+        }
+    }
+
+    public async Task<StashImportResult> RunImportAsync(string stashDbPath, StashImportOptions? options, IJobProgress progress, CancellationToken ct = default)
+    {
+        options ??= new StashImportOptions(null, true);
+        progress.Report(0.01, "Opening Stash database...");
+        var result = await ImportCoreAsync(stashDbPath, options, progress, ct);
+        progress.Report(1.0, "Import complete");
+        return result;
+    }
+
+    private async Task<StashImportResult> ImportCoreAsync(string stashDbPath, StashImportOptions options, IJobProgress progress, CancellationToken ct)
     {
         if (!File.Exists(stashDbPath))
             throw new FileNotFoundException($"Database file not found: {stashDbPath}", stashDbPath);
@@ -97,17 +161,44 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         await conn.OpenAsync(ct);
         logger.LogInformation("Starting Stash migration from {Path}", stashDbPath);
 
-        var blobMap = await ImportBlobsAsync(conn, ct);
-        var folderIdMap = await ImportFoldersAsync(conn, ct);
-        var studioIdMap = await ImportStudiosAsync(conn, blobMap, ct);
-        var tagIdMap = await ImportTagsAsync(conn, blobMap, ct);
-        var performerIdMap = await ImportPerformersAsync(conn, blobMap, tagIdMap, ct);
-        var groupIdMap = await ImportGroupsAsync(conn, studioIdMap, ct);
-        var (sceneCount, sceneGeneratedMap) = await ImportScenesAsync(conn, blobMap, folderIdMap, studioIdMap, tagIdMap, performerIdMap, groupIdMap, ct);
-        var imageIdMap = await ImportImagesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, ct);
-        var galleryCount = await ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, ct);
+        var blobMap = await ImportBlobsAsync(conn, progress, BlobsStart, BlobsEnd, ct);
+        var folderIdMap = await ImportFoldersAsync(conn, progress, FoldersStart, FoldersEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var studioIdMap = await ImportStudiosAsync(conn, blobMap, progress, StudiosStart, StudiosEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var tagIdMap = await ImportTagsAsync(conn, blobMap, progress, TagsStart, TagsEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var performerIdMap = await ImportPerformersAsync(conn, blobMap, tagIdMap, progress, PerformersStart, PerformersEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var groupIdMap = await ImportGroupsAsync(conn, studioIdMap, progress, GroupsStart, GroupsEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var (sceneCount, sceneGeneratedMap) = await ImportScenesAsync(conn, blobMap, folderIdMap, studioIdMap, tagIdMap, performerIdMap, groupIdMap, progress, ScenesStart, ScenesEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var imageIdMap = await ImportImagesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, progress, ImagesStart, ImagesEnd, ct);
+        db.ChangeTracker.Clear();
+
+        var galleryCount = await ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, progress, GalleriesStart, GalleriesEnd, ct);
+        db.ChangeTracker.Clear();
+
+        progress.Report(LibraryPathsStart, "Importing library paths...");
         await ImportLibraryPathsAsync(stashDbPath, ct);
-        await CopyGeneratedContentAsync(stashDbPath, sceneGeneratedMap, ct);
+        progress.Report(LibraryPathsEnd, "Library paths imported");
+
+        if (options.MigrateGeneratedContent)
+        {
+            await CopyGeneratedContentAsync(stashDbPath, sceneGeneratedMap, options, progress, GeneratedAssetsStart, GeneratedAssetsEnd, ct);
+        }
+        else
+        {
+            logger.LogInformation("Skipping generated content migration for {Path}", stashDbPath);
+            progress.Report(GeneratedAssetsEnd, "Skipping generated scene assets");
+        }
 
         logger.LogInformation("Migration complete: {S} scenes, {P} performers, {T} tags, {St} studios, {G} groups, {I} images, {Ga} galleries",
             sceneCount, performerIdMap.Count, tagIdMap.Count, studioIdMap.Count, groupIdMap.Count, imageIdMap.Count, galleryCount);
@@ -117,14 +208,18 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Blobs ─────────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<string, string>> ImportBlobsAsync(SqliteConnection conn, CancellationToken ct)
+    private async Task<Dictionary<string, string>> ImportBlobsAsync(SqliteConnection conn, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var total = await CountAsync(conn, "blobs", ct);
+        var processed = 0;
+        progress.Report(startProgress, "Importing blobs...");
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT checksum, blob FROM blobs WHERE blob IS NOT NULL";
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
         {
+            processed++;
             if (r.IsDBNull(1)) continue;
             var checksum = r.GetString(0);
             try
@@ -140,6 +235,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             {
                 logger.LogWarning("Blob {Checksum} import failed: {Err}", checksum, ex.Message);
             }
+
+            if (processed % 100 == 0 || processed == total)
+                ReportPhase(progress, startProgress, endProgress, processed, total, $"Importing blobs ({processed}/{total})");
         }
         logger.LogInformation("Imported {Count} blobs", map.Count);
         return map;
@@ -147,7 +245,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Studios ───────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<int, int>> ImportStudiosAsync(SqliteConnection conn, Dictionary<string, string> blobMap, CancellationToken ct)
+    private async Task<Dictionary<int, int>> ImportStudiosAsync(SqliteConnection conn, Dictionary<string, string> blobMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var rows = new List<(int Id, string Name, int? ParentId, string? Details, int? Rating, bool Favorite, bool IgnoreAutoTag, string? ImageBlob)>();
         await using (var cmd = conn.CreateCommand())
@@ -181,6 +279,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             id => byId[id].ParentId.HasValue ? [byId[id].ParentId!.Value] : (IEnumerable<int>)[]);
 
         var idMap = new Dictionary<int, int>();
+        progress.Report(startProgress, "Importing studios...");
         foreach (var stashId in ordered)
         {
             var row = byId[stashId];
@@ -202,6 +301,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             db.Studios.Add(entity);
             await db.SaveChangesAsync(ct);
             idMap[stashId] = entity.Id;
+
+            if (idMap.Count % 25 == 0 || idMap.Count == ordered.Count)
+                ReportPhase(progress, startProgress, endProgress, idMap.Count, ordered.Count, $"Importing studios ({idMap.Count}/{ordered.Count})");
         }
         logger.LogInformation("Imported {Count} studios", idMap.Count);
         return idMap;
@@ -209,7 +311,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Tags ──────────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<int, int>> ImportTagsAsync(SqliteConnection conn, Dictionary<string, string> blobMap, CancellationToken ct)
+    private async Task<Dictionary<int, int>> ImportTagsAsync(SqliteConnection conn, Dictionary<string, string> blobMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var rows = new List<(int Id, string Name, string? SortName, string? Description, bool Favorite, bool IgnoreAutoTag, string? ImageBlob)>();
         await using (var cmd = conn.CreateCommand())
@@ -242,6 +344,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             id => tagParents.GetValueOrDefault(id, []));
 
         var idMap = new Dictionary<int, int>();
+        progress.Report(startProgress, "Importing tags...");
         foreach (var stashId in ordered)
         {
             var row = byId[stashId];
@@ -258,6 +361,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             db.Tags.Add(entity);
             await db.SaveChangesAsync(ct);
             idMap[stashId] = entity.Id;
+
+            if (idMap.Count % 50 == 0 || idMap.Count == ordered.Count)
+                ReportPhase(progress, startProgress, endProgress, idMap.Count, ordered.Count, $"Importing tags ({idMap.Count}/{ordered.Count})");
         }
 
         // Add parent/child relations
@@ -281,7 +387,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Performers ────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<int, int>> ImportPerformersAsync(SqliteConnection conn, Dictionary<string, string> blobMap, Dictionary<int, int> tagIdMap, CancellationToken ct)
+    private async Task<Dictionary<int, int>> ImportPerformersAsync(SqliteConnection conn, Dictionary<string, string> blobMap, Dictionary<int, int> tagIdMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var rows = new List<(int Id, string Name, string? Disambiguation, string? Gender, string? Birthdate,
             string? Ethnicity, string? Country, string? EyeColor, string? HairColor, int? Height, int? Weight,
@@ -324,7 +430,10 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             }
         }
 
-        var idMap = new Dictionary<int, int>();
+        var idMap = new Dictionary<int, int>(rows.Count);
+        var batchEntities = new List<(int StashId, Performer Entity)>(200);
+        const int PerformerBatchSize = 200;
+        progress.Report(startProgress, "Importing performers...");
         foreach (var row in rows)
         {
             var (careerStart, careerEnd) = ParseCareerLength(row.CareerLength);
@@ -363,8 +472,31 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                     .Select(s => new PerformerRemoteId { Endpoint = s.Ep, RemoteId = s.Rid }).ToList(),
             };
             db.Performers.Add(entity);
+            batchEntities.Add((row.Id, entity));
+
+            if (batchEntities.Count >= PerformerBatchSize)
+            {
+                await db.SaveChangesAsync(ct);
+
+                foreach (var (stashId, performer) in batchEntities)
+                    idMap[stashId] = performer.Id;
+
+                batchEntities.Clear();
+                db.ChangeTracker.Clear();
+                ReportPhase(progress, startProgress, endProgress, idMap.Count, rows.Count, $"Importing performers ({idMap.Count}/{rows.Count})");
+            }
+        }
+
+        if (batchEntities.Count > 0)
+        {
             await db.SaveChangesAsync(ct);
-            idMap[row.Id] = entity.Id;
+
+            foreach (var (stashId, performer) in batchEntities)
+                idMap[stashId] = performer.Id;
+
+            batchEntities.Clear();
+            db.ChangeTracker.Clear();
+            ReportPhase(progress, startProgress, endProgress, idMap.Count, rows.Count, $"Importing performers ({idMap.Count}/{rows.Count})");
         }
         logger.LogInformation("Imported {Count} performers", idMap.Count);
         return idMap;
@@ -372,7 +504,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Groups ────────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<int, int>> ImportGroupsAsync(SqliteConnection conn, Dictionary<int, int> studioIdMap, CancellationToken ct)
+    private async Task<Dictionary<int, int>> ImportGroupsAsync(SqliteConnection conn, Dictionary<int, int> studioIdMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var rows = new List<(int Id, string Name, string? Aliases, int? Duration, string? Date,
             int? Rating, int? StudioId, string? Director, string? Description)>();
@@ -387,7 +519,10 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         }
         var urls = await ReadUrlsAsync(conn, "group_urls", "group_id", ct);
 
-        var idMap = new Dictionary<int, int>();
+        var idMap = new Dictionary<int, int>(rows.Count);
+        var batchEntities = new List<(int StashId, Cove.Core.Entities.Group Entity)>(100);
+        const int GroupBatchSize = 100;
+        progress.Report(startProgress, "Importing groups...");
         foreach (var row in rows)
         {
             var entity = new Cove.Core.Entities.Group
@@ -403,8 +538,31 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 Urls = urls.GetValueOrDefault(row.Id, []).Select(u => new GroupUrl { Url = u }).ToList(),
             };
             db.Groups.Add(entity);
+            batchEntities.Add((row.Id, entity));
+
+            if (batchEntities.Count >= GroupBatchSize)
+            {
+                await db.SaveChangesAsync(ct);
+
+                foreach (var (stashId, group) in batchEntities)
+                    idMap[stashId] = group.Id;
+
+                batchEntities.Clear();
+                db.ChangeTracker.Clear();
+                ReportPhase(progress, startProgress, endProgress, idMap.Count, rows.Count, $"Importing groups ({idMap.Count}/{rows.Count})");
+            }
+        }
+
+        if (batchEntities.Count > 0)
+        {
             await db.SaveChangesAsync(ct);
-            idMap[row.Id] = entity.Id;
+
+            foreach (var (stashId, group) in batchEntities)
+                idMap[stashId] = group.Id;
+
+            batchEntities.Clear();
+            db.ChangeTracker.Clear();
+            ReportPhase(progress, startProgress, endProgress, idMap.Count, rows.Count, $"Importing groups ({idMap.Count}/{rows.Count})");
         }
         logger.LogInformation("Imported {Count} groups", idMap.Count);
         return idMap;
@@ -417,6 +575,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         Dictionary<int, int> folderIdMap,
         Dictionary<int, int> studioIdMap, Dictionary<int, int> tagIdMap,
         Dictionary<int, int> performerIdMap, Dictionary<int, int> groupIdMap,
+        IJobProgress progress,
+        double startProgress,
+        double endProgress,
         CancellationToken ct)
     {
         // Load scene rows
@@ -537,6 +698,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         var idMap = new Dictionary<int, int>();
         const int SceneBatchSize = 50;
         var pendingBatch = new List<(int StashId, Scene Entity)>(SceneBatchSize);
+        progress.Report(startProgress, "Importing scenes...");
 
         void FlushSceneBatch()
         {
@@ -621,6 +783,8 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             {
                 await db.SaveChangesAsync(ct);
                 FlushSceneBatch();
+                db.ChangeTracker.Clear();
+                ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
                 logger.LogInformation("Imported {Count}/{Total} scenes...", count, sceneRows.Count);
             }
         }
@@ -628,6 +792,8 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         {
             await db.SaveChangesAsync(ct);
             FlushSceneBatch();
+            db.ChangeTracker.Clear();
+            ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
         }
         logger.LogInformation("Imported {Count} scenes", count);
 
@@ -654,7 +820,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Folders ───────────────────────────────────────────────────────────────
 
-    private async Task<Dictionary<int, int>> ImportFoldersAsync(SqliteConnection conn, CancellationToken ct)
+    private async Task<Dictionary<int, int>> ImportFoldersAsync(SqliteConnection conn, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var folderData = new Dictionary<int, (string Path, int? ParentId, DateTime ModTime, DateTime CreatedAt)>();
         await using (var cmd = conn.CreateCommand())
@@ -674,6 +840,8 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         var existingFoldersByPath = db.Folders
             .Where(f => allPaths.Contains(f.Path))
             .ToDictionary(f => f.Path, f => f.Id, StringComparer.OrdinalIgnoreCase);
+
+        progress.Report(startProgress, "Importing folders...");
 
         foreach (var stashFolderId in fOrdered)
         {
@@ -695,6 +863,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             await db.SaveChangesAsync(ct);
             folderIdMap[stashFolderId] = folder.Id;
             existingFoldersByPath[fd.Path] = folder.Id;
+
+            if (folderIdMap.Count % 100 == 0 || folderIdMap.Count == fOrdered.Count)
+                ReportPhase(progress, startProgress, endProgress, folderIdMap.Count, fOrdered.Count, $"Importing folders ({folderIdMap.Count}/{fOrdered.Count})");
         }
         logger.LogInformation("Imported {Count} folders", folderIdMap.Count);
         return folderIdMap;
@@ -705,7 +876,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
     private async Task<Dictionary<int, int>> ImportImagesAsync(
         SqliteConnection conn, Dictionary<int, int> folderIdMap,
         Dictionary<int, int> studioIdMap, Dictionary<int, int> tagIdMap,
-        Dictionary<int, int> performerIdMap, CancellationToken ct)
+        Dictionary<int, int> performerIdMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         if (!await TableExistsAsync(conn, "images", ct))
             return new Dictionary<int, int>();
@@ -761,6 +932,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
         var idMap = new Dictionary<int, int>(imageRows.Count);
         const int BatchSize = 500;
+        progress.Report(startProgress, "Importing images...");
 
         for (int i = 0; i < imageRows.Count; i += BatchSize)
         {
@@ -822,6 +994,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             foreach (var (stashId, entity) in batchEntities)
                 idMap[stashId] = entity.Id;
 
+            db.ChangeTracker.Clear();
+            ReportPhase(progress, startProgress, endProgress, idMap.Count, imageRows.Count, $"Importing images ({idMap.Count}/{imageRows.Count})");
+
             logger.LogInformation("Imported {Count}/{Total} images...", Math.Min(i + BatchSize, imageRows.Count), imageRows.Count);
         }
 
@@ -835,6 +1010,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         SqliteConnection conn, Dictionary<int, int> folderIdMap,
         Dictionary<int, int> studioIdMap, Dictionary<int, int> tagIdMap,
         Dictionary<int, int> performerIdMap, Dictionary<int, int> imageIdMap,
+        IJobProgress progress,
+        double startProgress,
+        double endProgress,
         CancellationToken ct)
     {
         if (!await TableExistsAsync(conn, "galleries", ct))
@@ -929,6 +1107,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         }
 
         int count = 0;
+        progress.Report(startProgress, "Importing galleries...");
         foreach (var row in galleryRows)
         {
             var stashId = row.StashId;
@@ -980,10 +1159,14 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             if (count % 100 == 0)
             {
                 await db.SaveChangesAsync(ct);
+                db.ChangeTracker.Clear();
+                ReportPhase(progress, startProgress, endProgress, count, total, $"Importing galleries ({count}/{total})");
                 logger.LogInformation("Imported {Count}/{Total} galleries...", count, total);
             }
         }
         await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+        ReportPhase(progress, startProgress, endProgress, count, total, $"Importing galleries ({count}/{total})");
         logger.LogInformation("Imported {Count} galleries", count);
         return count;
     }
@@ -1038,16 +1221,19 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Generated Content Copy ────────────────────────────────────────────────
 
-    private async Task CopyGeneratedContentAsync(string stashDbPath, Dictionary<int, SceneGeneratedData> sceneGeneratedMap, CancellationToken ct)
+    private async Task CopyGeneratedContentAsync(string stashDbPath, Dictionary<int, SceneGeneratedData> sceneGeneratedMap, StashImportOptions options, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         try
         {
+            progress.Report(startProgress, "Copying generated scene assets...");
             var configDir = Path.GetDirectoryName(stashDbPath)!;
             var configPath = Path.Combine(configDir, "config.yml");
-            if (!File.Exists(configPath)) return;
-
-            var stashConfig = ParseStashConfig(configPath);
-            var stashGeneratedPath = stashConfig.GeneratedPath;
+            var stashConfig = File.Exists(configPath)
+                ? ParseStashConfig(configPath)
+                : new StashConfigData([], null, "OSHASH");
+            var stashGeneratedPath = string.IsNullOrWhiteSpace(options.GeneratedPath)
+                ? stashConfig.GeneratedPath
+                : options.GeneratedPath;
             if (string.IsNullOrWhiteSpace(stashGeneratedPath) || !Directory.Exists(stashGeneratedPath))
             {
                 logger.LogWarning("Stash generated path not found: {Path}", stashGeneratedPath);
@@ -1084,9 +1270,12 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             int sourceSprites = 0, migratedSprites = 0;
             int sourceVtts = 0, migratedVtts = 0;
 
+            var processed = 0;
+            var totalScenes = sceneGeneratedMap.Count;
             foreach (var (coveSceneId, generatedData) in sceneGeneratedMap)
             {
                 ct.ThrowIfCancellationRequested();
+                processed++;
 
                 if (!string.IsNullOrWhiteSpace(generatedData.CoverBlobId))
                 {
@@ -1121,6 +1310,9 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                     if (TryCopyGeneratedFile(srcVttPath, GetCoveSceneSpriteVttPath(coveSceneId)))
                         migratedVtts++;
                 }
+
+                if (processed % 25 == 0 || processed == totalScenes)
+                    ReportPhase(progress, startProgress, endProgress, processed, totalScenes, $"Copying generated assets ({processed}/{totalScenes})");
             }
 
             logger.LogInformation(
@@ -1133,6 +1325,8 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 sourceSprites,
                 migratedVtts,
                 sourceVtts);
+
+            progress.Report(endProgress, "Generated scene assets copied");
         }
         catch (Exception ex)
         {
@@ -1325,6 +1519,21 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         return null;
     }
 
+    private static void ReportPhase(IJobProgress progress, double startProgress, double endProgress, int completed, int total, string subTask)
+    {
+        var ratio = total <= 0 ? 1 : Math.Clamp((double)completed / total, 0, 1);
+        progress.Report(startProgress + ((endProgress - startProgress) * ratio), subTask);
+    }
+
+    private static void TrimImportResultsLocked()
+    {
+        while (importResultOrder.Count > 20)
+        {
+            var oldestJobId = importResultOrder.Dequeue();
+            importResults.Remove(oldestJobId);
+        }
+    }
+
     private static IEnumerable<string?> EnumerateHashCandidates(SceneGeneratedData generatedData, string preferredAlgorithm)
     {
         if (string.Equals(preferredAlgorithm, "MD5", StringComparison.OrdinalIgnoreCase))
@@ -1378,6 +1587,11 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         {
             throw;
         }
+        catch (SixLabors.ImageSharp.InvalidImageContentException ex)
+        {
+            logger.LogWarning("Skipping corrupt scene screenshot for scene {SceneId} from blob {BlobId}: {Message}", sceneId, blobId, ex.Message);
+            return false;
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to migrate scene screenshot for scene {SceneId} from blob {BlobId}", sceneId, blobId);
@@ -1421,6 +1635,15 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             (0x52, 0x49, 0x46, 0x46) => "image/webp",
             _ => "image/jpeg",
         };
+    }
+
+    private sealed class NullJobProgress : IJobProgress
+    {
+        public static readonly NullJobProgress Instance = new();
+
+        public void Report(double progress, string? subTask = null)
+        {
+        }
     }
 
     private static GenderEnum? ParseGender(string? s) => s?.ToUpperInvariant() switch

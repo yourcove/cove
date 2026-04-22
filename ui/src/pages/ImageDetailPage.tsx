@@ -8,6 +8,7 @@ import { ImageEditModal } from "./ImageEditModal";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { InteractiveRating } from "../components/Rating";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 interface Props {
   id: number;
@@ -39,11 +40,12 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     mutationFn: () => images.decrementO(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["image", id] }),
   });
+  const displayTitle = image ? getImageDisplayTitle(image) : `Image ${id}`;
 
   useEffect(() => {
-    if (image) document.title = `${image.title || `Image ${id}`} | Cove`;
+    if (image) document.title = `${displayTitle} | Cove`;
     return () => { document.title = "Cove"; };
-  }, [image, id]);
+  }, [displayTitle, image]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -74,7 +76,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   return (
     <div className="-mx-6 -mt-5">
       {image && <ImageEditModal image={image} open={editing} onClose={() => setEditing(false)} />}
-      <ConfirmDialog open={confirmDelete} title="Delete Image" message={`Delete "${image.title || 'Untitled'}"? This cannot be undone.`} onConfirm={() => deleteMut.mutate()} onCancel={() => setConfirmDelete(false)} />
+      <ConfirmDialog open={confirmDelete} title="Delete Image" message={`Delete "${displayTitle}"? This cannot be undone.`} onConfirm={() => deleteMut.mutate()} onCancel={() => setConfirmDelete(false)} />
 
       {/* Lightbox overlay */}
       {lightboxOpen && (
@@ -95,9 +97,9 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       )}
 
       {/* Side-by-side layout: image left, metadata right */}
-      <div className="flex flex-col lg:flex-row lg:min-h-[calc(100vh-64px)]">
+      <div className="image-detail-layout">
         {/* Image viewer — fills available space */}
-        <div className="flex-1 min-w-0 bg-black/90 flex items-center justify-center relative group cursor-pointer" onClick={() => setLightboxOpen(true)}>
+        <div className="image-detail-viewer flex-1 min-w-0 min-h-[50vh] bg-black/90 flex items-center justify-center relative group">
           {/* Floating back button */}
           <button
             onClick={(e) => { e.stopPropagation(); onNavigate({ page: "images" }); }}
@@ -107,8 +109,9 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           </button>
           <img
             src={images.imageUrl(id)}
-            alt={image.title || "Image"}
-            className="w-full h-[calc(100vh-64px)] object-contain select-none"
+            alt={displayTitle}
+            className="image-detail-primary-image max-h-[calc(100vh-64px)] max-w-full object-contain select-none cursor-zoom-in"
+            onClick={() => setLightboxOpen(true)}
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = "none";
               (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="flex items-center justify-center h-64"><span class="text-muted">Image unavailable</span></div>';
@@ -124,11 +127,11 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         </div>
 
         {/* Right sidebar — all metadata */}
-        <aside className="w-full lg:w-80 xl:w-96 shrink-0 bg-surface border-l border-border overflow-y-auto lg:max-h-[calc(100vh-64px)]">
+        <aside className="image-detail-sidebar shrink-0 bg-surface overflow-y-auto">
           <div className="p-4 space-y-4 divide-y divide-border [&>*:not(:first-child)]:pt-4">
             {/* Title + action buttons */}
             <div>
-              <h1 className="text-lg font-bold text-foreground break-words">{image.title || "Untitled"}</h1>
+              <h1 className="text-lg font-bold text-foreground break-words">{displayTitle}</h1>
               <div className="flex flex-wrap items-center gap-2 text-sm text-secondary mt-1">
                 {image.date && <span>{formatDate(image.date)}</span>}
                 {image.studioName && image.studioId && <button onClick={() => onNavigate({ page: "studio", id: image.studioId })} className="text-accent hover:underline">{image.studioName}</button>}

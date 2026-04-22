@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Film, FolderOpen, ImageIcon, Layers, Loader2, Search, Tag, Users } from "lucide-react";
 import { galleries, groups, images, performers, scenes, studios, tags } from "../api/client";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 interface Props {
   navigate: (r: any) => void;
@@ -107,7 +108,7 @@ export function GlobalSearch({ navigate }: Props) {
           icon: ImageIcon,
           items: imageRes.items.map((item) => ({
             id: item.id,
-            title: item.title || `Image ${item.id}`,
+            title: getImageDisplayTitle(item),
             subtitle: item.studioName || item.date || undefined,
             route: { page: "image", id: item.id },
           })),

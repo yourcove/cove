@@ -281,7 +281,7 @@ function GroupScenesPanel({ groupId, filter, setFilter, onNavigate }: {
           { value: "title", label: "Title" },
           { value: "date", label: "Date" },
           { value: "rating", label: "Rating" },
-          { value: "created_at", label: "Created" },
+          { value: "created_at", label: "Created At" },
         ]}
         zoomLevel={zoomLevel}
         onZoomChange={setZoomLevel}

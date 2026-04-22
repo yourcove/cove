@@ -278,12 +278,16 @@ export function Lightbox({
 
       {/* Image container */}
       <div
-        className="h-[85vh] w-[90vw] overflow-hidden select-none"
+        className="relative flex h-[85vh] w-[90vw] items-center justify-center overflow-hidden select-none"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        style={{ cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in" }}
       >
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -302,9 +306,10 @@ export function Lightbox({
             }
           }}
           onLoad={() => setLoading(false)}
-          className="h-[85vh] w-[90vw] object-contain transition-transform duration-200 ease-out"
+          className="max-h-full max-w-full object-contain transition-transform duration-200 ease-out"
           style={{
             transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+            cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
             opacity: loading ? 0 : 1,
           }}
         />

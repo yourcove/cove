@@ -20,7 +20,7 @@ const SORT_OPTIONS = [
   { value: "name", label: "Name" },
   { value: "scene_count", label: "Scene Count" },
   { value: "random", label: "Random" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "created_at", label: "Created At" },
 ];
 
 interface Props {

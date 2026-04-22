@@ -27,22 +27,22 @@ interface Props {
 type TabKey = "scenes" | "galleries" | "images" | "groups" | "appearsWith" | (string & {});
 
 const IMAGE_SORT = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "updated_at", label: "Updated At" },
+  { value: "created_at", label: "Created At" },
   { value: "title", label: "Title" },
   { value: "rating", label: "Rating" },
   { value: "random", label: "Random" },
 ];
 const GALLERY_SORT = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "updated_at", label: "Updated At" },
+  { value: "created_at", label: "Created At" },
   { value: "title", label: "Title" },
   { value: "random", label: "Random" },
 ];
 const GROUP_SORT = [
   { value: "name", label: "Name" },
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "updated_at", label: "Updated At" },
+  { value: "created_at", label: "Created At" },
   { value: "random", label: "Random" },
 ];
 

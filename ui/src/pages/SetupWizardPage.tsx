@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { system, stashMigration } from "../api/client";
-import type { StashPreviewResult, StashImportResult } from "../api/client";
-import type { CoveConfig, CovePathConfig } from "../api/types";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { jobs, system, stashMigration } from "../api/client";
+import type { StashPreviewResult, StashImportOptions, StashImportResult } from "../api/client";
+import type { CoveConfig, CovePathConfig, JobInfo } from "../api/types";
 import {
   FolderOpen,
   Plus,
@@ -35,7 +35,14 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const [stashDbPath, setStashDbPath] = useState("");
   const [stashPreview, setStashPreview] = useState<StashPreviewResult | null>(null);
   const [stashResult, setStashResult] = useState<StashImportResult | null>(null);
+  const [stashImportJobId, setStashImportJobId] = useState<string | null>(null);
+  const [stashGeneratedPath, setStashGeneratedPath] = useState("");
+  const [migrateGeneratedContent, setMigrateGeneratedContent] = useState(true);
   const queryClient = useQueryClient();
+  const stashImportOptions: StashImportOptions = {
+    generatedPath: stashGeneratedPath.trim() || undefined,
+    migrateGeneratedContent,
+  };
 
   const stashPreviewMut = useMutation({
     mutationFn: () => stashMigration.preview(stashDbPath),
@@ -43,10 +50,55 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     onError: (err: Error) => setError(err.message),
   });
   const stashImportMut = useMutation({
-    mutationFn: () => stashMigration.import(stashDbPath),
-    onSuccess: (data) => { setStashResult(data); setStep("done"); queryClient.invalidateQueries(); },
+    mutationFn: () => stashMigration.startImport(stashDbPath, stashImportOptions),
+    onSuccess: ({ jobId }) => {
+      setError(null);
+      setStashResult(null);
+      setStashImportJobId(jobId);
+    },
     onError: (err: Error) => setError(err.message),
   });
+
+  const stashImportJobQuery = useQuery({
+    queryKey: ["setup", "stash-import-job", stashImportJobId],
+    queryFn: () => jobs.get(stashImportJobId!),
+    enabled: stashImportJobId !== null,
+    retry: false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "pending" || status === "running" ? 1000 : false;
+    },
+  });
+
+  const stashImportResultQuery = useQuery({
+    queryKey: ["setup", "stash-import-result", stashImportJobId],
+    queryFn: () => stashMigration.importResult(stashImportJobId!),
+    enabled: stashImportJobId !== null && stashImportJobQuery.data?.status === "completed",
+    retry: false,
+    refetchInterval: (query) => (query.state.data ? false : 500),
+  });
+
+  useEffect(() => {
+    if (!stashImportResultQuery.data) return;
+    setError(null);
+    setStashResult(stashImportResultQuery.data);
+    setStep("done");
+    queryClient.invalidateQueries();
+  }, [queryClient, stashImportResultQuery.data]);
+
+  useEffect(() => {
+    const job = stashImportJobQuery.data;
+    if (!job) return;
+
+    if (job.status === "failed") {
+      setError(job.error ?? "Stash import failed.");
+    } else if (job.status === "cancelled") {
+      setError("Stash import was cancelled.");
+    }
+  }, [stashImportJobQuery.data]);
+
+  const activeStashImportJob = stashImportJobQuery.data;
+  const isStashImportActive = activeStashImportJob?.status === "pending" || activeStashImportJob?.status === "running";
 
   const saveMut = useMutation({
     mutationFn: (cfg: CoveConfig) => system.saveConfig(cfg),
@@ -84,7 +136,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       <div className="w-full max-w-2xl">
         {/* Progress indicator */}
         {(() => {
-          const isStashPath = ["stash-config"].includes(step) || stashResult !== null;
+          const isStashPath = ["stash-config"].includes(step) || stashResult !== null || stashImportJobId !== null;
           const freshSteps: Step[] = ["welcome", "source", "paths", "confirm", "done"];
           const stashSteps: Step[] = ["welcome", "source", "stash-config", "done"];
           const stepList = isStashPath ? stashSteps : freshSteps;
@@ -185,18 +237,53 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       value={stashDbPath}
                       onChange={(e) => { setStashDbPath(e.target.value); setStashPreview(null); }}
                       placeholder="/path/to/stash-go.sqlite"
+                      disabled={isStashImportActive}
                       className="flex-1 bg-transparent outline-none text-sm text-foreground"
                     />
                   </div>
                   <button
                     onClick={() => { setError(null); stashPreviewMut.mutate(); }}
-                    disabled={stashDbPath.trim() === "" || stashPreviewMut.isPending}
+                    disabled={stashDbPath.trim() === "" || stashPreviewMut.isPending || isStashImportActive}
                     className="px-4 py-2 text-sm bg-card border border-border hover:border-accent text-foreground rounded-lg disabled:opacity-50 transition-colors flex items-center gap-1.5"
                   >
                     {stashPreviewMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                     Preview
                   </button>
                 </div>
+
+                <details className="bg-card border border-border rounded-xl" open={false}>
+                  <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-foreground">
+                    Optional import settings
+                  </summary>
+                  <div className="border-t border-border px-4 py-4 space-y-4">
+                    <label className="flex items-start gap-3 text-sm text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={migrateGeneratedContent}
+                        onChange={(e) => setMigrateGeneratedContent(e.target.checked)}
+                        disabled={isStashImportActive}
+                        className="mt-0.5 h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
+                      />
+                      <span>
+                        <span className="block font-medium text-foreground">Migrate generated content</span>
+                        <span className="block text-xs text-muted">Copy Stash screenshots, previews, sprite sheets, and VTT files into Cove. Enabled by default.</span>
+                      </span>
+                    </label>
+
+                    <label className="block text-sm text-secondary">
+                      <span className="block mb-1 font-medium text-foreground">Generated content source path</span>
+                      <input
+                        type="text"
+                        value={stashGeneratedPath}
+                        onChange={(e) => setStashGeneratedPath(e.target.value)}
+                        placeholder="Leave blank to use the generated path from Stash config.yml"
+                        disabled={isStashImportActive || !migrateGeneratedContent}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none disabled:opacity-60"
+                      />
+                      <span className="block mt-1 text-xs text-muted">Use this when your Stash generated assets live somewhere other than the path recorded in config.yml.</span>
+                    </label>
+                  </div>
+                </details>
 
                 {stashPreview && (
                   <div className="bg-card border border-border rounded-xl p-4">
@@ -219,6 +306,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   </div>
                 )}
 
+                {activeStashImportJob && (
+                  <SetupImportProgressCard job={activeStashImportJob} />
+                )}
+
                 {error && (
                   <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 text-sm text-red-300">{error}</div>
                 )}
@@ -227,16 +318,17 @@ export function SetupWizardPage({ config, onComplete }: Props) {
               <div className="flex justify-between mt-6">
                 <button
                   onClick={() => { setStep("source"); setStashPreview(null); setError(null); }}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
+                  disabled={isStashImportActive}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
                 <button
                   onClick={() => { setError(null); stashImportMut.mutate(); }}
-                  disabled={!stashPreview || stashImportMut.isPending}
+                  disabled={!stashPreview || stashImportMut.isPending || isStashImportActive}
                   className="inline-flex items-center gap-2 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {stashImportMut.isPending ? (
+                  {stashImportMut.isPending || isStashImportActive ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Importing…</>
                   ) : (
                     <>Import <ChevronRight className="w-4 h-4" /></>
@@ -441,6 +533,90 @@ export function SetupWizardPage({ config, onComplete }: Props) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function formatJobDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins.toString().padStart(2, "0")}m`;
+}
+
+function SetupImportProgressCard({ job }: { job: JobInfo }) {
+  const [now, setNow] = useState(Date.now());
+  const progressHistory = useRef<{ time: number; progress: number }[]>([]);
+
+  useEffect(() => {
+    if (job.status !== "running") return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [job.status]);
+
+  useEffect(() => {
+    if (job.status === "running" && job.progress > 0) {
+      const history = progressHistory.current;
+      const currentTime = Date.now();
+      history.push({ time: currentTime, progress: job.progress });
+
+      const cutoff = currentTime - 30000;
+      while (history.length > 0 && history[0].time < cutoff) history.shift();
+    }
+  }, [job.progress, job.status]);
+
+  const progressPct = Math.round((job.progress ?? 0) * 100);
+  const elapsedMs = now - new Date(job.startedAt).getTime();
+
+  let etaMs: number | null = null;
+  const history = progressHistory.current;
+  if (history.length >= 2 && job.progress >= 0.01) {
+    const first = history[0];
+    const last = history[history.length - 1];
+    const dt = last.time - first.time;
+    const dp = last.progress - first.progress;
+    if (dt > 1000 && dp > 0) {
+      const rate = dp / dt;
+      etaMs = (1.0 - last.progress) / rate;
+    }
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-foreground">{job.description}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${
+          job.status === "running"
+            ? "bg-green-600/20 text-green-300"
+            : job.status === "pending"
+            ? "bg-yellow-600/20 text-yellow-300"
+            : job.status === "failed"
+            ? "bg-red-600/20 text-red-300"
+            : "bg-card text-muted"
+        }`}>
+          {job.status}
+        </span>
+      </div>
+      <p className="text-xs text-muted mt-1 truncate">{job.subTask ?? (job.status === "pending" ? "Waiting for import job to start..." : "Preparing import...")}</p>
+      {(job.status === "running" || job.status === "pending") && (
+        <>
+          <div className="mt-3 h-2 w-full rounded-full bg-surface overflow-hidden">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.min(progressPct, 100)}%` }} />
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-xs text-muted">
+              {progressPct}% · {formatJobDuration(elapsedMs)} elapsed
+            </span>
+            {etaMs != null && (
+              <span className="text-xs text-muted">~{formatJobDuration(etaMs)} remaining</span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

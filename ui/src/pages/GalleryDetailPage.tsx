@@ -16,6 +16,7 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 interface Props {
   id: number;
@@ -425,7 +426,7 @@ function GalleryScenesPanel({ galleryId, filter, setFilter, onNavigate }: {
           { value: "title", label: "Title" },
           { value: "date", label: "Date" },
           { value: "rating", label: "Rating" },
-          { value: "created_at", label: "Created" },
+          { value: "created_at", label: "Created At" },
         ]}
         zoomLevel={zoomLevel}
         onZoomChange={setZoomLevel}
@@ -450,7 +451,7 @@ function GalleryScenesPanel({ galleryId, filter, setFilter, onNavigate }: {
 const IMAGE_SORT = [
   { label: "Title", value: "title" },
   { label: "Rating", value: "rating" },
-  { label: "Created", value: "created_at" },
+  { label: "Created At", value: "created_at" },
 ];
 
 function GalleryImagesPanel({ galleryId, filter, setFilter, onNavigate, galleryImages, onShowAddImages, onLightbox, removeImagesMut, imageZoom, setImageZoom }: {
@@ -723,10 +724,10 @@ function AddImagesDialog({ galleryId, existingImageIds, onAdd, onClose, isPendin
                     </div>
                   )}
                   <div className="aspect-square overflow-hidden bg-surface">
-                    <img src={images.thumbnailUrl(image.id)} alt={image.title || ""} className="h-full w-full object-cover" loading="lazy" />
+                    <img src={images.thumbnailUrl(image.id)} alt={getImageDisplayTitle(image)} className="h-full w-full object-cover" loading="lazy" />
                   </div>
                   <div className="p-1.5">
-                    <p className="truncate text-xs text-foreground">{image.title || "Untitled"}</p>
+                    <p className="truncate text-xs text-foreground">{getImageDisplayTitle(image)}</p>
                   </div>
                 </button>
               ))}

@@ -142,13 +142,41 @@ public class PerformerRepository : IPerformerRepository
 
             // Multi-ID criteria
             query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, p => p.PerformerTags.Select(pt => pt.TagId));
-            query = FilterHelpers.ApplyMultiId(
-                query,
-                filter.StudiosCriterion,
-                p => p.ScenePerformers
-                    .Where(sp => sp.Scene != null && sp.Scene.StudioId.HasValue)
-                    .Select(sp => sp.Scene!.StudioId!.Value),
-                expandedStudios?.ValueGroups);
+            if (filter.StudiosCriterion is { Modifier: CriterionModifier.IncludesAll, Value.Count: > 0 } studiosCriterion)
+            {
+                if (expandedStudios?.ValueGroups is { Count: > 0 } studioGroups)
+                {
+                    foreach (var studioGroup in studioGroups.Where(group => group.Length > 0))
+                    {
+                        var requiredGroup = studioGroup;
+                        query = query.Where(p => p.ScenePerformers.Any(sp => sp.Scene != null && sp.Scene.StudioId.HasValue && requiredGroup.Contains(sp.Scene.StudioId.Value)));
+                    }
+                }
+                else
+                {
+                    foreach (var studioId in studiosCriterion.Value.Distinct())
+                    {
+                        var requiredStudioId = studioId;
+                        query = query.Where(p => p.ScenePerformers.Any(sp => sp.Scene != null && sp.Scene.StudioId == requiredStudioId));
+                    }
+                }
+
+                if (studiosCriterion.Excludes?.Count > 0)
+                {
+                    var excludedStudioIds = studiosCriterion.Excludes.Distinct().ToArray();
+                    query = query.Where(p => !p.ScenePerformers.Any(sp => sp.Scene != null && sp.Scene.StudioId.HasValue && excludedStudioIds.Contains(sp.Scene.StudioId.Value)));
+                }
+            }
+            else
+            {
+                query = FilterHelpers.ApplyMultiId(
+                    query,
+                    filter.StudiosCriterion,
+                    p => p.ScenePerformers
+                        .Where(sp => sp.Scene != null && sp.Scene.StudioId.HasValue)
+                        .Select(sp => sp.Scene!.StudioId!.Value),
+                    expandedStudios?.ValueGroups);
+            }
 
             // Date criteria
             query = FilterHelpers.ApplyDate(query, filter.BirthdateCriterion, p => p.Birthdate);
@@ -205,6 +233,24 @@ public class PerformerRepository : IPerformerRepository
                     CriterionModifier.IsNull => query.Where(p => p.Aliases.Count == 0),
                     CriterionModifier.NotNull => query.Where(p => p.Aliases.Count > 0),
                     _ => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
+                };
+            }
+
+            if (filter.RemoteIdValueCriterion != null)
+            {
+                var remoteIdValue = filter.RemoteIdValueCriterion.Value?.Trim() ?? string.Empty;
+
+                query = filter.RemoteIdValueCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals when remoteIdValue.Length > 0 => query.Where(p => p.RemoteIds.Any(sid => sid.RemoteId == remoteIdValue)),
+                    CriterionModifier.NotEquals when remoteIdValue.Length > 0 => query.Where(p => !p.RemoteIds.Any(sid => sid.RemoteId == remoteIdValue)),
+                    CriterionModifier.Includes when remoteIdValue.Length > 0 => query.Where(p => p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.Excludes when remoteIdValue.Length > 0 => query.Where(p => !p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.IsNull when remoteIdValue.Length > 0 => query.Where(p => !p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.NotNull when remoteIdValue.Length > 0 => query.Where(p => p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.IsNull => query.Where(p => p.RemoteIds.Count == 0),
+                    CriterionModifier.NotNull => query.Where(p => p.RemoteIds.Count > 0),
+                    _ => query,
                 };
             }
 

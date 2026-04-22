@@ -181,6 +181,7 @@ public class PerformerFilter
     public IntCriterion? HeightCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
     public StringCriterion? RemoteIdCriterion { get; set; }
+    public StringCriterion? RemoteIdValueCriterion { get; set; }
     public StringCriterion? DisambiguationCriterion { get; set; }
     public StringCriterion? DetailsCriterion { get; set; }
     public StringCriterion? EyeColorCriterion { get; set; }

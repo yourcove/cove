@@ -5,6 +5,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
@@ -82,6 +83,9 @@ INSERT INTO performers_tags (performer_id, tag_id) VALUES (1, 7);
             stash,
             new Dictionary<string, string>(),
             new Dictionary<int, int> { [7] = tag.Id },
+            NullJobProgress.Instance,
+            0d,
+            1d,
             CancellationToken.None);
 
         var performer = await context.Performers.Include(p => p.PerformerTags).SingleAsync();
@@ -166,6 +170,9 @@ VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
             new Dictionary<int, int>(),
             new Dictionary<int, int>(),
             new Dictionary<int, int>(),
+            NullJobProgress.Instance,
+            0d,
+            1d,
             CancellationToken.None);
 
         var scene = await context.Scenes.Include(s => s.Files).SingleAsync();
@@ -233,6 +240,9 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
             new Dictionary<int, int>(),
             new Dictionary<int, int>(),
             new Dictionary<int, int>(),
+            NullJobProgress.Instance,
+            0d,
+            1d,
             CancellationToken.None);
 
         Assert.Equal(1, Assert.IsType<int>(result));
@@ -244,7 +254,15 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
     {
         var config = new CoveConfiguration();
         var configService = new ConfigService(config, NullLogger<ConfigService>.Instance);
-        return new StashMigrationService(context, new NullBlobService(), configService, config, NullLogger<StashMigrationService>.Instance);
+        var scopeFactory = new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+        return new StashMigrationService(
+            context,
+            new NullBlobService(),
+            configService,
+            config,
+            new NullJobService(),
+            scopeFactory,
+            NullLogger<StashMigrationService>.Instance);
     }
 
     private static async Task<object?> InvokePrivateAsync(object target, string methodName, params object?[] args)
@@ -287,6 +305,29 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
             modelBuilder.Entity<Performer>().Ignore(performer => performer.CustomFields);
             modelBuilder.Entity<Gallery>().Ignore(gallery => gallery.CustomFields);
             modelBuilder.Entity<Group>().Ignore(group => group.CustomFields);
+        }
+    }
+
+    private sealed class NullJobService : IJobService
+    {
+        public bool Cancel(string jobId) => false;
+
+        public string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true)
+            => throw new NotSupportedException();
+
+        public IReadOnlyList<JobInfo> GetAllJobs() => [];
+
+        public JobInfo? GetJob(string jobId) => null;
+
+        public IReadOnlyList<JobInfo> GetJobHistory() => [];
+    }
+
+    private sealed class NullJobProgress : IJobProgress
+    {
+        public static readonly NullJobProgress Instance = new();
+
+        public void Report(double progress, string? subTask = null)
+        {
         }
     }
 

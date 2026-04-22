@@ -90,7 +90,13 @@ public class JobService : IJobService, IHostedService
 
     public JobInfo? GetJob(string jobId)
     {
-        lock (_lock) { return _jobs.TryGetValue(jobId, out var e) ? e.ToInfo() : null; }
+        lock (_lock)
+        {
+            if (_jobs.TryGetValue(jobId, out var entry))
+                return entry.ToInfo();
+
+            return _history.FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     public IReadOnlyList<JobInfo> GetAllJobs()

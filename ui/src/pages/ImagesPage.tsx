@@ -15,10 +15,11 @@ import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 const SORT_OPTIONS = [
-  { value: "updated_at", label: "Recently Updated" },
-  { value: "created_at", label: "Recently Added" },
+  { value: "updated_at", label: "Updated At" },
+  { value: "created_at", label: "Created At" },
   { value: "title", label: "Title" },
   { value: "rating", label: "Rating" },
   { value: "o_counter", label: "Favorites" },
@@ -66,7 +67,7 @@ export function ImagesPage({ onNavigate }: Props) {
   const selecting = selectedIds.size > 0;
 
   const lightboxImages: LightboxImage[] = useMemo(
-    () => items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: img.title })),
+    () => items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: getImageDisplayTitle(img) })),
     [items],
   );
 
@@ -188,6 +189,7 @@ export function ImagesPage({ onNavigate }: Props) {
 
 function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect, selecting, onQuickView }: { image: Image; onPreview: () => void; onDetails: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean; onQuickView?: () => void }) {
   const thumbnailUrl = images.thumbnailUrl(image.id);
+  const displayTitle = getImageDisplayTitle(image);
 
   return (
     <div
@@ -199,7 +201,7 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
         </div>
         <img
           src={thumbnailUrl}
-          alt={image.title || "Image"}
+          alt={displayTitle}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           loading="lazy"
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -222,7 +224,7 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
       </div>
       <div className="card-body border-t border-border/50 p-1.5" onClick={onDetails}>
         <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">
-          {image.title || "Untitled"}
+          {displayTitle}
         </p>
       </div>
       {(image.performers.length > 0 || image.tags.length > 0 || image.oCounter > 0 || image.galleryCount > 0 || image.organized) && (
@@ -274,15 +276,17 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
 
 function ImageWallCard({ image, onClick }: { image: Image; onClick: () => void }) {
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
+  const displayTitle = getImageDisplayTitle(image);
 
   return (
     <div
       {...navigationHandlers}
       className="break-inside-avoid cursor-pointer rounded overflow-hidden border border-border hover:border-accent/60 transition-all"
+      title={displayTitle}
     >
       <img
         src={images.thumbnailUrl(image.id)}
-        alt={image.title || "Image"}
+        alt={displayTitle}
         className="w-full object-cover"
         loading="lazy"
       />

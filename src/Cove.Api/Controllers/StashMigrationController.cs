@@ -8,7 +8,7 @@ namespace Cove.Api.Controllers;
 public class StashMigrationController(StashMigrationService migrationService) : ControllerBase
 {
     public record PreviewRequest(string StashDbPath);
-    public record ImportRequest(string StashDbPath);
+    public record ImportRequest(string StashDbPath, string? GeneratedPath, bool MigrateGeneratedContent = true);
 
     [HttpPost("preview")]
     public async Task<ActionResult<StashPreviewResult>> Preview([FromBody] PreviewRequest req, CancellationToken ct)
@@ -20,13 +20,12 @@ public class StashMigrationController(StashMigrationService migrationService) : 
     }
 
     [HttpPost("import")]
-    public async Task<ActionResult<StashImportResult>> Import([FromBody] ImportRequest req, CancellationToken ct)
+    public ActionResult<object> Import([FromBody] ImportRequest req)
     {
         try
         {
-            // Use a non-request CT so client disconnect doesn't abort a long-running migration
-            var result = await migrationService.ImportAsync(req.StashDbPath, CancellationToken.None);
-            return Ok(result);
+            var jobId = migrationService.StartImport(req.StashDbPath, new StashImportOptions(req.GeneratedPath, req.MigrateGeneratedContent));
+            return Accepted(new { jobId });
         }
         catch (StashMigrationInProgressException ex)
         {
@@ -44,5 +43,12 @@ public class StashMigrationController(StashMigrationService migrationService) : 
         {
             return StatusCode(500, new { error = ex.Message });
         }
+    }
+
+    [HttpGet("import/{jobId}")]
+    public ActionResult<StashImportResult> GetImportResult(string jobId)
+    {
+        var result = migrationService.GetImportResult(jobId);
+        return result != null ? Ok(result) : NotFound();
     }
 }

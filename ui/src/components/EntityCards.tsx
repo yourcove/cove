@@ -7,6 +7,7 @@ import { formatDuration, formatFileSize, getResolutionLabel } from "./shared";
 import { RatingBanner, RatingBadge } from "./Rating";
 import { Building2, FolderOpen, Layers, Tag, User, Film, MapPin, Box, Images as ImagesIcon, Heart, Eye } from "lucide-react";
 import { createCardNavigationHandlers, createNestedCardNavigationHandlers } from "./cardNavigation";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 function createNestedEntityNavigationHandlers<T extends HTMLElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
   return createNestedCardNavigationHandlers<T>(route, () => onNavigate?.(route));
@@ -681,10 +682,11 @@ interface ImageTileProps {
 export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, onSelect, selecting }: ImageTileProps) {
   const hasFooter = (image.tags?.length ?? 0) > 0 || (image.performers?.length ?? 0) > 0 || image.oCounter > 0 || image.organized;
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
+  const displayTitle = getImageDisplayTitle(image);
   return (
     <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       <div className="aspect-square overflow-hidden bg-surface relative">
-        <img src={images.thumbnailUrl(image.id)} alt={image.title || ""} className="h-full w-full object-cover" loading="lazy" />
+        <img src={images.thumbnailUrl(image.id)} alt={displayTitle} className="h-full w-full object-cover" loading="lazy" />
         <RatingBanner rating={image.rating} />
         {(selected !== undefined || selecting) && (
           <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
@@ -705,7 +707,7 @@ export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, o
         )}
       </div>
       <div className="card-body border-t border-border/50 p-2 flex-1 flex flex-col gap-1">
-        <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent">{image.title || "Untitled"}</p>
+        <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent">{displayTitle}</p>
       </div>
       {hasFooter && (
         <>

@@ -3,6 +3,7 @@ import { scenes, images, entityImages } from "../api/client";
 import { formatDuration, formatFileSize, formatDate, getResolutionLabel, TagBadge } from "./shared";
 import { X, Play, ExternalLink, Star, User, Tag, Building2, Calendar, Film, Clock, HardDrive, Monitor } from "lucide-react";
 import { RatingBadge } from "./Rating";
+import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 interface SceneQuickViewProps {
   type: "scene";
@@ -189,12 +190,13 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
   }
 
   const fileUrl = image.urls?.[0];
+  const displayTitle = getImageDisplayTitle(image);
 
   return (
     <Overlay onClose={onClose}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-        <h2 className="text-lg font-semibold text-foreground truncate pr-4">{image.title || "Untitled"}</h2>
+        <h2 className="text-lg font-semibold text-foreground truncate pr-4">{displayTitle}</h2>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => { onClose(); onNavigate({ page: "image", id }); }}

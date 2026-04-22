@@ -536,6 +536,10 @@ export interface StashImportResult {
   images: number;
   galleries: number;
 }
+export interface StashImportOptions {
+  generatedPath?: string;
+  migrateGeneratedContent?: boolean;
+}
 export const stashMigration = {
   preview: (stashDbPath: string) =>
     request<StashPreviewResult>("/stash-migration/preview", {
@@ -543,12 +547,17 @@ export const stashMigration = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stashDbPath }),
     }),
-  import: (stashDbPath: string) =>
-    request<StashImportResult>("/stash-migration/import", {
+  startImport: (stashDbPath: string, options?: StashImportOptions) =>
+    request<{ jobId: string }>("/stash-migration/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stashDbPath }),
+      body: JSON.stringify({
+        stashDbPath,
+        generatedPath: options?.generatedPath,
+        migrateGeneratedContent: options?.migrateGeneratedContent ?? true,
+      }),
     }),
+  importResult: (jobId: string) => requestOptional<StashImportResult>(`/stash-migration/import/${jobId}`),
 };
 
 // ===== Logs =====

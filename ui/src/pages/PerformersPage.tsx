@@ -33,8 +33,8 @@ const SORT_OPTIONS = [
   { value: "birthdate", label: "Birthdate" },
   { value: "height", label: "Height" },
   { value: "weight", label: "Weight" },
-  { value: "created_at", label: "Recently Added" },
-  { value: "updated_at", label: "Recently Updated" },
+  { value: "created_at", label: "Created At" },
+  { value: "updated_at", label: "Updated At" },
   { value: "random", label: "Random" },
 ];
 
