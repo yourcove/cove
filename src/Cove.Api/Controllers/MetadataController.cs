@@ -19,7 +19,6 @@ public class MetadataController(
     IThumbnailService thumbnailService,
     IFingerprintService fingerprintService,
     IServiceScopeFactory scopeFactory,
-    CoveContext db,
     CoveConfiguration config,
     ILogger<MetadataController> logger) : ControllerBase
 {

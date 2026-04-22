@@ -25,7 +25,7 @@ public class PluginsController(
             .Select(ext => new PluginDto(
                 ext.Id,
                 ext.Name,
-                ext.Description,
+                ext.Description ?? string.Empty,
                 ext.Version,
                 !config.DisabledPlugins.Contains(ext.Id),
                 GetPluginTasks(ext)
