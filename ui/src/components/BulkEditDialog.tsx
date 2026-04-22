@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, Plus, Minus } from "lucide-react";
+import { InteractiveRating } from "./Rating";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi } from "../api/client";
 import type { BulkUpdateMode } from "../api/types";
 
@@ -9,10 +10,12 @@ import type { BulkUpdateMode } from "../api/types";
 interface BulkEditField {
   key: string;
   label: string;
-  type: "number" | "bool" | "string" | "date" | "select" | "multiId";
+  type: "rating" | "number" | "bool" | "string" | "date" | "select" | "multiId";
   entityType?: "tags" | "performers" | "studios" | "groups";
   options?: { label: string; value: string | number }[];
+  modeKey?: string;
   nullable?: boolean;
+  serializeValue?: (value: unknown) => unknown;
 }
 
 interface BulkEditDialogProps {
@@ -29,14 +32,19 @@ export function BulkEditDialog({ open, onClose, title, selectedCount, fields, on
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set());
 
-  const toggleField = (key: string) => {
+  const toggleField = (field: BulkEditField) => {
     setEnabledFields((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-        setValues((v) => { const { [key]: _, [`${key}Mode`]: __, ...rest } = v; return rest; });
+      if (next.has(field.key)) {
+        next.delete(field.key);
+        setValues((currentValues) => {
+          const nextValues = { ...currentValues };
+          delete nextValues[field.key];
+          delete nextValues[getModeKey(field)];
+          return nextValues;
+        });
       } else {
-        next.add(key);
+        next.add(field.key);
       }
       return next;
     });
@@ -50,9 +58,9 @@ export function BulkEditDialog({ open, onClose, title, selectedCount, fields, on
     const result: Record<string, unknown> = {};
     for (const f of fields) {
       if (enabledFields.has(f.key)) {
-        result[f.key] = values[f.key];
+        result[f.key] = serializeBulkFieldValue(f, values[f.key]);
         if (f.type === "multiId") {
-          result[`${f.key}Mode`] = values[`${f.key}Mode`] ?? "ADD";
+          result[getModeKey(f)] = values[getModeKey(f)] ?? "ADD";
         }
       }
     }
@@ -79,11 +87,11 @@ export function BulkEditDialog({ open, onClose, title, selectedCount, fields, on
               key={field.key}
               field={field}
               enabled={enabledFields.has(field.key)}
-              onToggle={() => toggleField(field.key)}
+              onToggle={() => toggleField(field)}
               value={values[field.key]}
-              mode={(values[`${field.key}Mode`] as BulkUpdateMode) ?? "ADD"}
+              mode={(values[getModeKey(field)] as BulkUpdateMode) ?? "ADD"}
               onValueChange={(v) => updateValue(field.key, v)}
-              onModeChange={(m) => updateValue(`${field.key}Mode`, m)}
+              onModeChange={(m) => updateValue(getModeKey(field), m)}
             />
           ))}
         </div>
@@ -137,6 +145,11 @@ function BulkFieldEditor({
       </label>
       {enabled && (
         <div className="ml-6 mt-1">
+          {field.type === "rating" && (
+            <div className="rounded border border-border bg-input px-3 py-2">
+              <InteractiveRating value={value as number | undefined} onChange={(nextValue) => onValueChange(nextValue || undefined)} />
+            </div>
+          )}
           {field.type === "number" && (
             <input
               type="number"
@@ -165,7 +178,7 @@ function BulkFieldEditor({
             <input
               type="text"
               value={(value as string) ?? ""}
-              onChange={(e) => onValueChange(e.target.value || undefined)}
+              onChange={(e) => onValueChange(e.target.value)}
               className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             />
           )}
@@ -173,18 +186,29 @@ function BulkFieldEditor({
             <input
               type="date"
               value={(value as string) ?? ""}
-              onChange={(e) => onValueChange(e.target.value || undefined)}
+              onChange={(e) => onValueChange(e.target.value)}
               className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             />
           )}
-          {field.type === "select" && field.options && (
+          {field.type === "select" && field.entityType === "studios" && (
+            <StudioBulkSelect value={value as number | undefined} onValueChange={onValueChange} />
+          )}
+          {field.type === "select" && field.entityType !== "studios" && (
             <select
               value={String(value ?? "")}
-              onChange={(e) => onValueChange(e.target.value || undefined)}
+              onChange={(e) => {
+                if (!e.target.value) {
+                  onValueChange(undefined);
+                  return;
+                }
+
+                const selectedOption = field.options?.find((option) => String(option.value) === e.target.value);
+                onValueChange(selectedOption?.value ?? e.target.value);
+              }}
               className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             >
-              <option value="">—</option>
-              {field.options.map((o) => (
+              <option value="">Select...</option>
+              {field.options?.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
@@ -200,6 +224,88 @@ function BulkFieldEditor({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function StudioBulkSelect({
+  value,
+  onValueChange,
+}: {
+  value: number | undefined;
+  onValueChange: (value: unknown) => void;
+}) {
+  const [searchText, setSearchText] = useState("");
+
+  const { data: searchResults, isLoading } = useQuery({
+    queryKey: ["bulk-edit", "studios", searchText],
+    queryFn: async () => {
+      const response = await studiosApi.find({
+        q: searchText || undefined,
+        perPage: 25,
+        sort: "name",
+        direction: "asc",
+      });
+
+      return response.items;
+    },
+    staleTime: 60000,
+  });
+
+  const selectedResult = searchResults?.find((studio) => studio.id === value);
+
+  const { data: selectedStudio } = useQuery({
+    queryKey: ["bulk-edit", "studio", value],
+    queryFn: async () => studiosApi.get(value as number),
+    enabled: typeof value === "number" && !selectedResult,
+    staleTime: 60000,
+  });
+
+  const visibleResults = (searchResults ?? []).filter((studio) => studio.id !== value);
+  const selectedLabel = selectedResult?.name ?? selectedStudio?.name;
+
+  return (
+    <div className="space-y-2">
+      {selectedLabel && (
+        <div className="flex flex-wrap gap-1">
+          <span className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground">
+            {selectedLabel}
+            <button onClick={() => onValueChange(undefined)} className="hover:text-red-400" aria-label="Clear selected studio">
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        </div>
+      )}
+
+      <input
+        type="text"
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        placeholder="Search studios..."
+        className="w-full rounded border border-border bg-input px-2 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+      />
+
+      <div className="max-h-32 overflow-y-auto rounded border border-border bg-input">
+        {isLoading ? (
+          <div className="px-2 py-1 text-xs text-muted">Loading...</div>
+        ) : visibleResults.length === 0 ? (
+          <div className="px-2 py-1 text-xs text-muted">No studios found</div>
+        ) : (
+          visibleResults.map((studio) => (
+            <button
+              key={studio.id}
+              onClick={() => {
+                onValueChange(studio.id);
+                setSearchText("");
+              }}
+              className="flex w-full items-center gap-1 px-2 py-1 text-left text-xs text-foreground hover:bg-card"
+            >
+              <Plus className="h-3 w-3" />
+              {studio.name}
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -258,7 +364,7 @@ function MultiIdBulkEditor({
               m === mode ? "bg-accent text-white border-accent" : "border-border text-secondary"
             }`}
           >
-            {m}
+            {BULK_MODE_LABELS[m]}
           </button>
         ))}
       </div>
@@ -307,36 +413,88 @@ function MultiIdBulkEditor({
   );
 }
 
+const BULK_MODE_LABELS: Record<BulkUpdateMode, string> = {
+  SET: "Overwrite",
+  ADD: "Add",
+  REMOVE: "Remove",
+};
+
+function getModeKey(field: BulkEditField) {
+  return field.modeKey ?? `${field.key}Mode`;
+}
+
+function serializeBulkFieldValue(field: BulkEditField, value: unknown) {
+  if (field.serializeValue) {
+    return field.serializeValue(value);
+  }
+
+  if (field.type === "multiId") {
+    return value ?? [];
+  }
+
+  if (field.type === "string" || field.type === "date") {
+    return value ?? "";
+  }
+
+  return value;
+}
+
 // ===== Pre-configured bulk edit field sets =====
 
 export const SCENE_BULK_FIELDS: BulkEditField[] = [
-  { key: "rating", label: "Rating", type: "number" },
+  { key: "rating", label: "Rating", type: "rating" },
   { key: "organized", label: "Organized", type: "bool" },
-  { key: "studioId", label: "Studio", type: "select", nullable: true },
+  { key: "studioId", label: "Studio", type: "select", entityType: "studios", nullable: true },
   { key: "date", label: "Date", type: "date" },
-  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags" },
-  { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers" },
-  { key: "groupIds", label: "Groups", type: "multiId", entityType: "groups" },
+  { key: "code", label: "Code", type: "string" },
+  { key: "director", label: "Director", type: "string" },
+  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
+  { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers", modeKey: "performerMode" },
+  {
+    key: "groupIds",
+    label: "Groups",
+    type: "multiId",
+    entityType: "groups",
+    modeKey: "groupMode",
+    serializeValue: (value) => ((value as number[] | undefined) ?? []).map((groupId) => ({ groupId, sceneIndex: 0 })),
+  },
 ];
 
 export const PERFORMER_BULK_FIELDS: BulkEditField[] = [
-  { key: "rating", label: "Rating", type: "number" },
+  { key: "rating", label: "Rating", type: "rating" },
   { key: "favorite", label: "Favorite", type: "bool" },
-  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags" },
+  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
 ];
 
 export const GALLERY_BULK_FIELDS: BulkEditField[] = [
-  { key: "rating", label: "Rating", type: "number" },
+  { key: "rating", label: "Rating", type: "rating" },
   { key: "organized", label: "Organized", type: "bool" },
-  { key: "studioId", label: "Studio", type: "select", nullable: true },
-  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags" },
-  { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers" },
+  { key: "studioId", label: "Studio", type: "select", entityType: "studios", nullable: true },
+  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
+  { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers", modeKey: "performerMode" },
 ];
 
 export const IMAGE_BULK_FIELDS: BulkEditField[] = [
-  { key: "rating", label: "Rating", type: "number" },
+  { key: "rating", label: "Rating", type: "rating" },
   { key: "organized", label: "Organized", type: "bool" },
-  { key: "studioId", label: "Studio", type: "select", nullable: true },
-  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags" },
-  { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers" },
+  { key: "studioId", label: "Studio", type: "select", entityType: "studios", nullable: true },
+  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
+  { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers", modeKey: "performerMode" },
+];
+
+export const TAG_BULK_FIELDS: BulkEditField[] = [
+  { key: "favorite", label: "Favorite", type: "bool" },
+  { key: "ignoreAutoTag", label: "Ignore Auto-Tag", type: "bool" },
+];
+
+export const STUDIO_BULK_FIELDS: BulkEditField[] = [
+  { key: "rating", label: "Rating", type: "rating" },
+  { key: "favorite", label: "Favorite", type: "bool" },
+  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
+];
+
+export const GROUP_BULK_FIELDS: BulkEditField[] = [
+  { key: "rating", label: "Rating", type: "rating" },
+  { key: "studioId", label: "Studio", type: "select", entityType: "studios", nullable: true },
+  { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
 ];

@@ -5,7 +5,7 @@ using Cove.Data;
 
 namespace Cove.Api.Services;
 
-public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService thumbnailService) : IStreamService
+public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService thumbnailService, IBlobService blobService) : IStreamService
 {
     private static readonly Dictionary<string, string> MimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -49,8 +49,11 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         return (stream, contentType, fileInfo.Length);
     }
 
-    public async Task<(Stream stream, string contentType)?> GetSceneScreenshot(int sceneId, double? seconds, CancellationToken ct = default)
+    public async Task<(Stream stream, string contentType, bool useLongCache)?> GetSceneScreenshot(int sceneId, double? seconds, CancellationToken ct = default)
     {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+
         // For timestamped thumbnails, only serve from cache — never generate on demand.
         // Thumbnail generation is exclusively the job of the generate task.
         if (seconds.HasValue)
@@ -58,7 +61,22 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
             var tsPath = thumbnailService.GetTimestampedThumbnailPath(sceneId, seconds.Value);
             if (!File.Exists(tsPath)) return null;
             var stream = new FileStream(tsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
-            return (stream, "image/jpeg");
+            return (stream, "image/jpeg", true);
+        }
+
+        var customCoverBlobId = await db.Scenes
+            .AsNoTracking()
+            .Where(scene => scene.Id == sceneId)
+            .Select(scene => scene.ImageBlobId)
+            .FirstOrDefaultAsync(ct);
+
+        if (!string.IsNullOrWhiteSpace(customCoverBlobId))
+        {
+            var customCover = await blobService.GetBlobAsync(customCoverBlobId, ct);
+            if (customCover != null)
+            {
+                return (customCover.Value.Stream, customCover.Value.ContentType, false);
+            }
         }
 
         // Default cover thumbnail (no timestamp) — also only served from cache
@@ -66,6 +84,6 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         if (thumbPath == null) return null;
 
         var defaultStream = new FileStream(thumbPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
-        return (defaultStream, "image/jpeg");
+        return (defaultStream, "image/jpeg", true);
     }
 }

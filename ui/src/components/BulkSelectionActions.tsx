@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Edit, Loader2, Trash2, Search, Merge, Play } from "lucide-react";
 import { scenes as scenesApi, images, galleries, performers, groups, studios, tags } from "../api/client";
-import { BulkEditDialog, SCENE_BULK_FIELDS, IMAGE_BULK_FIELDS, GALLERY_BULK_FIELDS, PERFORMER_BULK_FIELDS } from "./BulkEditDialog";
+import { BulkEditDialog, SCENE_BULK_FIELDS, IMAGE_BULK_FIELDS, GALLERY_BULK_FIELDS, PERFORMER_BULK_FIELDS, GROUP_BULK_FIELDS, STUDIO_BULK_FIELDS, TAG_BULK_FIELDS } from "./BulkEditDialog";
 import { IdentifyDialog } from "./IdentifyDialog";
 import { SceneQueue } from "./SceneQueue";
 
@@ -11,9 +11,9 @@ const FIELDS_MAP = {
   images: IMAGE_BULK_FIELDS,
   galleries: GALLERY_BULK_FIELDS,
   performers: PERFORMER_BULK_FIELDS,
-  groups: [] as typeof SCENE_BULK_FIELDS,
-  studios: [] as typeof SCENE_BULK_FIELDS,
-  tags: [] as typeof SCENE_BULK_FIELDS,
+  groups: GROUP_BULK_FIELDS,
+  studios: STUDIO_BULK_FIELDS,
+  tags: TAG_BULK_FIELDS,
 } as const;
 
 const API_MAP = { scenes: scenesApi, images, galleries, performers, groups, studios, tags } as const;

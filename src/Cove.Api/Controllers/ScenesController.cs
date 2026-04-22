@@ -12,7 +12,7 @@ namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache) : ControllerBase
+public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService) : ControllerBase
 {
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]
@@ -218,6 +218,26 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
 
         var draftId = await metadataServerService.SubmitSceneDraftAsync(scene, dto.Endpoint, ct);
         return Ok(new { draftId });
+    }
+
+    [HttpPost("{id:int}/cover/from-frame")]
+    public async Task<IActionResult> SetCoverFromFrame(int id, [FromBody] GenerateScreenshotDto? dto, CancellationToken ct)
+    {
+        var scene = await sceneRepo.GetByIdAsync(id, ct);
+        if (scene == null) return NotFound();
+
+        await thumbnailService.GenerateSceneThumbnailAsync(id, dto?.AtSeconds, ct);
+        var screenshot = await streamService.GetSceneScreenshot(id, dto?.AtSeconds, ct);
+        if (screenshot == null) return NotFound();
+
+        if (!string.IsNullOrWhiteSpace(scene.ImageBlobId))
+            await blobService.DeleteBlobAsync(scene.ImageBlobId, ct);
+
+        await using var screenshotStream = screenshot.Value.stream;
+        scene.ImageBlobId = await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct);
+        await sceneRepo.UpdateAsync(scene, ct);
+
+        return Ok(new { success = true });
     }
 
     private static SceneDto MapToDto(Scene s) => new(
@@ -615,6 +635,8 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         if (scene == null) return NotFound();
 
         await thumbnailService.GenerateSceneThumbnailAsync(id, dto?.AtSeconds, ct);
+        scene.UpdatedAt = DateTime.UtcNow;
+        await sceneRepo.UpdateAsync(scene, ct);
         return Ok(new { success = true });
     }
 

@@ -171,6 +171,8 @@ export const scenes = {
     request<Scene>(`/scenes/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data) }),
   generateScreenshot: (id: number, atSeconds?: number) =>
     request<{ success: boolean }>(`/scenes/${id}/generate-screenshot`, { method: "POST", body: JSON.stringify({ atSeconds }) }),
+  setCoverFromFrame: (id: number, atSeconds?: number) =>
+    request<{ success: boolean }>(`/scenes/${id}/cover/from-frame`, { method: "POST", body: JSON.stringify({ atSeconds }) }),
   rescan: (id: number) =>
     request<{ jobId: string }>(`/scenes/${id}/rescan`, { method: "POST" }),
   assignFile: (id: number, fileId: number) =>
@@ -367,6 +369,10 @@ async function deleteImage(path: string): Promise<void> {
 }
 
 export const entityImages = {
+  sceneCoverUrl: (id: number, version?: string) => `${API_BASE}/scenes/${id}/image${version ? `?v=${encodeURIComponent(version)}` : ""}`,
+  uploadSceneCoverImage: (id: number, file: File) => uploadImage(`/scenes/${id}/image`, file),
+  deleteSceneCoverImage: (id: number) => deleteImage(`/scenes/${id}/image`),
+
   performerImageUrl: (id: number, version?: string) => `${API_BASE}/performers/${id}/image${version ? `?v=${encodeURIComponent(version)}` : ""}`,
   uploadPerformerImage: (id: number, file: File) => uploadImage(`/performers/${id}/image`, file),
   deletePerformerImage: (id: number) => deleteImage(`/performers/${id}/image`),

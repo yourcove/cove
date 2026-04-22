@@ -16,6 +16,7 @@ import { useListUrlState } from "../hooks/useListUrlState";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { useWallColumns } from "../hooks/useWallColumns";
 
 const SORT_OPTIONS = [
   { value: "updated_at", label: "Updated At" },
@@ -63,6 +64,7 @@ export function ImagesPage({ onNavigate }: Props) {
   });
 
   const items = data?.items ?? [];
+  const wallColumns = useWallColumns(items, 6);
   const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(items);
   const selecting = selectedIds.size > 0;
 
@@ -152,9 +154,13 @@ export function ImagesPage({ onNavigate }: Props) {
           ))}
         </div>
       ) : (
-        <div className="columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 gap-2 space-y-2">
-          {items.map((img) => (
-            <ImageWallCard key={img.id} image={img} onClick={() => onNavigate({ page: "image", id: img.id })} />
+        <div className="flex gap-2 px-2">
+          {wallColumns.map((column, columnIndex) => (
+            <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-2">
+              {column.map((img) => (
+                <ImageWallCard key={img.id} image={img} onClick={() => onNavigate({ page: "image", id: img.id })} />
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -277,19 +283,23 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
 function ImageWallCard({ image, onClick }: { image: Image; onClick: () => void }) {
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
   const displayTitle = getImageDisplayTitle(image);
+  const file = image.files[0];
+  const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1";
 
   return (
     <div
       {...navigationHandlers}
-      className="break-inside-avoid cursor-pointer rounded overflow-hidden border border-border hover:border-accent/60 transition-all"
+      className="cursor-pointer rounded overflow-hidden border border-border hover:border-accent/60 transition-all"
       title={displayTitle}
     >
-      <img
-        src={images.thumbnailUrl(image.id)}
-        alt={displayTitle}
-        className="w-full object-cover"
-        loading="lazy"
-      />
+      <div className="relative w-full bg-surface" style={{ aspectRatio }}>
+        <img
+          src={images.thumbnailUrl(image.id)}
+          alt={displayTitle}
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="lazy"
+        />
+      </div>
     </div>
   );
 }

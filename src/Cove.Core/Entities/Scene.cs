@@ -17,6 +17,7 @@ public class Scene : BaseEntity
     public int OCounter { get; set; }
     public string? Captions { get; set; }
     public int? InteractiveSpeed { get; set; }
+    public string? ImageBlobId { get; set; }
 
     // Navigation properties
     public Studio? Studio { get; set; }

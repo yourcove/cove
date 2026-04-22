@@ -11,6 +11,48 @@ namespace Cove.Api.Controllers;
 [Route("api")]
 public class EntityImageController(CoveContext db, IBlobService blobService) : ControllerBase
 {
+    // ── Scenes ──────────────────────────────────────────────────
+
+    [HttpPost("scenes/{id:int}/image")]
+    public async Task<IActionResult> UploadSceneImage(int id, IFormFile file, CancellationToken ct)
+    {
+        if (!IsImage(file)) return BadRequest("File must be an image.");
+
+        var entity = await db.Scenes.FindAsync([id], ct);
+        if (entity == null) return NotFound();
+
+        if (entity.ImageBlobId != null)
+            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+
+        await using var stream = file.OpenReadStream();
+        entity.ImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new { blobId = entity.ImageBlobId });
+    }
+
+    [HttpGet("scenes/{id:int}/image")]
+    public async Task<IActionResult> GetSceneImage(int id, CancellationToken ct)
+    {
+        var entity = await db.Scenes.FindAsync([id], ct);
+        if (entity?.ImageBlobId == null) return NotFound();
+
+        return await ServeBlobAsync(entity.ImageBlobId, ct);
+    }
+
+    [HttpDelete("scenes/{id:int}/image")]
+    public async Task<IActionResult> DeleteSceneImage(int id, CancellationToken ct)
+    {
+        var entity = await db.Scenes.FindAsync([id], ct);
+        if (entity?.ImageBlobId == null) return NotFound();
+
+        await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        entity.ImageBlobId = null;
+        await db.SaveChangesAsync(ct);
+
+        return NoContent();
+    }
+
     // ── Performers ──────────────────────────────────────────────
 
     [HttpPost("performers/{id:int}/image")]

@@ -1088,6 +1088,11 @@ export interface FilteredQueryRequest<T = Record<string, unknown>> {
 
 export type BulkUpdateMode = "SET" | "ADD" | "REMOVE";
 
+export interface SceneGroupInput {
+  groupId: number;
+  sceneIndex: number;
+}
+
 export interface BulkSceneUpdate {
   ids: number[];
   rating?: number;
@@ -1100,7 +1105,7 @@ export interface BulkSceneUpdate {
   tagMode?: BulkUpdateMode;
   performerIds?: number[];
   performerMode?: BulkUpdateMode;
-  groupIds?: number[];
+  groupIds?: SceneGroupInput[];
   groupMode?: BulkUpdateMode;
 }
 

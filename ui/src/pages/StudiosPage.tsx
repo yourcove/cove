@@ -8,7 +8,7 @@ import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { Building2, Film, Image, LayoutGrid, Trash2, Loader2, Edit, Merge, Heart, Box, Users, Layers, Tag as TagIcon } from "lucide-react";
 import { STUDIO_CRITERIA } from "../components/FilterDialog";
-import { BulkEditDialog } from "../components/BulkEditDialog";
+import { BulkEditDialog, STUDIO_BULK_FIELDS } from "../components/BulkEditDialog";
 import { MergeDialog } from "../components/MergeDialog";
 import { StudioTagger } from "../components/StudioTagger";
 import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, PerformersPopoverContent, GalleriesPopoverContent, GroupsPopoverContent } from "../components/EntityCards";
@@ -159,7 +159,7 @@ export function StudiosPage({ onNavigate }: Props) {
         onClose={() => setShowBulkEdit(false)}
         title="Edit Studios"
         selectedCount={selectedIds.size}
-        fields={[{ key: "rating", label: "Rating", type: "number" }, { key: "favorite", label: "Favorite", type: "bool" }]}
+        fields={STUDIO_BULK_FIELDS}
         onApply={(values) => bulkEditMut.mutate(values)}
         isPending={bulkEditMut.isPending}
       />

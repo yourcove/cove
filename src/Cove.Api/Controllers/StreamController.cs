@@ -31,8 +31,10 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var result = await streamService.GetSceneScreenshot(sceneId, seconds, ct);
         if (result == null) return NotFound();
 
-        var (stream, contentType) = result.Value;
-        Response.Headers["Cache-Control"] = "public, max-age=86400";
+        var (stream, contentType, useLongCache) = result.Value;
+        Response.Headers["Cache-Control"] = useLongCache
+            ? "public, max-age=86400"
+            : "no-store, no-cache, max-age=0, must-revalidate";
         return File(stream, contentType);
     }
 

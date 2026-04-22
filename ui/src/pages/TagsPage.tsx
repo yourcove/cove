@@ -10,7 +10,7 @@ import { MergeDialog } from "../components/MergeDialog";
 import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, PerformersPopoverContent, GalleriesPopoverContent, GroupsPopoverContent, StudiosPopoverContent } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { TAG_CRITERIA } from "../components/FilterDialog";
-import { BulkEditDialog } from "../components/BulkEditDialog";
+import { BulkEditDialog, TAG_BULK_FIELDS } from "../components/BulkEditDialog";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { useRouteRegistry } from "../router/RouteRegistry";
@@ -155,7 +155,7 @@ export function TagsPage({ onNavigate }: Props) {
         onClose={() => setShowBulkEdit(false)}
         title="Edit Tags"
         selectedCount={selectedIds.size}
-        fields={[{ key: "favorite", label: "Favorite", type: "bool" }]}
+        fields={TAG_BULK_FIELDS}
         onApply={(values) => bulkEditMut.mutate(values)}
         isPending={bulkEditMut.isPending}
       />

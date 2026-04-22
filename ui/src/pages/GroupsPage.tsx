@@ -10,7 +10,7 @@ import { formatDate } from "../components/shared";
 import { Layers, Film, Trash2, Loader2, Edit, Tag as TagIcon, FolderTree, FolderUp } from "lucide-react";
 import { PopoverButton, ScenesPopoverContent } from "../components/EntityCards";
 import { GROUP_CRITERIA } from "../components/FilterDialog";
-import { BulkEditDialog } from "../components/BulkEditDialog";
+import { BulkEditDialog, GROUP_BULK_FIELDS } from "../components/BulkEditDialog";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
@@ -147,7 +147,7 @@ export function GroupsPage({ onNavigate }: Props) {
         onClose={() => setShowBulkEdit(false)}
         title="Edit Groups"
         selectedCount={selectedIds.size}
-        fields={[{ key: "rating", label: "Rating", type: "number" }]}
+        fields={GROUP_BULK_FIELDS}
         onApply={(values) => bulkEditMut.mutate(values)}
         isPending={bulkEditMut.isPending}
       />

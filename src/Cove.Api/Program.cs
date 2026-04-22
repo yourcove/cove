@@ -378,6 +378,9 @@ try
             Log.Information("Database is up to date");
         }
 
+        // Compatibility columns must exist before any startup queries touch the model.
+        await EnsureColumnsAsync(db);
+
         // Fix oshash values: Go uses %016x (zero-padded 16 chars), ensure all values match
         await NormalizeOshashValuesAsync(db);
 
@@ -439,7 +442,8 @@ static async Task EnsureColumnsAsync(CoveContext db)
         await create.ExecuteNonQueryAsync();
     }
 
-    // Gallery cover image support
+    // Gallery and scene cover image support
+    await AddColumnIfMissing("scenes", "ImageBlobId", "text");
     await AddColumnIfMissing("galleries", "ImageBlobId", "text");
     await AddColumnIfMissing("galleries", "CoverImageId", "integer");
 

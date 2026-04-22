@@ -104,7 +104,7 @@ export function ScenesPopoverContent({ filter }: { filter: Record<string, string
     <div className="space-y-1">
       {items.map((s) => (
         <div key={s.id} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-card">
-          <img src={scenes.screenshotUrl(s.id)} alt="" className="w-12 h-7 rounded object-cover flex-shrink-0 bg-surface" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          <img src={scenes.screenshotUrl(s.id, s.updatedAt)} alt="" className="w-12 h-7 rounded object-cover flex-shrink-0 bg-surface" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
           <span className="text-[11px] text-foreground truncate">{s.title || "Untitled"}</span>
         </div>
       ))}

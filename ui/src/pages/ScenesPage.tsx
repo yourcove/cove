@@ -21,6 +21,7 @@ import { QuickViewDialog } from "../components/QuickViewDialog";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { StringListEditor } from "../components/StringListEditor";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
+import { useWallColumns } from "../hooks/useWallColumns";
 
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
@@ -64,6 +65,7 @@ export function ScenesPage({ onNavigate }: Props) {
   });
 
   const items = data?.items ?? [];
+  const wallColumns = useWallColumns(items, 5);
   const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(items);
   const selecting = selectedIds.size > 0;
 
@@ -206,9 +208,9 @@ export function ScenesPage({ onNavigate }: Props) {
       )}
       {displayMode === "wall" && (
         <div className="flex gap-1 px-2">
-          {[0, 1, 2, 3, 4].map((colIdx) => (
-            <div key={colIdx} className="flex-1 flex flex-col gap-1 min-w-0">
-              {items.filter((_, i) => i % 5 === colIdx).map((scene) => (
+          {wallColumns.map((column, columnIndex) => (
+            <div key={columnIndex} className="flex-1 flex flex-col gap-1 min-w-0">
+              {column.map((scene) => (
                 <SceneWallCard key={scene.id} scene={scene} onClick={() => navigateToScene(scene.id)} />
               ))}
             </div>
@@ -575,16 +577,17 @@ function SceneListTable({ scenes, onNavigate, selectedIds, onToggle }: { scenes:
 
 function SceneWallCard({ scene, onClick }: { scene: Scene; onClick: () => void }) {
   const file = scene.files[0];
-  const screenshotUrl = scenes.screenshotUrl(scene.id);
+  const screenshotUrl = scenes.screenshotUrl(scene.id, scene.updatedAt);
+  const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "16 / 9";
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, onClick);
 
   return (
-    <div {...navigationHandlers} className="mb-1 cursor-pointer group break-inside-avoid">
-      <div className="relative rounded overflow-hidden">
+    <div {...navigationHandlers} className="cursor-pointer group rounded overflow-hidden border border-border hover:border-accent/60 transition-all">
+      <div className="relative w-full bg-surface" style={{ aspectRatio }}>
         <img
           src={screenshotUrl}
           alt={scene.title || ""}
-          className="w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover"
           loading="lazy"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />

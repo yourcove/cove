@@ -51,6 +51,7 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
   const queryClient = useQueryClient();
   const seekRef = useRef<((time: number) => void) | null>(null);
   const opsMenuRef = useRef<HTMLDivElement>(null);
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
   const [videoTime, setVideoTime] = useState(0);
   const [videoFilters, setVideoFilters] = useState({ brightness: 100, contrast: 100, gamma: 100, saturation: 100, hue: 0 });
 
@@ -154,10 +155,43 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const generateScreenshotMut = useMutation({
-    mutationFn: (atSeconds?: number) => scenes.generateScreenshot(id, atSeconds),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scene", id] }),
+  const invalidateSceneCover = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["scene", id] });
+    queryClient.invalidateQueries({ queryKey: ["scenes"] });
+  }, [id, queryClient]);
+
+  const setCoverFromCurrentFrameMut = useMutation({
+    mutationFn: (atSeconds?: number) => scenes.setCoverFromFrame(id, atSeconds),
+    onSuccess: invalidateSceneCover,
   });
+
+  const uploadCoverImageMut = useMutation({
+    mutationFn: (file: File) => entityImages.uploadSceneCoverImage(id, file),
+    onSuccess: invalidateSceneCover,
+  });
+
+  const resetCoverImageMut = useMutation({
+    mutationFn: () => entityImages.deleteSceneCoverImage(id),
+    onSuccess: invalidateSceneCover,
+  });
+
+  const coverActionPending = setCoverFromCurrentFrameMut.isPending || uploadCoverImageMut.isPending || resetCoverImageMut.isPending;
+
+  const handleSetCoverFromCurrentFrame = () => {
+    setCoverFromCurrentFrameMut.mutate(videoTime);
+  };
+
+  const handleResetCoverToDefault = () => {
+    resetCoverImageMut.mutate();
+  };
+
+  const handleCoverFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      uploadCoverImageMut.mutate(file);
+    }
+    event.target.value = "";
+  };
 
   const rescanMut = useMutation({
     mutationFn: () => scenes.rescan(id),
@@ -194,6 +228,13 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
 
   return (
     <div className="-mx-6 -mt-5 -mb-5">
+      <input
+        ref={coverFileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleCoverFileChange}
+      />
       {scene && <SceneEditModal scene={scene} open={editing} onClose={() => setEditing(false)} />}
       <ConfirmDialog
         open={confirmDelete}
@@ -340,8 +381,9 @@ export function SceneDetailPage({ id, onNavigate }: Props) {
                         <button onClick={() => { setShowIdentify(true); setShowOpsMenu(false); }} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface flex items-center gap-2"><Search className="w-3.5 h-3.5" /> Identify…</button>
                         <div className="border-t border-border my-1" />
                         <button onClick={() => { setShowGenerate(true); setShowOpsMenu(false); }} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface flex items-center gap-2"><Clapperboard className="w-3.5 h-3.5" /> Generate…</button>
-                        <button onClick={() => { generateScreenshotMut.mutate(videoTime); setShowOpsMenu(false); }} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface flex items-center gap-2"><Camera className="w-3.5 h-3.5" /> Screenshot from Current</button>
-                        <button onClick={() => { generateScreenshotMut.mutate(undefined); setShowOpsMenu(false); }} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface flex items-center gap-2"><Image className="w-3.5 h-3.5" /> Screenshot Default</button>
+                        <button onClick={() => { handleSetCoverFromCurrentFrame(); setShowOpsMenu(false); }} disabled={coverActionPending || !file} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface disabled:opacity-60 flex items-center gap-2"><Camera className="w-3.5 h-3.5" /> Set Cover from Current Frame</button>
+                        <button onClick={() => { coverFileInputRef.current?.click(); setShowOpsMenu(false); }} disabled={coverActionPending} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface disabled:opacity-60 flex items-center gap-2"><Upload className="w-3.5 h-3.5" /> Upload Cover Image…</button>
+                        <button onClick={() => { handleResetCoverToDefault(); setShowOpsMenu(false); }} disabled={coverActionPending} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface disabled:opacity-60 flex items-center gap-2"><Image className="w-3.5 h-3.5" /> Use Default Cover</button>
                         <div className="border-t border-border my-1" />
                         <button onClick={() => { setShowMerge(true); setShowOpsMenu(false); }} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface flex items-center gap-2"><Merge className="w-3.5 h-3.5" /> Merge…</button>
                         <button onClick={() => { setTheaterMode(true); setShowOpsMenu(false); }} className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface flex items-center gap-2"><Monitor className="w-3.5 h-3.5" /> Theater Mode</button>
