@@ -57,6 +57,7 @@ public class ConfigService
             Port = cfg.Port,
             MaxParallelTasks = cfg.MaxParallelTasks,
             CalculateMd5 = cfg.CalculateMd5,
+            EnableFfmpegHwAccel = cfg.EnableFfmpegHwAccel,
             VideoExtensions = cfg.VideoExtensions,
             ImageExtensions = cfg.ImageExtensions,
             GalleryExtensions = cfg.GalleryExtensions,
@@ -194,6 +195,7 @@ public class ConfigService
         cfg.Port = dto.Port;
         cfg.MaxParallelTasks = dto.MaxParallelTasks;
         cfg.CalculateMd5 = dto.CalculateMd5;
+        cfg.EnableFfmpegHwAccel = dto.EnableFfmpegHwAccel;
 
         if (dto.VideoExtensions.Count > 0)
             cfg.VideoExtensions = dto.VideoExtensions;

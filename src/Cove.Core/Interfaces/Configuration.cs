@@ -12,6 +12,7 @@ public class CoveConfiguration
     public int Port { get; set; } = 9999;
     public int MaxParallelTasks { get; set; } = 1;
     public bool CalculateMd5 { get; set; }
+    public bool EnableFfmpegHwAccel { get; set; } // Default false to prevent instability during native probes
     public List<string> VideoExtensions { get; set; } = [".m4v", ".mp4", ".mov", ".wmv", ".avi", ".mpg", ".mpeg", ".rmvb", ".rm", ".flv", ".asf", ".mkv", ".webm", ".f4v"];
     public List<string> ImageExtensions { get; set; } = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"];
     public List<string> GalleryExtensions { get; set; } = [".zip", ".cbz"];

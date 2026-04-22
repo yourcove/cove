@@ -146,7 +146,7 @@ public class FingerprintService(
         }
 
         // Initialize FFmpeg.AutoGen bindings (idempotent) and check if in-process is usable.
-        FfmpegInProcess.EnsureInitialized(ffmpegPath);
+        FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
         logger.LogInformation("[phash] FFmpeg setup: path={FfmpegPath}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
             ffmpegPath, FfmpegInProcess.IsAvailable, duration, path);
 

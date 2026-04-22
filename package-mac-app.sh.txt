@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Ensure we are in the script's directory
+cd "$(dirname "$0")"
+
+echo "Packaging Cove.Api for macOS..."
+
+PUBLISH_DIR="publish/osx-arm64"
+APP_DIR="${PUBLISH_DIR}/Cove.app"
+CONTENTS_DIR="${APP_DIR}/Contents"
+MACOS_DIR="${CONTENTS_DIR}/MacOS"
+RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+
+# 1. Create the Directory Structure
+mkdir -p "$MACOS_DIR"
+mkdir -p "$RESOURCES_DIR"
+
+# 2. Copy the binary and relevant files (like appsettings.json or wwwroot)
+if [ ! -f "${PUBLISH_DIR}/Cove.Api" ]; then
+    echo "Error: Cove.Api binary not found in ${PUBLISH_DIR}."
+    echo "Did you run 'dotnet publish' first?"
+    exit 1
+fi
+
+echo "Copying binary and configurations..."
+cp "${PUBLISH_DIR}/Cove.Api" "$MACOS_DIR/"
+cp "${PUBLISH_DIR}/appsettings"*.json "$MACOS_DIR/" 2>/dev/null
+
+# 3. Create the Info.plist file
+echo "Generating Info.plist..."
+cat <<EOF > "$CONTENTS_DIR/Info.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Cove.Api</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.cove.api</string>
+    <key>CFBundleName</key>
+    <string>Cove</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+echo "✅ App packaged successfully at: ${APP_DIR}"

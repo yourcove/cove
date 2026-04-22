@@ -385,7 +385,7 @@ public class ThumbnailService(
         try
         {
             // Initialize FFmpeg.AutoGen with the same DLL directory as the ffmpeg binary
-            FfmpegInProcess.EnsureInitialized(ffmpegPath);
+            FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
 
             if (!FfmpegInProcess.IsAvailable)
             {

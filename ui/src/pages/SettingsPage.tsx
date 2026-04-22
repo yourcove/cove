@@ -1206,6 +1206,17 @@ export function SettingsPage() {
                   onChange={(value) => updateDraft((current) => ({ ...current, maxParallelTasks: value ?? current.maxParallelTasks }))}
                 />
               </div>
+              <div className="mt-4">
+                <CheckboxLabel
+                  label="Enable hardware acceleration (FFmpeg in-process)"
+                  checked={draft.enableFfmpegHwAccel}
+                  onChange={(checked) => updateDraft((current) => ({ ...current, enableFfmpegHwAccel: checked }))}
+                />
+                <p className="mt-1 text-xs text-secondary">
+                  If enabled, Cove will attempt to use hardware acceleration for phash and sprite generation.
+                  <span className="text-red-300 font-medium"> Warning:</span> In some Docker environments, this may cause a fatal process crash due to missing native drivers.
+                </p>
+              </div>
             </SectionCard>
 
             <SectionCard title="FFmpeg" description="Paths to FFmpeg and FFprobe binaries. Leave blank to use system PATH.">

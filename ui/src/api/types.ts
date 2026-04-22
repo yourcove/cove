@@ -594,6 +594,7 @@ export interface CoveConfig {
   port: number;
   maxParallelTasks: number;
   calculateMd5: boolean;
+  enableFfmpegHwAccel: boolean;
   videoExtensions: string[];
   imageExtensions: string[];
   galleryExtensions: string[];
