@@ -18,6 +18,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     public async Task<ActionResult<PaginatedResponse<PerformerDto>>> Find(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         [FromQuery] string? name = null, [FromQuery] bool? favorite = null,
         [FromQuery] int? rating = null, [FromQuery] string? tagIds = null,
         [FromQuery] int? studioId = null,
@@ -27,7 +28,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc
+            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Seed = seed,
         };
 
         var (items, totalCount) = await performerRepo.FindAsync(filter, findFilter, ct);
@@ -222,7 +224,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         p.PerformerTags.Where(pt => pt.Tag != null).Select(pt => new TagDto(pt.Tag!.Id, pt.Tag.Name, pt.Tag.Description, pt.Tag.Favorite, pt.Tag.IgnoreAutoTag, [])).ToList(),
         p.RemoteIds.Select(remoteId => new PerformerRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         sceneCount ?? p.ScenePerformers?.Count ?? 0, imageCount ?? p.ImagePerformers?.Count ?? 0, galleryCount ?? p.GalleryPerformers?.Count ?? 0, groupCount ?? 0,
-        p.ImageBlobId != null ? $"/api/performers/{p.Id}/image" : null,
+        p.ImageBlobId != null ? EntityImageUrls.Performer(p.Id, p.UpdatedAt) : null,
         p.CustomFields,
         p.CreatedAt.ToString("o"), p.UpdatedAt.ToString("o")
     );

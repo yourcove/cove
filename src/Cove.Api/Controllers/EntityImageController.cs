@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -9,7 +10,7 @@ namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api")]
-public class EntityImageController(CoveContext db, IBlobService blobService) : ControllerBase
+public class EntityImageController(CoveContext db, IBlobService blobService, IThumbnailService thumbnailService) : ControllerBase
 {
     // ── Scenes ──────────────────────────────────────────────────
 
@@ -32,12 +33,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("scenes/{id:int}/image")]
-    public async Task<IActionResult> GetSceneImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetSceneImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Scenes.FindAsync([id], ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.ImageBlobId, ct);
+        return await ServeBlobAsync(entity.ImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("scenes/{id:int}/image")]
@@ -74,12 +75,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("performers/{id:int}/image")]
-    public async Task<IActionResult> GetPerformerImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetPerformerImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Performers.FindAsync([id], ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.ImageBlobId, ct);
+        return await ServeBlobAsync(entity.ImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("performers/{id:int}/image")]
@@ -116,12 +117,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("studios/{id:int}/image")]
-    public async Task<IActionResult> GetStudioImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetStudioImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Studios.FindAsync([id], ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.ImageBlobId, ct);
+        return await ServeBlobAsync(entity.ImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("studios/{id:int}/image")]
@@ -158,12 +159,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("tags/{id:int}/image")]
-    public async Task<IActionResult> GetTagImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetTagImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Tags.FindAsync([id], ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.ImageBlobId, ct);
+        return await ServeBlobAsync(entity.ImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("tags/{id:int}/image")]
@@ -200,12 +201,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("groups/{id:int}/image/front")]
-    public async Task<IActionResult> GetGroupFrontImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetGroupFrontImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Groups.FindAsync([id], ct);
         if (entity?.FrontImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.FrontImageBlobId, ct);
+        return await ServeBlobAsync(entity.FrontImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("groups/{id:int}/image/front")]
@@ -242,12 +243,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("groups/{id:int}/image/back")]
-    public async Task<IActionResult> GetGroupBackImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetGroupBackImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Groups.FindAsync([id], ct);
         if (entity?.BackImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.BackImageBlobId, ct);
+        return await ServeBlobAsync(entity.BackImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("groups/{id:int}/image/back")]
@@ -284,12 +285,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     }
 
     [HttpGet("galleries/{id:int}/image")]
-    public async Task<IActionResult> GetGalleryImage(int id, CancellationToken ct)
+    public async Task<IActionResult> GetGalleryImage(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
         var entity = await db.Galleries.FindAsync([id], ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        return await ServeBlobAsync(entity.ImageBlobId, ct);
+        return await ServeBlobAsync(entity.ImageBlobId, max, !string.IsNullOrWhiteSpace(v), ct);
     }
 
     [HttpDelete("galleries/{id:int}/image")]
@@ -339,13 +340,27 @@ public class EntityImageController(CoveContext db, IBlobService blobService) : C
     private static bool IsImage(IFormFile file) =>
         file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 
-    private async Task<IActionResult> ServeBlobAsync(string blobId, CancellationToken ct)
+    private async Task<IActionResult> ServeBlobAsync(string blobId, int? maxDimension, bool immutable, CancellationToken ct)
     {
-        var result = await blobService.GetBlobAsync(blobId, ct);
+        (Stream stream, string contentType, bool supportsRangeRequests)? result;
+
+        if (maxDimension.HasValue && maxDimension.Value > 0)
+        {
+            result = await thumbnailService.GetBlobImageThumbnailStreamAsync(blobId, maxDimension.Value, ct);
+        }
+        else
+        {
+            var blob = await blobService.GetBlobAsync(blobId, ct);
+            result = blob == null ? null : (blob.Value.Stream, blob.Value.ContentType, blob.Value.Stream.CanSeek);
+        }
+
         if (result == null) return NotFound();
 
-        var (stream, contentType) = result.Value;
-        Response.Headers.CacheControl = "no-store, no-cache, max-age=0, must-revalidate";
-        return File(stream, contentType);
+        var cacheControl = immutable
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=3600";
+
+        Response.Headers.CacheControl = cacheControl;
+        return File(result.Value.stream, result.Value.contentType, enableRangeProcessing: result.Value.supportsRangeRequests);
     }
 }

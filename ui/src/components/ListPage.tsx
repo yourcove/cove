@@ -7,6 +7,7 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { SavedFilterMenu } from "./SavedFilterMenu";
 import { FilterDialog, FilterButton, type CriterionDefinition } from "./FilterDialog";
 import { useKeySequence } from "../hooks/useKeySequence";
+import { withSeededRandomSort } from "../utils/seededRandomSort";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger";
 
@@ -393,7 +394,7 @@ export function ListPage({
           <div className={toolbarSegmentClass}>
             <select
               value={filter.sort ?? ""}
-              onChange={(e) => onFilterChange({ ...filter, sort: e.target.value || undefined, page: 1 })}
+              onChange={(e) => onFilterChange(withSeededRandomSort(filter, { ...filter, sort: e.target.value || undefined, page: 1 }))}
               className={`${toolbarSelectClass} min-w-[8.5rem] max-w-[10rem]`}
             >
               {sortedSortOptions.map((o) => (
@@ -419,7 +420,7 @@ export function ListPage({
             currentFilter={filter}
             currentObjectFilter={objectFilter}
             currentUIOptions={displayMode ? { displayMode } : undefined}
-            onApplyFilter={onFilterChange}
+            onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, nextFilter))}
             onApplyObjectFilter={onObjectFilterChange}
             onApplyUIOptions={(options) => {
               const mode = typeof options.displayMode === "string" ? options.displayMode : undefined;

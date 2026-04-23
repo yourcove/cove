@@ -166,7 +166,7 @@ public class SceneRepository : ISceneRepository
                 query = ApplyIntCriterion(query, filter.DurationCriterion, s => (int)(s.Files.Select(f => (double?)f.Duration).Max() ?? 0));
 
             if (filter.ResolutionCriterion != null)
-                query = ApplyIntCriterion(query, filter.ResolutionCriterion, s => s.Files.Select(f => (int?)Math.Max(f.Width, f.Height)).Max() ?? 0);
+                query = FilterHelpers.ApplyResolution(query, filter.ResolutionCriterion, s => s.Files.Select(f => (int?)Math.Max(f.Width, f.Height)).Max() ?? 0);
 
             if (filter.FrameRateCriterion != null)
                 query = ApplyIntCriterion(query, filter.FrameRateCriterion, s => (int)(s.Files.Select(f => (double?)f.FrameRate).Max() ?? 0));
@@ -337,15 +337,9 @@ public class SceneRepository : ISceneRepository
 
     private static IQueryable<Scene> ApplySorting(IQueryable<Scene> query, string sort, bool desc, int? seed = null)
     {
-        // Seeded random: stable deterministic ordering using a seed value
-        if (sort == "random" && seed.HasValue)
-        {
-            var normalizedSeed = Math.Abs((long)seed.Value);
-            if (normalizedSeed == 0)
-                return query.OrderBy(scene => scene.Id);
+        if (sort == "random")
+            return SeededRandomOrdering.OrderBy(query, seed, scene => scene.Id);
 
-            return query.OrderBy(scene => ((long)scene.Id * normalizedSeed) % 2147483647L);
-        }
         return ApplySortingSwitch(query, sort, desc);
     }
 
@@ -365,7 +359,7 @@ public class SceneRepository : ISceneRepository
             : query.OrderBy(s => s.LastPlayedAt == null ? 1 : 0).ThenBy(s => s.LastPlayedAt),
         "play_duration" => desc ? query.OrderByDescending(s => s.PlayDuration) : query.OrderBy(s => s.PlayDuration),
         "resume_time" => desc ? query.OrderByDescending(s => s.ResumeTime) : query.OrderBy(s => s.ResumeTime),
-        "random" => query.OrderBy(_ => EF.Functions.Random()),
+        "random" => query.OrderBy(s => s.Id),
         "duration" => desc
             ? query.OrderByDescending(s => s.Files.Select(file => (double?)file.Duration).Max() ?? 0)
             : query.OrderBy(s => s.Files.Select(file => (double?)file.Duration).Max() ?? 0),

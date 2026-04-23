@@ -44,6 +44,33 @@ internal static class FilterHelpers
         };
     }
 
+    /// <summary>Apply a resolution bucket criterion using a max-dimension selector.</summary>
+    public static IQueryable<T> ApplyResolution<T>(IQueryable<T> query, IntCriterion? criterion, Expression<Func<T, int>> selector)
+    {
+        if (criterion == null) return query;
+        if (!ResolutionBuckets.TryGetBounds(criterion.Value, out var minInclusive, out var maxInclusive)) return query;
+
+        var param = selector.Parameters[0];
+        var body = selector.Body;
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(Expression.Lambda<Func<T, bool>>(
+                Expression.AndAlso(
+                    Expression.GreaterThanOrEqual(body, Expression.Constant(minInclusive)),
+                    Expression.LessThanOrEqual(body, Expression.Constant(maxInclusive))), param)),
+            CriterionModifier.NotEquals => query.Where(Expression.Lambda<Func<T, bool>>(
+                Expression.OrElse(
+                    Expression.LessThan(body, Expression.Constant(minInclusive)),
+                    Expression.GreaterThan(body, Expression.Constant(maxInclusive))), param)),
+            CriterionModifier.GreaterThan => query.Where(Expression.Lambda<Func<T, bool>>(
+                Expression.GreaterThan(body, Expression.Constant(maxInclusive)), param)),
+            CriterionModifier.LessThan => query.Where(Expression.Lambda<Func<T, bool>>(
+                Expression.LessThan(body, Expression.Constant(minInclusive)), param)),
+            _ => query,
+        };
+    }
+
     /// <summary>Apply a MultiIdCriterion to a queryable.</summary>
     public static IQueryable<T> ApplyMultiId<T>(
         IQueryable<T> query,

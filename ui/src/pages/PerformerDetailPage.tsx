@@ -19,6 +19,7 @@ import { useExtensionTabs } from "../components/useExtensionTabs";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 
 interface Props {
   id: number;
@@ -34,12 +35,7 @@ const IMAGE_SORT = [
   { value: "rating", label: "Rating" },
   { value: "random", label: "Random" },
 ];
-const GALLERY_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "random", label: "Random" },
-];
+const GALLERY_SORT = GALLERY_SORT_OPTIONS;
 const GROUP_SORT = [
   { value: "name", label: "Name" },
   { value: "updated_at", label: "Updated At" },
@@ -145,7 +141,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       <div className="relative overflow-hidden border-b border-border detail-hero-gradient">
         {/* Background performer image */}
         <img
-          src={entityImages.performerImageUrl(performer.id)}
+          src={entityImages.performerImageUrl(performer.id, performer.updatedAt, 1600)}
           alt=""
           className="absolute inset-0 h-full w-full object-cover opacity-10 blur-md scale-110"
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -194,7 +190,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
             <div className="w-48 flex-shrink-0 md:w-64">
               <div className="aspect-[2/3] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-black/40">
                 <img
-                  src={performer.imagePath || entityImages.performerImageUrl(performer.id)}
+                  src={performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt, 1200)}
                   alt={performer.name}
                   className="h-full w-full object-cover"
                   onError={(e) => {
@@ -316,7 +312,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         open={mergeOpen}
         onClose={() => setMergeOpen(false)}
         entityType="performer"
-        targetItem={{ id: performer.id, name: performer.name, imagePath: performer.imagePath || entityImages.performerImageUrl(performer.id), subtitle: performer.disambiguation }}
+        targetItem={{ id: performer.id, name: performer.name, imagePath: performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt), subtitle: performer.disambiguation }}
         searchItems={async (term) => {
           const response = await performers.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: term || undefined });
           return response.items.map((item) => ({
@@ -778,7 +774,7 @@ function PerformerAppearsWithPanel({ performerId, filter, setFilter, onNavigate 
             <button key={p.id} type="button" {...navigationHandlers} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
               <div className="aspect-[2/3] bg-gradient-to-b from-card to-surface overflow-hidden">
                 <img
-                  src={entityImages.performerImageUrl(p.id)}
+                  src={p.imagePath || entityImages.performerImageUrl(p.id)}
                   alt={p.name}
                   className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   loading="lazy"

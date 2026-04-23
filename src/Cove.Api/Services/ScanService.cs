@@ -224,7 +224,7 @@ public class ScanService(
         CancellationToken ct)
     {
         var generateSceneAssets = options.GenerateCovers || options.GeneratePreviews || options.GenerateSprites || options.GeneratePhashes;
-        var generateImageAssets = options.GenerateImagePhashes;
+        var generateImageAssets = options.GenerateImagePhashes || options.GenerateImageThumbnails;
 
         if ((!generateSceneAssets && !generateImageAssets) || (processedVideoPaths.Count == 0 && processedImagePaths.Count == 0))
         {
@@ -308,7 +308,7 @@ public class ScanService(
 
         if (generateImageAssets && processedImagePaths.Count > 0)
         {
-            progress.Report(0.98, "Generating image perceptual hashes...");
+            progress.Report(0.98, "Generating image assets...");
 
             var imageDirs = processedImagePaths
                 .Select(path => Path.GetDirectoryName(path))
@@ -327,34 +327,47 @@ public class ScanService(
                 .Where(file => file.ParentFolder != null && processedImagePaths.Contains(NormalizePath(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
+            var total = Math.Max(imageFiles.Count, 1);
+            var completed = 0;
             var imgMaxParallelism = ResolveMaxParallelism();
             await Parallel.ForEachAsync(imageFiles, new ParallelOptions { MaxDegreeOfParallelism = imgMaxParallelism, CancellationToken = ct }, async (imageFile, token) =>
             {
+                var done = Interlocked.Increment(ref completed);
+                progress.Report(0.98 + (0.01 * done / total), $"Generating image assets ({done}/{imageFiles.Count})");
+
                 if (imageFile.ParentFolder == null)
                     return;
 
-                var filePath = Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename);
-                var phash = await fingerprintService.ComputeImagePhashAsync(filePath, token);
-                if (string.IsNullOrWhiteSpace(phash))
-                    return;
+                if (options.GenerateImageThumbnails && imageFile.ImageId.HasValue)
+                {
+                    await thumbnailService.GenerateImageThumbnailAsync(imageFile.ImageId.Value, ct: token);
+                }
 
-                using var innerScope = scopeFactory.CreateScope();
-                var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == imageFile.Id && fp.Type == "phash", token);
-                if (existing != null)
+                if (options.GenerateImagePhashes)
                 {
-                    existing.Value = phash;
-                }
-                else
-                {
-                    innerDb.FileFingerprints.Add(new FileFingerprint
+                    var filePath = Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename);
+                    var phash = await fingerprintService.ComputeImagePhashAsync(filePath, token);
+                    if (string.IsNullOrWhiteSpace(phash))
+                        return;
+
+                    using var innerScope = scopeFactory.CreateScope();
+                    var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                    var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == imageFile.Id && fp.Type == "phash", token);
+                    if (existing != null)
                     {
-                        FileId = imageFile.Id,
-                        Type = "phash",
-                        Value = phash,
-                    });
+                        existing.Value = phash;
+                    }
+                    else
+                    {
+                        innerDb.FileFingerprints.Add(new FileFingerprint
+                        {
+                            FileId = imageFile.Id,
+                            Type = "phash",
+                            Value = phash,
+                        });
+                    }
+                    await innerDb.SaveChangesAsync(token);
                 }
-                await innerDb.SaveChangesAsync(token);
             });
         }
     }

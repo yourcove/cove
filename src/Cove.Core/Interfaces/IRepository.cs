@@ -279,6 +279,7 @@ public class GalleryFilter
     public StringCriterion? TitleCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
+    public StringCriterion? ChecksumCriterion { get; set; }
     public StringCriterion? UrlCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
@@ -290,6 +291,8 @@ public class GalleryFilter
     public IntCriterion? FileCountCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
+    public IntCriterion? PerformerAgeCriterion { get; set; }
+    public IntCriterion? TypicalResolutionCriterion { get; set; }
     public MultiIdCriterion? ScenesCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
 }

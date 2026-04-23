@@ -5,6 +5,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -16,7 +17,10 @@ public interface IThumbnailService
     Task<string?> GetSceneThumbnailPathAsync(int sceneId, CancellationToken ct = default);
     Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct = default);
     Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageStreamAsync(int imageId, CancellationToken ct = default);
+    Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageThumbnailStreamAsync(int imageId, int maxDimension = 640, CancellationToken ct = default);
+    Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetBlobImageThumbnailStreamAsync(string blobId, int maxDimension = 640, CancellationToken ct = default);
     Task GenerateSceneThumbnailAsync(int sceneId, double? atSeconds = null, CancellationToken ct = default);
+    Task GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default);
     Task GenerateScenePreviewAsync(int sceneId, CancellationToken ct = default);
     Task GenerateSceneSpriteAsync(int sceneId, CancellationToken ct = default);
     string GetThumbnailPathForScene(int sceneId);
@@ -32,9 +36,11 @@ public class ThumbnailService(
     IJobService jobService,
     CoveConfiguration config,
     IZipFileReader zipFileReader,
+    IBlobService blobService,
     ILogger<ThumbnailService> logger) : IThumbnailService
 {
     private string ThumbnailDir => Path.Combine(config.GeneratedPath, "screenshots");
+    private string ImageThumbnailDir => Path.Combine(config.GeneratedPath, "thumbnails");
     private string PreviewDir => Path.Combine(config.GeneratedPath, "previews");
     private string VttDir => Path.Combine(config.GeneratedPath, "vtt");
     private SemaphoreSlim? _ffmpegSemaphore;
@@ -65,6 +71,7 @@ public class ThumbnailService(
         [".gif"] = "image/gif", [".webp"] = "image/webp", [".bmp"] = "image/bmp",
         [".tiff"] = "image/tiff", [".tif"] = "image/tiff", [".svg"] = "image/svg+xml",
     };
+    private static readonly string[] ArchiveExtensions = [".zip", ".cbz"];
 
     // Preview generation defaults (matching original Cove)
     private const int PreviewSegments = 12;
@@ -72,6 +79,10 @@ public class ThumbnailService(
     private const int PreviewWidth = 640;
     private const string PreviewPreset = "fast";
     private const int PreviewCrf = 21;
+    private const int DefaultImageThumbnailMaxDimension = 640;
+    private const int MinImageThumbnailMaxDimension = 64;
+    private const int MaxImageThumbnailMaxDimension = 4096;
+    private const int ImageThumbnailQuality = 80;
 
     // Sprite generation defaults
     private const int SpriteFrameCount = 81; // 9x9 grid
@@ -86,12 +97,7 @@ public class ThumbnailService(
 
     public async Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct)
     {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-        var imageFile = await db.ImageFiles
-            .Include(f => f.ParentFolder)
-            .FirstOrDefaultAsync(f => f.ImageId == imageId, ct);
+        var imageFile = await GetImageFileRecordAsync(imageId, ct);
 
         if (imageFile == null) return null;
 
@@ -104,52 +110,332 @@ public class ThumbnailService(
 
     public async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageStreamAsync(int imageId, CancellationToken ct)
     {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-        var imageFile = await db.ImageFiles
-            .Include(f => f.ParentFolder)
-            .FirstOrDefaultAsync(f => f.ImageId == imageId, ct);
+        var imageFile = await GetImageFileRecordAsync(imageId, ct);
 
         if (imageFile == null) return null;
 
-        // Check if this image is stored in a zip archive
-        if (imageFile.ZipFileId.HasValue)
+        return await OpenImageSourceStreamAsync(imageFile, ct);
+    }
+
+    public async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageThumbnailStreamAsync(int imageId, int maxDimension, CancellationToken ct)
+    {
+        maxDimension = NormalizeImageThumbnailMaxDimension(maxDimension);
+
+        var imageFile = await GetImageFileRecordAsync(imageId, ct);
+        if (imageFile == null) return null;
+
+        var thumbnailPath = GetImageThumbnailPath(imageId, maxDimension);
+        if (config.WriteImageThumbnails && IsImageThumbnailCurrent(thumbnailPath, imageFile.ModTime))
         {
-            // Get the parent zip file
-            var zipFile = await db.GalleryFiles
-                .Include(gf => gf.ParentFolder)
-                .FirstOrDefaultAsync(gf => gf.Id == imageFile.ZipFileId.Value, ct);
-
-            if (zipFile == null) return null;
-
-            var zipFilePath = Path.Combine(zipFile.ParentFolder?.Path ?? "", zipFile.Basename);
-
-            // Extract the image from the zip
-            var stream = await zipFileReader.ExtractEntryAsync(zipFilePath, imageFile.Basename, ct);
-            var ext = Path.GetExtension(imageFile.Basename);
-            var contentType = ImageMimeTypes.GetValueOrDefault(ext, "application/octet-stream");
-
-            // Zip-based streams don't support range requests (they're already in memory)
-            return (stream, contentType, false);
+            var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            return (cachedStream, "image/jpeg", true);
         }
-        else
+
+        var source = await OpenImageSourceStreamAsync(imageFile, ct);
+        if (source == null) return null;
+
+        if (!CanGenerateImageThumbnail(source.Value.contentType))
+            return source;
+
+        try
         {
-            // Regular file-based image
-            var filePath = imageFile.ParentFolder != null
-                ? Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename)
-                : imageFile.Basename;
+            if (config.WriteImageThumbnails)
+            {
+                await using (source.Value.stream)
+                {
+                    await GenerateImageThumbnailFileAsync(source.Value.stream, thumbnailPath, imageFile.ModTime, maxDimension, ct);
+                }
 
-            if (!File.Exists(filePath)) return null;
+                var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+                return (cachedStream, "image/jpeg", true);
+            }
 
-            var ext = Path.GetExtension(filePath);
-            var contentType = ImageMimeTypes.GetValueOrDefault(ext, "application/octet-stream");
-            var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-
-            // File-based streams support range requests
-            return (stream, contentType, true);
+            var thumbnailStream = new MemoryStream();
+            await WriteImageThumbnailAsync(source.Value.stream, thumbnailStream, maxDimension, ct);
+            await source.Value.stream.DisposeAsync();
+            thumbnailStream.Position = 0;
+            return (thumbnailStream, "image/jpeg", false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Falling back to original image stream for thumbnail {ImageId}", imageId);
+            if (source.Value.stream.CanSeek)
+                source.Value.stream.Position = 0;
+            return source;
         }
     }
+
+    public async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetBlobImageThumbnailStreamAsync(string blobId, int maxDimension, CancellationToken ct)
+    {
+        maxDimension = NormalizeImageThumbnailMaxDimension(maxDimension);
+
+        var thumbnailPath = GetBlobImageThumbnailPath(blobId, maxDimension);
+        if (File.Exists(thumbnailPath))
+        {
+            var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            return (cachedStream, "image/jpeg", true);
+        }
+
+        var source = await blobService.GetBlobAsync(blobId, ct);
+        if (source == null) return null;
+
+        if (!CanGenerateImageThumbnail(source.Value.ContentType))
+            return (source.Value.Stream, source.Value.ContentType, source.Value.Stream.CanSeek);
+
+        try
+        {
+            await using (source.Value.Stream)
+            {
+                var directory = Path.GetDirectoryName(thumbnailPath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                    Directory.CreateDirectory(directory);
+
+                var tempPath = thumbnailPath + $".{Guid.NewGuid():N}.tmp";
+                try
+                {
+                    await using (var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+                    {
+                        await WriteImageThumbnailAsync(source.Value.Stream, output, maxDimension, ct);
+                    }
+
+                    File.Move(tempPath, thumbnailPath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        try { File.Delete(tempPath); } catch { }
+                    }
+                }
+            }
+
+            var cachedStream = new FileStream(thumbnailPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            return (cachedStream, "image/jpeg", true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Falling back to original blob stream for entity image thumbnail {BlobId}", blobId);
+
+            var fallback = await blobService.GetBlobAsync(blobId, ct);
+            if (fallback == null) return null;
+            return (fallback.Value.Stream, fallback.Value.ContentType, fallback.Value.Stream.CanSeek);
+        }
+    }
+
+    public async Task GenerateImageThumbnailAsync(int imageId, int maxDimension, bool overwrite, CancellationToken ct)
+    {
+        maxDimension = NormalizeImageThumbnailMaxDimension(maxDimension);
+
+        var imageFile = await GetImageFileRecordAsync(imageId, ct);
+        if (imageFile == null) return;
+
+        var thumbnailPath = GetImageThumbnailPath(imageId, maxDimension);
+        if (!overwrite && IsImageThumbnailCurrent(thumbnailPath, imageFile.ModTime))
+            return;
+
+        var source = await OpenImageSourceStreamAsync(imageFile, ct);
+        if (source == null || !CanGenerateImageThumbnail(source.Value.contentType))
+            return;
+
+        await using (source.Value.stream)
+        {
+            await GenerateImageThumbnailFileAsync(source.Value.stream, thumbnailPath, imageFile.ModTime, maxDimension, ct);
+        }
+    }
+
+    private async Task<ImageFile?> GetImageFileRecordAsync(int imageId, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+
+        return await db.ImageFiles
+            .Include(f => f.ParentFolder)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.ImageId == imageId, ct);
+    }
+
+    private async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> OpenImageSourceStreamAsync(ImageFile imageFile, CancellationToken ct)
+    {
+
+        var resolvedFilePath = imageFile.Path;
+
+        if (imageFile.ZipFileId.HasValue)
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+
+            var zipFile = await db.Set<BaseFileEntity>()
+                .Include(file => file.ParentFolder)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(file => file.Id == imageFile.ZipFileId.Value, ct);
+
+            if (zipFile != null)
+            {
+                var zipResult = await TryOpenZipBackedImageStreamAsync(zipFile.Path, GetZipEntryCandidates(imageFile.Basename, resolvedFilePath, zipFile.Path), ct);
+                if (zipResult != null) return zipResult;
+            }
+        }
+
+        if (TryParseArchivePath(resolvedFilePath, out var archivePath, out var entryPath))
+        {
+            var zipResult = await TryOpenZipBackedImageStreamAsync(archivePath, [entryPath, imageFile.Basename], ct);
+            if (zipResult != null) return zipResult;
+        }
+
+        if (!File.Exists(resolvedFilePath)) return null;
+
+        var ext = Path.GetExtension(resolvedFilePath);
+        var contentType = ImageMimeTypes.GetValueOrDefault(ext, "application/octet-stream");
+        var stream = new FileStream(resolvedFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        return (stream, contentType, true);
+    }
+
+    private async Task GenerateImageThumbnailFileAsync(Stream sourceStream, string thumbnailPath, DateTime sourceModifiedAt, int maxDimension, CancellationToken ct)
+    {
+        var directory = Path.GetDirectoryName(thumbnailPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        var tempPath = thumbnailPath + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            {
+                await WriteImageThumbnailAsync(sourceStream, output, maxDimension, ct);
+            }
+
+            File.Move(tempPath, thumbnailPath, overwrite: true);
+            File.SetLastWriteTimeUtc(thumbnailPath, NormalizeUtc(sourceModifiedAt));
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+        }
+    }
+
+    private static async Task WriteImageThumbnailAsync(Stream sourceStream, Stream outputStream, int maxDimension, CancellationToken ct)
+    {
+        if (sourceStream.CanSeek)
+            sourceStream.Position = 0;
+
+        using var image = await SixLabors.ImageSharp.Image.LoadAsync(sourceStream, ct);
+        image.Mutate(ctx =>
+        {
+            ctx.AutoOrient();
+            if (image.Width > maxDimension || image.Height > maxDimension)
+            {
+                ctx.Resize(new ResizeOptions
+                {
+                    Mode = ResizeMode.Max,
+                    Size = new Size(maxDimension, maxDimension)
+                });
+            }
+        });
+
+        await image.SaveAsJpegAsync(outputStream, new JpegEncoder { Quality = ImageThumbnailQuality }, ct);
+    }
+
+    private static bool CanGenerateImageThumbnail(string contentType)
+        => !string.Equals(contentType, "image/svg+xml", StringComparison.OrdinalIgnoreCase);
+
+    private static DateTime NormalizeUtc(DateTime value)
+        => value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+
+    private static bool IsImageThumbnailCurrent(string thumbnailPath, DateTime sourceModifiedAt)
+    {
+        if (!File.Exists(thumbnailPath)) return false;
+
+        var cachedModifiedAt = File.GetLastWriteTimeUtc(thumbnailPath);
+        return cachedModifiedAt >= NormalizeUtc(sourceModifiedAt).AddSeconds(-1);
+    }
+
+    private static int NormalizeImageThumbnailMaxDimension(int maxDimension)
+    {
+        if (maxDimension <= 0) return DefaultImageThumbnailMaxDimension;
+        return Math.Clamp(maxDimension, MinImageThumbnailMaxDimension, MaxImageThumbnailMaxDimension);
+    }
+
+    private string GetBlobImageThumbnailPath(string blobId, int maxDimension)
+        => Path.Combine(ImageThumbnailDir, "entity-blobs", blobId[..2], $"{blobId}-{maxDimension}.jpg");
+
+    private async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> TryOpenZipBackedImageStreamAsync(
+        string archivePath,
+        IEnumerable<string?> entryCandidates,
+        CancellationToken ct)
+    {
+        if (!File.Exists(archivePath)) return null;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in entryCandidates)
+        {
+            var normalizedEntry = NormalizeZipEntryPath(candidate);
+            if (string.IsNullOrWhiteSpace(normalizedEntry) || !seen.Add(normalizedEntry))
+                continue;
+
+            try
+            {
+                var stream = await zipFileReader.ExtractEntryAsync(archivePath, normalizedEntry, ct);
+                var contentType = ImageMimeTypes.GetValueOrDefault(Path.GetExtension(normalizedEntry), "application/octet-stream");
+                return (stream, contentType, false);
+            }
+            catch (FileNotFoundException)
+            {
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string?> GetZipEntryCandidates(string basename, string resolvedFilePath, string? expectedArchivePath = null)
+    {
+        if (TryParseArchivePath(resolvedFilePath, out var archivePath, out var entryPath)
+            && (expectedArchivePath == null || string.Equals(archivePath, expectedArchivePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            yield return entryPath;
+        }
+
+        yield return basename;
+    }
+
+    private static bool TryParseArchivePath(string path, out string archivePath, out string entryPath)
+    {
+        archivePath = string.Empty;
+        entryPath = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        var normalizedPath = path.Replace('\\', '/');
+        foreach (var extension in ArchiveExtensions)
+        {
+            var marker = extension + "/";
+            var markerIndex = normalizedPath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0) continue;
+
+            var archiveEnd = markerIndex + extension.Length;
+            var candidateArchivePath = path[..archiveEnd];
+            var candidateEntryPath = normalizedPath[(archiveEnd + 1)..];
+            if (!File.Exists(candidateArchivePath) || string.IsNullOrWhiteSpace(candidateEntryPath))
+                continue;
+
+            archivePath = candidateArchivePath;
+            entryPath = NormalizeZipEntryPath(candidateEntryPath);
+            return !string.IsNullOrWhiteSpace(entryPath);
+        }
+
+        return false;
+    }
+
+    private static string NormalizeZipEntryPath(string? path)
+        => string.IsNullOrWhiteSpace(path)
+            ? string.Empty
+            : path.Replace('\\', '/').Trim('/');
 
     public async Task GenerateSceneThumbnailAsync(int sceneId, double? atSeconds, CancellationToken ct)
     {
@@ -576,6 +862,13 @@ public class ThumbnailService(
         var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(sceneId)));
         var subDir = hash[..2];
         return Path.Combine(ThumbnailDir, subDir, $"{sceneId}.jpg");
+    }
+
+    private string GetImageThumbnailPath(int imageId, int maxDimension)
+    {
+        var hash = Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(imageId)));
+        var subDir = hash[..2];
+        return Path.Combine(ImageThumbnailDir, subDir, $"{imageId}_m{maxDimension}.jpg");
     }
 
     private string? GetCachedFfmpegPath()

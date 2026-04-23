@@ -23,6 +23,8 @@ import { StringListEditor } from "../components/StringListEditor";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { StudioSelector } from "../components/StudioSelector";
+import { withSeededRandomSort } from "../utils/seededRandomSort";
+import { WallMediaCard } from "../components/WallMediaCard";
 
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
@@ -79,13 +81,7 @@ export function ScenesPage({ onNavigate }: Props) {
 
   // When sort changes to random, generate a new seed for reproducibility
   const handleFilterChange = useCallback((next: typeof filter) => {
-    if (next.sort === "random" && filter.sort !== "random") {
-      setFilter({ ...next, seed: Math.floor(Math.random() * 2147483647) });
-    } else if (next.sort !== "random" && next.seed != null) {
-      setFilter({ ...next, seed: undefined });
-    } else {
-      setFilter(next);
-    }
+    setFilter(withSeededRandomSort(filter, next));
   }, [filter, setFilter]);
 
   // Bulk delete
@@ -572,26 +568,24 @@ function SceneWallCard({ scene, onClick }: { scene: Scene; onClick: () => void }
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, onClick);
 
   return (
-    <div {...navigationHandlers} className="cursor-pointer group rounded overflow-hidden border border-border hover:border-accent/60 transition-all">
-      <div className="relative w-full bg-surface" style={{ aspectRatio }}>
-        <img
-          src={screenshotUrl}
-          alt={scene.title || ""}
-          className="absolute inset-0 h-full w-full object-cover"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-        <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+    <WallMediaCard
+      {...navigationHandlers}
+      title={scene.title || file?.basename || "Untitled"}
+      imageSrc={screenshotUrl}
+      aspectRatio={aspectRatio}
+      className="group"
+    >
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+      <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <p className="text-xs text-white font-medium truncate">
             {scene.title || file?.basename || "Untitled"}
           </p>
-        </div>
-        {file && file.duration > 0 && (
-          <span className="absolute top-1 right-1 text-xs text-white bg-black/70 px-1 rounded">
-            {formatDuration(file.duration)}
-          </span>
-        )}
       </div>
-    </div>
+      {file && file.duration > 0 && (
+        <span className="absolute top-1 right-1 text-xs text-white bg-black/70 px-1 rounded">
+          {formatDuration(file.duration)}
+        </span>
+      )}
+    </WallMediaCard>
   );
 }

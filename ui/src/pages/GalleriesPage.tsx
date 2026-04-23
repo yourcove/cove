@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries } from "../api/client";
 import type { FindFilter, Gallery, GalleryCreate, GalleryFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { RatingBanner, RatingField } from "../components/Rating";
+import { InteractiveRatingField, RatingBanner } from "../components/Rating";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { FolderOpen, Image, Users, Tag, Trash2, Loader2, Edit, Box, Film, Check } from "lucide-react";
@@ -13,14 +13,9 @@ import { BulkEditDialog, GALLERY_BULK_FIELDS } from "../components/BulkEditDialo
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
-
-const SORT_OPTIONS = [
-  { value: "title", label: "Title" },
-  { value: "image_count", label: "Image Count" },
-  { value: "rating", label: "Rating" },
-  { value: "random", label: "Random" },
-  { value: "created_at", label: "Created At" },
-];
+import { useWallColumns } from "../hooks/useWallColumns";
+import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
+import { WallMediaCard } from "../components/WallMediaCard";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -40,10 +35,11 @@ export function GalleriesPage({ onNavigate }: Props) {
     defaultFilter: defaultState.filter,
     defaultObjectFilter: defaultState.objectFilter,
     defaultDisplayMode: defaultState.displayMode,
-    allowedDisplayModes: ["grid", "list"] as const,
+    allowedDisplayModes: ["grid", "list", "wall"] as const,
   });
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [wallColumnCount, setWallColumnCount] = useState(5);
   const queryClient = useQueryClient();
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
@@ -56,6 +52,7 @@ export function GalleriesPage({ onNavigate }: Props) {
   });
 
   const items = data?.items ?? [];
+  const wallColumns = useWallColumns(items, wallColumnCount);
   const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(items);
   const selecting = selectedIds.size > 0;
 
@@ -84,14 +81,16 @@ export function GalleriesPage({ onNavigate }: Props) {
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
       isLoading={isLoading}
-      sortOptions={SORT_OPTIONS}
+      sortOptions={GALLERY_SORT_OPTIONS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
-      availableDisplayModes={["grid", "list"]}
+      availableDisplayModes={["grid", "list", "wall"]}
       criteriaDefinitions={GALLERY_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       onNew={() => setShowCreate(true)}
+      wallColumnCount={wallColumnCount}
+      onWallColumnCountChange={setWallColumnCount}
 
       selectedIds={selectedIds}
       onSelectAll={selectAll}
@@ -122,8 +121,25 @@ export function GalleriesPage({ onNavigate }: Props) {
             <GalleryCard key={g.id} gallery={g} onClick={() => selecting ? toggle(g.id) : onNavigate({ page: "gallery", id: g.id })} onNavigate={onNavigate} selected={selectedIds.has(g.id)} onSelect={() => toggle(g.id)} selecting={selecting} />
           ))}
         </div>
-      ) : (
+      ) : displayMode === "list" ? (
         <GalleryListTable galleries={items} onNavigate={onNavigate} selectedIds={selectedIds} onToggle={toggle} selecting={selecting} />
+      ) : (
+        <div className="flex gap-2 px-2">
+          {wallColumns.map((column, columnIndex) => (
+            <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-2">
+              {column.map((gallery) => (
+                <GalleryWallCard
+                  key={gallery.id}
+                  gallery={gallery}
+                  onClick={() => selecting ? toggle(gallery.id) : onNavigate({ page: "gallery", id: gallery.id })}
+                  selected={selectedIds.has(gallery.id)}
+                  onSelect={() => toggle(gallery.id)}
+                  selecting={selecting}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       )}
       {items.length === 0 && (
         <div className="text-center text-secondary py-16">
@@ -145,6 +161,40 @@ export function GalleriesPage({ onNavigate }: Props) {
   );
 }
 
+function GalleryWallCard({ gallery, onClick, selected, onSelect, selecting }: { gallery: Gallery; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, onClick);
+
+  return (
+    <WallMediaCard
+      {...navigationHandlers}
+      title={gallery.title || "Untitled"}
+      imageSrc={gallery.coverPath}
+      aspectRatio="16 / 9"
+      fallback={<FolderOpen className="w-10 h-10 text-muted opacity-30" />}
+      className={`${selected ? "border-accent ring-2 ring-accent" : ""} group`.trim()}
+    >
+      <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(event) => {
+            event.stopPropagation();
+            onSelect?.();
+          }}
+          onClick={(event) => event.stopPropagation()}
+          className="w-4 h-4 rounded border-border cursor-pointer accent-accent"
+        />
+      </div>
+      <RatingBanner rating={gallery.rating} />
+      {gallery.studioName && (
+        <div className="absolute top-1 right-1 text-xs bg-black/70 px-1.5 py-0.5 rounded text-white truncate max-w-[80%]">
+          {gallery.studioName}
+        </div>
+      )}
+    </WallMediaCard>
+  );
+}
+
 function GalleryCard({ gallery, onClick, onNavigate, selected, onSelect, selecting }: { gallery: Gallery; onClick: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
   const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, onClick);
 
@@ -155,7 +205,7 @@ function GalleryCard({ gallery, onClick, onNavigate, selected, onSelect, selecti
           <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
         </div>
         {gallery.coverPath ? (
-          <img src={gallery.coverPath} alt={gallery.title || ""} className="w-full h-full object-cover" loading="lazy" />
+          <img src={gallery.coverPath} alt={gallery.title || ""} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         ) : (
           <FolderOpen className="w-10 h-10 text-muted opacity-30" />
         )}
@@ -305,7 +355,7 @@ function GalleryCreateModal({ open, onClose, onCreated }: { open: boolean; onClo
       <Field label="Details">
         <TextArea value={form.details} onChange={(v) => setForm({ ...form, details: v })} rows={3} />
       </Field>
-      <RatingField value={form.rating} onChange={(value) => setForm({ ...form, rating: value })} />
+      <InteractiveRatingField value={form.rating} onChange={(value) => setForm({ ...form, rating: value })} />
       <div className="flex justify-end mt-4">
         <SaveButton loading={mutation.isPending} onClick={save} />
       </div>

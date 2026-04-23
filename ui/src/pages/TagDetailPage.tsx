@@ -17,6 +17,7 @@ import { useExtensionTabs } from "../components/useExtensionTabs";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 
 const PERFORMER_SORT = [
   { value: "name", label: "Name" },
@@ -33,12 +34,7 @@ const IMAGE_SORT = [
   { value: "rating", label: "Rating" },
   { value: "random", label: "Random" },
 ];
-const GALLERY_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "random", label: "Random" },
-];
+const GALLERY_SORT = GALLERY_SORT_OPTIONS;
 const STUDIO_SORT = [
   { value: "name", label: "Name" },
   { value: "updated_at", label: "Updated At" },
@@ -137,7 +133,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     return <div className="py-16 text-center text-secondary">Tag not found</div>;
   }
 
-  const tagImageUrl = tag.imagePath || entityImages.tagImageUrl(tag.id);
+  const tagImageUrl = tag.imagePath || entityImages.tagImageUrl(tag.id, tag.updatedAt);
 
   return (
     <div className="min-h-screen">

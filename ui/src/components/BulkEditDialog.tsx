@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, Plus, Minus } from "lucide-react";
 import { InteractiveRating } from "./Rating";
-import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi } from "../api/client";
+import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi } from "../api/client";
 import type { BulkUpdateMode } from "../api/types";
 import { StudioSelector } from "./StudioSelector";
 
@@ -12,7 +12,7 @@ interface BulkEditField {
   key: string;
   label: string;
   type: "rating" | "number" | "bool" | "string" | "date" | "select" | "multiId";
-  entityType?: "tags" | "performers" | "studios" | "groups";
+  entityType?: "tags" | "performers" | "studios" | "groups" | "galleries";
   options?: { label: string; value: string | number }[];
   modeKey?: string;
   nullable?: boolean;
@@ -236,7 +236,7 @@ function MultiIdBulkEditor({
   onValueChange,
   onModeChange,
 }: {
-  entityType: "tags" | "performers" | "studios" | "groups";
+  entityType: "tags" | "performers" | "studios" | "groups" | "galleries";
   value: number[];
   mode: BulkUpdateMode;
   onValueChange: (v: unknown) => void;
@@ -252,6 +252,7 @@ function MultiIdBulkEditor({
         case "performers": return (await performersApi.find({ perPage: 1000, sort: "name", direction: "asc" })).items;
         case "studios": return (await studiosApi.find({ perPage: 1000, sort: "name", direction: "asc" })).items;
         case "groups": return (await groupsApi.find({ perPage: 1000, sort: "name", direction: "asc" })).items;
+        case "galleries": return (await galleriesApi.find({ perPage: 1000, sort: "title", direction: "asc" })).items;
         default: return [];
       }
     },
@@ -399,6 +400,7 @@ export const IMAGE_BULK_FIELDS: BulkEditField[] = [
   { key: "studioId", label: "Studio", type: "select", entityType: "studios", nullable: true },
   { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
   { key: "performerIds", label: "Performers", type: "multiId", entityType: "performers", modeKey: "performerMode" },
+  { key: "galleryIds", label: "Galleries", type: "multiId", entityType: "galleries", modeKey: "galleryMode" },
 ];
 
 export const TAG_BULK_FIELDS: BulkEditField[] = [

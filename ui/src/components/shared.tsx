@@ -1,4 +1,5 @@
 export { RatingBadge } from "./Rating";
+import { getResolutionBucketLabel } from "../utils/resolutionBuckets";
 
 export function TagBadge({ name, onClick }: { name: string; onClick?: () => void }) {
   return (
@@ -40,22 +41,7 @@ export function formatDate(dateStr?: string): string {
 }
 
 export function getResolutionLabel(width: number, height: number): string | null {
-  const number = width > height ? height : width;
-  if (number >= 6144) return "HUGE";
-  if (number >= 3840) return "8K";
-  if (number >= 3584) return "7K";
-  if (number >= 3000) return "6K";
-  if (number >= 2560) return "5K";
-  if (number >= 1920) return "4K";
-  if (number >= 1440) return "1440p";
-  if (number >= 1080) return "1080p";
-  if (number >= 720) return "720p";
-  if (number >= 540) return "540p";
-  if (number >= 480) return "480p";
-  if (number >= 360) return "360p";
-  if (number >= 240) return "240p";
-  if (number >= 144) return "144p";
-  return null;
+  return getResolutionBucketLabel(width, height);
 }
 
 export function CustomFieldsDisplay({ customFields }: { customFields?: Record<string, unknown> }) {

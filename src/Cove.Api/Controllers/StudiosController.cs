@@ -18,6 +18,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     public async Task<ActionResult<PaginatedResponse<StudioDto>>> Find(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         [FromQuery] string? name = null, [FromQuery] bool? favorite = null,
         [FromQuery] int? parentId = null, [FromQuery] string? tagIds = null,
         CancellationToken ct = default)
@@ -26,7 +27,8 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc
+            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Seed = seed,
         };
 
         var (items, totalCount) = await studioRepo.FindAsync(filter, findFilter, ct);
@@ -174,7 +176,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         groupCount ?? s.Groups?.Count ?? 0,
         performerCount ?? 0,
         childStudioCount ?? s.Children?.Count ?? 0,
-        s.ImageBlobId != null ? $"/api/studios/{s.Id}/image" : null,
+        s.ImageBlobId != null ? EntityImageUrls.Studio(s.Id, s.UpdatedAt) : null,
         s.CustomFields,
         s.CreatedAt.ToString("o"), s.UpdatedAt.ToString("o")
     );

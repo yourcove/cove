@@ -17,6 +17,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     public async Task<ActionResult<PaginatedResponse<GalleryDto>>> Find(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         [FromQuery] string? title = null, [FromQuery] int? rating = null,
         [FromQuery] bool? organized = null, [FromQuery] int? studioId = null, [FromQuery] int? imageId = null,
         [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
@@ -31,7 +32,8 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc
+            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Seed = seed,
         };
 
         var (items, totalCount) = await galleryRepo.FindAsync(filter, findFilter, ct);
@@ -55,7 +57,38 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     {
         var gallery = await galleryRepo.GetByIdWithRelationsAsync(id, ct);
         if (gallery == null) return NotFound();
-        return Ok(MapToDto(gallery));
+
+        var firstImageId = await db.Set<ImageGallery>()
+            .Where(ig => ig.GalleryId == id)
+            .OrderBy(ig => ig.ImageId)
+            .Select(ig => (int?)ig.ImageId)
+            .FirstOrDefaultAsync(ct);
+
+        return Ok(MapToDto(gallery, firstImageId: firstImageId));
+    }
+
+    [HttpGet("{id:int}/cover")]
+    [OutputCache(PolicyName = "ShortCache")]
+    public async Task<IActionResult> GetCover(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
+    {
+        var gallery = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id, ct);
+        if (gallery == null) return NotFound();
+
+        if (gallery.ImageBlobId != null)
+            return Redirect(WithQuery($"/api/galleries/{id}/image", max, v));
+
+        if (gallery.CoverImageId.HasValue)
+            return Redirect(WithQuery($"/api/stream/image/{gallery.CoverImageId.Value}/thumbnail", max, v));
+
+        var firstImageId = await db.Set<ImageGallery>()
+            .Where(ig => ig.GalleryId == id)
+            .OrderBy(ig => ig.ImageId)
+            .Select(ig => (int?)ig.ImageId)
+            .FirstOrDefaultAsync(ct);
+
+        return firstImageId.HasValue
+            ? Redirect(WithQuery($"/api/stream/image/{firstImageId.Value}/thumbnail", max, v))
+            : NotFound();
     }
 
     [HttpPost]
@@ -133,7 +166,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         g.Rating, g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
         g.GalleryTags.Where(gt => gt.Tag != null).Select(gt => new TagDto(gt.Tag!.Id, gt.Tag.Name, gt.Tag.Description, gt.Tag.Favorite, gt.Tag.IgnoreAutoTag, [])).ToList(),
-        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => new PerformerSummaryDto(gp.Performer!.Id, gp.Performer.Name, gp.Performer.Disambiguation, gp.Performer.Gender?.ToString(), gp.Performer.Birthdate?.ToString("yyyy-MM-dd"), gp.Performer.Favorite, gp.Performer.ImageBlobId != null ? $"/api/performers/{gp.Performer.Id}/image" : null)).ToList(),
+        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => new PerformerSummaryDto(gp.Performer!.Id, gp.Performer.Name, gp.Performer.Disambiguation, gp.Performer.Gender?.ToString(), gp.Performer.Birthdate?.ToString("yyyy-MM-dd"), gp.Performer.Favorite, gp.Performer.ImageBlobId != null ? EntityImageUrls.Performer(gp.Performer.Id, gp.Performer.UpdatedAt) : null)).ToList(),
         imageCount ?? g.ImageGalleries?.Count ?? 0,
         sceneCount ?? g.SceneGalleries?.Count ?? 0,
         g.SceneGalleries?.Select(sg => sg.SceneId).ToList() ?? [],
@@ -146,13 +179,19 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         g.CoverImageId
     );
 
-    /// <summary>Resolve cover image URL: explicit blob > explicit cover image > first gallery image.</summary>
+    /// <summary>Resolve cover image URL through the unified gallery cover endpoint.</summary>
     private static string? ResolveCoverPath(Gallery g, int? firstImageId)
     {
-        if (g.ImageBlobId != null) return $"/api/galleries/{g.Id}/image";
-        if (g.CoverImageId != null) return $"/api/stream/image/{g.CoverImageId}/thumbnail";
-        if (firstImageId != null) return $"/api/stream/image/{firstImageId}/thumbnail";
+        if (g.ImageBlobId != null || g.CoverImageId != null || firstImageId != null) return EntityImageUrls.GalleryCover(g.Id, g.UpdatedAt);
         return null;
+    }
+
+    private static string WithQuery(string path, int? max, string? version)
+    {
+        var query = new List<string>();
+        if (max.HasValue && max.Value > 0) query.Add($"max={max.Value}");
+        if (!string.IsNullOrWhiteSpace(version)) query.Add($"v={Uri.EscapeDataString(version)}");
+        return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
     }
 
     private async Task<List<GalleryDto>> MapListToDtos(IReadOnlyList<Gallery> items, CancellationToken ct)

@@ -17,6 +17,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db) :
     public async Task<ActionResult<PaginatedResponse<GroupDto>>> Find(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         [FromQuery] string? name = null, [FromQuery] int? rating = null,
         [FromQuery] int? studioId = null, [FromQuery] string? tagIds = null,
         CancellationToken ct = default)
@@ -25,7 +26,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db) :
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc
+            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Seed = seed,
         };
 
         var (items, totalCount) = await groupRepo.FindAsync(filter, findFilter, ct);
@@ -236,8 +238,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db) :
         g.ContainingGroupRelations?.Count ?? 0,
         g.CustomFields,
         g.CreatedAt.ToString("o"), g.UpdatedAt.ToString("o"),
-        g.FrontImageBlobId != null ? $"/api/groups/{g.Id}/image/front" : null,
-        g.BackImageBlobId != null ? $"/api/groups/{g.Id}/image/back" : null
+        g.FrontImageBlobId != null ? EntityImageUrls.GroupFront(g.Id, g.UpdatedAt) : null,
+        g.BackImageBlobId != null ? EntityImageUrls.GroupBack(g.Id, g.UpdatedAt) : null
     );
 
     private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;

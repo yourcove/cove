@@ -122,6 +122,10 @@ describe("getResolutionLabel", () => {
     expect(getResolutionLabel(3840, 1920)).toBe("4K");
   });
 
+  it("maps close portrait resolutions into the nearest bucket", () => {
+    expect(getResolutionLabel(2448, 3264)).toBe("4K");
+  });
+
   it("returns 8K", () => {
     expect(getResolutionLabel(7680, 4320)).toBe("8K");
   });

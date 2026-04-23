@@ -17,6 +17,8 @@ import { QuickViewDialog } from "../components/QuickViewDialog";
 import { createCardNavigationHandlers } from "../components/cardNavigation";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { useWallColumns } from "../hooks/useWallColumns";
+import { withSeededRandomSort } from "../utils/seededRandomSort";
+import { WallMediaCard } from "../components/WallMediaCard";
 
 const SORT_OPTIONS = [
   { value: "updated_at", label: "Updated At" },
@@ -81,13 +83,7 @@ export function ImagesPage({ onNavigate }: Props) {
   );
 
   const handleFilterChange = useCallback((next: typeof filter) => {
-    if (next.sort === "random" && filter.sort !== "random") {
-      setFilter({ ...next, seed: Math.floor(Math.random() * 2147483647) });
-    } else if (next.sort !== "random" && next.seed != null) {
-      setFilter({ ...next, seed: undefined });
-    } else {
-      setFilter(next);
-    }
+    setFilter(withSeededRandomSort(filter, next));
   }, [filter, setFilter]);
 
   const bulkDeleteMut = useMutation({
@@ -298,19 +294,11 @@ function ImageWallCard({ image, onClick }: { image: Image; onClick: () => void }
   const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1";
 
   return (
-    <div
+    <WallMediaCard
       {...navigationHandlers}
-      className="cursor-pointer rounded overflow-hidden border border-border hover:border-accent/60 transition-all"
       title={displayTitle}
-    >
-      <div className="relative w-full bg-surface" style={{ aspectRatio }}>
-        <img
-          src={images.thumbnailUrl(image.id)}
-          alt={displayTitle}
-          className="absolute inset-0 h-full w-full object-cover"
-          loading="lazy"
-        />
-      </div>
-    </div>
+      imageSrc={images.thumbnailUrl(image.id)}
+      aspectRatio={aspectRatio}
+    />
   );
 }

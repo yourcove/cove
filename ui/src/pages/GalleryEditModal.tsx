@@ -4,7 +4,7 @@ import { galleries, tags, performers, scenes as scenesApi } from "../api/client"
 import type { Gallery, GalleryUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { Search, X } from "lucide-react";
-import { RatingField } from "../components/Rating";
+import { InteractiveRatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
@@ -90,7 +90,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
         <Field label="Photographer">
           <TextInput value={form.photographer} onChange={(v) => setForm({ ...form, photographer: v })} />
         </Field>
-        <RatingField value={form.rating} onChange={(v) => setForm({ ...form, rating: v })} />
+        <InteractiveRatingField label="Rating" value={form.rating} onChange={(v) => setForm({ ...form, rating: v })} />
         <Field label="Studio">
           <StudioSelector value={form.studioId} onChange={(studioId) => setForm({ ...form, studioId })} />
         </Field>

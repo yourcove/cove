@@ -37,18 +37,12 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     queryFn: () => images.find(imageFilter, { galleryId: id }),
     enabled: !!gallery,
   });
-  const { data: chaptersData } = useQuery({
-    queryKey: ["gallery-chapters", id],
-    queryFn: () => galleries.chapters(id),
-    enabled: !!gallery,
-  });
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("images");
   const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs("gallery", [
     { key: "images", label: "Images", count: gallery?.imageCount },
     { key: "scenes", label: "Scenes" },
-    { key: "chapters", label: "Chapters", count: chaptersData?.length ?? 0 },
     { key: "fileinfo", label: "File Info" },
   ]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -83,7 +77,6 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       switch (e.key) {
         case "e": setEditing((v) => !v); break;
         case "a": setActiveTab("images"); break;
-        case "c": setActiveTab("chapters"); break;
         case "f": setActiveTab("fileinfo"); break;
       }
     };
@@ -139,9 +132,11 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   });
 
   const coverImageUrl = useMemo(() => {
-    if (gallery?.coverPath) return gallery.coverPath;
+    if (gallery && (gallery.coverPath || gallery.imageCount > 0)) {
+      return galleries.coverUrl(gallery.id, gallery.updatedAt, 1600);
+    }
     const firstImage = galleryImages?.items[0];
-    return firstImage ? images.imageUrl(firstImage.id) : null;
+    return firstImage ? images.thumbnailUrl(firstImage.id, 1600) : null;
   }, [gallery, galleryImages]);
 
   const coverImage = useMemo(() => galleryImages?.items[0], [galleryImages]);
@@ -238,9 +233,10 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => galleryUpdateMut.mutate({ organized: !gallery.organized })}
-                    className={`rounded px-2 py-1 text-xs font-medium transition-colors ${gallery.organized ? "bg-green-600 text-white" : "border border-border bg-card text-secondary hover:text-foreground"}`}
+                    className={`p-1.5 rounded transition-colors ${gallery.organized ? "bg-green-600 text-white" : "bg-card text-muted hover:text-foreground border border-border"}`}
+                    title={gallery.organized ? "Organized" : "Not organized"}
                   >
-                    {gallery.organized ? "Organized" : "Mark Organized"}
+                    <Check className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -329,10 +325,6 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
 
             {activeTab === "scenes" && (
               <GalleryScenesPanel galleryId={id} filter={sceneFilter} setFilter={setSceneFilter} onNavigate={onNavigate} />
-            )}
-
-            {activeTab === "chapters" && (
-              <GalleryChaptersPanel galleryId={id} chapters={chaptersData ?? []} />
             )}
 
             {activeTab === "fileinfo" && (

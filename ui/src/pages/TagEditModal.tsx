@@ -90,7 +90,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   return (
     <EditModal title={`Edit Tag: ${tag.name}`} open={open} onClose={onClose}>
       <ImageInput
-        currentImageUrl={entityImages.tagImageUrl(tag.id)}
+        currentImageUrl={entityImages.tagImageUrl(tag.id, tag.updatedAt)}
         onUpload={(file) => entityImages.uploadTagImage(tag.id, file)}
         onDelete={() => entityImages.deleteTagImage(tag.id)}
         onSuccess={() => queryClient.invalidateQueries({ queryKey: ["tag", tag.id] })}

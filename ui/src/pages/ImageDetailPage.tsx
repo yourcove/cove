@@ -110,7 +110,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             <ArrowLeft className="w-4 h-4" /> {backLabel}
           </button>
           <img
-            src={images.imageUrl(id)}
+            src={images.thumbnailUrl(id, 2200)}
             alt={displayTitle}
             className="image-detail-primary-image max-h-[calc(100vh-64px)] max-w-full object-contain select-none cursor-zoom-in"
             onClick={() => setLightboxOpen(true)}

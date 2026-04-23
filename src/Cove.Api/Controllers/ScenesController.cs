@@ -248,7 +248,7 @@ public class ScenesController(ISceneRepository sceneRepo, Data.CoveContext db, M
         s.Captions, s.InteractiveSpeed,
         s.Urls.Select(u => u.Url).ToList(),
         s.SceneTags.Where(st => st.Tag != null).Select(st => new TagDto(st.Tag!.Id, st.Tag.Name, st.Tag.Description, st.Tag.Favorite, st.Tag.IgnoreAutoTag, [])).ToList(),
-        s.ScenePerformers.Where(sp => sp.Performer != null).Select(sp => new PerformerSummaryDto(sp.Performer!.Id, sp.Performer.Name, sp.Performer.Disambiguation, sp.Performer.Gender?.ToString(), sp.Performer.Birthdate?.ToString("yyyy-MM-dd"), sp.Performer.Favorite, sp.Performer.ImageBlobId != null ? $"/api/performers/{sp.Performer.Id}/image" : null)).ToList(),
+        s.ScenePerformers.Where(sp => sp.Performer != null).Select(sp => new PerformerSummaryDto(sp.Performer!.Id, sp.Performer.Name, sp.Performer.Disambiguation, sp.Performer.Gender?.ToString(), sp.Performer.Birthdate?.ToString("yyyy-MM-dd"), sp.Performer.Favorite, sp.Performer.ImageBlobId != null ? EntityImageUrls.Performer(sp.Performer.Id, sp.Performer.UpdatedAt) : null)).ToList(),
         s.Files.Select(f => new VideoFileDto(f.Id, f.Path, f.Basename, f.Format, f.Width, f.Height, f.Duration, f.VideoCodec, f.AudioCodec, f.FrameRate, f.BitRate, f.Size,
             f.Fingerprints.Select(fp => new FingerprintDto(fp.Type, fp.Value)).ToList(),
             f.Captions.Select(c => new CaptionDto(c.Id, c.LanguageCode, c.CaptionType, c.Filename)).ToList())).ToList(),

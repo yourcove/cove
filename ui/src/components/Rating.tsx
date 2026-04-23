@@ -1,4 +1,4 @@
-import { Star, X } from "lucide-react";
+import { Star } from "lucide-react";
 import { useState, type MouseEvent } from "react";
 import { Field } from "./EditModal";
 import type { RatingStarPrecision, RatingSystemOptions } from "../api/types";
@@ -279,7 +279,25 @@ export function RatingField({ value, onChange }: { value?: number; onChange: (va
   );
 }
 
-export function InteractiveRating({ value, onChange }: { value?: number; onChange: (value: number) => void }) {
+export function InteractiveRatingField({
+  value,
+  onChange,
+  label,
+}: {
+  value?: number;
+  onChange: (value: number | undefined) => void;
+  label?: string;
+}) {
+  const options = useRatingOptions();
+
+  return (
+    <Field label={label ?? getRatingInputLabel(options)}>
+      <InteractiveRating value={value} onChange={onChange} />
+    </Field>
+  );
+}
+
+export function InteractiveRating({ value, onChange }: { value?: number; onChange: (value: number | undefined) => void }) {
   const options = useRatingOptions();
   const displayValue = convertToRatingFormat(value, options) ?? 0;
   const label = formatDisplayRating(value, options);
@@ -310,7 +328,7 @@ export function InteractiveRating({ value, onChange }: { value?: number; onChang
               onBlur={() => setHoverValue(null)}
               onClick={(event) => {
                 const nextDisplayValue = getValueFromPointer(event, star);
-                onChange(nextDisplayValue === displayValue ? 0 : convertFromRatingFormat(nextDisplayValue, options));
+                onChange(nextDisplayValue === displayValue ? undefined : convertFromRatingFormat(nextDisplayValue, options));
               }}
               className="relative text-accent transition-transform hover:scale-110"
               title="Set rating"
@@ -331,24 +349,13 @@ export function InteractiveRating({ value, onChange }: { value?: number; onChang
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="w-24">
-        <RatingNumberInput
-          value={value}
-          onChange={(nextValue) => onChange(nextValue ?? 0)}
-          options={options}
-          inputClassName="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-        />
-      </div>
-      {label && <span className="text-sm text-secondary">{label}</span>}
-      {!!value && (
-        <button
-          onClick={() => onChange(0)}
-          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-secondary hover:text-foreground"
-        >
-          <X className="h-3 w-3" /> Clear
-        </button>
-      )}
+    <div className="w-24">
+      <RatingNumberInput
+        value={value}
+        onChange={onChange}
+        options={options}
+        inputClassName="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+      />
     </div>
   );
 }

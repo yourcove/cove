@@ -220,7 +220,7 @@ function PerformerCard({ performer, onClick, onNavigate, selected, onSelect, sel
           />
         </div>
         <img 
-            src={performer.imagePath || entityImages.performerImageUrl(performer.id)} 
+          src={performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt)} 
             alt={performer.name} 
             className="w-full h-full object-cover" 
             loading="lazy"

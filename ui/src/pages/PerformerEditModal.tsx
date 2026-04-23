@@ -149,7 +149,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     <EditModal title="Edit Performer" open={open} onClose={onClose}>
       <div className="grid grid-cols-[200px_1fr] gap-6">
         <ImageInput
-          currentImageUrl={entityImages.performerImageUrl(performer.id)}
+          currentImageUrl={entityImages.performerImageUrl(performer.id, performer.updatedAt)}
           onUpload={(file) => entityImages.uploadPerformerImage(performer.id, file)}
           onDelete={() => entityImages.deletePerformerImage(performer.id)}
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ["performer", performer.id] })}

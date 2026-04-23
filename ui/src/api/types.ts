@@ -1011,6 +1011,7 @@ export interface GalleryFilterCriteria {
   titleCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
   pathCriterion?: StringCriterion;
+  checksumCriterion?: StringCriterion;
   urlCriterion?: StringCriterion;
   createdAtCriterion?: TimestampCriterion;
   updatedAtCriterion?: TimestampCriterion;
@@ -1022,6 +1023,8 @@ export interface GalleryFilterCriteria {
   fileCountCriterion?: IntCriterion;
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
+  performerAgeCriterion?: IntCriterion;
+  typicalResolutionCriterion?: IntCriterion;
   scenesCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
 }
@@ -1155,6 +1158,8 @@ export interface BulkImageUpdate {
   tagMode?: BulkUpdateMode;
   performerIds?: number[];
   performerMode?: BulkUpdateMode;
+  galleryIds?: number[];
+  galleryMode?: BulkUpdateMode;
 }
 
 export interface BulkGroupUpdate {

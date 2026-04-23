@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus, Star } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, scenes as scenesApi } from "../api/client";
@@ -28,6 +28,7 @@ import type {
   ImageFilterCriteria,
   GroupFilterCriteria,
 } from "../api/types";
+import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 
 // ===== Criterion definitions =====
 
@@ -311,6 +312,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "checksum", label: "Checksum", type: "string", filterKey: "checksumCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
@@ -320,10 +322,12 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "scenes", label: "Scenes", type: "multiId", entityType: "scenes", filterKey: "scenesCriterion" },
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
-  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion" },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
-  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
+  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" },
+  { id: "typicalResolution", label: "Typical Resolution", type: "resolution", filterKey: "typicalResolutionCriterion" },
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
@@ -391,6 +395,7 @@ interface FilterDialogProps {
 
 export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion }: FilterDialogProps) {
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
+  const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
@@ -492,9 +497,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+        backdropPointerDownRef.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && backdropPointerDownRef.current) {
           onClose();
         }
+
+        backdropPointerDownRef.current = false;
       }}
     >
       <div
@@ -872,18 +882,6 @@ function RatingFilterInput({
           displayValue={displayValue}
           onChangeDisplay={setDisplay}
           step={getRatingPrecision(options.starPrecision)}
-        />
-        <input
-          type="number"
-          value={displayValue || ""}
-          min={0}
-          max={max}
-          step={step}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            if (Number.isFinite(v)) setDisplay(v);
-          }}
-          className="w-16 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
         />
       </div>
     );
@@ -1404,28 +1402,13 @@ function DurationInput({ value, onChange }: { value: number; onChange: (v: numbe
 }
 
 function ResolutionSelect({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const options = [
-    { label: "Any", value: 0 },
-    { label: "144p", value: 144 },
-    { label: "240p", value: 240 },
-    { label: "360p", value: 360 },
-    { label: "480p", value: 480 },
-    { label: "720p", value: 720 },
-    { label: "1080p", value: 1080 },
-    { label: "1440p", value: 1440 },
-    { label: "4K", value: 2160 },
-    { label: "5K", value: 2880 },
-    { label: "6K", value: 3384 },
-    { label: "8K", value: 4320 },
-  ];
-
   return (
     <select
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
       className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
     >
-      {options.map((o) => (
+      {RESOLUTION_FILTER_OPTIONS.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
     </select>

@@ -147,7 +147,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
         i.Date?.ToString("yyyy-MM-dd"),
         i.Urls.Select(u => u.Url).ToList(),
         i.ImageTags.Where(it => it.Tag != null).Select(it => new TagDto(it.Tag!.Id, it.Tag.Name, it.Tag.Description, it.Tag.Favorite, it.Tag.IgnoreAutoTag, [])).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Birthdate?.ToString("yyyy-MM-dd"), ip.Performer.Favorite, ip.Performer.ImageBlobId != null ? $"/api/performers/{ip.Performer.Id}/image" : null)).ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Birthdate?.ToString("yyyy-MM-dd"), ip.Performer.Favorite, ip.Performer.ImageBlobId != null ? EntityImageUrls.Performer(ip.Performer.Id, ip.Performer.UpdatedAt) : null)).ToList(),
         galleryCount ?? i.ImageGalleries?.Count ?? 0,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
         i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
@@ -205,6 +205,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
         var images = await db.Images
             .Include(i => i.ImageTags)
             .Include(i => i.ImagePerformers)
+            .Include(i => i.ImageGalleries)
             .Where(i => dto.Ids.Contains(i.Id))
             .ToListAsync(ct);
 
@@ -244,6 +245,22 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
             else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)
             {
                 image.ImagePerformers = image.ImagePerformers.Where(ip => !dto.PerformerIds.Contains(ip.PerformerId)).ToList();
+            }
+
+            if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Set)
+            {
+                image.ImageGalleries.Clear();
+                image.ImageGalleries = dto.GalleryIds.Select(gid => new ImageGallery { GalleryId = gid, ImageId = image.Id }).ToList();
+            }
+            else if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Add)
+            {
+                var existing = image.ImageGalleries.Select(ig => ig.GalleryId).ToHashSet();
+                foreach (var gid in dto.GalleryIds.Where(g => !existing.Contains(g)))
+                    image.ImageGalleries.Add(new ImageGallery { GalleryId = gid, ImageId = image.Id });
+            }
+            else if (dto.GalleryIds != null && dto.GalleryMode == BulkUpdateMode.Remove)
+            {
+                image.ImageGalleries = image.ImageGalleries.Where(ig => !dto.GalleryIds.Contains(ig.GalleryId)).ToList();
             }
         }
 

@@ -88,7 +88,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
     <EditModal title={`Edit Group: ${group.name}`} open={open} onClose={onClose}>
       <div className="grid grid-cols-2 gap-4 mb-4">
         <ImageInput
-          currentImageUrl={entityImages.groupFrontImageUrl(group.id)}
+          currentImageUrl={entityImages.groupFrontImageUrl(group.id, group.updatedAt)}
           onUpload={(file) => entityImages.uploadGroupFrontImage(group.id, file)}
           onDelete={() => entityImages.deleteGroupFrontImage(group.id)}
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ["group", group.id] })}
@@ -96,7 +96,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
           aspectRatio="2/3"
         />
         <ImageInput
-          currentImageUrl={entityImages.groupBackImageUrl(group.id)}
+          currentImageUrl={entityImages.groupBackImageUrl(group.id, group.updatedAt)}
           onUpload={(file) => entityImages.uploadGroupBackImage(group.id, file)}
           onDelete={() => entityImages.deleteGroupBackImage(group.id)}
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ["group", group.id] })}

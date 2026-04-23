@@ -431,6 +431,8 @@ public record BulkImageUpdateDto
     public BulkUpdateMode TagMode { get; init; } = BulkUpdateMode.Add;
     public List<int>? PerformerIds { get; init; }
     public BulkUpdateMode PerformerMode { get; init; } = BulkUpdateMode.Add;
+    public List<int>? GalleryIds { get; init; }
+    public BulkUpdateMode GalleryMode { get; init; } = BulkUpdateMode.Add;
 }
 
 public record BulkGalleryUpdateDto

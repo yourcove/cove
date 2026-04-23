@@ -17,6 +17,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db) : Contr
     public async Task<ActionResult<PaginatedResponse<TagListDto>>> Find(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         [FromQuery] string? name = null, [FromQuery] bool? favorite = null,
         CancellationToken ct = default)
     {
@@ -24,7 +25,8 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db) : Contr
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc
+            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Seed = seed,
         };
 
         var (items, totalCount) = await tagRepo.FindAsync(filter, findFilter, ct);
@@ -163,7 +165,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db) : Contr
             groupCounts.GetValueOrDefault(t.Id, 0),
             performerCounts.GetValueOrDefault(t.Id, 0),
             studioCounts.GetValueOrDefault(t.Id, 0),
-            t.ImageBlobId != null ? $"/api/tags/{t.Id}/image" : null
+            t.ImageBlobId != null ? EntityImageUrls.Tag(t.Id, t.UpdatedAt) : null
         )).ToList();
     }
 

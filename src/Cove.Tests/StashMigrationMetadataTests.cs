@@ -245,10 +245,149 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
             1d,
             CancellationToken.None);
 
-        Assert.Equal(1, Assert.IsType<int>(result));
+                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap)>(result);
+                Assert.Equal(1, galleryImport.Count);
         var gallery = await context.Galleries.SingleAsync();
         Assert.Equal("Summer Set", gallery.Title);
     }
+
+        [Fact]
+        public async Task ReconcileImportedZipLinksAsync_PreservesZipFileIdsForImportedImages()
+        {
+                await using var context = CreateContext();
+
+                await using var stash = new SqliteConnection("Data Source=:memory:");
+                await stash.OpenAsync();
+                await ExecuteSqlAsync(stash, @"
+CREATE TABLE folders (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+    parent_folder_id INTEGER,
+    zip_file_id INTEGER,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE images (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+    code TEXT,
+    details TEXT,
+    photographer TEXT,
+    rating INTEGER,
+    organized INTEGER NOT NULL,
+    o_counter INTEGER NOT NULL,
+    studio_id INTEGER,
+    date TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE files (
+    id INTEGER PRIMARY KEY,
+    basename TEXT NOT NULL,
+    parent_folder_id INTEGER NOT NULL,
+    zip_file_id INTEGER,
+    size INTEGER NOT NULL,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE image_files (
+    file_id INTEGER PRIMARY KEY,
+    format TEXT,
+    width INTEGER,
+    height INTEGER
+);
+CREATE TABLE images_files (
+    image_id INTEGER NOT NULL,
+    file_id INTEGER NOT NULL,
+    [primary] INTEGER NOT NULL
+);
+CREATE TABLE galleries (
+    id INTEGER PRIMARY KEY,
+    folder_id INTEGER,
+    title TEXT,
+    date TEXT,
+    details TEXT,
+    studio_id INTEGER,
+    rating INTEGER,
+    organized INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    code TEXT,
+    photographer TEXT
+);
+CREATE TABLE galleries_files (
+    gallery_id INTEGER NOT NULL,
+    file_id INTEGER NOT NULL,
+    [primary] INTEGER NOT NULL
+);
+INSERT INTO folders (id, path, parent_folder_id, zip_file_id, mod_time, created_at) VALUES
+    (1, 'C:\\library', NULL, NULL, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'),
+    (2, 'C:\\library\\archive.zip\\nested', 1, 10, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+INSERT INTO images (id, title, organized, o_counter, created_at, updated_at) VALUES
+    (100, 'Imported Zip Image', 0, 0, '2024-01-02T00:00:00Z', '2024-01-03T00:00:00Z');
+INSERT INTO files (id, basename, parent_folder_id, zip_file_id, size, mod_time, created_at) VALUES
+    (10, 'archive.zip', 1, NULL, 4096, '2024-01-04T00:00:00Z', '2024-01-04T00:00:00Z'),
+    (20, 'cover.jpg', 2, 10, 1024, '2024-01-05T00:00:00Z', '2024-01-05T00:00:00Z');
+INSERT INTO image_files (file_id, format, width, height) VALUES (20, 'jpeg', 800, 600);
+INSERT INTO images_files (image_id, file_id, [primary]) VALUES (100, 20, 1);
+INSERT INTO galleries (id, folder_id, title, organized, created_at, updated_at) VALUES
+    (200, 1, 'Imported Gallery', 0, '2024-01-06T00:00:00Z', '2024-01-06T00:00:00Z');
+INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1);
+");
+
+                var service = CreateService(context);
+                var folderIdMap = Assert.IsType<Dictionary<int, int>>(await InvokePrivateAsync(
+                        service,
+                        "ImportFoldersAsync",
+                        stash,
+                        NullJobProgress.Instance,
+                        0d,
+                        1d,
+                        CancellationToken.None));
+
+                var imageIdMap = Assert.IsType<Dictionary<int, int>>(await InvokePrivateAsync(
+                        service,
+                        "ImportImagesAsync",
+                        stash,
+                        folderIdMap,
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        NullJobProgress.Instance,
+                        0d,
+                        1d,
+                        CancellationToken.None));
+
+                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap)>(await InvokePrivateAsync(
+                        service,
+                        "ImportGalleriesAsync",
+                        stash,
+                        folderIdMap,
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        imageIdMap,
+                        NullJobProgress.Instance,
+                        0d,
+                        1d,
+                        CancellationToken.None));
+
+                await InvokePrivateAsync(
+                        service,
+                        "ReconcileImportedZipLinksAsync",
+                        stash,
+                        folderIdMap,
+                        imageIdMap,
+                        galleryImport.GalleryFileIdMap,
+                        CancellationToken.None);
+
+                var importedImageFile = await context.ImageFiles.SingleAsync();
+                var importedFolder = await context.Folders.SingleAsync(folder => folder.Path.Contains("archive.zip"));
+                var importedGalleryFile = await context.GalleryFiles.SingleAsync();
+
+                Assert.Equal(importedGalleryFile.Id, importedImageFile.ZipFileId);
+                Assert.Equal(importedGalleryFile.Id, importedFolder.ZipFileId);
+        }
 
     private static StashMigrationService CreateService(CoveContext context)
     {

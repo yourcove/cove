@@ -18,6 +18,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 
 const PERFORMER_SORT = [
   { value: "name", label: "Name" },
@@ -34,12 +35,7 @@ const IMAGE_SORT = [
   { value: "rating", label: "Rating" },
   { value: "random", label: "Random" },
 ];
-const GALLERY_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "random", label: "Random" },
-];
+const GALLERY_SORT = GALLERY_SORT_OPTIONS;
 const STUDIO_SORT = [
   { value: "name", label: "Name" },
   { value: "updated_at", label: "Updated At" },
@@ -158,7 +154,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
       <div className="relative overflow-hidden border-b border-border detail-hero-gradient">
         {/* Background studio image */}
         <img
-          src={entityImages.studioImageUrl(studio.id, studio.updatedAt)}
+          src={entityImages.studioImageUrl(studio.id, studio.updatedAt, 1600)}
           alt=""
           className="absolute inset-0 h-full w-full object-cover opacity-10 blur-md scale-110"
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
@@ -183,7 +184,10 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         var imageIdMap = await ImportImagesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, progress, ImagesStart, ImagesEnd, ct);
         db.ChangeTracker.Clear();
 
-        var galleryCount = await ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, progress, GalleriesStart, GalleriesEnd, ct);
+        var (galleryCount, galleryFileIdMap) = await ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, progress, GalleriesStart, GalleriesEnd, ct);
+        db.ChangeTracker.Clear();
+
+        await ReconcileImportedZipLinksAsync(conn, folderIdMap, imageIdMap, galleryFileIdMap, ct);
         db.ChangeTracker.Clear();
 
         progress.Report(LibraryPathsStart, "Importing library paths...");
@@ -1016,7 +1020,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
 
     // ── Galleries ─────────────────────────────────────────────────────────────
 
-    private async Task<int> ImportGalleriesAsync(
+    private async Task<(int Count, Dictionary<int, int> GalleryFileIdMap)> ImportGalleriesAsync(
         SqliteConnection conn, Dictionary<int, int> folderIdMap,
         Dictionary<int, int> studioIdMap, Dictionary<int, int> tagIdMap,
         Dictionary<int, int> performerIdMap, Dictionary<int, int> imageIdMap,
@@ -1028,7 +1032,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         if (!await TableExistsAsync(conn, "galleries", ct))
         {
             logger.LogInformation("No galleries table found, skipping");
-            return 0;
+            return (0, new Dictionary<int, int>());
         }
 
         var total = await CountAsync(conn, "galleries", ct);
@@ -1117,6 +1121,8 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         }
 
         int count = 0;
+        var galleryFileIdMap = new Dictionary<int, int>();
+        var pendingGalleryFiles = new List<(int StashFileId, GalleryFile FileEntity)>();
         progress.Report(startProgress, "Importing galleries...");
         foreach (var row in galleryRows)
         {
@@ -1153,7 +1159,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             if (galleryToFile.TryGetValue(stashId, out var fileId) && fileData.TryGetValue(fileId, out var fd)
                 && folderIdMap.TryGetValue(fd.FolderId, out var coveFolderId))
             {
-                gallery.Files.Add(new GalleryFile
+                var galleryFile = new GalleryFile
                 {
                     Basename = fd.Basename,
                     ParentFolderId = coveFolderId,
@@ -1161,7 +1167,10 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                     ModTime = fd.ModTime,
                     CreatedAt = fd.CreatedAt,
                     UpdatedAt = fd.ModTime,
-                });
+                };
+
+                gallery.Files.Add(galleryFile);
+                pendingGalleryFiles.Add((fileId, galleryFile));
             }
 
             db.Galleries.Add(gallery);
@@ -1169,17 +1178,171 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
             if (count % 100 == 0)
             {
                 await db.SaveChangesAsync(ct);
+                foreach (var (stashFileId, fileEntity) in pendingGalleryFiles)
+                    galleryFileIdMap[stashFileId] = fileEntity.Id;
+                pendingGalleryFiles.Clear();
                 db.ChangeTracker.Clear();
                 ReportPhase(progress, startProgress, endProgress, count, total, $"Importing galleries ({count}/{total})");
                 logger.LogInformation("Imported {Count}/{Total} galleries...", count, total);
             }
         }
         await db.SaveChangesAsync(ct);
+        foreach (var (stashFileId, fileEntity) in pendingGalleryFiles)
+            galleryFileIdMap[stashFileId] = fileEntity.Id;
         db.ChangeTracker.Clear();
         ReportPhase(progress, startProgress, endProgress, count, total, $"Importing galleries ({count}/{total})");
         logger.LogInformation("Imported {Count} galleries", count);
-        return count;
+        return (count, galleryFileIdMap);
     }
+
+    private async Task ReconcileImportedZipLinksAsync(
+        SqliteConnection conn,
+        Dictionary<int, int> folderIdMap,
+        Dictionary<int, int> imageIdMap,
+        Dictionary<int, int> galleryFileIdMap,
+        CancellationToken ct)
+    {
+        if (galleryFileIdMap.Count == 0 || !await TableExistsAsync(conn, "files", ct)
+            || !await ColumnExistsAsync(conn, "files", "zip_file_id", ct))
+        {
+            return;
+        }
+
+        await ReconcileImportedFolderZipLinksAsync(conn, folderIdMap, galleryFileIdMap, ct);
+        await ReconcileImportedImageFileZipLinksAsync(conn, folderIdMap, imageIdMap, galleryFileIdMap, ct);
+    }
+
+    private async Task ReconcileImportedFolderZipLinksAsync(
+        SqliteConnection conn,
+        Dictionary<int, int> folderIdMap,
+        Dictionary<int, int> galleryFileIdMap,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "folders", ct)
+            || !await ColumnExistsAsync(conn, "folders", "zip_file_id", ct))
+        {
+            return;
+        }
+
+        var folderZipLinks = new List<(int StashFolderId, int StashZipFileId)>();
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT id, zip_file_id FROM folders WHERE zip_file_id IS NOT NULL";
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+                folderZipLinks.Add((reader.GetInt32(0), reader.GetInt32(1)));
+        }
+
+        if (folderZipLinks.Count == 0) return;
+
+        var targetFolderIds = folderZipLinks
+            .Where(link => folderIdMap.ContainsKey(link.StashFolderId) && galleryFileIdMap.ContainsKey(link.StashZipFileId))
+            .Select(link => folderIdMap[link.StashFolderId])
+            .Distinct()
+            .ToList();
+
+        if (targetFolderIds.Count == 0) return;
+
+        var foldersById = (await db.Folders
+            .Where(folder => targetFolderIds.Contains(folder.Id))
+            .ToListAsync(ct))
+            .ToDictionary(folder => folder.Id);
+
+        var updated = 0;
+        foreach (var (stashFolderId, stashZipFileId) in folderZipLinks)
+        {
+            if (!folderIdMap.TryGetValue(stashFolderId, out var coveFolderId)) continue;
+            if (!galleryFileIdMap.TryGetValue(stashZipFileId, out var coveZipFileId)) continue;
+            if (!foldersById.TryGetValue(coveFolderId, out var folder)) continue;
+
+            if (folder.ZipFileId == coveZipFileId) continue;
+
+            folder.ZipFileId = coveZipFileId;
+            updated++;
+        }
+
+        if (updated > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Reconciled {Count} imported folder zip links", updated);
+        }
+    }
+
+    private async Task ReconcileImportedImageFileZipLinksAsync(
+        SqliteConnection conn,
+        Dictionary<int, int> folderIdMap,
+        Dictionary<int, int> imageIdMap,
+        Dictionary<int, int> galleryFileIdMap,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "images_files", ct))
+        {
+            return;
+        }
+
+        var sourceLinks = new List<(int StashImageId, string Basename, int ParentFolderId, int StashZipFileId)>();
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+SELECT images_files.image_id, files.basename, files.parent_folder_id, files.zip_file_id
+FROM images_files
+JOIN files ON files.id = images_files.file_id
+WHERE files.zip_file_id IS NOT NULL";
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                sourceLinks.Add((
+                    reader.GetInt32(0),
+                    reader.GetString(1),
+                    reader.GetInt32(2),
+                    reader.GetInt32(3)));
+            }
+        }
+
+        if (sourceLinks.Count == 0) return;
+
+        var targetImageIds = sourceLinks
+            .Where(link => imageIdMap.ContainsKey(link.StashImageId))
+            .Select(link => imageIdMap[link.StashImageId])
+            .Distinct()
+            .ToList();
+
+        if (targetImageIds.Count == 0) return;
+
+        var imageFilesByKey = (await db.ImageFiles
+            .Where(file => file.ImageId.HasValue && targetImageIds.Contains(file.ImageId.Value))
+            .ToListAsync(ct))
+            .ToDictionary(file => GetImportedImageFileKey(file.ImageId ?? 0, file.ParentFolderId, file.Basename));
+
+        var updated = 0;
+        foreach (var (stashImageId, basename, stashParentFolderId, stashZipFileId) in sourceLinks)
+        {
+            if (!imageIdMap.TryGetValue(stashImageId, out var coveImageId)
+                || !folderIdMap.TryGetValue(stashParentFolderId, out var coveParentFolderId)
+                || !galleryFileIdMap.TryGetValue(stashZipFileId, out var coveZipFileId))
+            {
+                continue;
+            }
+
+            var key = GetImportedImageFileKey(coveImageId, coveParentFolderId, basename);
+            if (!imageFilesByKey.TryGetValue(key, out var imageFile) || imageFile.ZipFileId == coveZipFileId)
+            {
+                continue;
+            }
+
+            imageFile.ZipFileId = coveZipFileId;
+            updated++;
+        }
+
+        if (updated > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Reconciled {Count} imported image file zip links", updated);
+        }
+    }
+
+    private static string GetImportedImageFileKey(int imageId, int parentFolderId, string basename)
+        => $"{imageId}|{parentFolderId}|{basename}";
 
     // ── Library Paths ──────────────────────────────────────────────────────────
 

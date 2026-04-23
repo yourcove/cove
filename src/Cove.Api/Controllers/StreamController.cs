@@ -92,10 +92,21 @@ public class StreamController(IStreamService streamService, IThumbnailService th
     }
 
     [HttpGet("image/{imageId:int}/thumbnail")]
-    public async Task<IActionResult> GetImageThumbnail(int imageId, CancellationToken ct)
+    public async Task<IActionResult> GetImageThumbnail(int imageId, [FromQuery] int? max, CancellationToken ct)
     {
-        // For images, just serve the original file (they're already images)
-        return await GetImage(imageId, ct);
+        var result = await thumbnailService.GetImageThumbnailStreamAsync(imageId, max ?? 0, ct);
+        if (result == null) return NotFound();
+
+        var (stream, contentType, supportsRangeRequests) = result.Value;
+        Response.Headers["Cache-Control"] = "public, max-age=86400";
+
+        if (supportsRangeRequests)
+        {
+            Response.Headers["Accept-Ranges"] = "bytes";
+            return File(stream, contentType, enableRangeProcessing: true);
+        }
+
+        return File(stream, contentType);
     }
 
     [HttpGet("scene/{sceneId:int}/caption/{captionId:int}")]
