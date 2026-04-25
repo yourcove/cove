@@ -190,7 +190,13 @@ public class FingerprintService(
             logger.LogInformation("[phash] In-process FFmpeg unavailable — using process-spawn fallback for {Path}", path);
         }
 
-        // Fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
+        var spritePhash = await TryComputeVideoPhashViaSpriteAsync(ffmpegPath, path, duration, ct);
+        if (!string.IsNullOrWhiteSpace(spritePhash))
+            return spritePhash;
+
+        logger.LogInformation("[phash] Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
+
+        // Final fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
         return await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
     }
 
@@ -209,6 +215,52 @@ public class FingerprintService(
     }
 
     /// <summary>
+    /// Single-process fallback: builds a tiled sprite with one ffmpeg invocation and hashes
+    /// that image directly. This is much faster than spawning ffmpeg once per timestamp and
+    /// serves as the primary cross-platform fallback when AutoGen is unavailable.
+    /// </summary>
+    private async Task<string?> TryComputeVideoPhashViaSpriteAsync(
+        string ffmpegPath,
+        string videoPath,
+        double duration,
+        CancellationToken ct)
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), $"cove_phash_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+
+        var spritePath = Path.Combine(tmpDir, "sprite.jpg");
+        try
+        {
+            var offset = Math.Max(duration * 0.05d, 0d);
+            var sampleWindow = Math.Max(duration * 0.9d, 0.001d);
+            var step = sampleWindow / (SpriteColumns * SpriteRows);
+            var offsetText = offset.ToString("0.########", CultureInfo.InvariantCulture);
+            var sampleWindowText = sampleWindow.ToString("0.########", CultureInfo.InvariantCulture);
+            var stepText = step.ToString("0.########", CultureInfo.InvariantCulture);
+            var decodeArgs = GetFfmpegDecodeArgs();
+            var filter = $"select='if(isnan(prev_selected_t),1,gte(t-prev_selected_t,{stepText}))',scale={SpriteFrameSize}:-2,tile={SpriteColumns}x{SpriteRows}:margin=0:padding=0";
+            var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {offsetText} -t {sampleWindowText} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -f image2 \"{spritePath}\"";
+            var timeout = TimeSpan.FromSeconds(Math.Clamp(duration / 2d, 45d, 300d));
+
+            logger.LogInformation("[phash] Attempting single-process sprite extraction for {Path}", videoPath);
+            if (!await TryRunFfmpegAsync(ffmpegPath, args, timeout, ct) || !File.Exists(spritePath))
+                return null;
+
+            using var sprite = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(spritePath, ct);
+            return ComputePerceptionHash(sprite);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "[phash] Single-process sprite extraction failed for {Path}", videoPath);
+            return null;
+        }
+        finally
+        {
+            try { Directory.Delete(tmpDir, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
     /// Process-based fallback: spawns ffmpeg (the CLI binary) once per timestamp to extract
     /// a single scaled frame, then composes the sprite and computes the phash.
     /// Slower than in-process but works on any platform regardless of shared library availability.
@@ -216,74 +268,24 @@ public class FingerprintService(
     private async Task<string?> ComputeVideoPhashViaProcessAsync(
         string ffmpegPath, string videoPath, double[] timestamps, CancellationToken ct)
     {
-        var tmpDir = Path.Combine(Path.GetTempPath(), $"cove_phash_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tmpDir);
+        var frames = await FfmpegProcessFrameExtractor.ExtractFramesAsync(
+            ffmpegPath,
+            videoPath,
+            timestamps,
+            SpriteFrameSize,
+            logger,
+            ct);
+
+        if (frames == null)
+            return null;
+
         try
         {
-            var frames = new Image<Rgba32>[timestamps.Length];
-            for (var i = 0; i < timestamps.Length; i++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var framePath = Path.Combine(tmpDir, $"frame_{i:D3}.jpg");
-                var ts = timestamps[i];
-
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    // -ss before -i is fast (keyframe seek), -vframes 1 grabs one frame,
-                    // scale=W:-2 keeps aspect ratio with width=SpriteFrameSize.
-                    Arguments = $"-v error -ss {ts:F3} -i \"{videoPath}\" -vframes 1 -vf \"scale={SpriteFrameSize}:-2\" -q:v 3 -y \"{framePath}\"",
-                    UseShellExecute = false,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-
-                using var proc = System.Diagnostics.Process.Start(psi)!;
-                var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(30));
-                try
-                {
-                    await proc.WaitForExitAsync(cts.Token);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    try { proc.Kill(entireProcessTree: true); } catch { }
-                    logger.LogWarning("FFmpeg timed out extracting frame {Index} from {Path}", i, videoPath);
-                    DisposeFrames(frames);
-                    return null;
-                }
-
-                if (proc.ExitCode != 0 || !File.Exists(framePath))
-                {
-                    var err = await stderrTask;
-                    logger.LogWarning("FFmpeg failed extracting frame {Index} from {Path}: {Error}", i, videoPath, err);
-                    DisposeFrames(frames);
-                    return null;
-                }
-
-                frames[i] = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(framePath, ct);
-            }
-
-            try
-            {
-                return BuildSpritePhash(frames);
-            }
-            finally
-            {
-                DisposeFrames(frames);
-            }
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Process-based phash extraction failed for {Path}", videoPath);
-            return null;
+            return BuildSpritePhash(frames);
         }
         finally
         {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { }
+            DisposeFrames(frames);
         }
     }
 
@@ -549,6 +551,57 @@ public class FingerprintService(
         }
 
         return null;
+    }
+
+    private string GetFfmpegDecodeArgs()
+    {
+        // These extraction pipelines use software filters (select/scale/tile/image encode),
+        // so implicit hwaccel adds costly hwdownload/format bridging and can be slower than CPU.
+        if (!string.IsNullOrWhiteSpace(config.LiveTranscodeInputArgs))
+            return config.LiveTranscodeInputArgs;
+
+        if (!string.IsNullOrWhiteSpace(config.TranscodeInputArgs))
+            return config.TranscodeInputArgs;
+
+        return string.Empty;
+    }
+
+    private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
+    {
+        var process = new System.Diagnostics.Process
+        {
+            StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ffmpegPath,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            }
+        };
+
+        process.Start();
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+        try
+        {
+            await process.WaitForExitAsync(timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            logger.LogWarning("[phash] FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            return false;
+        }
+
+        if (process.ExitCode == 0)
+            return true;
+
+        var stderr = await stderrTask;
+        logger.LogWarning("[phash] FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+        return false;
     }
 
     /// <summary>

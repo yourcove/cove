@@ -223,8 +223,8 @@ public class ScanService(
         IThumbnailService thumbnailService,
         CancellationToken ct)
     {
-        var generateSceneAssets = options.GenerateCovers || options.GeneratePreviews || options.GenerateSprites || options.GeneratePhashes;
-        var generateImageAssets = options.GenerateImagePhashes || options.GenerateImageThumbnails;
+        var generateSceneAssets = options.GenerateCovers || options.GeneratePreviews || options.GenerateSprites || options.GeneratePhashes || options.GenerateMd5;
+        var generateImageAssets = options.GenerateImagePhashes || options.GenerateImageThumbnails || options.GenerateMd5;
 
         if ((!generateSceneAssets && !generateImageAssets) || (processedVideoPaths.Count == 0 && processedImagePaths.Count == 0))
         {
@@ -303,6 +303,31 @@ public class ScanService(
                         await innerDb.SaveChangesAsync(token);
                     }
                 }
+                if (options.GenerateMd5 && sceneFile.ParentFolder != null)
+                {
+                    var filePath = Path.Combine(sceneFile.ParentFolder.Path, sceneFile.Basename);
+                    var md5 = await fingerprintService.ComputeMd5Async(filePath, token);
+                    if (!string.IsNullOrWhiteSpace(md5))
+                    {
+                        using var innerScope = scopeFactory.CreateScope();
+                        var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                        var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == sceneFile.Id && fp.Type == "md5", token);
+                        if (existing != null)
+                        {
+                            existing.Value = md5;
+                        }
+                        else
+                        {
+                            innerDb.FileFingerprints.Add(new FileFingerprint
+                            {
+                                FileId = sceneFile.Id,
+                                Type = "md5",
+                                Value = md5,
+                            });
+                        }
+                        await innerDb.SaveChangesAsync(token);
+                    }
+                }
             });
         }
 
@@ -347,26 +372,52 @@ public class ScanService(
                 {
                     var filePath = Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename);
                     var phash = await fingerprintService.ComputeImagePhashAsync(filePath, token);
-                    if (string.IsNullOrWhiteSpace(phash))
-                        return;
-
-                    using var innerScope = scopeFactory.CreateScope();
-                    var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                    var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == imageFile.Id && fp.Type == "phash", token);
-                    if (existing != null)
+                    if (!string.IsNullOrWhiteSpace(phash))
                     {
-                        existing.Value = phash;
-                    }
-                    else
-                    {
-                        innerDb.FileFingerprints.Add(new FileFingerprint
+                        using var innerScope = scopeFactory.CreateScope();
+                        var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                        var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == imageFile.Id && fp.Type == "phash", token);
+                        if (existing != null)
                         {
-                            FileId = imageFile.Id,
-                            Type = "phash",
-                            Value = phash,
-                        });
+                            existing.Value = phash;
+                        }
+                        else
+                        {
+                            innerDb.FileFingerprints.Add(new FileFingerprint
+                            {
+                                FileId = imageFile.Id,
+                                Type = "phash",
+                                Value = phash,
+                            });
+                        }
+                        await innerDb.SaveChangesAsync(token);
                     }
-                    await innerDb.SaveChangesAsync(token);
+                }
+
+                if (options.GenerateMd5)
+                {
+                    var filePath = Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename);
+                    var md5 = await fingerprintService.ComputeMd5Async(filePath, token);
+                    if (!string.IsNullOrWhiteSpace(md5))
+                    {
+                        using var innerScope = scopeFactory.CreateScope();
+                        var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                        var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == imageFile.Id && fp.Type == "md5", token);
+                        if (existing != null)
+                        {
+                            existing.Value = md5;
+                        }
+                        else
+                        {
+                            innerDb.FileFingerprints.Add(new FileFingerprint
+                            {
+                                FileId = imageFile.Id,
+                                Type = "md5",
+                                Value = md5,
+                            });
+                        }
+                        await innerDb.SaveChangesAsync(token);
+                    }
                 }
             });
         }

@@ -55,7 +55,6 @@ beforeEach(() => {
       unobserve() {}
     }
   );
-  vi.spyOn(window, "open").mockImplementation(() => null);
 });
 
 afterEach(() => {
@@ -63,27 +62,33 @@ afterEach(() => {
 });
 
 describe("SceneCard navigation", () => {
-  it("opens the routed scene URL on middle click", () => {
+  it("renders the main scene surface as a real link", () => {
     const onClick = vi.fn();
-    const { container } = render(<SceneCard scene={baseScene as any} onClick={onClick} />);
+    render(<SceneCard scene={baseScene as any} onClick={onClick} />);
 
-    fireEvent.mouseDown(container.firstElementChild as HTMLElement, { button: 1 });
-
-    expect(window.open).toHaveBeenCalledWith("/scene/42", "_blank", "noopener,noreferrer");
+    expect(screen.getByRole("link", { name: /Open scene Sample Scene/i })).toHaveAttribute("href", "/scene/42");
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("opens the routed scene URL on ctrl-click instead of navigating in-place", () => {
+  it("navigates in-place on a plain left click through the scene link", () => {
     const onClick = vi.fn();
-    const { container } = render(<SceneCard scene={baseScene as any} onClick={onClick} />);
+    render(<SceneCard scene={baseScene as any} onClick={onClick} />);
 
-    fireEvent.click(container.firstElementChild as HTMLElement, { ctrlKey: true });
+    fireEvent.click(screen.getByRole("link", { name: /Open scene Sample Scene/i }));
 
-    expect(window.open).toHaveBeenCalledWith("/scene/42", "_blank", "noopener,noreferrer");
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets modified clicks fall through to normal browser link behavior", () => {
+    const onClick = vi.fn();
+    render(<SceneCard scene={baseScene as any} onClick={onClick} />);
+
+    fireEvent.click(screen.getByRole("link", { name: /Open scene Sample Scene/i }), { ctrlKey: true });
+
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("opens performer badges in a new tab on middle click without triggering the parent scene card", () => {
+  it("renders performer badges as real links without triggering scene navigation on modified clicks", () => {
     const onClick = vi.fn();
     const onNavigate = vi.fn();
 
@@ -98,15 +103,15 @@ describe("SceneCard navigation", () => {
       />
     );
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /Alice Example/i }), { button: 1 });
+    const performerLink = screen.getByRole("link", { name: /Alice Example/i });
+    fireEvent.click(performerLink, { ctrlKey: true });
 
-    expect(window.open).toHaveBeenCalledWith("/performer/7", "_blank", "noopener,noreferrer");
-    expect(window.open).not.toHaveBeenCalledWith("/scene/42", "_blank", "noopener,noreferrer");
+    expect(performerLink).toHaveAttribute("href", "/performer/7");
     expect(onClick).not.toHaveBeenCalled();
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it("opens performer popover items in a new tab on middle click without triggering the scene card", () => {
+  it("renders performer popover items as real links", () => {
     vi.useFakeTimers();
 
     render(
@@ -123,10 +128,7 @@ describe("SceneCard navigation", () => {
       vi.advanceTimersByTime(250);
     });
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /Popover Performer/i }), { button: 1 });
-
-    expect(window.open).toHaveBeenCalledWith("/performer/9", "_blank", "noopener,noreferrer");
-    expect(window.open).not.toHaveBeenCalledWith("/scene/42", "_blank", "noopener,noreferrer");
+    expect(screen.getByRole("link", { name: /Popover Performer/i })).toHaveAttribute("href", "/performer/9");
   });
 
   it("renders a heart-based favorites counter instead of the legacy O badge", () => {
@@ -182,7 +184,7 @@ describe("DetailsTab performers", () => {
     expect(performerGrid.className).toContain("grid");
     expect(performerGrid.className).toContain("grid-cols-2");
 
-    expect(screen.getByRole("button", { name: /Alice Example/i }).className).toContain("w-full");
-    expect(screen.getByRole("button", { name: /Beth Example/i }).className).toContain("w-full");
+    expect(screen.getByRole("link", { name: /Alice Example/i }).className).toContain("w-full");
+    expect(screen.getByRole("link", { name: /Beth Example/i }).className).toContain("w-full");
   });
 });

@@ -424,38 +424,47 @@ query Me {
                 if (string.IsNullOrWhiteSpace(term))
                 {
                     var existingRemoteId = scene.RemoteIds.FirstOrDefault(remoteId => string.Equals(remoteId.Endpoint, box.Endpoint, StringComparison.OrdinalIgnoreCase));
+                    var existingMatchAdded = false;
                     if (existingRemoteId != null)
                     {
-                        var existing = await GetSceneMatchAsync(box.Endpoint, existingRemoteId.RemoteId, ct);
+                        var existing = await GetSceneMatchAsync(box.Endpoint, existingRemoteId.RemoteId, localFingerprints, ct);
                         if (existing != null)
                         {
                             results.Add(existing);
-                            continue;
+                            existingMatchAdded = true;
                         }
                     }
 
-                    var fingerprintQuery = BuildFingerprintQuery(scene);
-                    if (fingerprintQuery.Count > 0)
+                    var fingerprintQueries = BuildFingerprintQueries(scene);
+                    if (fingerprintQueries.Count > 0)
                     {
-                        _logger.LogDebug("Querying metadata-server {Endpoint} with {Count} fingerprints for scene {SceneId}",
-                            box.Endpoint, fingerprintQuery.Count, scene.Id);
+                        var fingerprintCount = fingerprintQueries.Sum(batch => batch.Count);
+                        _logger.LogDebug("Querying metadata-server {Endpoint} with {BatchCount} fingerprint batches ({FingerprintCount} fingerprints) for scene {SceneId}",
+                            box.Endpoint, fingerprintQueries.Count, fingerprintCount, scene.Id);
 
                         var fingerprintResponse = await SendQueryAsync<MetadataServerFindScenesByFingerprintsResponse>(
                             box,
                             FindScenesByFingerprintsQuery,
-                            new { fingerprints = new[] { fingerprintQuery } },
+                            new { fingerprints = fingerprintQueries },
                             ct);
 
-                        var matchCount = fingerprintResponse.FindScenesBySceneFingerprints.Sum(batch => batch.Count);
-                        _logger.LogDebug("Metadata server returned {Count} fingerprint matches for scene {SceneId}", matchCount, scene.Id);
+                        var remoteMatches = fingerprintResponse.FindScenesBySceneFingerprints
+                            .SelectMany(batch => batch)
+                            .GroupBy(remote => remote.Id, StringComparer.OrdinalIgnoreCase)
+                            .Select(group => group.First())
+                            .ToList();
+                        _logger.LogDebug("Metadata server returned {Count} unique fingerprint matches for scene {SceneId}", remoteMatches.Count, scene.Id);
 
-                        foreach (var remote in fingerprintResponse.FindScenesBySceneFingerprints.SelectMany(batch => batch))
+                        foreach (var remote in remoteMatches)
                         {
                             results.Add(await ToSceneMatchDtoAsync(box, remote, localFingerprints, ct));
                         }
-                        if (fingerprintResponse.FindScenesBySceneFingerprints.Any(batch => batch.Count > 0))
+                        if (remoteMatches.Count > 0)
                             continue;
                     }
+
+                    if (existingMatchAdded)
+                        continue;
                 }
 
                 if (searchTerms.Count == 0)
@@ -490,10 +499,13 @@ query Me {
     }
 
     public async Task<MetadataServerSceneMatchDto?> GetSceneMatchAsync(string endpoint, string sceneId, CancellationToken ct)
+        => await GetSceneMatchAsync(endpoint, sceneId, null, ct);
+
+    private async Task<MetadataServerSceneMatchDto?> GetSceneMatchAsync(string endpoint, string sceneId, IReadOnlyCollection<FileFingerprint>? localFingerprints, CancellationToken ct)
     {
         var box = ResolveBox(endpoint);
         var scene = await GetRemoteSceneAsync(box, sceneId, ct);
-        return scene == null ? null : await ToSceneMatchDtoAsync(box, scene, null, ct);
+        return scene == null ? null : await ToSceneMatchDtoAsync(box, scene, localFingerprints, ct);
     }
 
     public async Task<bool> MergeSceneAsync(Scene scene, string endpoint, string sceneId, MetadataServerSceneImportRequestDto? importConfig, CancellationToken ct)
@@ -1554,32 +1566,51 @@ query Me {
         }).ToList();
     }
 
-    private static List<object> BuildFingerprintQuery(Scene scene)
+    private static List<List<object>> BuildFingerprintQueries(Scene scene)
     {
-        return scene.Files
+        var query = scene.Files
             .SelectMany(file => file.Fingerprints)
-            .Select(fp =>
-            {
-                var algorithm = fp.Type.ToLowerInvariant() switch
-                {
-                    "md5" => "MD5",
-                    "oshash" => "OSHASH",
-                    "phash" => "PHASH",
-                    _ => null,
-                };
-
-                if (algorithm == null || string.IsNullOrWhiteSpace(fp.Value))
-                    return null;
-
-                // Normalize oshash to zero-padded 16-char hex to match Go's fmt.Sprintf("%016x")
-                var hash = algorithm == "OSHASH" ? NormalizeOshash(fp.Value) : fp.Value;
-
-                return new { algorithm, hash } as object;
-            })
+            .Select(CreateFingerprintQuery)
             .Where(item => item != null)
-            .Cast<object>()
+            .Select(item => item!)
+            .DistinctBy(item => $"{item.Algorithm}:{item.Hash}", StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => GetFingerprintQueryPriority(item.Algorithm))
             .ToList();
+
+        return query.Count == 0
+            ? []
+            :
+            [
+                query.Select(item => (object)new { algorithm = item.Algorithm, hash = item.Hash }).ToList()
+            ];
     }
+
+    private static FingerprintQueryEntry? CreateFingerprintQuery(FileFingerprint fingerprint)
+    {
+        var algorithm = fingerprint.Type.ToLowerInvariant() switch
+        {
+            "md5" => "MD5",
+            "oshash" => "OSHASH",
+            "phash" => "PHASH",
+            _ => null,
+        };
+
+        if (algorithm == null || string.IsNullOrWhiteSpace(fingerprint.Value))
+            return null;
+
+        var hash = algorithm == "OSHASH" ? NormalizeOshash(fingerprint.Value) : fingerprint.Value;
+        return new FingerprintQueryEntry(algorithm, hash);
+    }
+
+    private static int GetFingerprintQueryPriority(string algorithm) => algorithm switch
+    {
+        "MD5" => 0,
+        "OSHASH" => 1,
+        "PHASH" => 2,
+        _ => 3,
+    };
+
+    private sealed record FingerprintQueryEntry(string Algorithm, string Hash);
 
     /// <summary>
     /// Normalize oshash to zero-padded 16-char hex to match Go's fmt.Sprintf("%016x") format.

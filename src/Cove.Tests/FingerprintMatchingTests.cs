@@ -1,5 +1,6 @@
 using System.Reflection;
 using Cove.Api.Services;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Api.Extensions;
 
@@ -70,6 +71,23 @@ public class FingerprintMatchingTests
     }
 
     [Fact]
+    public void FingerprintQueries_GroupFingerprintsIntoSingleBatchWithStablePriority()
+    {
+        var scene = new Scene();
+        var file = new VideoFile();
+        file.Fingerprints.Add(new FileFingerprint { Type = "phash", Value = "ffff" });
+        file.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = "abc123" });
+        file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
+        scene.Files.Add(file);
+
+        var batches = InvokeFingerprintQueries(scene);
+
+        var batch = Assert.Single(batches);
+        Assert.Equal(["MD5", "OSHASH", "PHASH"], batch.Select(item => GetAnonymousString(item, "algorithm")).ToArray());
+        Assert.Equal(["abc123", "0000000000001a2b", "ffff"], batch.Select(item => GetAnonymousString(item, "hash")).ToArray());
+    }
+
+    [Fact]
     public void SceneSearchTerms_StripLeadingNumericPrefix()
     {
         var result = InvokeSceneSearchTerms("144 - Two Dragon Cumshots For Boosette");
@@ -95,6 +113,28 @@ public class FingerprintMatchingTests
         var result = method!.Invoke(null, [term]);
         var terms = Assert.IsAssignableFrom<IReadOnlyList<string>>(result);
         return terms;
+    }
+
+    private static List<List<object>> InvokeFingerprintQueries(Scene scene)
+    {
+        var method = typeof(MetadataServerService).GetMethod("BuildFingerprintQueries", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method!.Invoke(null, [scene]);
+        var outer = Assert.IsAssignableFrom<System.Collections.IEnumerable>(result)
+            .Cast<object>()
+            .ToList();
+
+        return outer
+            .Select(batch => Assert.IsAssignableFrom<System.Collections.IEnumerable>(batch).Cast<object>().ToList())
+            .ToList();
+    }
+
+    private static string GetAnonymousString(object value, string propertyName)
+    {
+        var property = value.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+        Assert.NotNull(property);
+        return Assert.IsType<string>(property!.GetValue(value));
     }
 }
 

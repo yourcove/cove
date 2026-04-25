@@ -89,6 +89,25 @@ public record TagDetailDto(
     int StudioCount, int GroupCount, int MarkerCount,
     Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt);
 
+public record TagGraphNodeDto(
+    int Id,
+    string Name,
+    bool Favorite,
+    string? Description,
+    string? ImagePath,
+    List<int> ParentIds,
+    List<int> ChildIds,
+    int TotalUsageCount,
+    int SceneCount,
+    int SceneMarkerCount,
+    int ImageCount,
+    int GalleryCount,
+    int GroupCount,
+    int PerformerCount,
+    int StudioCount);
+public record TagGraphLinkDto(int SourceId, int TargetId);
+public record TagGraphResponseDto(List<TagGraphNodeDto> Items, List<TagGraphLinkDto> Links, int TotalCount);
+
 public record TagCreateDto(string Name, string? SortName, string? Description, bool Favorite, bool IgnoreAutoTag, List<string>? Aliases, List<int>? ParentIds, List<int>? ChildIds);
 public record TagUpdateDto(string? Name, string? SortName, string? Description, bool? Favorite, bool? IgnoreAutoTag, List<string>? Aliases, List<int>? ParentIds, List<int>? ChildIds, Dictionary<string, object>? CustomFields);
 
@@ -268,6 +287,16 @@ public record ScrapingConfigDto
     public List<string> ScraperDirectories { get; init; } = [];
     public List<PackageSourceDto> ScraperPackageSources { get; init; } = [];
     public List<MetadataServerDto> MetadataServers { get; init; } = [];
+    public IdentifyDefaultsConfigDto IdentifyDefaults { get; init; } = new();
+}
+
+public record IdentifyDefaultsConfigDto
+{
+    public bool CreateTags { get; init; } = true;
+    public bool CreatePerformers { get; init; } = true;
+    public bool CreateStudios { get; init; } = true;
+    public int? AutoApplyMaxDurationDifferenceSeconds { get; init; }
+    public int? AutoApplyMaxPhashDistance { get; init; }
 }
 
 public record PackageSourceDto
@@ -459,8 +488,13 @@ public record BulkStudioUpdateDto
 public record BulkTagUpdateDto
 {
     public List<int> Ids { get; init; } = [];
+    public string? Description { get; init; }
     public bool? Favorite { get; init; }
     public bool? IgnoreAutoTag { get; init; }
+    public List<int>? ParentIds { get; init; }
+    public BulkUpdateMode ParentMode { get; init; } = BulkUpdateMode.Add;
+    public List<int>? ChildIds { get; init; }
+    public BulkUpdateMode ChildMode { get; init; } = BulkUpdateMode.Add;
 }
 
 public record BulkGroupUpdateDto
@@ -514,6 +548,7 @@ public record ScanOptionsDto
     public bool ScanGeneratePreviews { get; init; }
     public bool ScanGenerateSprites { get; init; }
     public bool ScanGeneratePhashes { get; init; }
+    public bool ScanGenerateMd5 { get; init; }
     public bool ScanGenerateThumbnails { get; init; }
     public bool ScanGenerateImagePhashes { get; init; }
     public bool Rescan { get; init; }
@@ -526,6 +561,7 @@ public record GenerateOptionsDto
     public bool Sprites { get; init; }
     public bool Markers { get; init; }
     public bool Phashes { get; init; }
+    public bool Md5 { get; init; }
     public bool ImageThumbnails { get; init; }
     public bool ImagePhashes { get; init; }
     public bool Overwrite { get; init; }
@@ -577,9 +613,9 @@ public record IdentifyOptionsDto
     public bool SetTags { get; init; } = true;
     public bool SetPerformers { get; init; } = true;
     public bool SetStudio { get; init; } = true;
-    public bool CreateTags { get; init; } = true;
-    public bool CreatePerformers { get; init; } = true;
-    public bool CreateStudios { get; init; } = true;
+    public bool? CreateTags { get; init; }
+    public bool? CreatePerformers { get; init; }
+    public bool? CreateStudios { get; init; }
     public bool MarkOrganized { get; init; }
     public bool SkipMultipleMatches { get; init; } = true;
     public bool SkipSingleNamePerformers { get; init; } = true;

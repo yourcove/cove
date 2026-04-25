@@ -6,7 +6,7 @@ import {
   Clock, Play, ChevronLeft, ChevronRight, Star, Calendar, TrendingUp,
 } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createRouteLinkProps } from "../components/cardNavigation";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 
 interface StatsPageProps {
@@ -318,12 +318,11 @@ function SceneCard({ scene, onNavigate }: { scene: Scene; onNavigate?: (r: { pag
   };
 
   const duration = scene.files?.[0]?.duration;
-  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, () => onNavigate?.({ page: "scene", id: scene.id }));
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "scene", id: scene.id }, () => onNavigate?.({ page: "scene", id: scene.id }));
 
   return (
-    <button
-      type="button"
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className="flex-shrink-0 w-56 snap-start group text-left"
     >
       <div className="relative aspect-video rounded-lg overflow-hidden bg-card mb-2">
@@ -346,18 +345,17 @@ function SceneCard({ scene, onNavigate }: { scene: Scene; onNavigate?: (r: { pag
         {scene.date || new Date(scene.createdAt).toLocaleDateString()}
         {scene.performers.length > 0 && ` · ${scene.performers.map((p) => p.name).join(", ")}`}
       </div>
-    </button>
+    </a>
   );
 }
 
 // ===== Performer Card =====
 function PerformerCard({ performer, onNavigate }: { performer: Performer; onNavigate?: (r: { page: string; id?: number }) => void }) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, () => onNavigate?.({ page: "performer", id: performer.id }));
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () => onNavigate?.({ page: "performer", id: performer.id }));
 
   return (
-    <button
-      type="button"
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className="flex-shrink-0 w-36 snap-start group text-left"
     >
       <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-card mb-2">
@@ -385,19 +383,18 @@ function PerformerCard({ performer, onNavigate }: { performer: Performer; onNavi
       {performer.disambiguation && (
         <div className="text-xs text-muted truncate">{performer.disambiguation}</div>
       )}
-    </button>
+    </a>
   );
 }
 
 // ===== Image Card =====
 function ImageCard({ image, onNavigate }: { image: Image; onNavigate?: (r: { page: string; id?: number }) => void }) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "image", id: image.id }, () => onNavigate?.({ page: "image", id: image.id }));
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "image", id: image.id }, () => onNavigate?.({ page: "image", id: image.id }));
   const displayTitle = getImageDisplayTitle(image);
 
   return (
-    <button
-      type="button"
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className="flex-shrink-0 w-44 snap-start group text-left"
     >
       <div className="relative aspect-square rounded-lg overflow-hidden bg-card mb-2">
@@ -411,18 +408,17 @@ function ImageCard({ image, onNavigate }: { image: Image; onNavigate?: (r: { pag
       <div className="text-sm font-medium truncate group-hover:text-accent transition-colors">
         {displayTitle}
       </div>
-    </button>
+    </a>
   );
 }
 
 // ===== Studio Card =====
 function StudioCard({ studio, onNavigate }: { studio: Studio; onNavigate?: (r: { page: string; id?: number }) => void }) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "studio", id: studio.id }, () => onNavigate?.({ page: "studio", id: studio.id }));
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "studio", id: studio.id }, () => onNavigate?.({ page: "studio", id: studio.id }));
 
   return (
-    <button
-      type="button"
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className="flex-shrink-0 w-40 snap-start group text-left"
     >
       <div className="relative aspect-video rounded-lg overflow-hidden bg-card mb-2 flex items-center justify-center">
@@ -443,6 +439,6 @@ function StudioCard({ studio, onNavigate }: { studio: Studio; onNavigate?: (r: {
       {studio.sceneCount > 0 && (
         <div className="text-xs text-muted">{studio.sceneCount} scenes</div>
       )}
-    </button>
+    </a>
   );
 }

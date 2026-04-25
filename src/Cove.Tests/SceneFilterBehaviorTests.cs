@@ -245,6 +245,75 @@ public class SceneFilterBehaviorTests
     }
 
     [Fact]
+    public async Task FingerprintCriterion_FiltersScenesBySelectedAlgorithm()
+    {
+        await using var context = CreateContext();
+        context.Scenes.AddRange(
+            CreateSceneWithFile(
+                "matching-fingerprint-types",
+                fingerprints:
+                [
+                    new FileFingerprint { Type = "oshash", Value = "osh-match" },
+                    new FileFingerprint { Type = "md5", Value = "md5-match" },
+                    new FileFingerprint { Type = "phash", Value = "phash-match" },
+                ]),
+            CreateSceneWithFile(
+                "other-fingerprint-types",
+                fingerprints:
+                [
+                    new FileFingerprint { Type = "oshash", Value = "osh-other" },
+                    new FileFingerprint { Type = "md5", Value = "md5-other" },
+                    new FileFingerprint { Type = "phash", Value = "phash-other" },
+                ]));
+        await context.SaveChangesAsync();
+
+        var repository = new SceneRepository(context);
+
+        var (oshashItems, oshashCount) = await repository.FindAsync(
+            new SceneFilter
+            {
+                FingerprintCriterion = new FingerprintCriterion
+                {
+                    Type = "oshash",
+                    Value = "osh-match",
+                    Modifier = CriterionModifier.Equals,
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        var (md5Items, md5Count) = await repository.FindAsync(
+            new SceneFilter
+            {
+                FingerprintCriterion = new FingerprintCriterion
+                {
+                    Type = "md5",
+                    Value = "md5-match",
+                    Modifier = CriterionModifier.Equals,
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        var (phashItems, phashCount) = await repository.FindAsync(
+            new SceneFilter
+            {
+                FingerprintCriterion = new FingerprintCriterion
+                {
+                    Type = "phash",
+                    Value = "phash-match",
+                    Modifier = CriterionModifier.Equals,
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, oshashCount);
+        Assert.Equal(["matching-fingerprint-types"], oshashItems.Select(scene => scene.Title ?? string.Empty).ToArray());
+        Assert.Equal(1, md5Count);
+        Assert.Equal(["matching-fingerprint-types"], md5Items.Select(scene => scene.Title ?? string.Empty).ToArray());
+        Assert.Equal(1, phashCount);
+        Assert.Equal(["matching-fingerprint-types"], phashItems.Select(scene => scene.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task DuplicatedPhashCriterion_True_FindsScenesSharingAPhashAcrossScenes()
     {
         await using var context = CreateContext();

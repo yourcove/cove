@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ErrorBoundary } from "../components/ErrorBoundary";
+import * as ErrorBoundaryModule from "../components/ErrorBoundary";
 
 function ThrowingComponent({ shouldThrow }: { shouldThrow: boolean }) {
   if (shouldThrow) throw new Error("Test error");
@@ -10,9 +10,9 @@ function ThrowingComponent({ shouldThrow }: { shouldThrow: boolean }) {
 describe("ErrorBoundary", () => {
   it("renders children when no error", () => {
     render(
-      <ErrorBoundary>
+      <ErrorBoundaryModule.ErrorBoundary>
         <div>Hello</div>
-      </ErrorBoundary>
+      </ErrorBoundaryModule.ErrorBoundary>
     );
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
@@ -21,9 +21,9 @@ describe("ErrorBoundary", () => {
     // Suppress console.error for the expected error
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(
-      <ErrorBoundary>
+      <ErrorBoundaryModule.ErrorBoundary>
         <ThrowingComponent shouldThrow={true} />
-      </ErrorBoundary>
+      </ErrorBoundaryModule.ErrorBoundary>
     );
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
     expect(screen.getByText("Test error")).toBeInTheDocument();
@@ -31,32 +31,20 @@ describe("ErrorBoundary", () => {
     spy.mockRestore();
   });
 
-  it("recovers when Try Again is clicked", () => {
-    let shouldThrow = true;
+  it("reloads the page when Try Again is clicked", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onRetry = vi.fn();
 
-    function ConditionalThrower() {
-      if (shouldThrow) throw new Error("Boom");
-      return <div>Recovered</div>;
-    }
-
-    const { rerender } = render(
-      <ErrorBoundary>
-        <ConditionalThrower />
-      </ErrorBoundary>
+    render(
+      <ErrorBoundaryModule.ErrorBoundary onRetry={onRetry}>
+        <ThrowingComponent shouldThrow={true} />
+      </ErrorBoundaryModule.ErrorBoundary>
     );
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
 
-    // Stop throwing and click retry
-    shouldThrow = false;
     fireEvent.click(screen.getByText("Try Again"));
 
-    rerender(
-      <ErrorBoundary>
-        <ConditionalThrower />
-      </ErrorBoundary>
-    );
-    expect(screen.getByText("Recovered")).toBeInTheDocument();
+    expect(onRetry).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 });

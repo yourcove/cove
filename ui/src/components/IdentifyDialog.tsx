@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { metadata, system } from "../api/client";
+import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { metadata } from "../api/client";
 import type { MetadataServer } from "../api/types";
+import { useAppConfig } from "../state/AppConfigContext";
 import {
   Search,
   X,
@@ -26,42 +27,59 @@ interface IdentifySource {
   enabled: boolean;
 }
 
-export function IdentifyDialog({ open, onClose, sceneIds }: Props) {
-  const queryClient = useQueryClient();
-  const { data: config } = useQuery({
-    queryKey: ["system-config"],
-    queryFn: system.getConfig,
-  });
+const DEFAULT_IDENTIFY_DEFAULTS = {
+  createTags: true,
+  createPerformers: true,
+  createStudios: true,
+};
 
-  const metadataServers = config?.scraping?.metadataServers ?? [];
-
-  const [sources, setSources] = useState<IdentifySource[]>(() => {
-    const src: IdentifySource[] = [];
-    metadataServers.forEach((box, i) => {
-      src.push({
-        id: `metadata-server-${i}`,
-        name: box.name || box.endpoint,
-        type: "metadata-server",
-        enabled: true,
-      });
-    });
-    src.push({
-      id: "auto-tag",
-      name: "Auto Tag (built-in)",
-      type: "auto-tag",
+function buildIdentifySources(metadataServers: MetadataServer[]): IdentifySource[] {
+  const sources: IdentifySource[] = [];
+  metadataServers.forEach((box, i) => {
+    sources.push({
+      id: `metadata-server-${i}`,
+      name: box.name || box.endpoint,
+      type: "metadata-server",
       enabled: true,
     });
-    return src;
   });
+  sources.push({
+    id: "auto-tag",
+    name: "Auto Tag (built-in)",
+    type: "auto-tag",
+    enabled: true,
+  });
+  return sources;
+}
+
+export function IdentifyDialog({ open, onClose, sceneIds }: Props) {
+  const queryClient = useQueryClient();
+  const { config } = useAppConfig();
+
+  const metadataServers = config?.scraping?.metadataServers ?? [];
+  const identifyDefaults = config?.scraping?.identifyDefaults ?? DEFAULT_IDENTIFY_DEFAULTS;
+
+  const [sources, setSources] = useState<IdentifySource[]>(() => buildIdentifySources(metadataServers));
 
   const [showOptions, setShowOptions] = useState(false);
   const [setCoverImage, setSetCoverImage] = useState(true);
   const [setOrganized, setSetOrganized] = useState(false);
   const [skipMultipleMatches, setSkipMultipleMatches] = useState(true);
   const [skipSingleNamePerformers, setSkipSingleNamePerformers] = useState(true);
-  const [createTags, setCreateTags] = useState(true);
-  const [createPerformers, setCreatePerformers] = useState(true);
-  const [createStudios, setCreateStudios] = useState(true);
+  const [createTags, setCreateTags] = useState(identifyDefaults.createTags);
+  const [createPerformers, setCreatePerformers] = useState(identifyDefaults.createPerformers);
+  const [createStudios, setCreateStudios] = useState(identifyDefaults.createStudios);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setSources(buildIdentifySources(metadataServers));
+    setCreateTags(identifyDefaults.createTags);
+    setCreatePerformers(identifyDefaults.createPerformers);
+    setCreateStudios(identifyDefaults.createStudios);
+  }, [open, metadataServers, identifyDefaults.createTags, identifyDefaults.createPerformers, identifyDefaults.createStudios]);
 
   const identifyMut = useMutation({
     mutationFn: () => {
@@ -252,10 +270,15 @@ export function IdentifyDialog({ open, onClose, sceneIds }: Props) {
                 </label>
                 <div className="flex items-start gap-2 mt-2 p-2 bg-accent/10 border border-accent/20 rounded-lg">
                   <Info className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-secondary">
+                  <div className="text-xs text-secondary space-y-1">
+                    <p>
                     Identified data will be merged with existing data by default. Fields that
                     already have values won't be overwritten.
-                  </p>
+                    </p>
+                    <p>
+                      Auto-apply duration and pHash thresholds are configured in Settings &gt; Metadata Providers &gt; Identify Defaults.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

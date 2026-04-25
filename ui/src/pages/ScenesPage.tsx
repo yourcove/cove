@@ -18,7 +18,7 @@ import { IdentifyDialog } from "../components/IdentifyDialog";
 import { SceneQueue } from "../components/SceneQueue";
 import { SceneCard } from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { StringListEditor } from "../components/StringListEditor";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useWallColumns } from "../hooks/useWallColumns";
@@ -218,7 +218,7 @@ export function ScenesPage({ onNavigate }: Props) {
         </div>
       )}
       {displayMode === "tagger" && (
-        <SceneTagger scenes={items} />
+        <SceneTagger scenes={items} onNavigate={navigateToScene} />
       )}
       {items.length === 0 && !isLoading && (
         <div className="text-center py-20">
@@ -565,20 +565,20 @@ function SceneWallCard({ scene, onClick }: { scene: Scene; onClick: () => void }
   const file = scene.files[0];
   const screenshotUrl = scenes.screenshotUrl(scene.id, scene.updatedAt);
   const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "16 / 9";
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, onClick);
+  const title = scene.title || file?.basename || "Untitled";
 
   return (
     <WallMediaCard
-      {...navigationHandlers}
-      title={scene.title || file?.basename || "Untitled"}
+      title={title}
       imageSrc={screenshotUrl}
       aspectRatio={aspectRatio}
       className="group"
     >
+      <RouteCardLinkOverlay route={{ page: "scene", id: scene.id }} onClick={onClick} label={`Open scene ${title}`} />
       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <p className="text-xs text-white font-medium truncate">
-            {scene.title || file?.basename || "Untitled"}
+            {title}
           </p>
       </div>
       {file && file.duration > 0 && (

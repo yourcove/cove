@@ -16,7 +16,7 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createRouteLinkProps } from "../components/cardNavigation";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
@@ -707,10 +707,10 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
     <>
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
         {paginated.map((group) => {
-          const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
+          const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
 
           return (
-            <button key={group.id} type="button" {...navigationHandlers} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
+            <a key={group.id} {...linkProps} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
               <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card">
                 <Layers className="h-10 w-10 text-muted" />
               </div>
@@ -718,7 +718,7 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
                 <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{group.name}</p>
                 <p className="mt-1 text-xs text-secondary">{group.sceneCount} scene{group.sceneCount !== 1 ? "s" : ""}</p>
               </div>
-            </button>
+            </a>
           );
         })}
       </div>
@@ -768,10 +768,10 @@ function PerformerAppearsWithPanel({ performerId, filter, setFilter, onNavigate 
     <>
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
         {paginated.map(({ performer: p, count }) => {
-          const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, () => onNavigate({ page: "performer", id: p.id }));
+          const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: p.id }, () => onNavigate({ page: "performer", id: p.id }));
 
           return (
-            <button key={p.id} type="button" {...navigationHandlers} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
+            <a key={p.id} {...linkProps} className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60">
               <div className="aspect-[2/3] bg-gradient-to-b from-card to-surface overflow-hidden">
                 <img
                   src={p.imagePath || entityImages.performerImageUrl(p.id)}
@@ -785,7 +785,7 @@ function PerformerAppearsWithPanel({ performerId, filter, setFilter, onNavigate 
                 <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{p.name}</p>
                 <p className="mt-1 text-xs text-secondary">{count} scene{count !== 1 ? "s" : ""} together</p>
               </div>
-            </button>
+            </a>
           );
         })}
       </div>

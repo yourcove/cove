@@ -12,7 +12,8 @@ import { GALLERY_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog, GALLERY_BULK_FIELDS } from "../components/BulkEditDialog";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createNestedRouteLinkProps } from "../components/cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { WallMediaCard } from "../components/WallMediaCard";
@@ -76,6 +77,7 @@ export function GalleriesPage({ onNavigate }: Props) {
     <GalleryCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "gallery", id })} />
     <ListPage
       title="Galleries"
+      pageKey="galleries"
       filterMode="galleries"
       filter={filter}
       onFilterChange={setFilter}
@@ -162,29 +164,17 @@ export function GalleriesPage({ onNavigate }: Props) {
 }
 
 function GalleryWallCard({ gallery, onClick, selected, onSelect, selecting }: { gallery: Gallery; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, onClick);
-
   return (
     <WallMediaCard
-      {...navigationHandlers}
+      onClick={selecting ? onClick : undefined}
       title={gallery.title || "Untitled"}
       imageSrc={gallery.coverPath}
       aspectRatio="16 / 9"
       fallback={<FolderOpen className="w-10 h-10 text-muted opacity-30" />}
       className={`${selected ? "border-accent ring-2 ring-accent" : ""} group`.trim()}
     >
-      <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={(event) => {
-            event.stopPropagation();
-            onSelect?.();
-          }}
-          onClick={(event) => event.stopPropagation()}
-          className="w-4 h-4 rounded border-border cursor-pointer accent-accent"
-        />
-      </div>
+      <RouteCardLinkOverlay route={{ page: "gallery", id: gallery.id }} onClick={onClick} label={`Open gallery ${gallery.title || "Untitled"}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
+      <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
       <RatingBanner rating={gallery.rating} />
       {gallery.studioName && (
         <div className="absolute top-1 right-1 text-xs bg-black/70 px-1.5 py-0.5 rounded text-white truncate max-w-[80%]">
@@ -196,14 +186,11 @@ function GalleryWallCard({ gallery, onClick, selected, onSelect, selecting }: { 
 }
 
 function GalleryCard({ gallery, onClick, onNavigate, selected, onSelect, selecting }: { gallery: Gallery; onClick: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, onClick);
-
   return (
-    <div {...navigationHandlers} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+      <RouteCardLinkOverlay route={{ page: "gallery", id: gallery.id }} onClick={onClick} label={`Open gallery ${gallery.title || "Untitled"}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="aspect-video bg-surface flex items-center justify-center relative overflow-hidden">
-        <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-          <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-        </div>
+        <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         {gallery.coverPath ? (
           <img src={gallery.coverPath} alt={gallery.title || ""} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         ) : (
@@ -230,7 +217,7 @@ function GalleryCardPopovers({ gallery, onNavigate }: { gallery: Gallery; onNavi
   if (!hasAny) return null;
 
   return (
-    <div className="flex items-center justify-center gap-1 px-2 pb-2 border-t border-border/50 pt-1.5">
+    <div className="relative z-10 flex items-center justify-center gap-1 px-2 pb-2 border-t border-border/50 pt-1.5">
       {gallery.imageCount > 0 && (
         <PopoverButton icon={<Image className="w-3 h-3" />} count={gallery.imageCount} title="Images" wide preferBelow>
           <ImagesPopoverContent filter={{ galleryId: gallery.id }} />
@@ -239,24 +226,28 @@ function GalleryCardPopovers({ gallery, onNavigate }: { gallery: Gallery; onNavi
       {gallery.tags.length > 0 && (
         <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={gallery.tags.length} title="Tags" preferBelow>
           <div className="flex flex-wrap gap-1">
-            {gallery.tags.map((t: any) => (
-              <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+            {gallery.tags.map((t: any) => {
+              const linkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: t.id }, () => onNavigate?.({ page: "tag", id: t.id }));
+
+              return <a key={t.id} {...linkProps}
                 className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                 {t.name}
-              </button>
-            ))}
+              </a>;
+            })}
           </div>
         </PopoverButton>
       )}
       {gallery.performers.length > 0 && (
         <PopoverButton icon={<Users className="w-3.5 h-3.5" />} count={gallery.performers.length} title="Performers" wide preferBelow>
           <div className="grid grid-cols-2 gap-2">
-            {gallery.performers.map((p: any) => (
-              <button key={p.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "performer", id: p.id }); }}
+            {gallery.performers.map((p: any) => {
+              const linkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: p.id }, () => onNavigate?.({ page: "performer", id: p.id }));
+
+              return <a key={p.id} {...linkProps}
                 className="flex flex-col items-center gap-1 text-center cursor-pointer rounded hover:bg-card-hover p-1.5 transition-colors">
                 <span className="text-xs text-accent hover:underline truncate w-full">{p.name}</span>
-              </button>
-            ))}
+              </a>;
+            })}
           </div>
         </PopoverButton>
       )}

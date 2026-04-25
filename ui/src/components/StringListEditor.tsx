@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 interface StringListEditorProps {
   values: string[];
   onChange: (values: string[]) => void;
@@ -5,6 +7,8 @@ interface StringListEditorProps {
   addLabel?: string;
   inputType?: "text" | "url";
 }
+
+let nextStableId = 1;
 
 export function StringListEditor({
   values,
@@ -15,16 +19,28 @@ export function StringListEditor({
 }: StringListEditorProps) {
   const renderedValues = values.length > 0 ? values : [""];
 
+  // Maintain stable keys for each entry so React preserves focus across re-renders.
+  // The ref maps each slot to a persistent numeric ID.
+  const keysRef = useRef<number[]>([]);
+  while (keysRef.current.length < renderedValues.length) {
+    keysRef.current.push(nextStableId++);
+  }
+  if (keysRef.current.length > renderedValues.length) {
+    keysRef.current.length = renderedValues.length;
+  }
+
   const updateValue = (index: number, nextValue: string) => {
     onChange(renderedValues.map((value, valueIndex) => (valueIndex === index ? nextValue : value)));
   };
 
   const removeValue = (index: number) => {
     const nextValues = renderedValues.filter((_, valueIndex) => valueIndex !== index);
+    keysRef.current = keysRef.current.filter((_, keyIndex) => keyIndex !== index);
     onChange(nextValues.length > 0 ? nextValues : [""]);
   };
 
   const addValue = () => {
+    keysRef.current.push(nextStableId++);
     onChange([...renderedValues, ""]);
   };
 
@@ -32,7 +48,7 @@ export function StringListEditor({
     <div>
       <div className="space-y-1.5">
         {renderedValues.map((value, index) => (
-          <div key={`${index}-${value}`} className="flex items-center gap-1.5">
+          <div key={keysRef.current[index]} className="flex items-center gap-1.5">
             <input
               type={inputType}
               value={value}

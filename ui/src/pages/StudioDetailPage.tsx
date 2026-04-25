@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, groups, images, metadata, performers, scenes, studios, entityImages } from "../api/client";
 import type { FindFilter, Gallery, Group, Image, Performer, Scene, Studio } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay } from "../components/shared";
-import { ArrowLeft, Building2, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Link as LinkIcon, Link2, Loader2, MoreVertical, Music, Pencil, Trash2, UserRound, Wand2 } from "lucide-react";
+import { ArrowLeft, Check, Building2, Film, FolderOpen, GitMerge, Heart, ImageIcon, Layers, Link as LinkIcon, Link2, Loader2, MoreVertical, Music, Pencil, Trash2, UserRound, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { StudioEditModal } from "./StudioEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -38,6 +38,12 @@ const IMAGE_SORT = [
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
 const STUDIO_SORT = [
   { value: "name", label: "Name" },
+  { value: "rating", label: "Rating" },
+  { value: "scene_count", label: "Scene Count" },
+  { value: "gallery_count", label: "Gallery Count" },
+  { value: "image_count", label: "Image Count" },
+  { value: "child_count", label: "Substudios Count" },
+  { value: "tag_count", label: "Tag Count" },
   { value: "updated_at", label: "Updated At" },
   { value: "created_at", label: "Created At" },
   { value: "random", label: "Random" },
@@ -124,8 +130,11 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   });
 
   const updateMut = useMutation({
-    mutationFn: (data: { favorite?: boolean; rating?: number }) => studios.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["studio", id] }),
+    mutationFn: (data: { favorite?: boolean; rating?: number; organized?: boolean }) => studios.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["studio", id] });
+      queryClient.invalidateQueries({ queryKey: ["studios"] });
+    },
   });
 
   const autoTagMut = useMutation({
@@ -241,6 +250,17 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                   title={studio.favorite ? "Remove from favorites" : "Add to favorites"}
                 >
                   <Heart className={`h-6 w-6 ${studio.favorite ? "fill-current" : ""}`} />
+                </button>
+                <button
+                  onClick={() => updateMut.mutate({ organized: !studio.organized })}
+                  className={`rounded-full p-2 transition-colors ${
+                    studio.organized
+                      ? "bg-green-500/15 text-green-500"
+                      : "bg-card text-muted hover:text-green-400"
+                  }`}
+                  title={studio.organized ? "Mark as unorganized" : "Mark as organized"}
+                >
+                  <Check className="h-6 w-6" />
                 </button>
               </div>
 

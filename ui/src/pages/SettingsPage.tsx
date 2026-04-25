@@ -37,6 +37,7 @@ import type {
   MetadataServer,
   CoveConfig,
   CovePathConfig,
+  IdentifyDefaultsConfig,
   MetadataServerValidationResult,
 } from "../api/types";
 import { useExtensions } from "../extensions/ExtensionLoader";
@@ -67,6 +68,7 @@ const DEFAULT_SCAN_OPTIONS: ScanOptions = {
   scanGeneratePreviews: false,
   scanGenerateSprites: false,
   scanGeneratePhashes: false,
+  scanGenerateMd5: false,
   scanGenerateThumbnails: false,
   scanGenerateImagePhashes: false,
   rescan: false,
@@ -78,6 +80,7 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   sprites: false,
   markers: false,
   phashes: false,
+  md5: false,
   imageThumbnails: false,
   imagePhashes: false,
   overwrite: false,
@@ -108,6 +111,41 @@ function loadStoredTaskOptions<T extends object>(key: string, fallback: T): T {
   }
 
   return fallback;
+}
+
+export function mergeTaskSelectablePaths(
+  currentPaths: string[] | undefined,
+  selectablePaths: string[],
+  previousSelectablePaths: string[]
+): string[] {
+  if (selectablePaths.length === 0) {
+    return [];
+  }
+
+  const filteredCurrentPaths = currentPaths?.filter((path) => selectablePaths.includes(path)) ?? [];
+  if (filteredCurrentPaths.length === 0) {
+    return selectablePaths;
+  }
+
+  const addedPaths = selectablePaths.filter(
+    (path) => !previousSelectablePaths.includes(path) && !filteredCurrentPaths.includes(path)
+  );
+
+  return addedPaths.length > 0
+    ? [...filteredCurrentPaths, ...addedPaths]
+    : filteredCurrentPaths;
+}
+
+function arePathSelectionsEqual(left: string[] | undefined, right: string[] | undefined): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
 }
 
 const languageOptions = [
@@ -163,6 +201,16 @@ function emptyMetadataServer(): MetadataServer {
   return { name: "", endpoint: "", apiKey: "", maxRequestsPerMinute: 240 };
 }
 
+function defaultIdentifyDefaults(): IdentifyDefaultsConfig {
+  return {
+    createTags: true,
+    createPerformers: true,
+    createStudios: true,
+    autoApplyMaxDurationDifferenceSeconds: undefined,
+    autoApplyMaxPhashDistance: undefined,
+  };
+}
+
 function cloneConfig(config: CoveConfig): CoveConfig {
   return JSON.parse(JSON.stringify(config)) as CoveConfig;
 }
@@ -208,6 +256,10 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
           maxRequestsPerMinute: box.maxRequestsPerMinute,
         }))
         .filter((box) => box.endpoint !== ""),
+      identifyDefaults: {
+        ...defaultIdentifyDefaults(),
+        ...config.scraping.identifyDefaults,
+      },
     },
   };
 }
@@ -245,6 +297,9 @@ export function SettingsPage() {
     }
     if (nextDraft.scraping.scraperDirectories.length === 0) {
       nextDraft.scraping.scraperDirectories = [""];
+    }
+    if (!nextDraft.scraping.identifyDefaults) {
+      nextDraft.scraping.identifyDefaults = defaultIdentifyDefaults();
     }
     if (!nextDraft.ui.ratingSystemOptions) {
       nextDraft.ui.ratingSystemOptions = { type: "stars", starPrecision: "full" };
@@ -1151,6 +1206,103 @@ export function SettingsPage() {
               </div>
             </SectionCard>
 
+            <SectionCard title="Identify Defaults" description="Defaults used when opening Identify. Leave thresholds blank to disable that auto-apply requirement.">
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <NumberField
+                    label="Max auto-apply duration difference (seconds)"
+                    value={draft.scraping.identifyDefaults.autoApplyMaxDurationDifferenceSeconds}
+                    min={0}
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        scraping: {
+                          ...current.scraping,
+                          identifyDefaults: {
+                            ...current.scraping.identifyDefaults,
+                            autoApplyMaxDurationDifferenceSeconds: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <NumberField
+                    label="Max auto-apply pHash distance"
+                    value={draft.scraping.identifyDefaults.autoApplyMaxPhashDistance}
+                    min={0}
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        scraping: {
+                          ...current.scraping,
+                          identifyDefaults: {
+                            ...current.scraping.identifyDefaults,
+                            autoApplyMaxPhashDistance: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="border-t border-border pt-3 space-y-3">
+                  <CheckboxLabel
+                    label="Allow Identify to create new performers"
+                    checked={draft.scraping.identifyDefaults.createPerformers}
+                    onChange={(checked) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        scraping: {
+                          ...current.scraping,
+                          identifyDefaults: {
+                            ...current.scraping.identifyDefaults,
+                            createPerformers: checked,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <CheckboxLabel
+                    label="Allow Identify to create new studios"
+                    checked={draft.scraping.identifyDefaults.createStudios}
+                    onChange={(checked) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        scraping: {
+                          ...current.scraping,
+                          identifyDefaults: {
+                            ...current.scraping.identifyDefaults,
+                            createStudios: checked,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <CheckboxLabel
+                    label="Allow Identify to create new tags"
+                    checked={draft.scraping.identifyDefaults.createTags}
+                    onChange={(checked) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        scraping: {
+                          ...current.scraping,
+                          identifyDefaults: {
+                            ...current.scraping.identifyDefaults,
+                            createTags: checked,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex items-start gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs text-secondary">
+                  <Info className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
+                  <p>
+                    Duration and pHash thresholds are applied before Identify auto-saves a match. Set either field to <strong>0</strong> to require an exact match, or leave it blank to ignore that signal.
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
+
             <SectionCard title="Discovered Scrapers" description="Scraper definitions are loaded from the configured directories using the same YAML field names Cove expects.">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm text-secondary">Reload after changing directories or adding new scraper files.</p>
@@ -1640,6 +1792,7 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
     () => (config?.covePaths ?? []).map((path) => path.path.trim()).filter(Boolean),
     [config?.covePaths],
   );
+  const previousSelectablePathsRef = useRef<string[]>([]);
   const [showScanOpts, setShowScanOpts] = useState(false);
   const [scanOpts, setScanOpts] = useState<ScanOptions>(() => loadStoredTaskOptions(TASK_SCAN_OPTIONS_KEY, DEFAULT_SCAN_OPTIONS));
 
@@ -1647,18 +1800,24 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
   const [genOpts, setGenOpts] = useState<GenerateOptions>(() => loadStoredTaskOptions(TASK_GENERATE_OPTIONS_KEY, DEFAULT_GENERATE_OPTIONS));
 
   useEffect(() => {
+    const previousSelectablePaths = previousSelectablePathsRef.current;
+
     if (selectablePaths.length === 0) {
+      previousSelectablePathsRef.current = selectablePaths;
       return;
     }
 
     setScanOpts((current) => {
-      const currentPaths = current.paths?.filter((path) => selectablePaths.includes(path));
-      if (currentPaths && currentPaths.length > 0) {
-        return currentPaths.length === current.paths?.length ? current : { ...current, paths: currentPaths };
-      }
-
-      return { ...current, paths: selectablePaths };
+      const nextPaths = mergeTaskSelectablePaths(current.paths, selectablePaths, previousSelectablePaths);
+      return arePathSelectionsEqual(current.paths, nextPaths) ? current : { ...current, paths: nextPaths };
     });
+
+    setGenOpts((current) => {
+      const nextPaths = mergeTaskSelectablePaths(current.paths, selectablePaths, previousSelectablePaths);
+      return arePathSelectionsEqual(current.paths, nextPaths) ? current : { ...current, paths: nextPaths };
+    });
+
+    previousSelectablePathsRef.current = selectablePaths;
   }, [selectablePaths]);
 
   useEffect(() => {
@@ -1668,18 +1827,6 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
   useEffect(() => {
     localStorage.setItem(TASK_GENERATE_OPTIONS_KEY, JSON.stringify(genOpts));
   }, [genOpts]);
-
-  // Initialize generate paths like scan
-  useEffect(() => {
-    if (selectablePaths.length === 0) return;
-    setGenOpts((current) => {
-      const currentPaths = current.paths?.filter((path: string) => selectablePaths.includes(path));
-      if (currentPaths && currentPaths.length > 0) {
-        return currentPaths.length === current.paths?.length ? current : { ...current, paths: currentPaths };
-      }
-      return { ...current, paths: selectablePaths };
-    });
-  }, [selectablePaths]);
 
   const effectiveScanOpts = useMemo<ScanOptions>(() => {
     const selectedPaths = scanOpts.paths?.filter((path) => selectablePaths.includes(path)) ?? [];
@@ -1753,6 +1900,7 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
             <CheckboxLabel label="Generate previews" checked={!!scanOpts.scanGeneratePreviews} onChange={(c) => setScanOpts({ ...scanOpts, scanGeneratePreviews: c })} />
             <CheckboxLabel label="Generate sprites" checked={!!scanOpts.scanGenerateSprites} onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateSprites: c })} />
             <CheckboxLabel label="Generate perceptual hashes" checked={!!scanOpts.scanGeneratePhashes} onChange={(c) => setScanOpts({ ...scanOpts, scanGeneratePhashes: c })} />
+            <CheckboxLabel label="Generate MD5 checksums" checked={!!scanOpts.scanGenerateMd5} onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateMd5: c })} />
             <CheckboxLabel label="Generate image thumbnails" checked={!!scanOpts.scanGenerateThumbnails} onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateThumbnails: c })} />
             <CheckboxLabel label="Generate image phashes" checked={!!scanOpts.scanGenerateImagePhashes} onChange={(c) => setScanOpts({ ...scanOpts, scanGenerateImagePhashes: c })} />
             <CheckboxLabel label="Force rescan (ignore mtime)" checked={!!scanOpts.rescan} onChange={(c) => setScanOpts({ ...scanOpts, rescan: c })} />
@@ -1797,7 +1945,7 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
         {/* Generate */}
         <TaskCard
           label="Generate"
-          description="Generate thumbnails, previews, sprites, markers, and perceptual hashes."
+          description="Generate thumbnails, previews, sprites, markers, perceptual hashes, and MD5 checksums."
           onRun={() => genMut.mutate()}
           isPending={genMut.isPending}
           expandable
@@ -1812,6 +1960,7 @@ function LibraryTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
               <CheckboxLabel label="Sprite sheets" checked={!!genOpts.sprites} onChange={(c) => setGenOpts({ ...genOpts, sprites: c })} />
               <CheckboxLabel label="Marker previews" checked={!!genOpts.markers} onChange={(c) => setGenOpts({ ...genOpts, markers: c })} />
               <CheckboxLabel label="Perceptual hashes (phash)" checked={!!genOpts.phashes} onChange={(c) => setGenOpts({ ...genOpts, phashes: c })} />
+              <CheckboxLabel label="MD5 checksums" checked={!!genOpts.md5} onChange={(c) => setGenOpts({ ...genOpts, md5: c })} />
             </div>
             <p className="text-xs text-muted font-medium uppercase tracking-wide pt-2">Image options</p>
             <div className="grid gap-2 sm:grid-cols-2">

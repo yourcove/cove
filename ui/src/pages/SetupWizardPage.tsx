@@ -36,11 +36,11 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const [stashPreview, setStashPreview] = useState<StashPreviewResult | null>(null);
   const [stashResult, setStashResult] = useState<StashImportResult | null>(null);
   const [stashImportJobId, setStashImportJobId] = useState<string | null>(null);
-  const [stashGeneratedPath, setStashGeneratedPath] = useState("");
+  const [coveGeneratedPath, setCoveGeneratedPath] = useState(config.generatedPath ?? "");
   const [migrateGeneratedContent, setMigrateGeneratedContent] = useState(true);
   const queryClient = useQueryClient();
   const stashImportOptions: StashImportOptions = {
-    generatedPath: stashGeneratedPath.trim() || undefined,
+    coveGeneratedPath: coveGeneratedPath.trim() || undefined,
     migrateGeneratedContent,
   };
 
@@ -271,16 +271,16 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                     </label>
 
                     <label className="block text-sm text-secondary">
-                      <span className="block mb-1 font-medium text-foreground">Generated content source path</span>
+                      <span className="block mb-1 font-medium text-foreground">Cove generated content path</span>
                       <input
                         type="text"
-                        value={stashGeneratedPath}
-                        onChange={(e) => setStashGeneratedPath(e.target.value)}
-                        placeholder="Leave blank to use the generated path from Stash config.yml"
-                        disabled={isStashImportActive || !migrateGeneratedContent}
+                        value={coveGeneratedPath}
+                        onChange={(e) => setCoveGeneratedPath(e.target.value)}
+                        placeholder={config.generatedPath ?? "D:\\Cove\\generated"}
+                        disabled={isStashImportActive}
                         className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none disabled:opacity-60"
                       />
-                      <span className="block mt-1 text-xs text-muted">Use this when your Stash generated assets live somewhere other than the path recorded in config.yml.</span>
+                      <span className="block mt-1 text-xs text-muted">This updates Cove's generated-assets destination before the import runs. Stash's source path is still read from config.yml.</span>
                     </label>
                   </div>
                 </details>

@@ -172,6 +172,35 @@ export interface TagDetail extends Tag {
   updatedAt: string;
 }
 
+export interface TagGraphNode {
+  id: number;
+  name: string;
+  favorite: boolean;
+  description?: string;
+  imagePath?: string;
+  parentIds: number[];
+  childIds: number[];
+  totalUsageCount: number;
+  sceneCount: number;
+  sceneMarkerCount: number;
+  imageCount: number;
+  galleryCount: number;
+  groupCount: number;
+  performerCount: number;
+  studioCount: number;
+}
+
+export interface TagGraphLink {
+  sourceId: number;
+  targetId: number;
+}
+
+export interface TagGraphResponse {
+  items: TagGraphNode[];
+  links: TagGraphLink[];
+  totalCount: number;
+}
+
 export interface TagCreate {
   name: string;
   sortName?: string;
@@ -581,10 +610,19 @@ export interface MetadataServer {
   maxRequestsPerMinute: number;
 }
 
+export interface IdentifyDefaultsConfig {
+  createTags: boolean;
+  createPerformers: boolean;
+  createStudios: boolean;
+  autoApplyMaxDurationDifferenceSeconds?: number;
+  autoApplyMaxPhashDistance?: number;
+}
+
 export interface ScrapingConfig {
   scraperDirectories: string[];
   scraperPackageSources: PackageSource[];
   metadataServers: MetadataServer[];
+  identifyDefaults: IdentifyDefaultsConfig;
 }
 
 export interface CoveConfig {
@@ -837,6 +875,14 @@ export interface TimestampCriterion {
   modifier: CriterionModifier;
 }
 
+export type FingerprintAlgorithm = "md5" | "oshash" | "phash";
+
+export interface FingerprintCriterion {
+  type: FingerprintAlgorithm;
+  value: string;
+  modifier: CriterionModifier;
+}
+
 export interface SceneFilterCriteria {
   title?: string;
   code?: string;
@@ -861,6 +907,7 @@ export interface SceneFilterCriteria {
   hasMarkersCriterion?: BoolCriterion;
   interactiveCriterion?: BoolCriterion;
   pathCriterion?: StringCriterion;
+  fingerprintCriterion?: FingerprintCriterion;
   hashCriterion?: StringCriterion;
   checksumCriterion?: StringCriterion;
   duplicatedPhashCriterion?: BoolCriterion;
@@ -948,8 +995,11 @@ export interface TagFilterCriteria {
   favorite?: boolean;
   favoriteCriterion?: BoolCriterion;
   sceneCountCriterion?: IntCriterion;
+  sceneCountIncludesChildren?: boolean;
   markerCountCriterion?: IntCriterion;
+  markerCountIncludesChildren?: boolean;
   performerCountCriterion?: IntCriterion;
+  performerCountIncludesChildren?: boolean;
   parentsCriterion?: MultiIdCriterion;
   childrenCriterion?: MultiIdCriterion;
   isMissingCriterion?: BoolCriterion;
@@ -957,12 +1007,18 @@ export interface TagFilterCriteria {
   updatedAtCriterion?: TimestampCriterion;
   nameCriterion?: StringCriterion;
   sortNameCriterion?: StringCriterion;
+  remoteIdCriterion?: StringCriterion;
+  remoteIdValueCriterion?: StringCriterion;
   aliasesCriterion?: StringCriterion;
   descriptionCriterion?: StringCriterion;
   imageCountCriterion?: IntCriterion;
+  imageCountIncludesChildren?: boolean;
   galleryCountCriterion?: IntCriterion;
+  galleryCountIncludesChildren?: boolean;
   studioCountCriterion?: IntCriterion;
+  studioCountIncludesChildren?: boolean;
   groupCountCriterion?: IntCriterion;
+  groupCountIncludesChildren?: boolean;
   parentCountCriterion?: IntCriterion;
   childCountCriterion?: IntCriterion;
   ignoreAutoTagCriterion?: BoolCriterion;
@@ -1011,6 +1067,7 @@ export interface GalleryFilterCriteria {
   titleCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
   pathCriterion?: StringCriterion;
+  fingerprintCriterion?: FingerprintCriterion;
   checksumCriterion?: StringCriterion;
   urlCriterion?: StringCriterion;
   createdAtCriterion?: TimestampCriterion;
@@ -1047,6 +1104,7 @@ export interface ImageFilterCriteria {
   oCounterCriterion?: IntCriterion;
   resolutionCriterion?: IntCriterion;
   pathCriterion?: StringCriterion;
+  fingerprintCriterion?: FingerprintCriterion;
   checksumCriterion?: StringCriterion;
   createdAtCriterion?: TimestampCriterion;
   updatedAtCriterion?: TimestampCriterion;
@@ -1126,8 +1184,13 @@ export interface BulkPerformerUpdate {
 
 export interface BulkTagUpdate {
   ids: number[];
+  description?: string;
   favorite?: boolean;
   ignoreAutoTag?: boolean;
+  parentIds?: number[];
+  parentMode?: BulkUpdateMode;
+  childIds?: number[];
+  childMode?: BulkUpdateMode;
 }
 
 export interface BulkStudioUpdate {

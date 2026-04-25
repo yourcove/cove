@@ -94,6 +94,43 @@ INSERT INTO performers_tags (performer_id, tag_id) VALUES (1, 7);
     }
 
     [Fact]
+    public async Task ImportBlobsAsync_DetectsAvifContentType()
+    {
+        await using var context = CreateContext();
+        var recordingBlobService = new RecordingBlobService();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, "CREATE TABLE blobs (checksum TEXT PRIMARY KEY, blob BLOB);");
+
+        await using (var command = stash.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO blobs (checksum, blob) VALUES ($checksum, $blob);";
+            command.Parameters.AddWithValue("$checksum", "avif-checksum");
+            command.Parameters.Add("$blob", SqliteType.Blob).Value = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x1C,
+                0x66, 0x74, 0x79, 0x70,
+                0x61, 0x76, 0x69, 0x66,
+                0x00, 0x00, 0x00, 0x00,
+            };
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var service = CreateService(context, recordingBlobService);
+        await InvokePrivateAsync(
+            service,
+            "ImportBlobsAsync",
+            stash,
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        Assert.Equal(["image/avif"], recordingBlobService.ContentTypes);
+    }
+
+    [Fact]
     public async Task ImportScenesAsync_UsesSceneLastPlayedAtAndPreservesImportedFileTimestamps()
     {
         await using var context = CreateContext();
@@ -184,6 +221,94 @@ VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
         Assert.Equal(new DateTime(2024, 1, 5, 0, 0, 0, DateTimeKind.Utc), file.CreatedAt);
         Assert.Equal(new DateTime(2024, 4, 1, 0, 0, 0, DateTimeKind.Utc), file.UpdatedAt);
     }
+
+        [Fact]
+        public async Task ImportScenesAsync_NormalizesIntegerPhashFingerprintsToLowercaseHex()
+        {
+                await using var context = CreateContext();
+                var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
+                context.Folders.Add(folder);
+                await context.SaveChangesAsync();
+
+                await using var stash = new SqliteConnection("Data Source=:memory:");
+                await stash.OpenAsync();
+                await ExecuteSqlAsync(stash, @"
+CREATE TABLE scenes (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+    details TEXT,
+    date TEXT,
+    rating INTEGER,
+    studio_id INTEGER,
+    organized INTEGER NOT NULL,
+    code TEXT,
+    director TEXT,
+    resume_time REAL NOT NULL,
+    play_duration REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_played_at TEXT
+);
+CREATE TABLE scenes_tags (scene_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+CREATE TABLE performers_scenes (scene_id INTEGER NOT NULL, performer_id INTEGER NOT NULL);
+CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
+CREATE TABLE scene_urls (scene_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE scenes_o_dates (scene_id INTEGER NOT NULL, o_date TEXT NOT NULL);
+CREATE TABLE scenes_view_dates (scene_id INTEGER NOT NULL, view_date TEXT NOT NULL);
+CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
+CREATE TABLE files (
+    id INTEGER PRIMARY KEY,
+    basename TEXT NOT NULL,
+    parent_folder_id INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE video_files (
+    file_id INTEGER PRIMARY KEY,
+    duration REAL NOT NULL,
+    video_codec TEXT NOT NULL,
+    format TEXT NOT NULL,
+    audio_codec TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    frame_rate REAL NOT NULL,
+    bit_rate INTEGER NOT NULL,
+    interactive INTEGER NOT NULL,
+    interactive_speed INTEGER
+);
+CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint);
+INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
+VALUES (1, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z');
+INSERT INTO scenes_files (scene_id, file_id, [primary]) VALUES (1, 10, 1);
+INSERT INTO files (id, basename, parent_folder_id, size, mod_time, created_at)
+VALUES (10, 'clip.mp4', 99, 2048, '2024-04-01T00:00:00Z', '2024-01-05T00:00:00Z');
+INSERT INTO video_files (file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate, interactive, interactive_speed)
+VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
+INSERT INTO files_fingerprints (file_id, type, fingerprint) VALUES (10, 'phash', 170);
+");
+
+                var service = CreateService(context);
+                await InvokePrivateAsync(
+                        service,
+                        "ImportScenesAsync",
+                        stash,
+                        new Dictionary<string, string>(),
+                        new Dictionary<int, int> { [99] = folder.Id },
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        new Dictionary<int, int>(),
+                        NullJobProgress.Instance,
+                        0d,
+                        1d,
+                        CancellationToken.None);
+
+                var fingerprint = await context.FileFingerprints.SingleAsync();
+
+                Assert.Equal("phash", fingerprint.Type);
+                Assert.Equal("aa", fingerprint.Value);
+        }
 
     [Fact]
     public async Task ImportGalleriesAsync_DerivesTitleFromFolderNameWhenMissing()
@@ -389,14 +514,14 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
                 Assert.Equal(importedGalleryFile.Id, importedFolder.ZipFileId);
         }
 
-    private static StashMigrationService CreateService(CoveContext context)
+    private static StashMigrationService CreateService(CoveContext context, IBlobService? blobService = null)
     {
         var config = new CoveConfiguration();
         var configService = new ConfigService(config, NullLogger<ConfigService>.Instance);
         var scopeFactory = new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         return new StashMigrationService(
             context,
-            new NullBlobService(),
+            blobService ?? new NullBlobService(),
             configService,
             config,
             new NullJobService(),
@@ -474,6 +599,22 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
     {
         public Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default) => Task.FromResult("blob-id");
         public Task<(Stream Stream, string ContentType)?> GetBlobAsync(string blobId, CancellationToken ct = default) => Task.FromResult<(Stream, string)?>(null);
+        public Task DeleteBlobAsync(string blobId, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingBlobService : IBlobService
+    {
+        public List<string> ContentTypes { get; } = [];
+
+        public Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default)
+        {
+            ContentTypes.Add(contentType);
+            return Task.FromResult($"blob-{ContentTypes.Count}");
+        }
+
+        public Task<(Stream Stream, string ContentType)?> GetBlobAsync(string blobId, CancellationToken ct = default)
+            => Task.FromResult<(Stream, string)?>(null);
+
         public Task DeleteBlobAsync(string blobId, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

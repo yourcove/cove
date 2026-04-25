@@ -14,7 +14,7 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createRouteLinkProps } from "../components/cardNavigation";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
@@ -507,13 +507,12 @@ function TagMarkersPanel({ tagId, onNavigate }: { tagId: number; onNavigate: (r:
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
       {data.map((marker) => {
-        const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: marker.sceneId }, () => onNavigate({ page: "scene", id: marker.sceneId }));
+        const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "scene", id: marker.sceneId }, () => onNavigate({ page: "scene", id: marker.sceneId }));
 
         return (
-          <button
+          <a
             key={marker.id}
-            type="button"
-            {...navigationHandlers}
+            {...linkProps}
             className="group text-left"
           >
             <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-card shadow-md shadow-black/30">
@@ -531,7 +530,7 @@ function TagMarkersPanel({ tagId, onNavigate }: { tagId: number; onNavigate: (r:
               <p className="truncate text-sm font-medium text-foreground group-hover:text-accent">{marker.title}</p>
               <p className="mt-0.5 truncate text-xs text-secondary">{marker.sceneTitle || "Untitled Scene"}</p>
             </div>
-          </button>
+          </a>
         );
       })}
     </div>

@@ -14,13 +14,23 @@ import { BulkEditDialog, TAG_BULK_FIELDS } from "../components/BulkEditDialog";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { useRouteRegistry } from "../router/RouteRegistry";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
+import { StringListEditor } from "../components/StringListEditor";
+import { TagGraphView } from "../components/TagGraphView";
+
+const GRAPH_VIEW_LIMIT = 5000;
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
   { value: "scene_count", label: "Scene Count" },
+  { value: "gallery_count", label: "Gallery Count" },
+  { value: "group_count", label: "Group Count" },
+  { value: "image_count", label: "Image Count" },
+  { value: "performer_count", label: "Performer Count" },
+  { value: "studio_count", label: "Studio Count" },
   { value: "random", label: "Random" },
   { value: "created_at", label: "Created At" },
+  { value: "updated_at", label: "Updated At" },
 ];
 
 interface Props {
@@ -41,7 +51,7 @@ export function TagsPage({ onNavigate }: Props) {
     defaultFilter: defaultState.filter,
     defaultObjectFilter: defaultState.objectFilter,
     defaultDisplayMode: defaultState.displayMode,
-    allowedDisplayModes: ["grid", "list"] as const,
+    allowedDisplayModes: ["grid", "list", "graph"] as const,
   });
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -49,21 +59,42 @@ export function TagsPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const graphFindFilter = useMemo(
+    () => ({ ...filter, page: 1, perPage: GRAPH_VIEW_LIMIT }),
+    [filter],
+  );
   const { data, isLoading } = useQuery({
     queryKey: ["tags", filter, objectFilter],
     queryFn: () =>
       hasObjectFilter
         ? tags.findFiltered({ findFilter: filter, objectFilter: objectFilter as TagFilterCriteria })
         : tags.find(filter),
+    enabled: displayMode !== "graph",
+  });
+  const { data: graphData, isLoading: isGraphLoading } = useQuery({
+    queryKey: ["tags", "graph", graphFindFilter, objectFilter],
+    queryFn: () => tags.graph({ findFilter: graphFindFilter, objectFilter: objectFilter as TagFilterCriteria }),
+    enabled: displayMode === "graph",
   });
 
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(items);
+  const selectionItems: Array<Pick<Tag, "id" | "name" | "imagePath">> = displayMode === "graph" ? graphData?.items ?? [] : items;
+  const { selectedIds, toggle, selectAll, selectNone } = useMultiSelect(selectionItems);
   const selecting = selectedIds.size > 0;
 
   const bulkDeleteMut = useMutation({
     mutationFn: () => tags.bulkDelete([...selectedIds]),
     onSuccess: () => { selectNone(); queryClient.invalidateQueries({ queryKey: ["tags"] }); },
+  });
+
+  const deleteTagMut = useMutation({
+    mutationFn: (id: number) => tags.delete(id),
+    onSuccess: (_result, id) => {
+      if (selectedIds.has(id)) {
+        toggle(id);
+      }
+      queryClient.invalidateQueries({ queryKey: ["tags"] });
+    },
   });
 
   const bulkEditMut = useMutation({
@@ -81,15 +112,17 @@ export function TagsPage({ onNavigate }: Props) {
       <TagCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "tag", id })} />
       <ListPage
       title="Tags"
+      pageKey="tags"
       filterMode="tags"
       filter={filter}
       onFilterChange={setFilter}
-      totalCount={data?.totalCount ?? 0}
-      isLoading={isLoading}
+      totalCount={displayMode === "graph" ? graphData?.totalCount ?? 0 : data?.totalCount ?? 0}
+      isLoading={displayMode === "graph" ? isGraphLoading : isLoading}
       sortOptions={SORT_OPTIONS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
-      availableDisplayModes={["grid", "list"]}
+      availableDisplayModes={["grid", "list", "graph"]}
+      showPagingControls={displayMode !== "graph"}
       criteriaDefinitions={TAG_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
@@ -97,7 +130,7 @@ export function TagsPage({ onNavigate }: Props) {
       selectedIds={selectedIds}
       onSelectAll={selectAll}
       onSelectNone={selectNone}
-      selectionActions={
+      selectionActions={(
         <>
           <button
             onClick={() => setShowBulkEdit(true)}
@@ -124,9 +157,27 @@ export function TagsPage({ onNavigate }: Props) {
             Delete
           </button>
         </>
-      }
+      )}
     >
-      {displayMode === "grid" ? (
+      {displayMode === "graph" ? (
+        <TagGraphView
+          nodes={graphData?.items ?? []}
+          links={graphData?.links ?? []}
+          totalCount={graphData?.totalCount ?? 0}
+          onNavigate={onNavigate}
+          isLoading={isGraphLoading}
+          selectedIds={selectedIds}
+          onToggleSelect={toggle}
+          onDeleteNode={(id) => {
+            const tagName = selectionItems.find((item) => item.id === id)?.name ?? `#${id}`;
+            if (!confirm(`Delete tag \"${tagName}\"?`)) {
+              return;
+            }
+
+            deleteTagMut.mutate(id);
+          }}
+        />
+      ) : displayMode === "grid" ? (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(var(--card-min-width, 200px), 1fr))" }}>
           {items.map((tag) => (
             <TagCard
@@ -143,7 +194,7 @@ export function TagsPage({ onNavigate }: Props) {
       ) : (
         <TagListTable tags={items} onNavigate={onNavigate} selectedIds={selectedIds} onToggle={toggle} selecting={selecting} />
       )}
-      {items.length === 0 && (
+      {displayMode !== "graph" && items.length === 0 && (
         <div className="text-center text-secondary py-16">
           <TagIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p>No tags found</p>
@@ -163,7 +214,7 @@ export function TagsPage({ onNavigate }: Props) {
         open={showMerge}
         onClose={() => { setShowMerge(false); selectNone(); }}
         entityType="tag"
-        items={items.filter((t) => selectedIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, imagePath: t.imagePath }))}
+        items={selectionItems.filter((t) => selectedIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, imagePath: t.imagePath }))}
         onMerge={tags.merge}
         queryKey="tags"
       />
@@ -174,12 +225,12 @@ export function TagsPage({ onNavigate }: Props) {
 /* ── Tag Create Modal ── */
 function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", description: "", aliases: "" });
+  const [form, setForm] = useState({ name: "", description: "", aliases: [] as string[] });
   const mutation = useMutation({
     mutationFn: (data: TagCreate) => tags.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["tags"] });
-      setForm({ name: "", description: "", aliases: "" });
+      setForm({ name: "", description: "", aliases: [] });
       onClose();
       if (created?.id) onCreated(created.id);
     },
@@ -192,14 +243,19 @@ function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: 
       <Field label="Description">
         <TextArea value={form.description} onChange={(v) => setForm({ ...form, description: v })} rows={3} />
       </Field>
-      <Field label="Aliases (one per line)">
-        <TextArea value={form.aliases} onChange={(v) => setForm({ ...form, aliases: v })} rows={2} />
+      <Field label="Aliases">
+        <StringListEditor
+          values={form.aliases}
+          onChange={(aliases) => setForm({ ...form, aliases })}
+          placeholder="Alternate name"
+          addLabel="Add Alias"
+        />
       </Field>
       <div className="flex justify-end mt-4">
         <SaveButton loading={mutation.isPending} onClick={() => mutation.mutate({
           name: form.name,
           description: form.description || undefined,
-          aliases: form.aliases ? form.aliases.split("\n").map((a) => a.trim()).filter(Boolean) : [],
+          aliases: form.aliases.map((alias) => alias.trim()).filter(Boolean),
         })} />
       </div>
     </EditModal>
@@ -210,18 +266,16 @@ function TagCard({ tag, onClick, onNavigate, selected, onSelect, selecting }: { 
   const { slots } = useRouteRegistry();
   const queryClient = useQueryClient();
   const hasExtensionFooter = slots.some((slot) => slot.slot === "tag-card-footer");
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "tag", id: tag.id }, onClick);
   const favMut = useMutation({
     mutationFn: () => tags.update(tag.id, { favorite: !tag.favorite }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tags"] }),
   });
 
   return (
-    <div {...navigationHandlers} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+      <RouteCardLinkOverlay route={{ page: "tag", id: tag.id }} onClick={onClick} label={`Open tag ${tag.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="aspect-video bg-surface flex items-center justify-center relative overflow-hidden">
-        <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-          <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-        </div>
+        <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         {/* Favorite heart overlay */}
         <button
           onClick={(e) => { e.stopPropagation(); favMut.mutate(); }}
@@ -243,7 +297,7 @@ function TagCard({ tag, onClick, onNavigate, selected, onSelect, selecting }: { 
         )}
       </div>
       {(tag.sceneCount || tag.sceneMarkerCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount || hasExtensionFooter) ? (
-        <div className="flex items-center justify-center gap-2 px-2 pb-2 border-t border-border/50 pt-1.5 flex-wrap">
+        <div className="relative z-10 flex items-center justify-center gap-2 px-2 pb-2 border-t border-border/50 pt-1.5 flex-wrap">
           {tag.sceneCount != null && tag.sceneCount > 0 && (
             <PopoverButton icon={<Film className="w-3 h-3" />} count={tag.sceneCount} title="Scenes" wide preferBelow>
               <ScenesPopoverContent filter={{ tagIds: String(tag.id) }} />

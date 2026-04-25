@@ -160,6 +160,16 @@ public class ScrapingConfig
     public List<string> ScraperDirectories { get; set; } = [CoveDefaultPaths.GetDataSubdirectory("scrapers")];
     public List<PackageSource> ScraperPackageSources { get; set; } = [];
     public List<MetadataServerInstance> MetadataServers { get; set; } = [];
+    public IdentifyDefaultsConfig IdentifyDefaults { get; set; } = new();
+}
+
+public class IdentifyDefaultsConfig
+{
+    public bool CreateTags { get; set; } = true;
+    public bool CreatePerformers { get; set; } = true;
+    public bool CreateStudios { get; set; } = true;
+    public int? AutoApplyMaxDurationDifferenceSeconds { get; set; }
+    public int? AutoApplyMaxPhashDistance { get; set; }
 }
 
 public class PackageSource

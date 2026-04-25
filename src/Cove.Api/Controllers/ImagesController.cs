@@ -206,6 +206,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db) :
             .Include(i => i.ImageTags)
             .Include(i => i.ImagePerformers)
             .Include(i => i.ImageGalleries)
+            .AsSplitQuery()
             .Where(i => dto.Ids.Contains(i.Id))
             .ToListAsync(ct);
 

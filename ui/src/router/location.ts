@@ -3,13 +3,6 @@ export interface Route {
   id?: number;
 }
 
-export interface RoutePointerEvent {
-  button?: number;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-  preventDefault(): void;
-}
-
 interface RouteHistoryEntry {
   url: string;
   route: Route;
@@ -55,21 +48,6 @@ export function buildRoutePath(route: Route): string {
   }
 
   return `/${route.page}`;
-}
-
-export function openRouteInNewTab(route: Route) {
-  window.open(buildRoutePath(route), "_blank", "noopener,noreferrer");
-}
-
-export function handleModifiedRouteNavigation(event: RoutePointerEvent, route: Route): boolean {
-  const button = event.button ?? 0;
-  if (button !== 1 && !event.ctrlKey && !event.metaKey) {
-    return false;
-  }
-
-  event.preventDefault();
-  openRouteInNewTab(route);
-  return true;
 }
 
 export function buildCurrentUrl(pathname: string, search?: URLSearchParams | string | null): string {

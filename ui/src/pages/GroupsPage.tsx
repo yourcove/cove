@@ -15,7 +15,8 @@ import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { useRouteRegistry } from "../router/RouteRegistry";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createNestedRouteLinkProps } from "../components/cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
@@ -82,6 +83,7 @@ export function GroupsPage({ onNavigate }: Props) {
       <GroupCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "group", id })} />
       <ListPage
         title="Groups"
+        pageKey="groups"
         filterMode="groups"
         filter={filter}
         onFilterChange={setFilter}
@@ -158,14 +160,12 @@ export function GroupsPage({ onNavigate }: Props) {
 function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }: { group: Group; onClick: () => void; onNavigate?: (r: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
   const { slots } = useRouteRegistry();
   const hasExtensionFooter = slots.some((slot) => slot.slot === "group-card-footer");
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "group", id: group.id }, onClick);
   return (
-    <div {...navigationHandlers} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+      <RouteCardLinkOverlay route={{ page: "group", id: group.id }} onClick={onClick} label={`Open group ${group.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       {/* Movie poster style - 2:3 aspect ratio */}
       <div className="aspect-[2/3] bg-surface flex items-center justify-center relative overflow-hidden">
-        <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-          <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-        </div>
+        <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         {group.frontImagePath ? (
           <img src={group.frontImagePath} alt={group.name} className="w-full h-full object-cover" loading="lazy" />
         ) : (
@@ -187,7 +187,7 @@ function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }
         </div>
       </div>
       {(group.sceneCount > 0 || group.subGroupCount > 0 || group.containingGroupCount > 0 || group.tags.length > 0 || hasExtensionFooter) && (
-        <div className="flex items-center justify-center gap-2 px-2 pb-2 border-t border-border pt-1.5">
+        <div className="relative z-10 flex items-center justify-center gap-2 px-2 pb-2 border-t border-border pt-1.5">
           {group.sceneCount > 0 && (
             <PopoverButton icon={<Film className="w-3 h-3" />} count={group.sceneCount} title="Scenes" wide preferBelow>
               <ScenesPopoverContent filter={{ groupId: group.id }} />
@@ -196,12 +196,14 @@ function GroupCard({ group, onClick, onNavigate, selected, onSelect, selecting }
           {group.tags.length > 0 && (
             <PopoverButton icon={<TagIcon className="w-3.5 h-3.5" />} count={group.tags.length} title="Tags" preferBelow>
               <div className="flex flex-wrap gap-1">
-                {group.tags.map((t: any) => (
-                  <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+                {group.tags.map((t: any) => {
+                  const linkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: t.id }, () => onNavigate?.({ page: "tag", id: t.id }));
+
+                  return <a key={t.id} {...linkProps}
                     className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                     {t.name}
-                  </button>
-                ))}
+                  </a>;
+                })}
               </div>
             </PopoverButton>
           )}

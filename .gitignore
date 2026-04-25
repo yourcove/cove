@@ -272,3 +272,5 @@ packages/react-devtools-timeline/dist
 **/generated/
 
 /gitignored/*
+**/artifacts/*
+.playwright-mcp/*

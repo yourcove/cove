@@ -2,6 +2,7 @@ import type {
   Scene, SceneCreate, SceneUpdate,
   Performer, PerformerCreate, PerformerUpdate,
   Tag, TagDetail, TagCreate, TagUpdate,
+  TagGraphNode, TagGraphResponse,
   Studio, StudioCreate, StudioUpdate,
   Gallery, GalleryCreate, GalleryUpdate, GalleryChapter, GalleryChapterCreate, GalleryChapterUpdate,
   Image, ImageCreate, ImageUpdate,
@@ -251,6 +252,8 @@ export const tags = {
     request<PaginatedResponse<Tag>>(`/tags${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<TagFilterCriteria>) =>
     request<PaginatedResponse<Tag>>("/tags/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  graph: (req: FilteredQueryRequest<TagFilterCriteria>) =>
+    request<TagGraphResponse>("/tags/graph", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<TagDetail>(`/tags/${id}`),
   create: (data: TagCreate) => request<TagDetail>("/tags", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: TagUpdate) => request<TagDetail>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -441,6 +444,7 @@ export interface ScanOptions {
   scanGeneratePreviews?: boolean;
   scanGenerateSprites?: boolean;
   scanGeneratePhashes?: boolean;
+  scanGenerateMd5?: boolean;
   scanGenerateThumbnails?: boolean;
   scanGenerateImagePhashes?: boolean;
   rescan?: boolean;
@@ -452,6 +456,7 @@ export interface GenerateOptions {
   sprites?: boolean;
   markers?: boolean;
   phashes?: boolean;
+  md5?: boolean;
   imageThumbnails?: boolean;
   imagePhashes?: boolean;
   overwrite?: boolean;
@@ -552,7 +557,7 @@ export interface StashImportResult {
   galleries: number;
 }
 export interface StashImportOptions {
-  generatedPath?: string;
+  coveGeneratedPath?: string;
   migrateGeneratedContent?: boolean;
 }
 export const stashMigration = {
@@ -568,7 +573,7 @@ export const stashMigration = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         stashDbPath,
-        generatedPath: options?.generatedPath,
+        generatedPath: options?.coveGeneratedPath,
         migrateGeneratedContent: options?.migrateGeneratedContent ?? true,
       }),
     }),

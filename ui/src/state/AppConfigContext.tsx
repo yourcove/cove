@@ -4,6 +4,11 @@ import { system } from "../api/client";
 import type { CoveConfig, SystemStatus } from "../api/types";
 
 const defaultMenuItems = ["scenes", "images", "markers", "performers", "galleries", "studios", "tags", "groups"];
+const defaultIdentifyDefaults = {
+  createTags: true,
+  createPerformers: true,
+  createStudios: true,
+};
 
 function normalizeRatingSystemType(value: string | undefined) {
   return value?.toLowerCase() === "decimal" ? "decimal" : "stars";
@@ -26,6 +31,7 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
   const interfaceConfig = config.interface;
   const uiConfig = config.ui ?? ({} as CoveConfig["ui"]);
   const ratingOptions = uiConfig.ratingSystemOptions ?? { type: "stars", starPrecision: "full" };
+  const identifyDefaults = config.scraping.identifyDefaults ?? defaultIdentifyDefaults;
 
   return {
     ...config,
@@ -43,6 +49,13 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
     scraping: {
       ...config.scraping,
       metadataServers: config.scraping.metadataServers ?? [],
+      identifyDefaults: {
+        createTags: identifyDefaults.createTags ?? true,
+        createPerformers: identifyDefaults.createPerformers ?? true,
+        createStudios: identifyDefaults.createStudios ?? true,
+        autoApplyMaxDurationDifferenceSeconds: identifyDefaults.autoApplyMaxDurationDifferenceSeconds,
+        autoApplyMaxPhashDistance: identifyDefaults.autoApplyMaxPhashDistance,
+      },
     },
   };
 }

@@ -110,6 +110,14 @@ public class ConfigService
                         MaxRequestsPerMinute = box.MaxRequestsPerMinute,
                     })
                     .ToList(),
+                IdentifyDefaults = new IdentifyDefaultsConfigDto
+                {
+                    CreateTags = cfg.Scraping.IdentifyDefaults.CreateTags,
+                    CreatePerformers = cfg.Scraping.IdentifyDefaults.CreatePerformers,
+                    CreateStudios = cfg.Scraping.IdentifyDefaults.CreateStudios,
+                    AutoApplyMaxDurationDifferenceSeconds = cfg.Scraping.IdentifyDefaults.AutoApplyMaxDurationDifferenceSeconds,
+                    AutoApplyMaxPhashDistance = cfg.Scraping.IdentifyDefaults.AutoApplyMaxPhashDistance,
+                },
             },
             PluginConfigurations = cfg.PluginConfigurations,
             DisabledPlugins = [.. cfg.DisabledPlugins],
@@ -262,6 +270,14 @@ public class ConfigService
             })
             .DistinctBy(box => box.Endpoint, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        cfg.Scraping.IdentifyDefaults = new IdentifyDefaultsConfig
+        {
+            CreateTags = dto.Scraping.IdentifyDefaults.CreateTags,
+            CreatePerformers = dto.Scraping.IdentifyDefaults.CreatePerformers,
+            CreateStudios = dto.Scraping.IdentifyDefaults.CreateStudios,
+            AutoApplyMaxDurationDifferenceSeconds = dto.Scraping.IdentifyDefaults.AutoApplyMaxDurationDifferenceSeconds,
+            AutoApplyMaxPhashDistance = dto.Scraping.IdentifyDefaults.AutoApplyMaxPhashDistance,
+        };
 
         cfg.PluginConfigurations = dto.PluginConfigurations ?? [];
         cfg.DisabledPlugins = dto.DisabledPlugins

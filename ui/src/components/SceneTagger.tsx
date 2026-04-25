@@ -4,6 +4,7 @@ import { scenes } from "../api/client";
 import type { Scene, MetadataServerSceneMatch, MetadataServerSceneImportRequest } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { formatDuration, getResolutionLabel } from "./shared";
+import { createNestedRouteLinkProps } from "./cardNavigation";
 import {
   Search,
   Loader2,
@@ -21,6 +22,7 @@ import {
 
 interface SceneTaggerProps {
   scenes: Scene[];
+  onNavigate?: (sceneId: number) => void;
 }
 
 interface TaggerConfig {
@@ -126,7 +128,7 @@ async function runWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-export function SceneTagger({ scenes: sceneList }: SceneTaggerProps) {
+export function SceneTagger({ scenes: sceneList, onNavigate }: SceneTaggerProps) {
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
 
@@ -518,6 +520,7 @@ export function SceneTagger({ scenes: sceneList }: SceneTaggerProps) {
             onUpdateState={(update) => updateSearchState(scene.id, update)}
             endpoint={taggerConfig.selectedEndpoint}
             taggerConfig={taggerConfig}
+            onNavigate={onNavigate}
           />
         ))}
       </div>
@@ -537,6 +540,7 @@ interface TaggerSceneRowProps {
   onUpdateState: (update: Partial<SceneSearchState>) => void;
   endpoint: string;
   taggerConfig: TaggerConfig;
+  onNavigate?: (sceneId: number) => void;
 }
 
 function TaggerSceneRow({
@@ -549,11 +553,13 @@ function TaggerSceneRow({
   onUpdateState,
   endpoint,
   taggerConfig,
+  onNavigate,
 }: TaggerSceneRowProps) {
   const file = scene.files[0];
   const screenshotUrl = scenes.screenshotUrl(scene.id, scene.updatedAt);
   const selectedResult = state?.results?.[state.selectedIndex ?? 0];
   const queryClient = useQueryClient();
+  const sceneLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "scene", id: scene.id }, () => onNavigate?.(scene.id));
 
   const importMut = useMutation({
     mutationFn: () => {
@@ -606,7 +612,11 @@ function TaggerSceneRow({
     <div className={`px-3 py-2 ${state?.saved ? "opacity-50" : ""}`}>
       <div className="flex gap-3">
         {/* Scene preview — compact */}
-        <div className="flex-shrink-0 w-32">
+        <a
+          {...sceneLinkProps}
+          className="flex-shrink-0 w-32 block group/scene"
+          title={`Open scene ${scene.title || file?.basename || "Untitled"}`}
+        >
           <div className="relative aspect-video bg-card rounded overflow-hidden">
             <img
               src={screenshotUrl}
@@ -623,13 +633,13 @@ function TaggerSceneRow({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-foreground mt-0.5 truncate font-medium leading-snug">
+          <p className="text-[11px] text-accent mt-0.5 truncate font-medium leading-snug group-hover/scene:underline">
             {scene.title || file?.basename || "Untitled"}
           </p>
           <p className="text-[9px] text-muted truncate leading-snug">
             {[scene.studioName, file && getResolutionLabel(file.width, file.height)].filter(Boolean).join(" · ")}
           </p>
-        </div>
+        </a>
 
         {/* Search + Results */}
         <div className="flex-1 min-w-0">

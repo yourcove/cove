@@ -48,6 +48,7 @@ public sealed class ScanOperationOptions
     public bool GeneratePreviews { get; init; }
     public bool GenerateSprites { get; init; }
     public bool GeneratePhashes { get; init; }
+    public bool GenerateMd5 { get; init; }
     public bool GenerateImageThumbnails { get; init; }
     public bool GenerateImagePhashes { get; init; }
     public bool Rescan { get; init; }

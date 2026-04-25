@@ -14,7 +14,8 @@ import { PerformerTagger } from "../components/PerformerTagger";
 import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, GalleriesPopoverContent } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createNestedRouteLinkProps } from "../components/cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 
 /** Convert 2-letter ISO country code to flag emoji */
 function countryToFlag(code: string): string {
@@ -97,6 +98,7 @@ export function PerformersPage({ onNavigate }: Props) {
       <PerformerCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "performer", id })} />
       <ListPage
         title="Performers"
+        pageKey="performers"
         filterMode="performers"
         filter={filter}
         onFilterChange={setFilter}
@@ -196,7 +198,6 @@ function PerformerCard({ performer, onClick, onNavigate, selected, onSelect, sel
   const age = performer.birthdate
     ? Math.floor((Date.now() - new Date(performer.birthdate).getTime()) / 31557600000)
     : null;
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "performer", id: performer.id }, onClick);
 
   const favMut = useMutation({
     mutationFn: () => performers.update(performer.id, { favorite: !performer.favorite }),
@@ -205,20 +206,13 @@ function PerformerCard({ performer, onClick, onNavigate, selected, onSelect, sel
 
   return (
     <div
-      {...navigationHandlers}
+      onClick={selecting ? onClick : undefined}
       className={`entity-card bg-card rounded overflow-hidden cursor-pointer border hover:border-accent/60 transition-all text-left w-full group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}
     >
+      <RouteCardLinkOverlay route={{ page: "performer", id: performer.id }} onClick={onClick} label={`Open performer ${performer.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       {/* Image */}
       <div className="aspect-[2/3] bg-surface relative overflow-hidden">
-        <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={(e) => { e.stopPropagation(); onSelect?.(); }}
-            onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-border cursor-pointer accent-accent"
-          />
-        </div>
+        <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         <img 
           src={performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt)} 
             alt={performer.name} 
@@ -288,7 +282,7 @@ function PerformerCardPopovers({ performer, onNavigate }: { performer: Performer
   if (!hasAny) return null;
 
   return (
-    <div className="flex items-center justify-center gap-1 px-2 pb-2 border-t border-border pt-1.5">
+    <div className="relative z-10 flex items-center justify-center gap-1 px-2 pb-2 border-t border-border pt-1.5">
       {performer.sceneCount > 0 && (
         <PopoverButton icon={<Film className="w-3 h-3" />} count={performer.sceneCount} title="Scenes" wide preferBelow>
           <ScenesPopoverContent filter={{ performerIds: String(performer.id) }} />
@@ -312,12 +306,14 @@ function PerformerCardPopovers({ performer, onNavigate }: { performer: Performer
       {performer.tags.length > 0 && (
         <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={performer.tags.length} title="Tags" preferBelow>
           <div className="flex flex-wrap gap-1">
-            {performer.tags.map((t: any) => (
-              <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+            {performer.tags.map((t: any) => {
+              const linkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: t.id }, () => onNavigate?.({ page: "tag", id: t.id }));
+
+              return <a key={t.id} {...linkProps}
                 className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                 {t.name}
-              </button>
-            ))}
+              </a>;
+            })}
           </div>
         </PopoverButton>
       )}

@@ -6,21 +6,28 @@ import { ListPage, type DisplayMode } from "../components/ListPage";
 import { RatingBanner, RatingField } from "../components/Rating";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { useMultiSelect } from "../hooks/useMultiSelect";
-import { Building2, Film, Image, LayoutGrid, Trash2, Loader2, Edit, Merge, Heart, Box, Users, Layers, Tag as TagIcon } from "lucide-react";
+import { Building2, Film, Image, LayoutGrid, Trash2, Loader2, Edit, Merge, Heart, Check, Users, Layers, Tag as TagIcon } from "lucide-react";
 import { STUDIO_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog, STUDIO_BULK_FIELDS } from "../components/BulkEditDialog";
 import { MergeDialog } from "../components/MergeDialog";
 import { StudioTagger } from "../components/StudioTagger";
-import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, PerformersPopoverContent, GalleriesPopoverContent, GroupsPopoverContent } from "../components/EntityCards";
+import { PopoverButton, ScenesPopoverContent, ImagesPopoverContent, PerformersPopoverContent, GalleriesPopoverContent, GroupsPopoverContent, StudiosPopoverContent } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { useRouteRegistry } from "../router/RouteRegistry";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createNestedRouteLinkProps } from "../components/cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
+  { value: "rating", label: "Rating" },
   { value: "scene_count", label: "Scene Count" },
+  { value: "gallery_count", label: "Gallery Count" },
+  { value: "image_count", label: "Image Count" },
+  { value: "child_count", label: "Substudios Count" },
+  { value: "tag_count", label: "Tag Count" },
+  { value: "updated_at", label: "Updated At" },
   { value: "random", label: "Random" },
   { value: "created_at", label: "Created At" },
 ];
@@ -83,6 +90,7 @@ export function StudiosPage({ onNavigate }: Props) {
       <StudioCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "studio", id })} />
       <ListPage
         title="Studios"
+        pageKey="studios"
         filterMode="studios"
         filter={filter}
         onFilterChange={setFilter}
@@ -179,18 +187,16 @@ function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting
   const { slots } = useRouteRegistry();
   const queryClient = useQueryClient();
   const hasExtensionFooter = slots.some((slot) => slot.slot === "studio-card-footer");
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "studio", id: studio.id }, onClick);
   const favMut = useMutation({
     mutationFn: () => studios.update(studio.id, { favorite: !studio.favorite }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["studios"] }),
   });
 
   return (
-    <div {...navigationHandlers} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer relative group ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card bg-card rounded overflow-hidden border hover:border-accent/60 transition-all cursor-pointer relative group ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}>
+      <RouteCardLinkOverlay route={{ page: "studio", id: studio.id }} onClick={onClick} label={`Open studio ${studio.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="aspect-video bg-surface flex items-center justify-center text-muted relative overflow-hidden">
-        <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-          <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-        </div>
+        <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         {/* Favorite heart overlay */}
         <button
           onClick={(e) => { e.stopPropagation(); favMut.mutate(); }}
@@ -218,7 +224,7 @@ function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting
         )}
       </div>
       {(studio.sceneCount > 0 || studio.imageCount > 0 || studio.galleryCount > 0 || studio.groupCount > 0 || studio.performerCount > 0 || studio.tags.length > 0 || studio.childStudioCount > 0 || studio.organized || hasExtensionFooter) && (
-        <div className="flex items-center justify-center gap-1 px-2 pb-2 border-t border-border/50 pt-1.5 flex-wrap">
+        <div className="relative z-10 flex items-center justify-center gap-1 px-2 pb-2 border-t border-border/50 pt-1.5 flex-wrap">
           {studio.sceneCount > 0 && (
             <PopoverButton icon={<Film className="w-3 h-3" />} count={studio.sceneCount} title="Scenes" wide preferBelow>
               <ScenesPopoverContent filter={{ studioId: studio.id }} />
@@ -247,23 +253,25 @@ function StudioCard({ studio, onClick, onNavigate, selected, onSelect, selecting
           {studio.tags.length > 0 && (
             <PopoverButton icon={<TagIcon className="w-3.5 h-3.5" />} count={studio.tags.length} title="Tags" preferBelow>
               <div className="flex flex-wrap gap-1">
-                {studio.tags.map((t: any) => (
-                  <button key={t.id} onClick={(e) => { e.stopPropagation(); onNavigate?.({ page: "tag", id: t.id }); }}
+                {studio.tags.map((t: any) => {
+                  const linkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: t.id }, () => onNavigate?.({ page: "tag", id: t.id }));
+
+                  return <a key={t.id} {...linkProps}
                     className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                     {t.name}
-                  </button>
-                ))}
+                  </a>;
+                })}
               </div>
             </PopoverButton>
           )}
           {studio.childStudioCount > 0 && (
-            <span className="flex items-center gap-0.5 text-xs text-muted" title="Sub-Studios">
-              <Building2 className="w-3 h-3" /> {studio.childStudioCount}
-            </span>
+            <PopoverButton icon={<Building2 className="w-3 h-3" />} count={studio.childStudioCount} title="Sub-Studios" wide preferBelow>
+              <StudiosPopoverContent filter={{ parentId: studio.id }} />
+            </PopoverButton>
           )}
           {studio.organized && (
             <span className="text-muted" title="Organized">
-              <Box className="w-3 h-3" />
+              <Check className="w-3 h-3" />
             </span>
           )}
           <ExtensionSlot slot="studio-card-footer" context={{ studio, onNavigate }} />

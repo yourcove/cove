@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { FilterDialog, PERFORMER_CRITERIA, SCENE_CRITERIA } from "../components/FilterDialog";
+import { FilterDialog, PERFORMER_CRITERIA, SCENE_CRITERIA, TAG_CRITERIA } from "../components/FilterDialog";
 
 describe("FilterDialog", () => {
   it("resyncs its local edit state when the active filter changes outside the dialog", () => {
@@ -109,5 +109,32 @@ describe("FilterDialog", () => {
     expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
     expect(screen.getAllByText("Created At")).toHaveLength(1);
+  });
+
+  it("applies child-inclusive tag count toggles alongside the main criterion", () => {
+    const onApply = vi.fn();
+
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={TAG_CRITERIA}
+        activeFilter={{}}
+        onApply={onApply}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Scene Count"));
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "2" } });
+    fireEvent.click(screen.getByLabelText("Count scenes from child tags"));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      sceneCountCriterion: expect.objectContaining({
+        modifier: "EQUALS",
+        value: 2,
+      }),
+      sceneCountIncludesChildren: true,
+    }));
   });
 });

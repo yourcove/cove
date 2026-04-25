@@ -43,7 +43,7 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
         if (path == null || contentType == null)
             return Task.FromResult<(Stream Stream, string ContentType)?>(null);
 
-        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
         return Task.FromResult<(Stream Stream, string ContentType)?>((fs, contentType));
     }
 

@@ -255,6 +255,8 @@ public class FilterCriteriaParityTests
         var filter = new TagFilter();
         Assert.Null(filter.NameCriterion);
         Assert.Null(filter.SortNameCriterion);
+        Assert.Null(filter.RemoteIdCriterion);
+        Assert.Null(filter.RemoteIdValueCriterion);
         Assert.Null(filter.AliasesCriterion);
         Assert.Null(filter.DescriptionCriterion);
         Assert.Null(filter.ImageCountCriterion);
@@ -279,6 +281,27 @@ public class FilterCriteriaParityTests
         var result = JsonSerializer.Deserialize<FilteredQueryRequest<TagFilter>>(json, Options);
         Assert.NotNull(result?.ObjectFilter?.ImageCountCriterion);
         Assert.Equal(5, result.ObjectFilter.ImageCountCriterion.Value);
+    }
+
+    [Fact]
+    public void TagFilter_RemoteIdCriteria_Deserialize()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "remoteIdCriterion": { "value": "StashDB", "modifier": "includes" },
+                "remoteIdValueCriterion": { "value": "tag-42", "modifier": "equals" }
+            }
+        }
+        """;
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<TagFilter>>(json, Options);
+
+        Assert.NotNull(result?.ObjectFilter?.RemoteIdCriterion);
+        Assert.Equal("StashDB", result.ObjectFilter.RemoteIdCriterion.Value);
+        Assert.Equal(CriterionModifier.Includes, result.ObjectFilter.RemoteIdCriterion.Modifier);
+        Assert.NotNull(result.ObjectFilter.RemoteIdValueCriterion);
+        Assert.Equal("tag-42", result.ObjectFilter.RemoteIdValueCriterion.Value);
+        Assert.Equal(CriterionModifier.Equals, result.ObjectFilter.RemoteIdValueCriterion.Modifier);
     }
 
     // ===== STUDIO FILTER CRITERIA EXISTENCE =====
@@ -563,6 +586,8 @@ public class FilterCriteriaParityTests
         {
             NameCriterion = new StringCriterion { Value = "test", Modifier = CriterionModifier.Includes },
             SortNameCriterion = new StringCriterion { Value = "sort", Modifier = CriterionModifier.Equals },
+            RemoteIdCriterion = new StringCriterion { Value = "stash", Modifier = CriterionModifier.Includes },
+            RemoteIdValueCriterion = new StringCriterion { Value = "tag-1", Modifier = CriterionModifier.Equals },
             AliasesCriterion = new StringCriterion { Value = "alias", Modifier = CriterionModifier.Includes },
             DescriptionCriterion = new StringCriterion { Value = "desc", Modifier = CriterionModifier.Includes },
             ImageCountCriterion = new IntCriterion { Value = 1, Modifier = CriterionModifier.GreaterThan },
@@ -579,6 +604,8 @@ public class FilterCriteriaParityTests
 
         Assert.NotNull(deserialized);
         Assert.Equal("test", deserialized.NameCriterion?.Value);
+        Assert.Equal("stash", deserialized.RemoteIdCriterion?.Value);
+        Assert.Equal("tag-1", deserialized.RemoteIdValueCriterion?.Value);
         Assert.Equal(1, deserialized.ImageCountCriterion?.Value);
         Assert.True(deserialized.IgnoreAutoTagCriterion?.Value);
     }

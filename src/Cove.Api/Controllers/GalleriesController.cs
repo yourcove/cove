@@ -301,6 +301,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var galleries = await db.Galleries
             .Include(g => g.GalleryTags)
             .Include(g => g.GalleryPerformers)
+            .AsSplitQuery()
             .Where(g => dto.Ids.Contains(g.Id))
             .ToListAsync(ct);
 

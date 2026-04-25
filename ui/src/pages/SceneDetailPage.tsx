@@ -21,7 +21,7 @@ import { InteractiveRating } from "../components/Rating";
 import { useSceneQueue } from "../state/SceneQueueContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createRouteLinkProps } from "../components/cardNavigation";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
 import { useBackNavigation } from "../hooks/useBackNavigation";
@@ -646,13 +646,12 @@ function GroupsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) =
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {scene.groups.map((group) => {
-        const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
+        const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
 
         return (
-          <button
+          <a
             key={group.id}
-            type="button"
-            {...navigationHandlers}
+            {...linkProps}
             className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-accent/60"
           >
             <div className="flex items-center justify-between gap-3">
@@ -662,7 +661,7 @@ function GroupsTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any) =
               </div>
               <Layers className="h-5 w-5 text-muted" />
             </div>
-          </button>
+          </a>
         );
       })}
     </div>
@@ -682,13 +681,12 @@ function GalleriesTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {scene.galleries.map((gallery) => {
-        const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "gallery", id: gallery.id }, () => onNavigate({ page: "gallery", id: gallery.id }));
+        const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "gallery", id: gallery.id }, () => onNavigate({ page: "gallery", id: gallery.id }));
 
         return (
-          <button
+          <a
             key={gallery.id}
-            type="button"
-            {...navigationHandlers}
+            {...linkProps}
             className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60"
           >
             <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card">
@@ -702,7 +700,7 @@ function GalleriesTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any
                 <p className="mt-1 text-xs text-secondary">{formatDate(gallery.date)}</p>
               )}
             </div>
-          </button>
+          </a>
         );
       })}
     </div>
@@ -711,7 +709,7 @@ function GalleriesTab({ scene, onNavigate }: { scene: Scene; onNavigate: (r: any
 
 function PerformerCard({ performer, sceneDate, fullWidth = false, onClick }: { performer: any; sceneDate?: string; fullWidth?: boolean; onClick: () => void }) {
   const imageUrl = performer.imagePath;
-  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onClick);
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, onClick);
   // Calculate age at scene date
   const ageAtScene = (() => {
     if (!sceneDate || !performer.birthdate) return null;
@@ -724,9 +722,8 @@ function PerformerCard({ performer, sceneDate, fullWidth = false, onClick }: { p
   })();
 
   return (
-    <button
-      type="button"
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className={`bg-card border border-border rounded overflow-hidden hover:border-accent/60 transition-colors text-left ${fullWidth ? "w-full" : ""}`}
       style={fullWidth ? undefined : { width: "200px" }}
     >
@@ -752,7 +749,7 @@ function PerformerCard({ performer, sceneDate, fullWidth = false, onClick }: { p
           )}
         </div>
       </div>
-    </button>
+    </a>
   );
 }
 

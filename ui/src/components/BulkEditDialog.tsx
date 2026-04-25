@@ -404,8 +404,11 @@ export const IMAGE_BULK_FIELDS: BulkEditField[] = [
 ];
 
 export const TAG_BULK_FIELDS: BulkEditField[] = [
+  { key: "description", label: "Description", type: "string" },
   { key: "favorite", label: "Favorite", type: "bool" },
   { key: "ignoreAutoTag", label: "Ignore Auto-Tag", type: "bool" },
+  { key: "parentIds", label: "Parent Tags", type: "multiId", entityType: "tags", modeKey: "parentMode" },
+  { key: "childIds", label: "Child Tags", type: "multiId", entityType: "tags", modeKey: "childMode" },
 ];
 
 export const STUDIO_BULK_FIELDS: BulkEditField[] = [

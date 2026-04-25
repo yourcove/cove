@@ -66,6 +66,7 @@ public class ThumbnailServiceTests
                 new StubJobService(),
                 new CoveConfiguration(),
                 new ZipFileReader(),
+                new NullBlobService(),
                 NullLogger<ThumbnailService>.Instance);
 
             var result = await service.GetImageStreamAsync(1, CancellationToken.None);
@@ -142,6 +143,7 @@ public class ThumbnailServiceTests
                 new StubJobService(),
                 config,
                 new ZipFileReader(),
+                new NullBlobService(),
                 NullLogger<ThumbnailService>.Instance);
 
             var result = await service.GetImageThumbnailStreamAsync(1, 640, CancellationToken.None);
@@ -179,6 +181,18 @@ public class ThumbnailServiceTests
         public IReadOnlyList<JobInfo> GetAllJobs() => [];
 
         public IReadOnlyList<JobInfo> GetJobHistory() => [];
+    }
+
+    private sealed class NullBlobService : IBlobService
+    {
+        public Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default)
+            => Task.FromResult("blob-id");
+
+        public Task<(Stream Stream, string ContentType)?> GetBlobAsync(string blobId, CancellationToken ct = default)
+            => Task.FromResult<(Stream, string)?>(null);
+
+        public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)

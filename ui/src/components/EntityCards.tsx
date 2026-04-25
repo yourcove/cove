@@ -6,11 +6,12 @@ import type { Gallery, Group, Image, Performer, Scene, Studio } from "../api/typ
 import { formatDuration, formatFileSize, getResolutionLabel } from "./shared";
 import { RatingBanner, RatingBadge } from "./Rating";
 import { Building2, FolderOpen, Layers, Tag, User, Film, MapPin, Box, Images as ImagesIcon, Heart, Eye } from "lucide-react";
-import { createCardNavigationHandlers, createNestedCardNavigationHandlers } from "./cardNavigation";
+import { createRouteLinkProps, createNestedRouteLinkProps } from "./cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 
-function createNestedEntityNavigationHandlers<T extends HTMLElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
-  return createNestedCardNavigationHandlers<T>(route, () => onNavigate?.(route));
+function createNestedEntityNavigationHandlers<T extends HTMLAnchorElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
+  return createNestedRouteLinkProps<T>(route, () => onNavigate?.(route));
 }
 
 export function FavoriteCounter({ count }: { count: number }) {
@@ -26,12 +27,11 @@ export function PerformerPreviewGrid({ performers: performerItems, onNavigate }:
   return (
     <div className="grid grid-cols-2 gap-2">
       {performerItems.map((performer) => {
-        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onNavigate);
+        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "performer", id: performer.id }, onNavigate);
 
         return (
-          <button
+          <a
             key={performer.id}
-            type="button"
             {...navigationHandlers}
             className="flex flex-col items-center gap-1.5 rounded p-1.5 text-center transition-colors hover:bg-card-hover group/perf"
           >
@@ -43,7 +43,7 @@ export function PerformerPreviewGrid({ performers: performerItems, onNavigate }:
               )}
             </div>
             <span className="text-xs text-accent group-hover/perf:underline truncate w-full font-medium">{performer.name}</span>
-          </button>
+          </a>
         );
       })}
     </div>
@@ -54,12 +54,11 @@ export function GalleryPreviewList({ galleries: galleryItems, onNavigate }: { ga
   return (
     <div className="space-y-1">
       {galleryItems.map((gallery) => {
-        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "gallery", id: gallery.id }, onNavigate);
+        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "gallery", id: gallery.id }, onNavigate);
 
         return (
-          <button
+          <a
             key={gallery.id}
-            type="button"
             {...navigationHandlers}
             className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-card-hover"
           >
@@ -74,7 +73,7 @@ export function GalleryPreviewList({ galleries: galleryItems, onNavigate }: { ga
               <div className="truncate text-xs font-medium text-accent">{gallery.title || `Gallery ${gallery.id}`}</div>
               {gallery.date && <div className="truncate text-[10px] text-muted">{gallery.date}</div>}
             </div>
-          </button>
+          </a>
         );
       })}
     </div>
@@ -236,12 +235,20 @@ export function StudiosPopoverContent({ filter }: { filter: Record<string, strin
   if (items.length === 0) return <p className="text-[11px] text-muted px-1">No studios</p>;
   return (
     <div className="space-y-1">
-      {items.map((s) => (
-        <div key={s.id} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-card">
-          {s.imagePath ? <img src={s.imagePath} alt="" className="w-10 h-7 rounded object-contain flex-shrink-0 bg-surface" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} /> : <Building2 className="w-4 h-4 text-muted flex-shrink-0" />}
-          <span className="text-[11px] text-foreground truncate">{s.name}</span>
-        </div>
-      ))}
+      {items.map((s) => {
+        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "studio", id: s.id });
+
+        return (
+          <a
+            key={s.id}
+            {...navigationHandlers}
+            className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-card"
+          >
+            {s.imagePath ? <img src={s.imagePath} alt="" className="w-10 h-7 rounded object-contain flex-shrink-0 bg-surface" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} /> : <Building2 className="w-4 h-4 text-muted flex-shrink-0" />}
+            <span className="text-[11px] text-accent hover:underline truncate">{s.name}</span>
+          </a>
+        );
+      })}
       {(data?.totalCount ?? 0) > 10 && (
         <p className="text-[10px] text-muted px-1 pt-0.5">+ {(data!.totalCount) - 10} more</p>
       )}
@@ -283,7 +290,7 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
   return (
     <>
       <hr className="border-border/50 my-0" />
-      <div className="flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
+      <div className="relative z-10 flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
         {!hasPopovers && <span className="text-[10px] text-muted/30 select-none">&nbsp;</span>}
         {scene.performers.length > 0 && (
           <PopoverButton icon={<User className="w-3.5 h-3.5" />} count={scene.performers.length} title="Performers" wide preferBelow>
@@ -294,13 +301,13 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
           <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={scene.tags.length} title="Tags" preferBelow>
             <div className="flex flex-wrap gap-1">
               {scene.tags.map((t: any) => {
-                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "tag", id: t.id }, onNavigate);
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: t.id }, onNavigate);
 
                 return (
-                <button key={t.id} type="button" {...navigationHandlers}
+                <a key={t.id} {...navigationHandlers}
                   className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                   {t.name}
-                </button>
+                </a>
               );})}
             </div>
           </PopoverButton>
@@ -312,11 +319,11 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
           <PopoverButton icon={<Film className="w-3.5 h-3.5" />} count={scene.groups.length} title="Groups" preferBelow>
             <div className="flex flex-col gap-0.5">
               {scene.groups.map((g: any) => {
-                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "group", id: g.id }, onNavigate);
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "group", id: g.id }, onNavigate);
 
                 return (
-                <button key={g.id} type="button" {...navigationHandlers}
-                  className="text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{g.name}</button>
+                <a key={g.id} {...navigationHandlers}
+                  className="block text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{g.name}</a>
               );})}
             </div>
           </PopoverButton>
@@ -325,11 +332,11 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
           <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={scene.galleries.length} title="Galleries" preferBelow>
             <div className="flex flex-col gap-0.5">
               {scene.galleries.map((g: any) => {
-                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "gallery", id: g.id }, onNavigate);
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "gallery", id: g.id }, onNavigate);
 
                 return (
-                <button key={g.id} type="button" {...navigationHandlers}
-                  className="text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{g.title || "Untitled"}</button>
+                <a key={g.id} {...navigationHandlers}
+                  className="block text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{g.title || "Untitled"}</a>
               );})}
             </div>
           </PopoverButton>
@@ -338,11 +345,11 @@ export function SceneCardPopovers({ scene, onNavigate }: { scene: Scene; onNavig
           <PopoverButton icon={<MapPin className="w-3.5 h-3.5" />} count={scene.markers.length} title="Markers" preferBelow>
             <div className="flex flex-col gap-0.5">
               {scene.markers.map((m: any) => {
-                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, onNavigate);
+                const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "scene", id: scene.id }, onNavigate);
 
                 return (
-                <button key={m.id} type="button" {...navigationHandlers}
-                  className="text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{m.title} ({formatDuration(m.seconds)})</button>
+                <a key={m.id} {...navigationHandlers}
+                  className="block text-xs text-accent hover:underline cursor-pointer truncate text-left px-2 py-1 rounded hover:bg-card-hover transition-colors">{m.title} ({formatDuration(m.seconds)})</a>
               );})}
             </div>
           </PopoverButton>
@@ -362,9 +369,9 @@ function PerformerBadge({
   navigationHandlers,
 }: {
   performer: { id: number; name: string; imagePath?: string | null };
-  navigationHandlers: ReturnType<typeof createNestedCardNavigationHandlers<HTMLButtonElement>>;
+  navigationHandlers: ReturnType<typeof createNestedRouteLinkProps<HTMLAnchorElement>>;
 }) {
-  const badgeRef = useRef<HTMLButtonElement>(null);
+  const badgeRef = useRef<HTMLAnchorElement>(null);
   const [hover, setHover] = useState(false);
   const [style, setStyle] = useState<React.CSSProperties>({});
   const enterTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -397,7 +404,7 @@ function PerformerBadge({
 
   return (
     <>
-      <button ref={badgeRef} type="button" {...navigationHandlers} onMouseEnter={onEnter} onMouseLeave={onLeave}
+      <a ref={badgeRef} {...navigationHandlers} onMouseEnter={onEnter} onMouseLeave={onLeave}
         className="performer-badge flex items-center gap-1 rounded-full border border-border bg-surface px-1.5 py-0.5 min-w-0 hover:border-accent/50 transition-colors">
         {performer.imagePath ? (
           <img src={performer.imagePath} alt="" className="h-4 w-4 rounded-full object-cover flex-shrink-0" loading="lazy" />
@@ -405,7 +412,7 @@ function PerformerBadge({
           <User className="h-3.5 w-3.5 text-muted flex-shrink-0" />
         )}
         <span className="max-w-[80px] truncate text-[10px] text-secondary hover:text-accent">{performer.name}</span>
-      </button>
+      </a>
       {hover && createPortal(
         <div style={style}
           className="bg-surface border border-border rounded-lg shadow-2xl shadow-black/40 p-2 w-[128px]"
@@ -438,7 +445,7 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
   const previewUrl = scenes.previewUrl(scene.id);
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressPercent = duration > 0 && scene.resumeTime ? Math.min(100, (scene.resumeTime / duration) * 100) : 0;
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: scene.id }, onClick);
+  const cardTitle = scene.title || file?.basename || "Untitled";
 
   useEffect(() => {
     const video = videoRef.current;
@@ -454,15 +461,12 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
   }, []);
 
   return (
-    <div {...navigationHandlers} className={`scene-card cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`scene-card relative cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
+      <RouteCardLinkOverlay route={{ page: "scene", id: scene.id }} onClick={onClick} label={`Open scene ${cardTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="scene-card-preview relative aspect-video bg-black overflow-hidden">
         <img src={screenshotUrl} alt={scene.title || ""} className="scene-card-preview-image w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="scene-card-preview-video" />
-        {(selected !== undefined || selecting) && (
-          <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-          </div>
-        )}
+        {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
         {scene.studioName && scene.studioId && !selecting && (
           <div className="absolute top-0 right-0 p-1 z-[5]">
             <img src={entityImages.studioImageUrl(scene.studioId)} alt={scene.studioName} className="max-h-8 max-w-[120px] object-contain drop-shadow-md"
@@ -493,8 +497,8 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
       </div>
       <div className="card-body px-2.5 pt-2 pb-2 border-t border-border/50 flex-1 flex flex-col gap-1.5 min-h-0">
         <div>
-          <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent transition-colors leading-snug" title={scene.title || file?.basename || "Untitled"}>
-            {scene.title || file?.basename || "Untitled"}
+          <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent transition-colors leading-snug" title={cardTitle}>
+            {cardTitle}
           </p>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
             {scene.date && <span>{scene.date}</span>}
@@ -502,9 +506,9 @@ export function SceneCard({ scene, onClick, selected, onSelect, onNavigate, sele
           </div>
         </div>
         {scene.performers.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-hidden flex-wrap">
+          <div className="relative z-10 flex items-center gap-1.5 overflow-hidden flex-wrap">
             {scene.performers.slice(0, 4).map((performer) => {
-              const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "performer", id: performer.id }, onNavigate);
+              const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "performer", id: performer.id }, onNavigate);
 
               return <PerformerBadge key={performer.id} performer={performer} navigationHandlers={navigationHandlers} />;
             })}
@@ -529,10 +533,10 @@ export function SceneTile({ scene, onClick }: SceneTileProps) {
   const file = scene.files[0];
   const duration = file?.duration ?? 0;
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
-  const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "scene", id: scene.id }, onClick);
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "scene", id: scene.id }, onClick);
 
   return (
-    <button type="button" {...navigationHandlers} className="group text-left">
+    <a {...linkProps} className="group text-left">
       <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-card shadow-md shadow-black/30">
         <img src={scenes.screenshotUrl(scene.id, scene.updatedAt)} alt={scene.title || ""} className="h-full w-full object-cover" loading="lazy" />
         {duration > 0 && <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">{formatDuration(duration)}</span>}
@@ -543,7 +547,7 @@ export function SceneTile({ scene, onClick }: SceneTileProps) {
         <p className="card-title font-medium text-foreground line-clamp-2 group-hover:text-accent">{scene.title || "Untitled"}</p>
         <p className="mt-0.5 truncate text-xs text-secondary">{scene.date || scene.studioName || ""}</p>
       </div>
-    </button>
+    </a>
   );
 }
 
@@ -559,18 +563,13 @@ interface PerformerTileProps {
 }
 
 export function PerformerTile({ performer, onClick, onNavigate, selected, onSelect, selecting }: PerformerTileProps) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "performer", id: performer.id }, onClick);
-
   return (
-    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+      <RouteCardLinkOverlay route={{ page: "performer", id: performer.id }} onClick={onClick} label={`Open performer ${performer.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="aspect-[2/3] overflow-hidden bg-gradient-to-b from-card to-surface relative">
         <img src={entityImages.performerImageUrl(performer.id)} alt={performer.name} className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
         <RatingBanner rating={performer.rating} />
-        {(selected !== undefined || selecting) && (
-          <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-          </div>
-        )}
+        {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
         {performer.favorite && (
           <div className="absolute top-1.5 right-1.5 z-[5]">
             <Heart className="w-4 h-4 fill-red-500 text-red-500 drop-shadow-md" />
@@ -588,18 +587,18 @@ export function PerformerTile({ performer, onClick, onNavigate, selected, onSele
       {(performer.tags?.length > 0 || performer.sceneCount > 0 || performer.imageCount > 0) && (
         <>
           <hr className="border-border/50 my-0" />
-          <div className="flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
             {performer.tags?.length > 0 && (
               <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={performer.tags.length} title="Tags" preferBelow>
                 <div className="flex flex-wrap gap-1">
                   {performer.tags.map((t: any) => {
-                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "tag", id: t.id }, onNavigate);
+                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: t.id }, onNavigate);
 
                     return (
-                    <button key={t.id} type="button" {...navigationHandlers}
+                    <a key={t.id} {...navigationHandlers}
                       className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                       {t.name}
-                    </button>
+                    </a>
                   );})}
                 </div>
               </PopoverButton>
@@ -633,10 +632,9 @@ interface StudioTileProps {
 }
 
 export function StudioTile({ studio, onClick, onNavigate, selected, onSelect, selecting }: StudioTileProps) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "studio", id: studio.id }, onClick);
-
   return (
-    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+      <RouteCardLinkOverlay route={{ page: "studio", id: studio.id }} onClick={onClick} label={`Open studio ${studio.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card relative">
         {studio.imagePath ? (
           <img src={studio.imagePath} alt={studio.name} className="h-full w-full object-contain p-4" loading="lazy" onError={(e) => { const el = e.target as HTMLImageElement; el.style.display = "none"; el.parentElement!.innerHTML = '<div class="flex items-center justify-center h-full w-full"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg></div>'; }} />
@@ -646,11 +644,7 @@ export function StudioTile({ studio, onClick, onNavigate, selected, onSelect, se
           </div>
         )}
         <RatingBanner rating={studio.rating} />
-        {(selected !== undefined || selecting) && (
-          <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-          </div>
-        )}
+        {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
         {studio.favorite && (
           <div className="absolute top-1.5 right-1.5 z-[5]">
             <Heart className="w-4 h-4 fill-red-500 text-red-500 drop-shadow-md" />
@@ -661,10 +655,10 @@ export function StudioTile({ studio, onClick, onNavigate, selected, onSelect, se
         <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent">{studio.name}</p>
         <p className="text-xs text-secondary">{studio.sceneCount} scene{studio.sceneCount !== 1 ? "s" : ""}</p>
       </div>
-      {(studio.sceneCount > 0 || studio.performerCount > 0 || studio.imageCount > 0) && (
+      {(studio.sceneCount > 0 || studio.performerCount > 0 || studio.imageCount > 0 || studio.childStudioCount > 0) && (
         <>
           <hr className="border-border/50 my-0" />
-          <div className="flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
             {studio.sceneCount > 0 && (
               <PopoverButton icon={<Film className="w-3.5 h-3.5" />} count={studio.sceneCount} title="Scenes" wide preferBelow>
                 <ScenesPopoverContent filter={{ studioId: studio.id }} />
@@ -678,6 +672,11 @@ export function StudioTile({ studio, onClick, onNavigate, selected, onSelect, se
             {studio.imageCount > 0 && (
               <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={studio.imageCount} title="Images" wide preferBelow>
                 <ImagesPopoverContent filter={{ studioId: studio.id }} />
+              </PopoverButton>
+            )}
+            {studio.childStudioCount > 0 && (
+              <PopoverButton icon={<Building2 className="w-3.5 h-3.5" />} count={studio.childStudioCount} title="Sub-studios" wide preferBelow>
+                <StudiosPopoverContent filter={{ parentId: studio.id }} />
               </PopoverButton>
             )}
           </div>
@@ -701,18 +700,14 @@ interface ImageTileProps {
 
 export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, onSelect, selecting }: ImageTileProps) {
   const hasFooter = (image.tags?.length ?? 0) > 0 || (image.performers?.length ?? 0) > 0 || (image.galleries?.length ?? 0) > 0 || image.oCounter > 0 || image.organized;
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
   const displayTitle = getImageDisplayTitle(image);
   return (
-    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={onClick} label={`Open image ${displayTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="aspect-square overflow-hidden bg-surface relative">
         <img src={images.thumbnailUrl(image.id)} alt={displayTitle} className="h-full w-full object-cover" loading="lazy" />
         <RatingBanner rating={image.rating} />
-        {(selected !== undefined || selecting) && (
-          <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-          </div>
-        )}
+        {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
         {image.studioName && (
           <div className="absolute top-1 right-1 text-[10px] bg-black/70 px-1 py-0.5 rounded text-white truncate max-w-[80%]">{image.studioName}</div>
         )}
@@ -732,18 +727,18 @@ export function ImageTile({ image, onClick, onNavigate, onQuickView, selected, o
       {hasFooter && (
         <>
           <hr className="border-border/50 my-0" />
-          <div className="flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
             {(image.tags?.length ?? 0) > 0 && (
               <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={image.tags.length} title="Tags" preferBelow>
                 <div className="flex flex-wrap gap-1">
                   {image.tags.map((t: any) => {
-                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLButtonElement>({ page: "tag", id: t.id }, onNavigate);
+                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: t.id }, onNavigate);
 
                     return (
-                    <button key={t.id} type="button" {...navigationHandlers}
+                    <a key={t.id} {...navigationHandlers}
                       className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
                       {t.name}
-                    </button>
+                    </a>
                   );})}
                 </div>
               </PopoverButton>
@@ -782,10 +777,9 @@ interface GalleryTileProps {
 }
 
 export function GalleryTile({ gallery, onClick, selected, onSelect, selecting }: GalleryTileProps) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "gallery", id: gallery.id }, onClick);
-
   return (
-    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+      <RouteCardLinkOverlay route={{ page: "gallery", id: gallery.id }} onClick={onClick} label={`Open gallery ${gallery.title || "Untitled"}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card relative overflow-hidden">
         {gallery.coverPath ? (
           <img src={gallery.coverPath} alt={gallery.title || ""} className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
@@ -793,11 +787,7 @@ export function GalleryTile({ gallery, onClick, selected, onSelect, selecting }:
           <FolderOpen className="h-10 w-10 text-muted" />
         )}
         <RatingBanner rating={gallery.rating} />
-        {(selected !== undefined || selecting) && (
-          <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-          </div>
-        )}
+        {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
       </div>
       <div className="card-body border-t border-border/50 p-2.5 flex-1 flex flex-col gap-1">
         <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent">{gallery.title || "Untitled"}</p>
@@ -818,18 +808,13 @@ interface GroupTileProps {
 }
 
 export function GroupTile({ group, onClick, selected, onSelect, selecting }: GroupTileProps) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "group", id: group.id }, onClick);
-
   return (
-    <div {...navigationHandlers} className={`entity-card group cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div onClick={selecting ? onClick : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+      <RouteCardLinkOverlay route={{ page: "group", id: group.id }} onClick={onClick} label={`Open group ${group.name}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-surface to-card relative">
         <Layers className="h-10 w-10 text-muted" />
         <RatingBanner rating={group.rating} />
-        {(selected !== undefined || selecting) && (
-          <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-          </div>
-        )}
+        {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
       </div>
       <div className="card-body border-t border-border/50 p-2.5 flex-1 flex flex-col gap-1">
         <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent">{group.name}</p>

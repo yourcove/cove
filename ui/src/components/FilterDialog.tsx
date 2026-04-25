@@ -20,6 +20,7 @@ import type {
   MultiIdCriterion,
   DateCriterion,
   TimestampCriterion,
+  FingerprintCriterion,
   SceneFilterCriteria,
   PerformerFilterCriteria,
   TagFilterCriteria,
@@ -32,7 +33,7 @@ import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "number" | "bool" | "date" | "timestamp" | "duration" | "rating" | "resolution" | "multiId" | "enum";
+export type CriterionType = "string" | "number" | "bool" | "date" | "timestamp" | "duration" | "rating" | "resolution" | "multiId" | "enum" | "hash";
 export type EntityType = "tags" | "performers" | "studios" | "groups" | "galleries" | "scenes";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -45,6 +46,8 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   options?: { value: string; label: string }[];
   multiSelectOptions?: boolean;
   hierarchyToggleLabel?: string;
+  auxiliaryToggleKey?: TFilterKey;
+  auxiliaryToggleLabel?: string;
 }
 
 type CriteriaDefinitionList<TFilterCriteria> = CriterionDefinition<Extract<keyof TFilterCriteria, string>>[];
@@ -70,6 +73,7 @@ const MODIFIER_LABELS: Record<CriterionModifier, string> = {
 // Which modifiers each type supports
 const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   string: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
+  hash: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   number: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
   bool: ["EQUALS"],
   date: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
@@ -86,6 +90,15 @@ const NON_NULL_TIMESTAMP_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS
 const VALUE_ONLY_ENUM_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS"];
 const NULL_VALUE_MODIFIERS = new Set<CriterionModifier>(["IS_NULL", "NOT_NULL"]);
 const RANGE_VALUE_MODIFIERS = new Set<CriterionModifier>(["BETWEEN", "NOT_BETWEEN"]);
+const SCENE_HASH_OPTIONS = [
+  { value: "oshash", label: "OSHash" },
+  { value: "md5", label: "MD5" },
+  { value: "phash", label: "pHash" },
+] as const;
+const VISUAL_HASH_OPTIONS = [
+  { value: "md5", label: "MD5" },
+  { value: "phash", label: "pHash" },
+] as const;
 
 function hasStringCriterionValue(criterion: { modifier?: CriterionModifier; value?: string; value2?: string }) {
   const modifier = criterion.modifier ?? "EQUALS";
@@ -122,6 +135,14 @@ function hasNumericCriterionValue(criterion: { modifier?: CriterionModifier; val
   return true;
 }
 
+function hasFingerprintCriterionValue(criterion: { modifier?: CriterionModifier; value?: string; type?: string }) {
+  if ((criterion.type?.trim() ?? "") === "") {
+    return false;
+  }
+
+  return hasStringCriterionValue(criterion);
+}
+
 function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
   if (value == null) {
     return false;
@@ -135,10 +156,13 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
       return Array.isArray(ids) && ids.length > 0;
     }
     case "string":
+    case "hash":
     case "date":
     case "timestamp":
     case "enum":
-      return hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
+      return criterion.type === "hash"
+        ? hasFingerprintCriterionValue(value as { modifier?: CriterionModifier; value?: string; type?: string })
+        : hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
     case "number":
     case "duration":
     case "rating":
@@ -150,14 +174,22 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
 }
 
 function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: CriterionDefinition[]) {
-  const criteriaByKey = new Map(criteria.map((criterion) => [criterion.filterKey, criterion]));
+  const sanitized: Record<string, unknown> = {};
 
-  return Object.fromEntries(
-    Object.entries(filter).filter(([filterKey, value]) => {
-      const criterion = criteriaByKey.get(filterKey);
-      return criterion != null && isCriterionValueValid(value, criterion);
-    }),
-  );
+  for (const criterion of criteria) {
+    const value = filter[criterion.filterKey];
+    if (!isCriterionValueValid(value, criterion)) {
+      continue;
+    }
+
+    sanitized[criterion.filterKey] = value;
+
+    if (criterion.auxiliaryToggleKey && typeof filter[criterion.auxiliaryToggleKey] === "boolean") {
+      sanitized[criterion.auxiliaryToggleKey] = filter[criterion.auxiliaryToggleKey];
+    }
+  }
+
+  return sanitized;
 }
 
 // Scene criterion definitions
@@ -167,17 +199,16 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "director", label: "Director", type: "string", filterKey: "directorCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
-  { id: "hash", label: "Hash", type: "string", filterKey: "hashCriterion" },
-  { id: "checksum", label: "Checksum", type: "string", filterKey: "checksumCriterion" },
+  { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion", options: [...SCENE_HASH_OPTIONS] },
   { id: "duplicatedPhash", label: "Duplicated (pHash)", type: "bool", filterKey: "duplicatedPhashCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "oCounter", label: "Favorites", type: "number", filterKey: "oCounterCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
   { id: "duration", label: "Duration", type: "duration", filterKey: "durationCriterion" },
   { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
-  { id: "playCount", label: "Play Count", type: "number", filterKey: "playCountCriterion" },
-  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
-  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+    { id: "playCount", label: "Play Count", type: "number", filterKey: "playCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "hasMarkers", label: "Has Markers", type: "bool", filterKey: "hasMarkersCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
@@ -191,7 +222,7 @@ export const SCENE_CRITERIA: CriteriaDefinitionList<SceneFilterCriteria> = [
   { id: "audioCodec", label: "Audio Codec", type: "string", filterKey: "audioCodecCriterion" },
   { id: "frameRate", label: "Frame Rate", type: "number", filterKey: "frameRateCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "bitrate", label: "Bitrate", type: "number", filterKey: "bitrateInterval" },
-  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion" },
+  { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
   { id: "resumeTime", label: "Resume Time", type: "number", filterKey: "resumeTimeCriterion" },
   { id: "playDuration", label: "Play Duration", type: "duration", filterKey: "playDurationCriterion" },
@@ -264,23 +295,25 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
 
 export const TAG_CRITERIA: CriteriaDefinitionList<TagFilterCriteria> = [
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
-  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
-  { id: "markerCount", label: "Marker Count", type: "number", filterKey: "markerCountCriterion" },
-  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
+  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "sceneCountIncludesChildren", auxiliaryToggleLabel: "Count scenes from child tags" },
+  { id: "markerCount", label: "Marker Count", type: "number", filterKey: "markerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "markerCountIncludesChildren", auxiliaryToggleLabel: "Count markers from child tags" },
+  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "performerCountIncludesChildren", auxiliaryToggleLabel: "Count performers from child tags" },
   { id: "parents", label: "Parent Tags", type: "multiId", entityType: "tags", filterKey: "parentsCriterion" },
-  { id: "children", label: "Child Tags", type: "multiId", entityType: "tags", filterKey: "childrenCriterion" },
+  { id: "children", label: "Sub-Tags", type: "multiId", entityType: "tags", filterKey: "childrenCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
   { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "sortName", label: "Sort Name", type: "string", filterKey: "sortNameCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdValueCriterion" },
+  { id: "remoteIdProvider", label: "Remote ID Provider", type: "string", filterKey: "remoteIdCriterion" },
   { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
   { id: "description", label: "Description", type: "string", filterKey: "descriptionCriterion" },
-  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
-  { id: "studioCount", label: "Studio Count", type: "number", filterKey: "studioCountCriterion" },
-  { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion" },
-  { id: "parentCount", label: "Parent Count", type: "number", filterKey: "parentCountCriterion" },
-  { id: "childCount", label: "Child Count", type: "number", filterKey: "childCountCriterion" },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "imageCountIncludesChildren", auxiliaryToggleLabel: "Count images from child tags" },
+  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "galleryCountIncludesChildren", auxiliaryToggleLabel: "Count galleries from child tags" },
+  { id: "studioCount", label: "Studio Count", type: "number", filterKey: "studioCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "studioCountIncludesChildren", auxiliaryToggleLabel: "Count studios from child tags" },
+  { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS, auxiliaryToggleKey: "groupCountIncludesChildren", auxiliaryToggleLabel: "Count groups from child tags" },
+  { id: "parentCount", label: "Parent Count", type: "number", filterKey: "parentCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "childCount", label: "Sub-Tag Count", type: "number", filterKey: "childCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
 ];
 
@@ -289,7 +322,7 @@ export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
-  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
+  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
@@ -297,11 +330,11 @@ export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
   { id: "parents", label: "Parent Studios", type: "multiId", entityType: "studios", filterKey: "parentsCriterion" },
-  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
-  { id: "childCount", label: "Child Count", type: "number", filterKey: "childCountCriterion" },
-  { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion" },
-  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion" },
-  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "childCount", label: "Substudios Count", type: "number", filterKey: "childCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "groupCount", label: "Group Count", type: "number", filterKey: "groupCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "galleryCount", label: "Gallery Count", type: "number", filterKey: "galleryCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "ignoreAutoTag", label: "Ignore Auto Tag", type: "bool", filterKey: "ignoreAutoTagCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
 ];
@@ -312,7 +345,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
-  { id: "checksum", label: "Checksum", type: "string", filterKey: "checksumCriterion" },
+  { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion", options: [...VISUAL_HASH_OPTIONS] },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
@@ -324,7 +357,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
-  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" },
   { id: "typicalResolution", label: "Typical Resolution", type: "resolution", filterKey: "typicalResolutionCriterion" },
@@ -339,7 +372,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
   { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
-  { id: "checksum", label: "Checksum", type: "string", filterKey: "checksumCriterion" as Extract<keyof ImageFilterCriteria, string> },
+  { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion" as Extract<keyof ImageFilterCriteria, string>, options: [...VISUAL_HASH_OPTIONS] },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
@@ -352,8 +385,8 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
-  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
-  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "performerAge", label: "Performer Age", type: "number", filterKey: "performerAgeCriterion" as Extract<keyof ImageFilterCriteria, string> },
   { id: "orientation", label: "Orientation", type: "enum", filterKey: "orientationCriterion" as Extract<keyof ImageFilterCriteria, string>, modifiers: VALUE_ONLY_ENUM_MODIFIERS, options: [
     { value: "landscape", label: "Landscape" },
@@ -376,8 +409,8 @@ export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
-  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion" },
-  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion" },
+  { id: "sceneCount", label: "Scene Count", type: "number", filterKey: "sceneCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
+  { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
@@ -461,10 +494,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     return criteria.filter((c) => editFilter[c.filterKey] !== undefined).length;
   }, [criteria, editFilter]);
 
-  const handleRemoveCriterion = useCallback((filterKey: string, criterionId?: string) => {
+  const handleRemoveCriterion = useCallback((criterion: CriterionDefinition, criterionId?: string) => {
     setEditFilter((prev) => {
-      const { [filterKey]: _, ...rest } = prev;
-      return rest;
+      const next = { ...prev };
+      delete next[criterion.filterKey];
+      if (criterion.auxiliaryToggleKey) {
+        delete next[criterion.auxiliaryToggleKey];
+      }
+      return next;
     });
 
     if (criterionId && expandedCriterion === criterionId) {
@@ -472,13 +509,34 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }
   }, [expandedCriterion]);
 
-  const handleSetCriterion = useCallback((filterKey: string, value: unknown) => {
+  const handleSetCriterion = useCallback((criterion: CriterionDefinition, value: unknown) => {
     setEditFilter((prev) => {
       if (value === undefined) {
-        const { [filterKey]: _, ...rest } = prev;
-        return rest;
+        const next = { ...prev };
+        delete next[criterion.filterKey];
+        if (criterion.auxiliaryToggleKey) {
+          delete next[criterion.auxiliaryToggleKey];
+        }
+        return next;
       }
-      return { ...prev, [filterKey]: value };
+      return { ...prev, [criterion.filterKey]: value };
+    });
+  }, []);
+
+  const handleSetAuxiliaryToggle = useCallback((criterion: CriterionDefinition, checked: boolean) => {
+    const auxiliaryToggleKey = criterion.auxiliaryToggleKey;
+    if (!auxiliaryToggleKey) {
+      return;
+    }
+
+    setEditFilter((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        next[auxiliaryToggleKey] = true;
+      } else {
+        delete next[auxiliaryToggleKey];
+      }
+      return next;
     });
   }, []);
 
@@ -553,7 +611,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 >
                   {c.label}
                   <button
-                    onClick={() => handleRemoveCriterion(c.filterKey, c.id)}
+                    onClick={() => handleRemoveCriterion(c, c.id)}
                     aria-label={`Remove ${c.label} filter chip`}
                     className="hover:text-white"
                   >
@@ -576,8 +634,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     key={criterion.id}
                     criterion={criterion}
                     value={editFilter[criterion.filterKey]}
-                    onChange={(v) => handleSetCriterion(criterion.filterKey, v)}
-                    onRemove={() => handleRemoveCriterion(criterion.filterKey, criterion.id)}
+                    auxiliaryToggleChecked={criterion.auxiliaryToggleKey ? Boolean(editFilter[criterion.auxiliaryToggleKey]) : undefined}
+                    onAuxiliaryToggleChange={(checked) => handleSetAuxiliaryToggle(criterion, checked)}
+                    onChange={(v) => handleSetCriterion(criterion, v)}
+                    onRemove={() => handleRemoveCriterion(criterion, criterion.id)}
                     expanded={expandedCriterion === criterion.id}
                     onToggleExpand={() => setExpandedCriterion(expandedCriterion === criterion.id ? null : criterion.id)}
                     pinned
@@ -594,8 +654,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 key={criterion.id}
                 criterion={criterion}
                 value={editFilter[criterion.filterKey]}
-                onChange={(v) => handleSetCriterion(criterion.filterKey, v)}
-                onRemove={() => handleRemoveCriterion(criterion.filterKey, criterion.id)}
+                auxiliaryToggleChecked={criterion.auxiliaryToggleKey ? Boolean(editFilter[criterion.auxiliaryToggleKey]) : undefined}
+                onAuxiliaryToggleChange={(checked) => handleSetAuxiliaryToggle(criterion, checked)}
+                onChange={(v) => handleSetCriterion(criterion, v)}
+                onRemove={() => handleRemoveCriterion(criterion, criterion.id)}
                 expanded={expandedCriterion === criterion.id}
                 onToggleExpand={() => setExpandedCriterion(expandedCriterion === criterion.id ? null : criterion.id)}
                 pinned={pinnedIds.has(criterion.id)}
@@ -631,6 +693,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 function CriterionRow({
   criterion,
   value,
+  auxiliaryToggleChecked,
+  onAuxiliaryToggleChange,
   onChange,
   onRemove,
   expanded,
@@ -640,6 +704,8 @@ function CriterionRow({
 }: {
   criterion: CriterionDefinition;
   value: unknown;
+  auxiliaryToggleChecked?: boolean;
+  onAuxiliaryToggleChange?: (checked: boolean) => void;
   onChange: (v: unknown) => void;
   onRemove: () => void;
   expanded: boolean;
@@ -683,7 +749,13 @@ function CriterionRow({
       </div>
       {expanded && (
         <div className="px-3 pb-2">
-          <CriterionEditor criterion={criterion} value={value} onChange={onChange} />
+          <CriterionEditor
+            criterion={criterion}
+            value={value}
+            auxiliaryToggleChecked={auxiliaryToggleChecked}
+            onAuxiliaryToggleChange={onAuxiliaryToggleChange}
+            onChange={onChange}
+          />
         </div>
       )}
     </div>
@@ -695,10 +767,14 @@ function CriterionRow({
 function CriterionEditor({
   criterion,
   value,
+  auxiliaryToggleChecked,
+  onAuxiliaryToggleChange,
   onChange,
 }: {
   criterion: CriterionDefinition;
   value: unknown;
+  auxiliaryToggleChecked?: boolean;
+  onAuxiliaryToggleChange?: (checked: boolean) => void;
   onChange: (v: unknown) => void;
 }) {
   const { type, entityType } = criterion;
@@ -712,7 +788,19 @@ function CriterionEditor({
     case "number":
     case "duration":
     case "resolution":
-      return <NumberEditor value={value as IntCriterion | undefined} onChange={onChange} type={type} modifiers={modifiers} />;
+      return (
+        <NumberEditor
+          value={value as IntCriterion | undefined}
+          onChange={onChange}
+          type={type}
+          modifiers={modifiers}
+          auxiliaryToggleLabel={criterion.auxiliaryToggleLabel}
+          auxiliaryToggleChecked={auxiliaryToggleChecked}
+          onAuxiliaryToggleChange={onAuxiliaryToggleChange}
+        />
+      );
+    case "hash":
+      return <HashEditor value={value as FingerprintCriterion | undefined} onChange={onChange} modifiers={modifiers} options={criterion.options ?? []} />;
     case "string":
       return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "enum":
@@ -753,7 +841,23 @@ function BoolEditor({ value, onChange }: { value?: BoolCriterion; onChange: (v: 
 
 // ===== Number Editor =====
 
-function NumberEditor({ value, onChange, type, modifiers }: { value?: IntCriterion; onChange: (v: unknown) => void; type: CriterionType; modifiers: CriterionModifier[] }) {
+function NumberEditor({
+  value,
+  onChange,
+  type,
+  modifiers,
+  auxiliaryToggleLabel,
+  auxiliaryToggleChecked,
+  onAuxiliaryToggleChange,
+}: {
+  value?: IntCriterion;
+  onChange: (v: unknown) => void;
+  type: CriterionType;
+  modifiers: CriterionModifier[];
+  auxiliaryToggleLabel?: string;
+  auxiliaryToggleChecked?: boolean;
+  onAuxiliaryToggleChange?: (checked: boolean) => void;
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
@@ -795,6 +899,17 @@ function NumberEditor({ value, onChange, type, modifiers }: { value?: IntCriteri
             </>
           )}
         </div>
+      )}
+      {auxiliaryToggleLabel && onAuxiliaryToggleChange && (
+        <label className="flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={Boolean(auxiliaryToggleChecked)}
+            onChange={(event) => onAuxiliaryToggleChange(event.target.checked)}
+            className="h-3.5 w-3.5 rounded border-border bg-input text-accent focus:ring-accent"
+          />
+          <span>{auxiliaryToggleLabel}</span>
+        </label>
       )}
     </div>
   );
@@ -947,6 +1062,46 @@ function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion;
           onChange={(e) => onChange({ value: e.target.value, modifier })}
           className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
           placeholder="Value..."
+        />
+      )}
+    </div>
+  );
+}
+
+function HashEditor({
+  value,
+  onChange,
+  modifiers,
+  options,
+}: {
+  value?: FingerprintCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+  options: { value: string; label: string }[];
+}) {
+  const modifier = value?.modifier ?? "EQUALS";
+  const hashType = value?.type ?? options[0]?.value ?? "md5";
+  const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
+
+  return (
+    <div className="space-y-2">
+      <select
+        value={hashType}
+        onChange={(event) => onChange({ type: event.target.value, value: value?.value ?? "", modifier })}
+        className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(nextModifier) => onChange({ type: hashType, value: value?.value ?? "", modifier: nextModifier })} />
+      {!isNull && (
+        <input
+          type="text"
+          value={value?.value ?? ""}
+          onChange={(event) => onChange({ type: hashType, value: event.target.value, modifier })}
+          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+          placeholder="Hash value..."
         />
       )}
     </div>

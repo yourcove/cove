@@ -5,6 +5,7 @@ import type { TagDetail, TagUpdate, Tag } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { ImageInput } from "../components/ImageInput";
 import { CustomFieldsEditor } from "../components/shared";
+import { StringListEditor } from "../components/StringListEditor";
 
 interface Props {
   tag: TagDetail;
@@ -18,9 +19,8 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   const [name, setName] = useState(tag.name);
   const [sortName, setSortName] = useState(tag.sortName ?? "");
   const [description, setDescription] = useState(tag.description ?? "");
-  const [favorite, setFavorite] = useState(tag.favorite);
   const [ignoreAutoTag, setIgnoreAutoTag] = useState(tag.ignoreAutoTag);
-  const [aliases, setAliases] = useState(tag.aliases.join("\n"));
+  const [aliases, setAliases] = useState(tag.aliases);
   const [selectedParentIds, setSelectedParentIds] = useState<number[]>(tag.parents.map((t) => t.id));
   const [selectedChildIds, setSelectedChildIds] = useState<number[]>(tag.children.map((t) => t.id));
 
@@ -41,9 +41,8 @@ export function TagEditModal({ tag, open, onClose }: Props) {
     setName(tag.name);
     setSortName(tag.sortName ?? "");
     setDescription(tag.description ?? "");
-    setFavorite(tag.favorite);
     setIgnoreAutoTag(tag.ignoreAutoTag);
-    setAliases(tag.aliases.join("\n"));
+    setAliases(tag.aliases);
     setSelectedParentIds(tag.parents.map((t) => t.id));
     setSelectedChildIds(tag.children.map((t) => t.id));
     setCustomFields(Object.fromEntries(Object.entries(tag.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])));
@@ -59,12 +58,11 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   });
 
   const handleSave = () => {
-    const aliasList = aliases.split("\n").map((a) => a.trim()).filter(Boolean);
+    const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
     mutation.mutate({
       name,
       sortName: sortName || undefined,
       description: description || undefined,
-      favorite,
       ignoreAutoTag,
       aliases: aliasList,
       parentIds: selectedParentIds,
@@ -109,15 +107,16 @@ export function TagEditModal({ tag, open, onClose }: Props) {
         <TextArea value={description} onChange={setDescription} placeholder="Tag description" rows={3} />
       </Field>
 
-      <Field label="Aliases (one per line)">
-        <TextArea value={aliases} onChange={setAliases} placeholder="Alternative names, one per line" rows={2} />
+      <Field label="Aliases">
+        <StringListEditor
+          values={aliases}
+          onChange={setAliases}
+          placeholder="Alternate name"
+          addLabel="Add Alias"
+        />
       </Field>
 
       <div className="flex items-center gap-4 mb-4">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} className="rounded bg-card border-border" />
-          Favorite
-        </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={ignoreAutoTag} onChange={(e) => setIgnoreAutoTag(e.target.checked)} className="rounded bg-card border-border" />
           Ignore Auto Tag

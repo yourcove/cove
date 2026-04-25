@@ -5,6 +5,7 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.Extensions.DependencyInjection;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,7 +14,7 @@ namespace Cove.Api.Services;
 
 public record StashPreviewResult(bool IsValid, string? Error, int Scenes, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
 public record StashImportResult(int Scenes, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
-public record StashImportOptions(string? GeneratedPath, bool MigrateGeneratedContent = true);
+public record StashImportOptions(string? CoveGeneratedPath, bool MigrateGeneratedContent = true);
 
 public sealed class StashMigrationInProgressException(string message) : InvalidOperationException(message);
 
@@ -161,6 +162,8 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
         await using var conn = new SqliteConnection(OpenReadOnly(stashDbPath));
         await conn.OpenAsync(ct);
         logger.LogInformation("Starting Stash migration from {Path}", stashDbPath);
+
+        await ApplyCoveGeneratedPathOverrideAsync(options.CoveGeneratedPath, ct);
 
         var blobMap = await ImportBlobsAsync(conn, progress, BlobsStart, BlobsEnd, ct);
         var folderIdMap = await ImportFoldersAsync(conn, progress, FoldersStart, FoldersEnd, ct);
@@ -686,12 +689,7 @@ public class StashMigrationService(CoveContext db, IBlobService blobService, Con
                 var fId = r.GetInt32(0); var type = r.GetString(1);
                 // fingerprint may be stored as BLOB (binary), TEXT, or INTEGER (phash is int64)
                 var rawFp = r.GetValue(2);
-                var value = rawFp switch
-                {
-                    byte[] fpBytes => Encoding.UTF8.GetString(fpBytes),
-                    long l => l.ToString(),
-                    _ => rawFp?.ToString() ?? string.Empty,
-                };
+                var value = NormalizeImportedFingerprintValue(type, rawFp);
                 if (!fingerprints.TryGetValue(fId, out var list)) fingerprints[fId] = list = [];
                 list.Add((type, value));
             }
@@ -1392,6 +1390,24 @@ WHERE files.zip_file_id IS NOT NULL";
         }
     }
 
+    private async Task ApplyCoveGeneratedPathOverrideAsync(string? coveGeneratedPath, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(coveGeneratedPath))
+        {
+            return;
+        }
+
+        var normalizedPath = coveGeneratedPath.Trim();
+        var dto = configService.GetConfig();
+        if (string.Equals(dto.GeneratedPath, normalizedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await configService.SaveConfigAsync(dto with { GeneratedPath = normalizedPath });
+        logger.LogInformation("Updated Cove generated path to {Path} before Stash import", normalizedPath);
+    }
+
     // ── Generated Content Copy ────────────────────────────────────────────────
 
     private async Task CopyGeneratedContentAsync(string stashDbPath, Dictionary<int, SceneGeneratedData> sceneGeneratedMap, StashImportOptions options, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
@@ -1404,9 +1420,7 @@ WHERE files.zip_file_id IS NOT NULL";
             var stashConfig = File.Exists(configPath)
                 ? ParseStashConfig(configPath)
                 : new StashConfigData([], null, "OSHASH");
-            var stashGeneratedPath = string.IsNullOrWhiteSpace(options.GeneratedPath)
-                ? stashConfig.GeneratedPath
-                : options.GeneratedPath;
+            var stashGeneratedPath = stashConfig.GeneratedPath;
             if (string.IsNullOrWhiteSpace(stashGeneratedPath) || !Directory.Exists(stashGeneratedPath))
             {
                 logger.LogWarning("Stash generated path not found: {Path}", stashGeneratedPath);
@@ -1661,6 +1675,19 @@ WHERE files.zip_file_id IS NOT NULL";
     private static string? GetFingerprintValue(List<(string Type, string Value)> fingerprints, string type) =>
         fingerprints.FirstOrDefault(fp => string.Equals(fp.Type, type, StringComparison.OrdinalIgnoreCase)).Value;
 
+    private static string NormalizeImportedFingerprintValue(string type, object? rawValue)
+    {
+        var value = rawValue switch
+        {
+            byte[] fpBytes => Encoding.UTF8.GetString(fpBytes),
+            long number when string.Equals(type, "phash", StringComparison.OrdinalIgnoreCase) => unchecked((ulong)number).ToString("x16"),
+            long number => number.ToString(CultureInfo.InvariantCulture),
+            _ => rawValue?.ToString() ?? string.Empty,
+        };
+
+        return value.Trim();
+    }
+
     private static string GetLastPathSegment(string path)
     {
         var normalizedPath = path.Replace('\\', '/').TrimEnd('/');
@@ -1798,16 +1825,64 @@ WHERE files.zip_file_id IS NOT NULL";
 
     private static string DetectImageContentType(Stream stream)
     {
-        var buf = new byte[4];
-        _ = stream.Read(buf, 0, 4);
-        return (buf[0], buf[1], buf[2], buf[3]) switch
+        var originalPosition = stream.CanSeek ? stream.Position : 0;
+        var buffer = new byte[256];
+        var bytesRead = stream.Read(buffer, 0, buffer.Length);
+
+        if (stream.CanSeek)
+            stream.Position = originalPosition;
+
+        if (bytesRead >= 4)
         {
-            (0xFF, 0xD8, _, _) => "image/jpeg",
-            (0x89, 0x50, 0x4E, 0x47) => "image/png",
-            (0x47, 0x49, 0x46, _) => "image/gif",
-            (0x52, 0x49, 0x46, 0x46) => "image/webp",
-            _ => "image/jpeg",
-        };
+            if (buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47)
+                return "image/png";
+
+            if (buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF)
+                return "image/jpeg";
+
+            if (buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x38)
+                return "image/gif";
+
+            if (buffer[0] == 0x42 && buffer[1] == 0x4D)
+                return "image/bmp";
+        }
+
+        if (bytesRead >= 12)
+        {
+            if (buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46
+                && buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50)
+            {
+                return "image/webp";
+            }
+
+            if (buffer[4] == 0x66 && buffer[5] == 0x74 && buffer[6] == 0x79 && buffer[7] == 0x70)
+            {
+                var brand = Encoding.ASCII.GetString(buffer, 8, 4);
+                if (brand.StartsWith("avif", StringComparison.OrdinalIgnoreCase))
+                    return "image/avif";
+                if (brand.StartsWith("heic", StringComparison.OrdinalIgnoreCase))
+                    return "image/heic";
+            }
+        }
+
+        if (bytesRead >= 2 && buffer[0] == 0xFF && buffer[1] == 0x0A)
+            return "image/jxl";
+
+        if (bytesRead >= 8
+            && buffer[0] == 0x00 && buffer[1] == 0x00 && buffer[2] == 0x00 && buffer[3] == 0x0C
+            && buffer[4] == 0x4A && buffer[5] == 0x58 && buffer[6] == 0x4C && buffer[7] == 0x20)
+        {
+            return "image/jxl";
+        }
+
+        if (bytesRead > 0 && buffer[0] == 0x3C)
+        {
+            var head = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            if (head.Contains("<svg", StringComparison.OrdinalIgnoreCase))
+                return "image/svg+xml";
+        }
+
+        return "image/jpeg";
     }
 
     private sealed class NullJobProgress : IJobProgress

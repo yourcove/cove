@@ -4,7 +4,7 @@ import { scenes } from "../api/client";
 import type { Scene, SceneMarkerSummary } from "../api/types";
 import { formatDuration } from "../components/shared";
 import { Bookmark, Search, ArrowUpDown } from "lucide-react";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createRouteLinkProps } from "../components/cardNavigation";
 
 interface MarkerWithScene extends SceneMarkerSummary {
   sceneId: number;
@@ -216,11 +216,11 @@ export function SceneMarkersPage({ onNavigate }: Props) {
 
 function MarkerCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () => void }) {
   const screenshotUrl = scenes.screenshotUrl(marker.sceneId);
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: marker.sceneId }, onClick);
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "scene", id: marker.sceneId }, onClick);
 
   return (
-    <div
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className="cursor-pointer group rounded border border-border bg-card overflow-hidden hover:border-accent transition-colors"
     >
       <div className="relative aspect-video bg-card overflow-hidden">
@@ -254,7 +254,7 @@ function MarkerCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () 
           {marker.sceneTitle}
         </p>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -262,11 +262,11 @@ function MarkerCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () 
 
 function MarkerWallCard({ marker, onClick }: { marker: MarkerWithScene; onClick: () => void }) {
   const screenshotUrl = scenes.screenshotUrl(marker.sceneId);
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "scene", id: marker.sceneId }, onClick);
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "scene", id: marker.sceneId }, onClick);
 
   return (
-    <div
-      {...navigationHandlers}
+    <a
+      {...linkProps}
       className="cursor-pointer relative mb-1 break-inside-avoid group"
     >
       <img
@@ -289,6 +289,6 @@ function MarkerWallCard({ marker, onClick }: { marker: MarkerWithScene; onClick:
           {marker.sceneTitle} — {formatDuration(marker.seconds)}
         </span>
       </div>
-    </div>
+    </a>
   );
 }

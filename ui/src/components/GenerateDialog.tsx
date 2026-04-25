@@ -19,6 +19,7 @@ export function GenerateDialog({ open, onClose, onOpenJobDrawer, sceneIds, title
     sprites: false,
     markers: false,
     phashes: false,
+    md5: false,
     overwrite: false,
   });
   const [submitted, setSubmitted] = useState(false);
@@ -67,6 +68,7 @@ export function GenerateDialog({ open, onClose, onOpenJobDrawer, sceneIds, title
             ["sprites", "Sprite Sheets"],
             ["markers", "Marker Screenshots"],
             ["phashes", "Perceptual Hashes"],
+            ["md5", "MD5 Checksums"],
           ] as const).map(([key, labelText]) => (
             <label key={key} className="flex items-center gap-3 cursor-pointer group">
               <input

@@ -128,6 +128,8 @@ public class JobService : IJobService, IHostedService
 
                 await entry.Work(progress, entry.Cts.Token);
 
+                FinalizeSuccessfulWork(entry);
+
                 var statusMsg = $"Job {entry.Id} completed with status {entry.Status}";
                 _logger.LogInformation("{Message}", statusMsg);
                 Console.WriteLine($"[JobService] {statusMsg}");
@@ -167,9 +169,7 @@ public class JobService : IJobService, IHostedService
         {
             _logger.LogInformation("Concurrent job {JobId} started: {Description}", entry.Id, entry.Description);
             await entry.Work(progress, entry.Cts.Token);
-            entry.Status = entry.Cts.IsCancellationRequested ? JobStatus.Cancelled : JobStatus.Completed;
-            entry.Progress = 1.0;
-            entry.CompletedAt = DateTime.UtcNow;
+            FinalizeSuccessfulWork(entry);
             _logger.LogInformation("Concurrent job {JobId} completed", entry.Id);
         }
         catch (OperationCanceledException)
@@ -204,6 +204,14 @@ public class JobService : IJobService, IHostedService
     internal void UpdateProgress(JobEntry entry)
     {
         NotifyClients(entry);
+    }
+
+    private static void FinalizeSuccessfulWork(JobEntry entry)
+    {
+        entry.Status = entry.Cts?.IsCancellationRequested == true ? JobStatus.Cancelled : JobStatus.Completed;
+        if (entry.Status == JobStatus.Completed)
+            entry.Progress = 1.0;
+        entry.CompletedAt = DateTime.UtcNow;
     }
 
     private void NotifyClients(JobEntry entry)

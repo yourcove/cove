@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ImageEditModal } from "./ImageEditModal";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { InteractiveRating } from "../components/Rating";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { createRouteLinkProps } from "../components/cardNavigation";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 
@@ -189,13 +189,12 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">Performers</h3>
                 <div className="flex flex-wrap gap-2">
                   {image.performers.map((p) => {
-                    const navigationHandlers = createCardNavigationHandlers<HTMLButtonElement>({ page: "performer", id: p.id }, () => onNavigate({ page: "performer", id: p.id }));
+                    const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: p.id }, () => onNavigate({ page: "performer", id: p.id }));
 
                     return (
-                      <button
+                      <a
                         key={p.id}
-                        type="button"
-                        {...navigationHandlers}
+                        {...linkProps}
                         className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2 hover:border-accent/60 transition-colors"
                       >
                         <div className="w-7 h-7 rounded-full bg-surface overflow-hidden flex items-center justify-center text-xs text-muted">
@@ -206,7 +205,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                           )}
                         </div>
                         <span className="text-sm text-foreground">{p.name}</span>
-                      </button>
+                      </a>
                     );
                   })}
                 </div>

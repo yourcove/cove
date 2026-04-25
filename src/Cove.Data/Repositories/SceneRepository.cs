@@ -26,7 +26,7 @@ public class SceneRepository : ISceneRepository
             .Include(s => s.Files).ThenInclude(f => f.ParentFolder)
             .Include(s => s.SceneMarkers)
             .Include(s => s.RemoteIds)
-            .AsSingleQuery()
+            .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.Id == id, ct);
 
     public async Task<IReadOnlyList<Scene>> GetAllAsync(CancellationToken ct = default)
@@ -204,8 +204,8 @@ public class SceneRepository : ISceneRepository
             if (filter.InteractiveCriterion != null)
                 query = query.Where(s => s.Files.Any(f => f.Interactive == filter.InteractiveCriterion.Value));
 
+            query = ApplyFingerprintCriterion(query, filter.FingerprintCriterion);
             query = ApplyFingerprintCriterion(query, filter.HashCriterion, "oshash");
-
             query = ApplyFingerprintCriterion(query, filter.ChecksumCriterion, "md5");
 
             if (filter.DuplicatedPhashCriterion != null)
@@ -348,8 +348,9 @@ public class SceneRepository : ISceneRepository
         "title" => desc ? query.OrderByDescending(s => s.Title) : query.OrderBy(s => s.Title),
         // Null dates sort to bottom: treat null as MinValue so they come last when desc
         "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue) : query.OrderBy(s => s.Date ?? DateOnly.MinValue),
-        // Null ratings sort to bottom: treat null as -1
-        "rating" => desc ? query.OrderByDescending(s => s.Rating ?? -1) : query.OrderBy(s => s.Rating ?? -1),
+        "rating" => desc
+            ? query.OrderBy(s => s.Rating == null || s.Rating <= 0 ? 1 : 0).ThenByDescending(s => s.Rating)
+            : query.OrderBy(s => s.Rating == null || s.Rating <= 0 ? 0 : 1).ThenBy(s => s.Rating),
         "play_count" => desc ? query.OrderByDescending(s => s.PlayCount) : query.OrderBy(s => s.PlayCount),
         "o_counter" => desc ? query.OrderByDescending(s => s.OCounter) : query.OrderBy(s => s.OCounter),
         "last_o_at" => ApplyLastFavoriteSort(query, desc),
@@ -626,6 +627,20 @@ public class SceneRepository : ISceneRepository
                 file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
             _ => query,
         };
+    }
+
+    private static IQueryable<Scene> ApplyFingerprintCriterion(IQueryable<Scene> query, FingerprintCriterion? criterion)
+    {
+        if (criterion == null || string.IsNullOrWhiteSpace(criterion.Type)) return query;
+
+        return ApplyFingerprintCriterion(
+            query,
+            new StringCriterion
+            {
+                Value = criterion.Value,
+                Modifier = criterion.Modifier,
+            },
+            criterion.Type);
     }
 
     private IQueryable<Scene> ApplyDuplicatedPhashCriterion(IQueryable<Scene> query, BoolCriterion criterion)

@@ -335,7 +335,9 @@ public class PerformerRepository : IPerformerRepository
         query = sort switch
         {
             "name" => desc ? query.OrderByDescending(p => p.Name) : query.OrderBy(p => p.Name),
-            "rating" => desc ? query.OrderByDescending(p => p.Rating) : query.OrderBy(p => p.Rating),
+            "rating" => desc
+                ? query.OrderBy(p => p.Rating == null || p.Rating <= 0 ? 1 : 0).ThenByDescending(p => p.Rating)
+                : query.OrderBy(p => p.Rating == null || p.Rating <= 0 ? 0 : 1).ThenBy(p => p.Rating),
             "created_at" => desc ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt),
             "birthdate" => desc ? query.OrderByDescending(p => p.Birthdate) : query.OrderBy(p => p.Birthdate),
             "scene_count" => desc
@@ -427,6 +429,8 @@ public class PerformerRepository : IPerformerRepository
 
 public class TagRepository : ITagRepository
 {
+    private readonly record struct TagEntityPair(int TagId, int EntityId);
+
     private readonly CoveContext _db;
     public TagRepository(CoveContext db) => _db = db;
 
@@ -478,6 +482,8 @@ public class TagRepository : ITagRepository
     {
         var query = _db.Tags
             .Include(t => t.Aliases)
+            .Include(t => t.RemoteIds)
+            .AsSplitQuery()
             .AsQueryable();
 
         if (filter != null)
@@ -491,34 +497,6 @@ public class TagRepository : ITagRepository
             if (filter.FavoriteCriterion != null)
                 query = query.Where(t => t.Favorite == filter.FavoriteCriterion.Value);
 
-            query = FilterHelpers.ApplyInt(query, filter.SceneCountCriterion, t => t.SceneTags.Count);
-            query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, t => t.PerformerTags.Count);
-
-            // Marker count â€” count scene markers where this tag is primary or associated
-            if (filter.MarkerCountCriterion != null)
-            {
-                var markerCountVal = filter.MarkerCountCriterion.Value;
-                var markerCountVal2 = filter.MarkerCountCriterion.Value2 ?? markerCountVal;
-                query = filter.MarkerCountCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals => query.Where(t =>
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) == markerCountVal),
-                    CriterionModifier.NotEquals => query.Where(t =>
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) != markerCountVal),
-                    CriterionModifier.GreaterThan => query.Where(t =>
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) > markerCountVal),
-                    CriterionModifier.LessThan => query.Where(t =>
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) < markerCountVal),
-                    CriterionModifier.Between => query.Where(t =>
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) >= markerCountVal &&
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) <= markerCountVal2),
-                    CriterionModifier.NotBetween => query.Where(t =>
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) < markerCountVal ||
-                        _db.SceneMarkers.Count(m => m.PrimaryTagId == t.Id || m.SceneMarkerTags.Any(mt => mt.TagId == t.Id)) > markerCountVal2),
-                    _ => query,
-                };
-            }
-
             // Multi-ID criteria
             query = FilterHelpers.ApplyMultiId(query, filter.ParentsCriterion, t => t.ParentRelations.Select(tp => tp.ParentId));
             query = FilterHelpers.ApplyMultiId(query, filter.ChildrenCriterion, t => t.ChildRelations.Select(tp => tp.ChildId));
@@ -531,6 +509,44 @@ public class TagRepository : ITagRepository
             query = FilterHelpers.ApplyString(query, filter.NameCriterion, t => t.Name);
             query = FilterHelpers.ApplyString(query, filter.SortNameCriterion, t => t.SortName);
             query = FilterHelpers.ApplyString(query, filter.DescriptionCriterion, t => t.Description);
+
+            if (filter.RemoteIdValueCriterion != null)
+            {
+                var remoteIdValue = filter.RemoteIdValueCriterion.Value?.Trim() ?? string.Empty;
+
+                query = filter.RemoteIdValueCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals when remoteIdValue.Length > 0 => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.RemoteId == remoteIdValue)),
+                    CriterionModifier.NotEquals when remoteIdValue.Length > 0 => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.RemoteId == remoteIdValue)),
+                    CriterionModifier.Includes when remoteIdValue.Length > 0 => query.Where(t => t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.Excludes when remoteIdValue.Length > 0 => query.Where(t => !t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.IsNull when remoteIdValue.Length > 0 => query.Where(t => !t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.NotNull when remoteIdValue.Length > 0 => query.Where(t => t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
+                    CriterionModifier.IsNull => query.Where(t => t.RemoteIds.Count == 0),
+                    CriterionModifier.NotNull => query.Where(t => t.RemoteIds.Count > 0),
+                    _ => query,
+                };
+            }
+
+            if (filter.RemoteIdCriterion != null)
+            {
+                var providerValue = filter.RemoteIdCriterion.Value?.Trim() ?? string.Empty;
+                var normalizedProvider = providerValue.ToLower();
+                var hasProviderFilter = !string.IsNullOrWhiteSpace(providerValue);
+
+                query = filter.RemoteIdCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals when hasProviderFilter => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower() == normalizedProvider)),
+                    CriterionModifier.NotEquals when hasProviderFilter => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower() == normalizedProvider)),
+                    CriterionModifier.Includes when hasProviderFilter => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.Excludes when hasProviderFilter => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.IsNull when hasProviderFilter => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.NotNull when hasProviderFilter => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
+                    CriterionModifier.IsNull => query.Where(t => t.RemoteIds.Count == 0),
+                    CriterionModifier.NotNull => query.Where(t => t.RemoteIds.Count > 0),
+                    _ => query,
+                };
+            }
 
             // Aliases criterion
             if (filter.AliasesCriterion != null)
@@ -546,14 +562,6 @@ public class TagRepository : ITagRepository
                 };
             }
 
-            // Count criteria
-            query = FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, t => t.ImageTags.Count);
-            query = FilterHelpers.ApplyInt(query, filter.GalleryCountCriterion, t => t.GalleryTags.Count);
-            query = FilterHelpers.ApplyInt(query, filter.StudioCountCriterion, t => t.StudioTags.Count);
-            query = FilterHelpers.ApplyInt(query, filter.GroupCountCriterion, t => t.GroupTags.Count);
-            query = FilterHelpers.ApplyInt(query, filter.ParentCountCriterion, t => t.ParentRelations.Count);
-            query = FilterHelpers.ApplyInt(query, filter.ChildCountCriterion, t => t.ChildRelations.Count);
-
             // IgnoreAutoTag criterion
             if (filter.IgnoreAutoTagCriterion != null)
                 query = query.Where(t => t.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
@@ -568,6 +576,11 @@ public class TagRepository : ITagRepository
                 t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{q}%")));
         }
 
+        if (filter != null)
+        {
+            query = await ApplyTagCountCriteriaAsync(query, filter, ct);
+        }
+
         var totalCount = await query.CountAsync(ct);
 
         var sort = findFilter?.Sort ?? "name";
@@ -576,7 +589,13 @@ public class TagRepository : ITagRepository
         {
             "name" => desc ? query.OrderByDescending(t => t.Name) : query.OrderBy(t => t.Name),
             "scene_count" => desc ? query.OrderByDescending(t => t.SceneTags.Count) : query.OrderBy(t => t.SceneTags.Count),
+            "gallery_count" => desc ? query.OrderByDescending(t => t.GalleryTags.Count) : query.OrderBy(t => t.GalleryTags.Count),
+            "group_count" => desc ? query.OrderByDescending(t => t.GroupTags.Count) : query.OrderBy(t => t.GroupTags.Count),
+            "image_count" => desc ? query.OrderByDescending(t => t.ImageTags.Count) : query.OrderBy(t => t.ImageTags.Count),
+            "performer_count" => desc ? query.OrderByDescending(t => t.PerformerTags.Count) : query.OrderBy(t => t.PerformerTags.Count),
+            "studio_count" => desc ? query.OrderByDescending(t => t.StudioTags.Count) : query.OrderBy(t => t.StudioTags.Count),
             "created_at" => desc ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt),
+            "updated_at" => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, t => t.Id),
             _ => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
         };
@@ -587,12 +606,336 @@ public class TagRepository : ITagRepository
 
         return (items, totalCount);
     }
+
+    private async Task<IQueryable<Tag>> ApplyTagCountCriteriaAsync(IQueryable<Tag> query, TagFilter filter, CancellationToken ct)
+    {
+        query = filter.SceneCountIncludesChildren
+            ? query
+            : FilterHelpers.ApplyInt(query, filter.SceneCountCriterion, t => t.SceneTags.Count);
+        query = filter.MarkerCountIncludesChildren
+            ? query
+            : ApplyDirectMarkerCountCriterion(query, filter.MarkerCountCriterion);
+        query = filter.PerformerCountIncludesChildren
+            ? query
+            : FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, t => t.PerformerTags.Count);
+        query = filter.ImageCountIncludesChildren
+            ? query
+            : FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, t => t.ImageTags.Count);
+        query = filter.GalleryCountIncludesChildren
+            ? query
+            : FilterHelpers.ApplyInt(query, filter.GalleryCountCriterion, t => t.GalleryTags.Count);
+        query = filter.StudioCountIncludesChildren
+            ? query
+            : FilterHelpers.ApplyInt(query, filter.StudioCountCriterion, t => t.StudioTags.Count);
+        query = filter.GroupCountIncludesChildren
+            ? query
+            : FilterHelpers.ApplyInt(query, filter.GroupCountCriterion, t => t.GroupTags.Count);
+        query = FilterHelpers.ApplyInt(query, filter.ParentCountCriterion, t => t.ParentRelations.Count);
+        query = FilterHelpers.ApplyInt(query, filter.ChildCountCriterion, t => t.ChildRelations.Count);
+
+        if (!NeedsChildTagCountAggregation(filter))
+        {
+            return query;
+        }
+
+        var candidateTagIds = await query.Select(t => t.Id).ToListAsync(ct);
+        if (candidateTagIds.Count == 0)
+        {
+            return query.Where(_ => false);
+        }
+
+        var tagAndDescendantIdsByTagId = await GetTagAndDescendantIdsByTagIdAsync(candidateTagIds, ct);
+        var relevantTagIds = tagAndDescendantIdsByTagId.Values.SelectMany(tagIds => tagIds).Distinct().ToArray();
+        var rootTagIdsByDescendantTagId = BuildRootTagIdsByDescendantTagId(tagAndDescendantIdsByTagId);
+
+        Dictionary<int, int>? sceneCountsByTagId = null;
+        Dictionary<int, int>? markerCountsByTagId = null;
+        Dictionary<int, int>? performerCountsByTagId = null;
+        Dictionary<int, int>? imageCountsByTagId = null;
+        Dictionary<int, int>? galleryCountsByTagId = null;
+        Dictionary<int, int>? studioCountsByTagId = null;
+        Dictionary<int, int>? groupCountsByTagId = null;
+
+        if (filter.SceneCountIncludesChildren && filter.SceneCountCriterion != null)
+        {
+            sceneCountsByTagId = CountDistinctEntitiesByRootTagId(
+                await _db.Set<SceneTag>()
+                    .AsNoTracking()
+                    .Where(sceneTag => relevantTagIds.Contains(sceneTag.TagId))
+                    .Select(sceneTag => new TagEntityPair(sceneTag.TagId, sceneTag.SceneId))
+                    .ToListAsync(ct),
+                rootTagIdsByDescendantTagId);
+        }
+
+        if (filter.MarkerCountIncludesChildren && filter.MarkerCountCriterion != null)
+        {
+            var primaryMarkerPairs = await _db.SceneMarkers
+                .AsNoTracking()
+                .Where(marker => relevantTagIds.Contains(marker.PrimaryTagId))
+                .Select(marker => new TagEntityPair(marker.PrimaryTagId, marker.Id))
+                .ToListAsync(ct);
+            var secondaryMarkerPairs = await _db.Set<SceneMarkerTag>()
+                .AsNoTracking()
+                .Where(sceneMarkerTag => relevantTagIds.Contains(sceneMarkerTag.TagId))
+                .Select(sceneMarkerTag => new TagEntityPair(sceneMarkerTag.TagId, sceneMarkerTag.SceneMarkerId))
+                .ToListAsync(ct);
+
+            markerCountsByTagId = CountDistinctEntitiesByRootTagId(primaryMarkerPairs.Concat(secondaryMarkerPairs), rootTagIdsByDescendantTagId);
+        }
+
+        if (filter.PerformerCountIncludesChildren && filter.PerformerCountCriterion != null)
+        {
+            performerCountsByTagId = CountDistinctEntitiesByRootTagId(
+                await _db.Set<PerformerTag>()
+                    .AsNoTracking()
+                    .Where(performerTag => relevantTagIds.Contains(performerTag.TagId))
+                    .Select(performerTag => new TagEntityPair(performerTag.TagId, performerTag.PerformerId))
+                    .ToListAsync(ct),
+                rootTagIdsByDescendantTagId);
+        }
+
+        if (filter.ImageCountIncludesChildren && filter.ImageCountCriterion != null)
+        {
+            imageCountsByTagId = CountDistinctEntitiesByRootTagId(
+                await _db.Set<ImageTag>()
+                    .AsNoTracking()
+                    .Where(imageTag => relevantTagIds.Contains(imageTag.TagId))
+                    .Select(imageTag => new TagEntityPair(imageTag.TagId, imageTag.ImageId))
+                    .ToListAsync(ct),
+                rootTagIdsByDescendantTagId);
+        }
+
+        if (filter.GalleryCountIncludesChildren && filter.GalleryCountCriterion != null)
+        {
+            galleryCountsByTagId = CountDistinctEntitiesByRootTagId(
+                await _db.Set<GalleryTag>()
+                    .AsNoTracking()
+                    .Where(galleryTag => relevantTagIds.Contains(galleryTag.TagId))
+                    .Select(galleryTag => new TagEntityPair(galleryTag.TagId, galleryTag.GalleryId))
+                    .ToListAsync(ct),
+                rootTagIdsByDescendantTagId);
+        }
+
+        if (filter.StudioCountIncludesChildren && filter.StudioCountCriterion != null)
+        {
+            studioCountsByTagId = CountDistinctEntitiesByRootTagId(
+                await _db.Set<StudioTag>()
+                    .AsNoTracking()
+                    .Where(studioTag => relevantTagIds.Contains(studioTag.TagId))
+                    .Select(studioTag => new TagEntityPair(studioTag.TagId, studioTag.StudioId))
+                    .ToListAsync(ct),
+                rootTagIdsByDescendantTagId);
+        }
+
+        if (filter.GroupCountIncludesChildren && filter.GroupCountCriterion != null)
+        {
+            groupCountsByTagId = CountDistinctEntitiesByRootTagId(
+                await _db.Set<GroupTag>()
+                    .AsNoTracking()
+                    .Where(groupTag => relevantTagIds.Contains(groupTag.TagId))
+                    .Select(groupTag => new TagEntityPair(groupTag.TagId, groupTag.GroupId))
+                    .ToListAsync(ct),
+                rootTagIdsByDescendantTagId);
+        }
+
+        var matchingTagIds = candidateTagIds.Where(tagId =>
+        {
+            return MatchesTagCountCriterion(filter.SceneCountCriterion, filter.SceneCountIncludesChildren, tagId, sceneCountsByTagId)
+                && MatchesTagCountCriterion(filter.MarkerCountCriterion, filter.MarkerCountIncludesChildren, tagId, markerCountsByTagId)
+                && MatchesTagCountCriterion(filter.PerformerCountCriterion, filter.PerformerCountIncludesChildren, tagId, performerCountsByTagId)
+                && MatchesTagCountCriterion(filter.ImageCountCriterion, filter.ImageCountIncludesChildren, tagId, imageCountsByTagId)
+                && MatchesTagCountCriterion(filter.GalleryCountCriterion, filter.GalleryCountIncludesChildren, tagId, galleryCountsByTagId)
+                && MatchesTagCountCriterion(filter.StudioCountCriterion, filter.StudioCountIncludesChildren, tagId, studioCountsByTagId)
+                && MatchesTagCountCriterion(filter.GroupCountCriterion, filter.GroupCountIncludesChildren, tagId, groupCountsByTagId);
+        }).ToArray();
+
+        if (matchingTagIds.Length == 0)
+        {
+            return query.Where(_ => false);
+        }
+
+        return matchingTagIds.Length == candidateTagIds.Count ? query : query.Where(tag => matchingTagIds.Contains(tag.Id));
+    }
+
+    private async Task<Dictionary<int, int[]>> GetTagAndDescendantIdsByTagIdAsync(IReadOnlyCollection<int> rootTagIds, CancellationToken ct)
+    {
+        var relations = await _db.Set<TagParent>()
+            .AsNoTracking()
+            .Select(relation => new { relation.ParentId, relation.ChildId })
+            .ToListAsync(ct);
+
+        var childIdsByParentId = relations
+            .GroupBy(relation => relation.ParentId)
+            .ToDictionary(group => group.Key, group => group.Select(relation => relation.ChildId).ToArray());
+
+        var tagAndDescendantIdsByTagId = new Dictionary<int, int[]>(rootTagIds.Count);
+        foreach (var rootTagId in rootTagIds)
+        {
+            var visited = new HashSet<int> { rootTagId };
+            var queue = new Queue<int>();
+            queue.Enqueue(rootTagId);
+
+            while (queue.Count > 0)
+            {
+                var currentTagId = queue.Dequeue();
+                if (!childIdsByParentId.TryGetValue(currentTagId, out var childIds))
+                {
+                    continue;
+                }
+
+                foreach (var childId in childIds)
+                {
+                    if (visited.Add(childId))
+                    {
+                        queue.Enqueue(childId);
+                    }
+                }
+            }
+
+            tagAndDescendantIdsByTagId[rootTagId] = [.. visited];
+        }
+
+        return tagAndDescendantIdsByTagId;
+    }
+
+    private static bool NeedsChildTagCountAggregation(TagFilter filter)
+        => (filter.SceneCountIncludesChildren && filter.SceneCountCriterion != null)
+        || (filter.MarkerCountIncludesChildren && filter.MarkerCountCriterion != null)
+        || (filter.PerformerCountIncludesChildren && filter.PerformerCountCriterion != null)
+        || (filter.ImageCountIncludesChildren && filter.ImageCountCriterion != null)
+        || (filter.GalleryCountIncludesChildren && filter.GalleryCountCriterion != null)
+        || (filter.StudioCountIncludesChildren && filter.StudioCountCriterion != null)
+        || (filter.GroupCountIncludesChildren && filter.GroupCountCriterion != null);
+
+    private static Dictionary<int, int[]> BuildRootTagIdsByDescendantTagId(IReadOnlyDictionary<int, int[]> tagAndDescendantIdsByTagId)
+    {
+        var rootTagIdsByDescendantTagId = new Dictionary<int, List<int>>();
+        foreach (var (rootTagId, descendantTagIds) in tagAndDescendantIdsByTagId)
+        {
+            foreach (var descendantTagId in descendantTagIds)
+            {
+                if (!rootTagIdsByDescendantTagId.TryGetValue(descendantTagId, out var rootTagIds))
+                {
+                    rootTagIds = [];
+                    rootTagIdsByDescendantTagId[descendantTagId] = rootTagIds;
+                }
+
+                rootTagIds.Add(rootTagId);
+            }
+        }
+
+        return rootTagIdsByDescendantTagId.ToDictionary(entry => entry.Key, entry => entry.Value.ToArray());
+    }
+
+    private static Dictionary<int, int> CountDistinctEntitiesByRootTagId(IEnumerable<TagEntityPair> pairs, IReadOnlyDictionary<int, int[]> rootTagIdsByDescendantTagId)
+    {
+        var entityIdsByRootTagId = new Dictionary<int, HashSet<int>>();
+        foreach (var pair in pairs)
+        {
+            if (!rootTagIdsByDescendantTagId.TryGetValue(pair.TagId, out var rootTagIds))
+            {
+                continue;
+            }
+
+            foreach (var rootTagId in rootTagIds)
+            {
+                if (!entityIdsByRootTagId.TryGetValue(rootTagId, out var entityIds))
+                {
+                    entityIds = [];
+                    entityIdsByRootTagId[rootTagId] = entityIds;
+                }
+
+                entityIds.Add(pair.EntityId);
+            }
+        }
+
+        return entityIdsByRootTagId.ToDictionary(entry => entry.Key, entry => entry.Value.Count);
+    }
+
+    private static bool MatchesTagCountCriterion(IntCriterion? criterion, bool includeChildren, int rootTagId, Dictionary<int, int>? countsByTagId)
+    {
+        if (criterion == null || !includeChildren)
+        {
+            return true;
+        }
+
+        var value = 0;
+        if (countsByTagId != null && countsByTagId.TryGetValue(rootTagId, out var count))
+        {
+            value = count;
+        }
+
+        return MatchesIntCriterion(criterion, value);
+    }
+
+    private IQueryable<Tag> ApplyDirectMarkerCountCriterion(IQueryable<Tag> query, IntCriterion? criterion)
+    {
+        if (criterion == null)
+        {
+            return query;
+        }
+
+        var markerCountVal = criterion.Value;
+        var markerCountVal2 = criterion.Value2 ?? markerCountVal;
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) == markerCountVal),
+            CriterionModifier.NotEquals => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) != markerCountVal),
+            CriterionModifier.GreaterThan => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) > markerCountVal),
+            CriterionModifier.LessThan => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) < markerCountVal),
+            CriterionModifier.Between => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) >= markerCountVal &&
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) <= markerCountVal2),
+            CriterionModifier.NotBetween => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) < markerCountVal ||
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) > markerCountVal2),
+            CriterionModifier.IsNull => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) == 0),
+            CriterionModifier.NotNull => query.Where(tag =>
+                _db.SceneMarkers.Count(marker => marker.PrimaryTagId == tag.Id || marker.SceneMarkerTags.Any(sceneMarkerTag => sceneMarkerTag.TagId == tag.Id)) > 0),
+            _ => query,
+        };
+    }
+
+    private static bool MatchesIntCriterion(IntCriterion criterion, int value)
+    {
+        var upperBound = criterion.Value2 ?? criterion.Value;
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => value == criterion.Value,
+            CriterionModifier.NotEquals => value != criterion.Value,
+            CriterionModifier.GreaterThan => value > criterion.Value,
+            CriterionModifier.LessThan => value < criterion.Value,
+            CriterionModifier.Between => value >= criterion.Value && value <= upperBound,
+            CriterionModifier.NotBetween => value < criterion.Value || value > upperBound,
+            CriterionModifier.IsNull => value == 0,
+            CriterionModifier.NotNull => value > 0,
+            _ => true,
+        };
+    }
 }
 
 public class StudioRepository : IStudioRepository
 {
     private readonly CoveContext _db;
     public StudioRepository(CoveContext db) => _db = db;
+
+    private static IQueryable<Studio> ApplyStudioRatingSort(IQueryable<Studio> query, bool desc)
+    {
+        var sortQuery = query.Select(studio => new
+        {
+            Studio = studio,
+            studio.Rating,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating).Select(item => item.Studio)
+            : sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating).Select(item => item.Studio);
+    }
 
     public async Task<Studio?> GetByIdAsync(int id, CancellationToken ct = default) => await _db.Studios.FindAsync([id], ct);
 
@@ -730,7 +1073,13 @@ public class StudioRepository : IStudioRepository
         {
             "name" => desc ? query.OrderByDescending(s => s.Name) : query.OrderBy(s => s.Name),
             "scene_count" => desc ? query.OrderByDescending(s => s.Scenes.Count) : query.OrderBy(s => s.Scenes.Count),
+            "gallery_count" => desc ? query.OrderByDescending(s => s.Galleries.Count) : query.OrderBy(s => s.Galleries.Count),
+            "image_count" => desc ? query.OrderByDescending(s => s.Images.Count) : query.OrderBy(s => s.Images.Count),
+            "rating" => ApplyStudioRatingSort(query, desc),
+            "child_count" => desc ? query.OrderByDescending(s => s.Children.Count) : query.OrderBy(s => s.Children.Count),
+            "tag_count" => desc ? query.OrderByDescending(s => s.StudioTags.Count) : query.OrderBy(s => s.StudioTags.Count),
             "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
+            "updated_at" => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, s => s.Id),
             _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
         };
@@ -816,7 +1165,8 @@ public class GalleryRepository : IGalleryRepository
 
             query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
 
-            query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, g => g.Files);
+            query = ApplyGalleryPathCriterion(query, filter.PathCriterion);
+            query = ApplyGalleryFingerprintCriterion(query, filter.FingerprintCriterion);
             query = ApplyGalleryFingerprintCriterion(query, filter.ChecksumCriterion, "md5");
             query = ApplyGalleryPerformerAgeCriterion(query, filter.PerformerAgeCriterion);
             query = ApplyTypicalResolutionCriterion(query, filter.TypicalResolutionCriterion);
@@ -883,7 +1233,7 @@ public class GalleryRepository : IGalleryRepository
             "path" => ApplyGalleryPathSort(query, desc),
             "title" => desc ? query.OrderByDescending(g => g.Title) : query.OrderBy(g => g.Title),
             "image_count" => desc ? query.OrderByDescending(g => g.ImageGalleries.Count) : query.OrderBy(g => g.ImageGalleries.Count),
-            "rating" => desc ? query.OrderByDescending(g => g.Rating) : query.OrderBy(g => g.Rating),
+            "rating" => ApplyGalleryRatingSort(query, desc),
             "performer_count" => desc ? query.OrderByDescending(g => g.GalleryPerformers.Count) : query.OrderBy(g => g.GalleryPerformers.Count),
             "tag_count" => desc ? query.OrderByDescending(g => g.GalleryTags.Count) : query.OrderBy(g => g.GalleryTags.Count),
             "zip_file_count" => desc
@@ -951,6 +1301,56 @@ public class GalleryRepository : IGalleryRepository
             .Select(item => item.Gallery);
     }
 
+    private static IQueryable<Gallery> ApplyGalleryRatingSort(IQueryable<Gallery> query, bool desc)
+    {
+        var sortQuery = query.Select(gallery => new
+        {
+            Gallery = gallery,
+            gallery.Rating,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating).Select(item => item.Gallery);
+    }
+
+    private static IQueryable<Gallery> ApplyGalleryPathCriterion(IQueryable<Gallery> query, StringCriterion? criterion)
+    {
+        if (criterion == null) return query;
+
+        var value = criterion.Value.Replace("\\", "/");
+        var normalizedValue = value.ToLowerInvariant();
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(gallery =>
+                (gallery.Folder != null && gallery.Folder.Path.Replace("\\", "/") == value)
+                || gallery.Files.Any(file => (file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename) == value)),
+            CriterionModifier.NotEquals => query.Where(gallery =>
+                (gallery.Folder == null || gallery.Folder.Path.Replace("\\", "/") != value)
+                && !gallery.Files.Any(file => (file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename) == value)),
+            CriterionModifier.Includes => query.Where(gallery =>
+                (gallery.Folder != null && gallery.Folder.Path.Replace("\\", "/").ToLower().Contains(normalizedValue))
+                || gallery.Files.Any(file => (file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename).ToLower().Contains(normalizedValue))),
+            CriterionModifier.Excludes => query.Where(gallery =>
+                (gallery.Folder == null || !gallery.Folder.Path.Replace("\\", "/").ToLower().Contains(normalizedValue))
+                && !gallery.Files.Any(file => (file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename).ToLower().Contains(normalizedValue))),
+            CriterionModifier.MatchesRegex => query.Where(gallery =>
+                (gallery.Folder != null && Regex.IsMatch(gallery.Folder.Path.Replace("\\", "/"), value, RegexOptions.IgnoreCase))
+                || gallery.Files.Any(file => Regex.IsMatch(file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.NotMatchesRegex => query.Where(gallery =>
+                (gallery.Folder == null || !Regex.IsMatch(gallery.Folder.Path.Replace("\\", "/"), value, RegexOptions.IgnoreCase))
+                && !gallery.Files.Any(file => Regex.IsMatch(file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.IsNull => query.Where(gallery =>
+                (gallery.Folder == null || gallery.Folder.Path == "")
+                && !gallery.Files.Any(file => (file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename) != "")),
+            CriterionModifier.NotNull => query.Where(gallery =>
+                (gallery.Folder != null && gallery.Folder.Path != "")
+                || gallery.Files.Any(file => (file.ParentFolder != null ? file.ParentFolder.Path.Replace("\\", "/") + "/" + file.Basename : file.Basename) != "")),
+            _ => query,
+        };
+    }
+
     private static IQueryable<Gallery> ApplyGalleryFingerprintCriterion(IQueryable<Gallery> query, StringCriterion? criterion, string fingerprintType)
     {
         if (criterion == null) return query;
@@ -978,6 +1378,20 @@ public class GalleryRepository : IGalleryRepository
                 file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
             _ => query,
         };
+    }
+
+    private static IQueryable<Gallery> ApplyGalleryFingerprintCriterion(IQueryable<Gallery> query, FingerprintCriterion? criterion)
+    {
+        if (criterion == null || string.IsNullOrWhiteSpace(criterion.Type)) return query;
+
+        return ApplyGalleryFingerprintCriterion(
+            query,
+            new StringCriterion
+            {
+                Value = criterion.Value,
+                Modifier = criterion.Modifier,
+            },
+            criterion.Type);
     }
 
     private static IQueryable<Gallery> ApplyGalleryPerformerAgeCriterion(IQueryable<Gallery> query, IntCriterion? criterion)
@@ -1212,6 +1626,7 @@ public class ImageRepository : IImageRepository
 
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, i => i.Files);
 
+        query = ApplyFingerprintCriterion(query, filter.FingerprintCriterion);
         query = ApplyFingerprintCriterion(query, filter.ChecksumCriterion, "md5");
 
         if (filter.PerformerFavoriteCriterion != null)
@@ -1283,7 +1698,9 @@ public class ImageRepository : IImageRepository
     {
         "title" => ApplyDisplayTitleSort(query, desc),
         "date" => desc ? query.OrderByDescending(i => i.Date ?? DateOnly.MinValue) : query.OrderBy(i => i.Date ?? DateOnly.MinValue),
-        "rating" => desc ? query.OrderByDescending(i => i.Rating ?? -1) : query.OrderBy(i => i.Rating ?? -1),
+        "rating" => desc
+            ? query.OrderBy(i => i.Rating == null || i.Rating <= 0 ? 1 : 0).ThenByDescending(i => i.Rating)
+            : query.OrderBy(i => i.Rating == null || i.Rating <= 0 ? 0 : 1).ThenBy(i => i.Rating),
         "o_counter" => desc ? query.OrderByDescending(i => i.OCounter) : query.OrderBy(i => i.OCounter),
         "random" => query.OrderBy(i => i.Id),
         "file_mod_time" => ApplyFileModTimeSort(query, desc),
@@ -1413,6 +1830,20 @@ public class ImageRepository : IImageRepository
                 file.Fingerprints.Any(fingerprint => fingerprint.Type == fingerprintType && fingerprint.Value != ""))),
             _ => query,
         };
+    }
+
+    private static IQueryable<Image> ApplyFingerprintCriterion(IQueryable<Image> query, FingerprintCriterion? criterion)
+    {
+        if (criterion == null || string.IsNullOrWhiteSpace(criterion.Type)) return query;
+
+        return ApplyFingerprintCriterion(
+            query,
+            new StringCriterion
+            {
+                Value = criterion.Value,
+                Modifier = criterion.Modifier,
+            },
+            criterion.Type);
     }
 
     private static IQueryable<Image> ApplyPerformerAgeCriterion(IQueryable<Image> query, IntCriterion? criterion)
@@ -1654,7 +2085,9 @@ public class GroupRepository : IGroupRepository
         {
             "name" => desc ? query.OrderByDescending(g => g.Name) : query.OrderBy(g => g.Name),
             "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
-            "rating" => desc ? query.OrderByDescending(g => g.Rating ?? -1) : query.OrderBy(g => g.Rating ?? -1),
+            "rating" => desc
+                ? query.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating)
+                : query.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating),
             "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id),
             _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),

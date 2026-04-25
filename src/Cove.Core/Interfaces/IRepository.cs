@@ -87,6 +87,7 @@ public enum CriterionModifier
 
 public class IntCriterion { public int Value { get; set; } public int? Value2 { get; set; } public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
 public class StringCriterion { public string Value { get; set; } = ""; public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
+public class FingerprintCriterion { public string Type { get; set; } = "md5"; public string Value { get; set; } = ""; public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
 public class BoolCriterion { public bool Value { get; set; } }
 public class MultiIdCriterion { public List<int> Value { get; set; } = []; public CriterionModifier Modifier { get; set; } = CriterionModifier.Includes; public List<int>? Excludes { get; set; } public int? Depth { get; set; } }
 public class DateCriterion { public string Value { get; set; } = ""; public string? Value2 { get; set; } public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
@@ -119,6 +120,7 @@ public class SceneFilter
     public BoolCriterion? HasMarkersCriterion { get; set; }
     public BoolCriterion? InteractiveCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
+    public FingerprintCriterion? FingerprintCriterion { get; set; }
     public StringCriterion? HashCriterion { get; set; }
     public StringCriterion? ChecksumCriterion { get; set; }
     public BoolCriterion? DuplicatedPhashCriterion { get; set; }
@@ -211,8 +213,11 @@ public class TagFilter
     // Advanced criteria
     public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? SceneCountCriterion { get; set; }
+    public bool SceneCountIncludesChildren { get; set; }
     public IntCriterion? MarkerCountCriterion { get; set; }
+    public bool MarkerCountIncludesChildren { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
+    public bool PerformerCountIncludesChildren { get; set; }
     public MultiIdCriterion? ParentsCriterion { get; set; }
     public MultiIdCriterion? ChildrenCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
@@ -220,12 +225,18 @@ public class TagFilter
     public TimestampCriterion? UpdatedAtCriterion { get; set; }
     public StringCriterion? NameCriterion { get; set; }
     public StringCriterion? SortNameCriterion { get; set; }
+    public StringCriterion? RemoteIdCriterion { get; set; }
+    public StringCriterion? RemoteIdValueCriterion { get; set; }
     public StringCriterion? AliasesCriterion { get; set; }
     public StringCriterion? DescriptionCriterion { get; set; }
     public IntCriterion? ImageCountCriterion { get; set; }
+    public bool ImageCountIncludesChildren { get; set; }
     public IntCriterion? GalleryCountCriterion { get; set; }
+    public bool GalleryCountIncludesChildren { get; set; }
     public IntCriterion? StudioCountCriterion { get; set; }
+    public bool StudioCountIncludesChildren { get; set; }
     public IntCriterion? GroupCountCriterion { get; set; }
+    public bool GroupCountIncludesChildren { get; set; }
     public IntCriterion? ParentCountCriterion { get; set; }
     public IntCriterion? ChildCountCriterion { get; set; }
     public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
@@ -279,6 +290,7 @@ public class GalleryFilter
     public StringCriterion? TitleCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
+    public FingerprintCriterion? FingerprintCriterion { get; set; }
     public StringCriterion? ChecksumCriterion { get; set; }
     public StringCriterion? UrlCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
@@ -317,6 +329,7 @@ public class ImageFilter
     public IntCriterion? OCounterCriterion { get; set; }
     public IntCriterion? ResolutionCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
+    public FingerprintCriterion? FingerprintCriterion { get; set; }
     public StringCriterion? ChecksumCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }
     public TimestampCriterion? UpdatedAtCriterion { get; set; }

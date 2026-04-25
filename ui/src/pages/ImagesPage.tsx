@@ -14,7 +14,7 @@ import { ImageCreateModal } from "./ImageEditModal";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { createCardNavigationHandlers } from "../components/cardNavigation";
+import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
@@ -218,9 +218,7 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
       className={`entity-card bg-card rounded overflow-hidden cursor-pointer border hover:border-accent/60 transition-colors group relative ${selected ? "border-accent ring-2 ring-accent" : "border-border"}`}
     >
       <div className="aspect-square bg-surface relative overflow-hidden" onClick={onPreview}>
-        <div className={`absolute top-1 left-1 z-10 ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-          <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect?.(); }} onClick={(e) => e.stopPropagation()} className="w-4 h-4 rounded border-border cursor-pointer accent-accent" />
-        </div>
+        <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
         <img
           src={thumbnailUrl}
           alt={displayTitle}
@@ -288,17 +286,17 @@ function ImageCard({ image, onPreview, onDetails, onNavigate, selected, onSelect
 }
 
 function ImageWallCard({ image, onClick }: { image: Image; onClick: () => void }) {
-  const navigationHandlers = createCardNavigationHandlers<HTMLDivElement>({ page: "image", id: image.id }, onClick);
   const displayTitle = getImageDisplayTitle(image);
   const file = image.files[0];
   const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1";
 
   return (
     <WallMediaCard
-      {...navigationHandlers}
       title={displayTitle}
       imageSrc={images.thumbnailUrl(image.id)}
       aspectRatio={aspectRatio}
-    />
+    >
+      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={onClick} label={`Open image ${displayTitle}`} />
+    </WallMediaCard>
   );
 }

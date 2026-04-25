@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { studios, tags as tagsApi, entityImages } from "../api/client";
-import type { Studio, StudioUpdate, Tag } from "../api/types";
+import type { Studio, StudioUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
 import { ImageInput } from "../components/ImageInput";
-import { RatingField } from "../components/Rating";
+import { InteractiveRatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 
@@ -20,11 +20,9 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   const [name, setName] = useState(studio.name);
   const [details, setDetails] = useState(studio.details ?? "");
   const [rating, setRating] = useState<number | undefined>(studio.rating ?? undefined);
-  const [favorite, setFavorite] = useState(studio.favorite);
   const [ignoreAutoTag, setIgnoreAutoTag] = useState(studio.ignoreAutoTag);
-  const [organized, setOrganized] = useState(studio.organized);
   const [urls, setUrls] = useState(studio.urls.length > 0 ? studio.urls : [""]);
-  const [aliases, setAliases] = useState(studio.aliases.join("\n"));
+  const [aliases, setAliases] = useState(studio.aliases.length > 0 ? studio.aliases : [""]);
   const [parentId, setParentId] = useState<number | undefined>(studio.parentId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(studio.tags.map((t) => t.id));
 
@@ -48,11 +46,9 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
     setName(studio.name);
     setDetails(studio.details ?? "");
     setRating(studio.rating ?? undefined);
-    setFavorite(studio.favorite);
     setIgnoreAutoTag(studio.ignoreAutoTag);
-    setOrganized(studio.organized);
     setUrls(studio.urls.length > 0 ? studio.urls : [""]);
-    setAliases(studio.aliases.join("\n"));
+    setAliases(studio.aliases.length > 0 ? studio.aliases : [""]);
     setParentId(studio.parentId ?? undefined);
     setSelectedTagIds(studio.tags.map((t) => t.id));
     setCustomFields(Object.fromEntries(Object.entries(studio.customFields ?? {}).map(([k, v]) => [k, String(v ?? "")])));
@@ -69,14 +65,12 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
-    const aliasList = aliases.split("\n").map((a) => a.trim()).filter(Boolean);
+    const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
     mutation.mutate({
       name,
       details: details || undefined,
       rating,
-      favorite,
       ignoreAutoTag,
-      organized,
       parentId,
       urls: urlList,
       aliases: aliasList,
@@ -130,19 +124,11 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
       </Field>
 
       <div className="grid grid-cols-2 gap-4">
-        <RatingField value={rating} onChange={setRating} />
+        <InteractiveRatingField label="Rating" value={rating} onChange={setRating} />
         <div className="flex items-end gap-4 pb-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} className="rounded bg-card border-border" />
-            Favorite
-          </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={ignoreAutoTag} onChange={(e) => setIgnoreAutoTag(e.target.checked)} className="rounded bg-card border-border" />
             Ignore Auto Tag
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={organized} onChange={(e) => setOrganized(e.target.checked)} className="rounded bg-card border-border" />
-            Organized
           </label>
         </div>
       </div>
@@ -151,8 +137,8 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
         <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
       </Field>
 
-      <Field label="Aliases (one per line)">
-        <TextArea value={aliases} onChange={setAliases} placeholder="Alias names, one per line" rows={2} />
+      <Field label="Aliases">
+        <StringListEditor values={aliases} onChange={setAliases} placeholder="Alternate name" addLabel="Add Alias" />
       </Field>
 
       {/* Tags */}

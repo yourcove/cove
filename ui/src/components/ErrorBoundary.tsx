@@ -3,11 +3,16 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface Props {
   children: ReactNode;
+  onRetry?: () => void;
 }
 
 interface State {
   hasError: boolean;
   error: Error | null;
+}
+
+export function reloadPage() {
+  window.location.reload();
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -28,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
           {this.state.error?.message || "An unexpected error occurred."}
         </p>
         <button
-          onClick={() => { this.setState({ hasError: false, error: null }); }}
+          onClick={() => { (this.props.onRetry ?? reloadPage)(); }}
           className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
         >
           <RefreshCw className="w-4 h-4" /> Try Again

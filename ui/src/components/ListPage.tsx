@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, LayoutGrid, List, Columns3, Grid3X3, ZoomIn, ZoomOut, SlidersHorizontal, X } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, LayoutGrid, List, Columns3, Grid3X3, Share2, ZoomIn, ZoomOut, SlidersHorizontal, X } from "lucide-react";
 import type { FindFilter } from "../api/types";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi } from "../api/client";
 import { ExtensionSlot } from "../router/RouteRegistry";
@@ -9,7 +9,7 @@ import { FilterDialog, FilterButton, type CriterionDefinition } from "./FilterDi
 import { useKeySequence } from "../hooks/useKeySequence";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
 
-export type DisplayMode = "grid" | "list" | "wall" | "tagger";
+export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph";
 
 interface ListPageProps {
   title: string;
@@ -39,6 +39,7 @@ interface ListPageProps {
   quickFilterIds?: string[];
   wallColumnCount?: number;
   onWallColumnCountChange?: (count: number) => void;
+  showPagingControls?: boolean;
 }
 
 const PER_PAGE_OPTIONS = [20, 40, 60, 120, 250, 500, 1000];
@@ -195,6 +196,7 @@ export function ListPage({
   quickFilterIds,
   wallColumnCount,
   onWallColumnCountChange,
+  showPagingControls = true,
 }: ListPageProps) {
   const [searchText, setSearchText] = useState(filter.q ?? "");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
@@ -254,6 +256,13 @@ export function ListPage({
     return maps;
   }, [tagEntities, performerEntities, studioEntities, groupEntities]);
   const perPage = filter.perPage ?? 25;
+  const perPageOptions = useMemo(() => {
+    if (PER_PAGE_OPTIONS.includes(perPage)) {
+      return PER_PAGE_OPTIONS;
+    }
+
+    return [...PER_PAGE_OPTIONS, perPage].sort((left, right) => left - right);
+  }, [perPage]);
   const page = filter.page ?? 1;
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
   const start = (page - 1) * perPage + 1;
@@ -334,23 +343,26 @@ export function ListPage({
       ...(availableDisplayModes.includes("list") ? [{ keys: "v l", action: () => onDisplayModeChange("list") }] : []),
       ...(availableDisplayModes.includes("wall") ? [{ keys: "v w", action: () => onDisplayModeChange("wall") }] : []),
       ...(availableDisplayModes.includes("tagger") ? [{ keys: "v t", action: () => onDisplayModeChange("tagger") }] : []),
+      ...(availableDisplayModes.includes("graph") ? [{ keys: "v h", action: () => onDisplayModeChange("graph") }] : []),
     ] : []),
     // Selection
     ...(onSelectAll ? [{ keys: "s a", action: onSelectAll }] : []),
     ...(onSelectNone ? [{ keys: "s n", action: onSelectNone }] : []),
     // Pagination
-    { keys: "ArrowLeft", action: () => goTo(page - 1) },
-    { keys: "ArrowRight", action: () => goTo(page + 1) },
-    { keys: "Shift+ArrowLeft", action: () => goTo(page - 10) },
-    { keys: "Shift+ArrowRight", action: () => goTo(page + 10) },
-    { keys: "Ctrl+Home", action: () => goTo(1) },
-    { keys: "Ctrl+End", action: () => goTo(totalPages) },
+    ...(showPagingControls ? [
+      { keys: "ArrowLeft", action: () => goTo(page - 1) },
+      { keys: "ArrowRight", action: () => goTo(page + 1) },
+      { keys: "Shift+ArrowLeft", action: () => goTo(page - 10) },
+      { keys: "Shift+ArrowRight", action: () => goTo(page + 10) },
+      { keys: "Ctrl+Home", action: () => goTo(1) },
+      { keys: "Ctrl+End", action: () => goTo(totalPages) },
+    ] : []),
     // Filter dialog
     ...(criteriaDefinitions && onObjectFilterChange ? [{ keys: "f", action: () => setFilterDialogOpen(true) }] : []),
     // Zoom
     { keys: "+", action: () => setZoomLevel((v) => Math.min(5, v + 0.25)) },
     { keys: "-", action: () => setZoomLevel((v) => Math.max(0, v - 0.25)) },
-  ], [onDisplayModeChange, availableDisplayModes, onSelectAll, onSelectNone, goTo, page, totalPages, criteriaDefinitions, onObjectFilterChange]);
+  ], [showPagingControls, onDisplayModeChange, availableDisplayModes, onSelectAll, onSelectNone, goTo, page, totalPages, criteriaDefinitions, onObjectFilterChange]);
 
   useKeySequence(listBindings);
 
@@ -363,7 +375,7 @@ export function ListPage({
   return (
     <div className="space-y-0">
       {/* Toolbar - matches standard FilteredListToolbar */}
-      <div className="sticky top-0 z-30 mx-1 mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-2.5 py-2 shadow-sm shadow-black/20">
+      <div className="mx-1 mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-2.5 py-2 shadow-sm shadow-black/20">
         {/* Title + count + byline */}
         <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2">
           <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
@@ -476,10 +488,20 @@ export function ListPage({
                 <Columns3 className="w-3.5 h-3.5" />
               </button>
             )}
+            {availableDisplayModes.includes("graph") && (
+              <button
+                onClick={() => onDisplayModeChange("graph")}
+                className={`rounded-md p-1.5 ${displayMode === "graph" ? "bg-background/60 text-accent shadow-sm" : "text-secondary hover:bg-card/80 hover:text-foreground"}`}
+                title="Graph/Tree"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
 
         {/* Per page */}
+        {showPagingControls && (
         <div className={toolbarSegmentClass}>
           <select
             value={perPage}
@@ -487,7 +509,7 @@ export function ListPage({
             className={`${toolbarSelectClass} min-w-[4.75rem]`}
             title="Items per page"
           >
-            {PER_PAGE_OPTIONS.map((n) => (
+            {perPageOptions.map((n) => (
               <option key={n} value={n}>{n}</option>
             ))}
           </select>
@@ -526,6 +548,7 @@ export function ListPage({
             </div>
           )}
         </div>
+        )}
 
         {/* Operations */}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -591,7 +614,7 @@ export function ListPage({
       )}
 
       {/* Pagination top */}
-      {totalPages > 1 && (
+      {showPagingControls && totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 py-1 mx-1 mt-1">
           <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
         </div>
@@ -609,7 +632,7 @@ export function ListPage({
       )}
 
       {/* Pagination bottom */}
-      {totalPages > 1 && (
+      {showPagingControls && totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 py-4">
           <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
         </div>

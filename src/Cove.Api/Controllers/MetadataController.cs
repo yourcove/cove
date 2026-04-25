@@ -33,6 +33,7 @@ public class MetadataController(
             GeneratePreviews = enableAllGenerators || opts?.ScanGeneratePreviews == true,
             GenerateSprites = enableAllGenerators || opts?.ScanGenerateSprites == true,
             GeneratePhashes = enableAllGenerators || opts?.ScanGeneratePhashes == true,
+            GenerateMd5 = enableAllGenerators || opts?.ScanGenerateMd5 == true,
             GenerateImageThumbnails = enableAllGenerators || opts?.ScanGenerateThumbnails == true,
             GenerateImagePhashes = enableAllGenerators || opts?.ScanGenerateImagePhashes == true,
             Rescan = opts?.Rescan == true,
@@ -48,8 +49,24 @@ public class MetadataController(
             using var scope = scopeFactory.CreateScope();
             var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-            var scenes = opts?.SceneIds != null && opts.SceneIds.Count > 0
-                ? await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).Where(s => opts.SceneIds.Contains(s.Id)).AsSplitQuery().ToListAsync(ct)
+            async Task UpsertFingerprintAsync(int fileId, string type, string value, CancellationToken token)
+            {
+                using var innerScope = scopeFactory.CreateScope();
+                var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                var existing = await innerDb.FileFingerprints
+                    .FirstOrDefaultAsync(fp => fp.FileId == fileId && fp.Type == type, token);
+                if (existing != null)
+                    existing.Value = value;
+                else
+                    innerDb.FileFingerprints.Add(new FileFingerprint { FileId = fileId, Type = type, Value = value });
+                await innerDb.SaveChangesAsync(token);
+            }
+
+            var selectedSceneIds = opts?.SceneIds;
+            var hasSceneSelection = selectedSceneIds is { Count: > 0 };
+
+            var scenes = hasSceneSelection
+                ? await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).Where(s => selectedSceneIds!.Contains(s.Id)).AsSplitQuery().ToListAsync(ct)
                 : await dbCtx.Scenes.Include(s => s.Files).ThenInclude(f => f.ParentFolder).Include(s => s.Files).ThenInclude(f => f.Fingerprints).AsSplitQuery().ToListAsync(ct);
 
             // Filter by paths if specified
@@ -74,6 +91,7 @@ public class MetadataController(
                     File = file,
                     Path = file != null ? Path.Combine(file.ParentFolder?.Path ?? "", file.Basename) : "",
                     HasPhash = file?.Fingerprints.Any(f => f.Type == "phash" && !string.IsNullOrWhiteSpace(f.Value)) ?? false,
+                    HasMd5 = file?.Fingerprints.Any(f => f.Type == "md5" && !string.IsNullOrWhiteSpace(f.Value)) ?? false,
                 };
             }).Where(w => w.File != null).ToList();
 
@@ -127,34 +145,37 @@ public class MetadataController(
                 {
                     var phash = await fingerprintService.ComputeVideoPhashAsync(item.Path, item.File!.Duration, token);
                     if (!string.IsNullOrWhiteSpace(phash))
-                    {
-                        // Save immediately with its own DbContext scope (DbContext is not thread-safe)
-                        using var innerScope = scopeFactory.CreateScope();
-                        var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                        var existing = await innerDb.FileFingerprints
-                            .FirstOrDefaultAsync(fp => fp.FileId == item.File!.Id && fp.Type == "phash", token);
-                        if (existing != null)
-                            existing.Value = phash;
-                        else
-                            innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.File!.Id, Type = "phash", Value = phash });
-                        await innerDb.SaveChangesAsync(token);
-                    }
+                        await UpsertFingerprintAsync(item.File!.Id, "phash", phash, token);
+                }
+
+                if (opts?.Md5 == true && (opts?.Overwrite == true || !item.HasMd5))
+                {
+                    var md5 = await fingerprintService.ComputeMd5Async(item.Path, token);
+                    if (!string.IsNullOrWhiteSpace(md5))
+                        await UpsertFingerprintAsync(item.File!.Id, "md5", md5, token);
                 }
 
                 var current = Interlocked.Increment(ref processed);
                 progress.Report((double)current / total, $"Generating ({current}/{total}) {item.Scene.Title ?? "Untitled"}");
             });
 
-            if (opts?.ImagePhashes == true)
+            if (!hasSceneSelection && (opts?.ImagePhashes == true || opts?.ImageThumbnails == true || opts?.Md5 == true))
             {
                 var imageFiles = await dbCtx.ImageFiles
                     .Include(f => f.ParentFolder)
                     .Include(f => f.Fingerprints)
                     .ToListAsync(ct);
 
-                // Filter to only images without phash (unless overwrite)
-                if (opts?.Overwrite != true)
-                    imageFiles = imageFiles.Where(f => !f.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value))).ToList();
+                if (opts?.Paths is { Count: > 0 } imagePaths)
+                {
+                    imageFiles = imageFiles.Where(imageFile =>
+                    {
+                        var imagePath = imageFile.ParentFolder != null
+                            ? Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename)
+                            : imageFile.Basename;
+                        return imagePaths.Any(p => imagePath.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+                    }).ToList();
+                }
 
                 var imageTotal = imageFiles.Count;
                 var imageProcessed = 0;
@@ -167,23 +188,28 @@ public class MetadataController(
 
                     if (System.IO.File.Exists(imagePath))
                     {
-                        var phash = await fingerprintService.ComputeImagePhashAsync(imagePath, token);
-                        if (!string.IsNullOrWhiteSpace(phash))
+                        if (opts?.ImageThumbnails == true && imageFile.ImageId.HasValue)
+                            await thumbnailService.GenerateImageThumbnailAsync(imageFile.ImageId.Value, ct: token);
+
+                        var hasPhash = imageFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value));
+                        if (opts?.ImagePhashes == true && (opts?.Overwrite == true || !hasPhash))
                         {
-                            using var innerScope = scopeFactory.CreateScope();
-                            var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                            var existing = await innerDb.FileFingerprints
-                                .FirstOrDefaultAsync(fp => fp.FileId == imageFile.Id && fp.Type == "phash", token);
-                            if (existing != null)
-                                existing.Value = phash;
-                            else
-                                innerDb.FileFingerprints.Add(new FileFingerprint { FileId = imageFile.Id, Type = "phash", Value = phash });
-                            await innerDb.SaveChangesAsync(token);
+                            var phash = await fingerprintService.ComputeImagePhashAsync(imagePath, token);
+                            if (!string.IsNullOrWhiteSpace(phash))
+                                await UpsertFingerprintAsync(imageFile.Id, "phash", phash, token);
+                        }
+
+                        var hasMd5 = imageFile.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value));
+                        if (opts?.Md5 == true && (opts?.Overwrite == true || !hasMd5))
+                        {
+                            var md5 = await fingerprintService.ComputeMd5Async(imagePath, token);
+                            if (!string.IsNullOrWhiteSpace(md5))
+                                await UpsertFingerprintAsync(imageFile.Id, "md5", md5, token);
                         }
                     }
 
                     var current = Interlocked.Increment(ref imageProcessed);
-                    progress.Report((double)current / imageTotal, $"Image pHashes ({current}/{imageTotal})");
+                    progress.Report((double)current / imageTotal, $"Generating image content ({current}/{imageTotal})");
                 });
             }
         });
@@ -586,6 +612,8 @@ public class MetadataController(
                     .Include(s => s.Urls)
                     .AsSplitQuery().ToListAsync(ct);
 
+            var identifyDefaults = config.Scraping.IdentifyDefaults;
+
             // Build import config from identify options
             var importConfig = new MetadataServerSceneImportRequestDto
             {
@@ -593,9 +621,9 @@ public class MetadataController(
                 SetTags = opts?.SetTags ?? true,
                 SetPerformers = opts?.SetPerformers ?? true,
                 SetStudio = opts?.SetStudio ?? true,
-                OnlyExistingTags = !(opts?.CreateTags ?? true),
-                OnlyExistingPerformers = !(opts?.CreatePerformers ?? true),
-                OnlyExistingStudio = !(opts?.CreateStudios ?? true),
+                OnlyExistingTags = !(opts?.CreateTags ?? identifyDefaults.CreateTags),
+                OnlyExistingPerformers = !(opts?.CreatePerformers ?? identifyDefaults.CreatePerformers),
+                OnlyExistingStudio = !(opts?.CreateStudios ?? identifyDefaults.CreateStudios),
                 MarkOrganized = opts?.MarkOrganized ?? false,
             };
 
@@ -617,11 +645,28 @@ public class MetadataController(
                         var matches = await metadataServerSvc.SearchScenesAsync(scene, null, null, ct);
                         if (matches.Count > 0)
                         {
-                            // Skip multiple matches if configured
-                            if ((opts?.SkipMultipleMatches ?? true) && matches.Count > 1)
+                            var rankedMatches = matches
+                                .Select(match => new
+                                {
+                                    Match = match,
+                                    DurationDifferenceSeconds = GetDurationDifferenceSeconds(scene, match),
+                                    PhashDistance = GetBestPhashDistance(scene, match),
+                                })
+                                .Where(candidate => MeetsIdentifyAutoApplyThresholds(candidate.DurationDifferenceSeconds, candidate.PhashDistance, identifyDefaults))
+                                .OrderByDescending(candidate => candidate.Match.MatchCount)
+                                .ThenBy(candidate => candidate.PhashDistance ?? int.MaxValue)
+                                .ThenBy(candidate => candidate.DurationDifferenceSeconds ?? double.MaxValue)
+                                .Select(candidate => candidate.Match)
+                                .ToList();
+
+                            if (rankedMatches.Count == 0)
                                 continue;
 
-                            var best = matches[0];
+                            // Skip multiple matches if configured
+                            if ((opts?.SkipMultipleMatches ?? true) && rankedMatches.Count > 1)
+                                continue;
+
+                            var best = rankedMatches[0];
                             await metadataServerSvc.MergeSceneAsync(scene, best.Endpoint, best.Id, importConfig, ct);
                             await dbCtx.SaveChangesAsync(ct);
                         }
@@ -638,6 +683,62 @@ public class MetadataController(
         }, exclusive: false);
 
         return Ok(new { jobId });
+    }
+
+    private static bool MeetsIdentifyAutoApplyThresholds(double? durationDifferenceSeconds, int? phashDistance, IdentifyDefaultsConfig identifyDefaults)
+    {
+        if (identifyDefaults.AutoApplyMaxDurationDifferenceSeconds is int maxDurationDifferenceSeconds)
+        {
+            if (!durationDifferenceSeconds.HasValue || durationDifferenceSeconds.Value > maxDurationDifferenceSeconds)
+                return false;
+        }
+
+        if (identifyDefaults.AutoApplyMaxPhashDistance is int maxPhashDistance)
+        {
+            if (!phashDistance.HasValue || phashDistance.Value > maxPhashDistance)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static double? GetDurationDifferenceSeconds(Scene scene, MetadataServerSceneMatchDto match)
+    {
+        var localDuration = scene.Files.Select(file => (double?)file.Duration).Max();
+        return localDuration.HasValue && match.Duration.HasValue
+            ? Math.Abs(localDuration.Value - match.Duration.Value)
+            : null;
+    }
+
+    private static int? GetBestPhashDistance(Scene scene, MetadataServerSceneMatchDto match)
+    {
+        var localPhashes = scene.Files
+            .SelectMany(file => file.Fingerprints)
+            .Where(fingerprint => string.Equals(fingerprint.Type, "phash", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(fingerprint.Value))
+            .Select(fingerprint => fingerprint.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var remotePhashes = match.Fingerprints
+            .Where(fingerprint => string.Equals(fingerprint.Algorithm, "PHASH", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(fingerprint.Hash))
+            .Select(fingerprint => fingerprint.Hash)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (localPhashes.Count == 0 || remotePhashes.Count == 0)
+            return null;
+
+        int? bestDistance = null;
+        foreach (var localPhash in localPhashes)
+        {
+            foreach (var remotePhash in remotePhashes)
+            {
+                var distance = MetadataServerService.ComputePhashHammingDistance(localPhash, remotePhash);
+                bestDistance = bestDistance.HasValue ? Math.Min(bestDistance.Value, distance) : distance;
+            }
+        }
+
+        return bestDistance;
     }
 
     [HttpPost("sync-fingerprints")]
