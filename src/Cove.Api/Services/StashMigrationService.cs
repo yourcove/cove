@@ -1680,7 +1680,7 @@ WHERE files.zip_file_id IS NOT NULL";
         var value = rawValue switch
         {
             byte[] fpBytes => Encoding.UTF8.GetString(fpBytes),
-            long number when string.Equals(type, "phash", StringComparison.OrdinalIgnoreCase) => unchecked((ulong)number).ToString("x16"),
+            long number when string.Equals(type, "phash", StringComparison.OrdinalIgnoreCase) => unchecked((ulong)number).ToString("x"),
             long number => number.ToString(CultureInfo.InvariantCulture),
             _ => rawValue?.ToString() ?? string.Empty,
         };

@@ -1066,6 +1066,9 @@ public class StudioRepository : IStudioRepository
         if (findFilter != null && !string.IsNullOrEmpty(findFilter.Q))
             query = query.Where(s => EF.Functions.ILike(s.Name, $"%{findFilter.Q}%"));
 
+        if (filter == null || !filter.ParentId.HasValue)
+            query = query.Where(s => s.ParentId == null);
+
         var totalCount = await query.CountAsync(ct);
         var sort = findFilter?.Sort ?? "name";
         var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
