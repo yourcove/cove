@@ -416,7 +416,7 @@ export function ListPage({
 
             {/* Direction toggle */}
             <button
-              onClick={() => onFilterChange({ ...filter, direction: filter.direction === "desc" ? "asc" : "desc" })}
+              onClick={() => onFilterChange(withSeededRandomSort(filter, { ...filter, direction: filter.direction === "desc" ? "asc" : "desc" }))}
               className={toolbarIconButtonClass}
               title={filter.direction === "desc" ? "Sort descending" : "Sort ascending"}
             >

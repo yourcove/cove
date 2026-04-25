@@ -78,7 +78,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
       {/* Direction */}
       <button
-        onClick={() => onFilterChange({ ...filter, direction: filter.direction === "asc" ? "desc" : "asc", page: 1 })}
+        onClick={() => onFilterChange(withSeededRandomSort(filter, { ...filter, direction: filter.direction === "asc" ? "desc" : "asc", page: 1 }))}
         className="rounded border border-border bg-input p-1 text-secondary hover:text-foreground transition-colors"
         title={filter.direction === "asc" ? "Ascending" : "Descending"}
       >

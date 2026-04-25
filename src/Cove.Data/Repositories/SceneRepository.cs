@@ -338,7 +338,7 @@ public class SceneRepository : ISceneRepository
     private static IQueryable<Scene> ApplySorting(IQueryable<Scene> query, string sort, bool desc, int? seed = null)
     {
         if (sort == "random")
-            return SeededRandomOrdering.OrderBy(query, seed, scene => scene.Id);
+            return SeededRandomOrdering.OrderBy(query, seed, scene => scene.Id, desc);
 
         return ApplySortingSwitch(query, sort, desc);
     }

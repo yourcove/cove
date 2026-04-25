@@ -194,6 +194,7 @@ public class PerformerFilter
     public StringCriterion? CircumcisedCriterion { get; set; }
     public DateCriterion? CareerStartCriterion { get; set; }
     public DateCriterion? CareerEndCriterion { get; set; }
+    public IntCriterion? CareerLengthCriterion { get; set; }
     public StringCriterion? TattooCriterion { get; set; }
     public StringCriterion? PiercingsCriterion { get; set; }
     public StringCriterion? AliasesCriterion { get; set; }

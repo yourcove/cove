@@ -308,6 +308,44 @@ public class PerformerFilterBehaviorTests
         Assert.Equal(["Has PMV Value"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
     }
 
+    [Fact]
+    public async Task CareerLengthCriterion_FiltersByComputedCareerYears()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        context.Performers.AddRange(
+            new Performer
+            {
+                Name = "Long Career",
+                CareerStart = new DateOnly(2010, 1, 1),
+                CareerEnd = new DateOnly(2024, 1, 1),
+            },
+            new Performer
+            {
+                Name = "Short Career",
+                CareerStart = new DateOnly(2021, 1, 1),
+                CareerEnd = new DateOnly(2024, 1, 1),
+            },
+            new Performer { Name = "Unknown Career" });
+        await context.SaveChangesAsync();
+
+        var repository = new PerformerRepository(context);
+        var filter = new PerformerFilter
+        {
+            CareerLengthCriterion = new IntCriterion
+            {
+                Value = 10,
+                Modifier = CriterionModifier.GreaterThan,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["Long Career"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
+    }
+
     private static Performer CreatePerformer(string name, params Studio[] studios)
     {
         var performer = new Performer { Name = name };

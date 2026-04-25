@@ -18,15 +18,9 @@ import { createRouteLinkProps } from "../components/cardNavigation";
 import { SCENE_SORT_OPTIONS } from "../components/sceneSortOptions";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
+import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 
-const PERFORMER_SORT = [
-  { value: "name", label: "Name" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "rating", label: "Rating" },
-  { value: "scene_count", label: "Scene Count" },
-  { value: "random", label: "Random" },
-];
+const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = [
   { value: "updated_at", label: "Updated At" },
   { value: "created_at", label: "Created At" },

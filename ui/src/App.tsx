@@ -51,12 +51,12 @@ export default function App() {
       navigateToUrl(buildCurrentUrl("/", window.location.search), { replace: true });
     }
 
-    syncRouteHistory();
+    syncRouteHistory("push");
   }, []);
 
   useEffect(() => {
-    const handleLocationChange = () => {
-      syncRouteHistory();
+    const handleLocationChange = (event: Event) => {
+      syncRouteHistory(event.type === "popstate" ? "history" : "push");
       setRoute(parseCurrentRoute());
     };
     window.addEventListener("popstate", handleLocationChange);

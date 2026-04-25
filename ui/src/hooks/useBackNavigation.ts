@@ -1,12 +1,8 @@
-import { useMemo } from "react";
 import type { Route } from "../router/location";
 import { getPreviousInternalRoute } from "../router/location";
 
 export function useBackNavigation(fallbackRoute: Route, onNavigate: (route: Route) => void) {
-  const backTarget = useMemo(
-    () => getPreviousInternalRoute(fallbackRoute),
-    [fallbackRoute.id, fallbackRoute.page],
-  );
+  const backTarget = getPreviousInternalRoute(fallbackRoute);
 
   const goBack = () => {
     if (backTarget.hasHistory) {

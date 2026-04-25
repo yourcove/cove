@@ -279,6 +279,99 @@ public class RepositorySortBehaviorTests
     }
 
     [Fact]
+    public async Task PerformerRepository_SupportsComputedCareerFavoritePlaybackMeasurementHeightAndPlayCountSorts()
+    {
+        await using var context = CreateContext();
+
+        var leader = new Performer
+        {
+            Name = "Leader",
+            HeightCm = 190,
+            Measurements = "100A-24-36",
+            CareerStart = new DateOnly(2010, 1, 1),
+            CareerEnd = new DateOnly(2024, 1, 1),
+        };
+
+        var middle = new Performer
+        {
+            Name = "Middle",
+            HeightCm = 165,
+            Measurements = "32B-24-32",
+            CareerStart = new DateOnly(2018, 1, 1),
+            CareerEnd = new DateOnly(2024, 1, 1),
+        };
+
+        var compact = new Performer
+        {
+            Name = "Compact",
+            HeightCm = 150,
+            Measurements = "9A-23-30",
+            CareerStart = new DateOnly(2020, 1, 1),
+            CareerEnd = new DateOnly(2024, 1, 1),
+        };
+
+        var quiet = new Performer
+        {
+            Name = "Quiet",
+            HeightCm = 0,
+        };
+
+        var leaderScene = new Scene
+        {
+            Title = "leader-scene",
+            PlayCount = 12,
+            OCounter = 8,
+            LastPlayedAt = new DateTime(2024, 1, 15, 12, 0, 0, DateTimeKind.Utc),
+        };
+        leaderScene.ScenePerformers.Add(new ScenePerformer { Scene = leaderScene, Performer = leader });
+        leaderScene.OHistory.Add(new SceneOHistory { OccurredAt = new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc) });
+
+        var middleScene = new Scene
+        {
+            Title = "middle-scene",
+            PlayCount = 4,
+            OCounter = 2,
+            LastPlayedAt = new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc),
+        };
+        middleScene.ScenePerformers.Add(new ScenePerformer { Scene = middleScene, Performer = middle });
+        middleScene.OHistory.Add(new SceneOHistory { OccurredAt = new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc) });
+
+        var compactScene = new Scene
+        {
+            Title = "compact-scene",
+            PlayCount = 1,
+            OCounter = 1,
+            LastPlayedAt = new DateTime(2024, 1, 5, 12, 0, 0, DateTimeKind.Utc),
+        };
+        compactScene.ScenePerformers.Add(new ScenePerformer { Scene = compactScene, Performer = compact });
+        compactScene.OHistory.Add(new SceneOHistory { OccurredAt = new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc) });
+
+        context.Performers.AddRange(leader, middle, compact, quiet);
+        context.Scenes.AddRange(leaderScene, middleScene, compactScene);
+        await context.SaveChangesAsync();
+
+        var repository = new PerformerRepository(context);
+
+        var (careerItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "career_length", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (favoriteItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_o_at", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (playedItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_played_at", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (heightDescItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "height", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (heightAscItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "height", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (measurementItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "measurements", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (favoritesItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "o_counter", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (playCountItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "play_count", Direction = Cove.Core.Enums.SortDirection.Desc });
+
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], careerItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], favoriteItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], playedItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], heightDescItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Compact", "Middle", "Leader", "Quiet"], heightAscItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], measurementItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], favoritesItems.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], playCountItems.Select(performer => performer.Name).ToArray());
+    }
+
+    [Fact]
     public async Task RatingSorts_PlaceUnratedAndZeroRatedItemsFirstWhenSortingAscending()
     {
         await using var context = CreateContext();
@@ -415,6 +508,102 @@ public class RepositorySortBehaviorTests
         Assert.Equal(["alpha-scene", "beta-scene"], ageItems.Select(scene => scene.Title ?? string.Empty).ToArray());
         Assert.Equal(["alpha-scene", "beta-scene"], studioItems.Select(scene => scene.Title ?? string.Empty).ToArray());
         Assert.Equal(["alpha-scene", "beta-scene"], codeItems.Select(scene => scene.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task RandomSort_RespectsAscendingAndDescendingAcrossRepositories()
+    {
+        await using var context = CreateContext();
+
+        context.Performers.AddRange(
+            new Performer { Name = "Performer One" },
+            new Performer { Name = "Performer Two" },
+            new Performer { Name = "Performer Three" },
+            new Performer { Name = "Performer Four" },
+            new Performer { Name = "Performer Five" },
+            new Performer { Name = "Performer Six" });
+        context.Tags.AddRange(
+            new Tag { Name = "Tag One" },
+            new Tag { Name = "Tag Two" },
+            new Tag { Name = "Tag Three" },
+            new Tag { Name = "Tag Four" },
+            new Tag { Name = "Tag Five" },
+            new Tag { Name = "Tag Six" });
+        context.Studios.AddRange(
+            new Studio { Name = "Studio One" },
+            new Studio { Name = "Studio Two" },
+            new Studio { Name = "Studio Three" },
+            new Studio { Name = "Studio Four" },
+            new Studio { Name = "Studio Five" },
+            new Studio { Name = "Studio Six" });
+        context.Galleries.AddRange(
+            new Gallery { Title = "Gallery One" },
+            new Gallery { Title = "Gallery Two" },
+            new Gallery { Title = "Gallery Three" },
+            new Gallery { Title = "Gallery Four" },
+            new Gallery { Title = "Gallery Five" },
+            new Gallery { Title = "Gallery Six" });
+        context.Images.AddRange(
+            new Image { Title = "Image One" },
+            new Image { Title = "Image Two" },
+            new Image { Title = "Image Three" },
+            new Image { Title = "Image Four" },
+            new Image { Title = "Image Five" },
+            new Image { Title = "Image Six" });
+        context.Groups.AddRange(
+            new Group { Name = "Group One" },
+            new Group { Name = "Group Two" },
+            new Group { Name = "Group Three" },
+            new Group { Name = "Group Four" },
+            new Group { Name = "Group Five" },
+            new Group { Name = "Group Six" });
+        context.Scenes.AddRange(
+            new Scene { Title = "Scene One" },
+            new Scene { Title = "Scene Two" },
+            new Scene { Title = "Scene Three" },
+            new Scene { Title = "Scene Four" },
+            new Scene { Title = "Scene Five" },
+            new Scene { Title = "Scene Six" });
+        await context.SaveChangesAsync();
+
+        const int seed = 17;
+        var performerRepository = new PerformerRepository(context);
+        var tagRepository = new TagRepository(context);
+        var studioRepository = new StudioRepository(context);
+        var galleryRepository = new GalleryRepository(context);
+        var imageRepository = new ImageRepository(context);
+        var groupRepository = new GroupRepository(context);
+        var sceneRepository = new SceneRepository(context);
+
+        var (performerAsc, _) = await performerRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (performerDesc, _) = await performerRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (tagAsc, _) = await tagRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (tagDesc, _) = await tagRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (studioAsc, _) = await studioRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (studioDesc, _) = await studioRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (galleryAsc, _) = await galleryRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (galleryDesc, _) = await galleryRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (imageAsc, _) = await imageRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (imageDesc, _) = await imageRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (groupAsc, _) = await groupRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (groupDesc, _) = await groupRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (sceneAsc, _) = await sceneRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
+        var (sceneDesc, _) = await sceneRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+
+        Assert.NotEqual(["Performer One", "Performer Two", "Performer Three", "Performer Four", "Performer Five", "Performer Six"], performerAsc.Select(item => item.Name).ToArray());
+        Assert.NotEqual(["Tag One", "Tag Two", "Tag Three", "Tag Four", "Tag Five", "Tag Six"], tagAsc.Select(item => item.Name).ToArray());
+        Assert.NotEqual(["Studio One", "Studio Two", "Studio Three", "Studio Four", "Studio Five", "Studio Six"], studioAsc.Select(item => item.Name).ToArray());
+        Assert.NotEqual(["Gallery One", "Gallery Two", "Gallery Three", "Gallery Four", "Gallery Five", "Gallery Six"], galleryAsc.Select(item => item.Title ?? string.Empty).ToArray());
+        Assert.NotEqual(["Image One", "Image Two", "Image Three", "Image Four", "Image Five", "Image Six"], imageAsc.Select(item => item.Title ?? string.Empty).ToArray());
+        Assert.NotEqual(["Group One", "Group Two", "Group Three", "Group Four", "Group Five", "Group Six"], groupAsc.Select(item => item.Name).ToArray());
+        Assert.NotEqual(["Scene One", "Scene Two", "Scene Three", "Scene Four", "Scene Five", "Scene Six"], sceneAsc.Select(item => item.Title ?? string.Empty).ToArray());
+        Assert.Equal(performerAsc.Select(item => item.Name).Reverse().ToArray(), performerDesc.Select(item => item.Name).ToArray());
+        Assert.Equal(tagAsc.Select(item => item.Name).Reverse().ToArray(), tagDesc.Select(item => item.Name).ToArray());
+        Assert.Equal(studioAsc.Select(item => item.Name).Reverse().ToArray(), studioDesc.Select(item => item.Name).ToArray());
+        Assert.Equal(galleryAsc.Select(item => item.Title ?? string.Empty).Reverse().ToArray(), galleryDesc.Select(item => item.Title ?? string.Empty).ToArray());
+        Assert.Equal(imageAsc.Select(item => item.Title ?? string.Empty).Reverse().ToArray(), imageDesc.Select(item => item.Title ?? string.Empty).ToArray());
+        Assert.Equal(groupAsc.Select(item => item.Name).Reverse().ToArray(), groupDesc.Select(item => item.Name).ToArray());
+        Assert.Equal(sceneAsc.Select(item => item.Title ?? string.Empty).Reverse().ToArray(), sceneDesc.Select(item => item.Title ?? string.Empty).ToArray());
     }
 
     private static Scene CreateSceneWithTag(string title, Tag tag)

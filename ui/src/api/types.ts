@@ -978,6 +978,7 @@ export interface PerformerFilterCriteria {
   circumcisedCriterion?: StringCriterion;
   careerStartCriterion?: DateCriterion;
   careerEndCriterion?: DateCriterion;
+  careerLengthCriterion?: IntCriterion;
   tattooCriterion?: StringCriterion;
   piercingsCriterion?: StringCriterion;
   aliasesCriterion?: StringCriterion;

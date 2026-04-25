@@ -4,7 +4,7 @@ import { performers, tags as tagsApi, entityImages } from "../api/client";
 import { ImageInput } from "../components/ImageInput";
 import type { Performer, PerformerUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, NumberInput, SaveButton } from "../components/EditModal";
-import { RatingField } from "../components/Rating";
+import { InteractiveRatingField } from "../components/Rating";
 import { CustomFieldsEditor } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 
@@ -52,7 +52,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [circumcised, setCircumcised] = useState(performer.circumcised || "");
   const [careerStart, setCareerStart] = useState(performer.careerStart || "");
   const [careerEnd, setCareerEnd] = useState(performer.careerEnd || "");
-  const [favorite, setFavorite] = useState(performer.favorite);
   const [ignoreAutoTag, setIgnoreAutoTag] = useState(performer.ignoreAutoTag ?? false);
   const [urls, setUrls] = useState(performer.urls.length > 0 ? performer.urls : [""]);
   const [aliases, setAliases] = useState(performer.aliases.join(", "));
@@ -89,7 +88,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     setCircumcised(performer.circumcised || "");
     setCareerStart(performer.careerStart || "");
     setCareerEnd(performer.careerEnd || "");
-    setFavorite(performer.favorite);
     setIgnoreAutoTag(performer.ignoreAutoTag ?? false);
     setUrls(performer.urls.length > 0 ? performer.urls : [""]);
     setAliases(performer.aliases.join(", "));
@@ -131,7 +129,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       careerEnd: careerEnd || undefined,
       rating,
       details: details || undefined,
-      favorite,
       ignoreAutoTag,
       urls: urlList,
       aliases: aliasList,
@@ -278,7 +275,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       </Field>
 
       <div className="grid grid-cols-2 gap-4">
-        <RatingField value={rating} onChange={setRating} />
+        <InteractiveRatingField value={rating} onChange={setRating} label="Rating" />
         <Field label="Aliases (comma-separated)">
           <TextInput value={aliases} onChange={setAliases} placeholder="Alias 1, Alias 2" />
         </Field>
@@ -319,10 +316,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       </Field>
 
       <div className="flex gap-6 mb-4">
-        <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer">
-          <input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} className="rounded border-border bg-card" />
-          Favorite
-        </label>
         <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer">
           <input type="checkbox" checked={ignoreAutoTag} onChange={(e) => setIgnoreAutoTag(e.target.checked)} className="rounded border-border bg-card" />
           Ignore Auto Tag

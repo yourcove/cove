@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ListPage } from "../components/ListPage";
 import { SCENE_CRITERIA } from "../components/FilterDialog";
@@ -139,5 +140,38 @@ describe("ListPage active filter chips", () => {
     });
 
     expect(screen.getByRole("slider")).toHaveValue("2");
+  });
+
+  it("preserves the random seed when toggling list sort direction", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const onFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Scenes"
+            filter={{ page: 1, perPage: 40, sort: "random", direction: "desc", seed: 12345 }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[{ value: "random", label: "Random" }]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    await user.click(screen.getByTitle("Sort descending"));
+
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: "random", direction: "asc", seed: 12345 }));
   });
 });

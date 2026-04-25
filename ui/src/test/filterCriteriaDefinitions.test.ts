@@ -82,6 +82,9 @@ describe("filter criteria definitions", () => {
     expect(performerCriteriaById.get("markerCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("playCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("oCounter")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("careerLength")?.label).toBe("Career Length");
+    expect(performerCriteriaById.get("careerLength")?.type).toBe("careerLength");
+    expect(performerCriteriaById.get("careerLength")?.modifiers).toBeUndefined();
     expect(performerCriteriaById.get("tagCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("createdAt")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("updatedAt")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);

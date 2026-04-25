@@ -33,7 +33,7 @@ import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "number" | "bool" | "date" | "timestamp" | "duration" | "rating" | "resolution" | "multiId" | "enum" | "hash";
+export type CriterionType = "string" | "number" | "bool" | "date" | "timestamp" | "duration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
 export type EntityType = "tags" | "performers" | "studios" | "groups" | "galleries" | "scenes";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -79,6 +79,7 @@ const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   date: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
   timestamp: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
   duration: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"],
+  careerLength: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"],
   rating: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
   resolution: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN"],
   multiId: ["INCLUDES", "INCLUDES_ALL", "EXCLUDES", "EXCLUDES_ALL"],
@@ -165,6 +166,7 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
         : hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
     case "number":
     case "duration":
+    case "careerLength":
     case "rating":
     case "resolution":
       return hasNumericCriterionValue(value as { modifier?: CriterionModifier; value?: number; value2?: number });
@@ -281,6 +283,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   ] },
   { id: "careerStart", label: "Career Start", type: "date", filterKey: "careerStartCriterion" },
   { id: "careerEnd", label: "Career End", type: "date", filterKey: "careerEndCriterion" },
+  { id: "careerLength", label: "Career Length", type: "careerLength", filterKey: "careerLengthCriterion" },
   { id: "tattoos", label: "Tattoos", type: "string", filterKey: "tattooCriterion" },
   { id: "piercings", label: "Piercings", type: "string", filterKey: "piercingsCriterion" },
   { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
@@ -787,6 +790,7 @@ function CriterionEditor({
       return <RatingFilterEditor value={value as IntCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "number":
     case "duration":
+    case "careerLength":
     case "resolution":
       return (
         <NumberEditor
@@ -875,6 +879,8 @@ function NumberEditor({
             <DurationInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
           ) : type === "resolution" ? (
             <ResolutionSelect value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
+          ) : type === "careerLength" ? (
+            <CareerLengthInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
           ) : (
             <input
               type="number"
@@ -888,6 +894,8 @@ function NumberEditor({
               <span className="text-xs text-muted">and</span>
               {type === "duration" ? (
                 <DurationInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} />
+              ) : type === "careerLength" ? (
+                <CareerLengthInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} />
               ) : (
                 <input
                   type="number"
@@ -1553,6 +1561,45 @@ function DurationInput({ value, onChange }: { value: number; onChange: (v: numbe
       placeholder="H:MM:SS"
       className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
     />
+  );
+}
+
+// CareerLengthInput stores its value as integer years (the backend's unit). The
+// user can optionally enter a value in months and it will be converted to years
+// (rounded to the nearest year, minimum 1 if any months were entered).
+function CareerLengthInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [unit, setUnit] = useState<"years" | "months">("years");
+  const display = unit === "years" ? value : value * 12;
+
+  const handleAmountChange = (amount: number) => {
+    if (unit === "years") {
+      onChange(amount);
+    } else {
+      // Convert months to years: round to nearest, but if any months entered round up to at least 1.
+      const years = Math.round(amount / 12);
+      onChange(amount > 0 && years === 0 ? 1 : years);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        min={0}
+        value={display === 0 ? "" : display}
+        onChange={(e) => handleAmountChange(e.target.value === "" ? 0 : Number(e.target.value))}
+        className="w-20 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+      />
+      <select
+        value={unit}
+        onChange={(e) => setUnit(e.target.value as "years" | "months")}
+        aria-label="Career length unit"
+        className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+      >
+        <option value="years">Years</option>
+        <option value="months">Months</option>
+      </select>
+    </div>
   );
 }
 

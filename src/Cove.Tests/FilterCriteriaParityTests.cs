@@ -140,6 +140,7 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.CircumcisedCriterion);
         Assert.Null(filter.CareerStartCriterion);
         Assert.Null(filter.CareerEndCriterion);
+        Assert.Null(filter.CareerLengthCriterion);
         Assert.Null(filter.TattooCriterion);
         Assert.Null(filter.PiercingsCriterion);
         Assert.Null(filter.AliasesCriterion);
@@ -184,6 +185,22 @@ public class FilterCriteriaParityTests
         Assert.NotNull(result?.ObjectFilter?.StudioCountCriterion);
         Assert.Equal(2, result.ObjectFilter.StudioCountCriterion.Value);
         Assert.Equal(CriterionModifier.Equals, result.ObjectFilter.StudioCountCriterion.Modifier);
+    }
+
+    [Fact]
+    public void PerformerFilter_CareerLengthCriterion_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "careerLengthCriterion": { "value": 5, "modifier": "greaterThan" }
+            }
+        }
+        """;
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+        Assert.NotNull(result?.ObjectFilter?.CareerLengthCriterion);
+        Assert.Equal(5, result.ObjectFilter.CareerLengthCriterion.Value);
+        Assert.Equal(CriterionModifier.GreaterThan, result.ObjectFilter.CareerLengthCriterion.Modifier);
     }
 
     [Fact]

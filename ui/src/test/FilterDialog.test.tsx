@@ -137,4 +137,59 @@ describe("FilterDialog", () => {
       sceneCountIncludesChildren: true,
     }));
   });
+
+  it("renders the career length filter with a years/months unit selector", () => {
+    const onApply = vi.fn();
+
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={PERFORMER_CRITERIA}
+        activeFilter={{}}
+        onApply={onApply}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Career Length"));
+
+    const unitSelect = screen.getByLabelText("Career length unit") as HTMLSelectElement;
+    expect(unitSelect.value).toBe("years");
+
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      careerLengthCriterion: expect.objectContaining({
+        modifier: "EQUALS",
+        value: 3,
+      }),
+    }));
+  });
+
+  it("converts career length entered in months into whole years before applying", () => {
+    const onApply = vi.fn();
+
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={PERFORMER_CRITERIA}
+        activeFilter={{}}
+        onApply={onApply}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Career Length"));
+    fireEvent.change(screen.getByLabelText("Career length unit"), { target: { value: "months" } });
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      careerLengthCriterion: expect.objectContaining({
+        modifier: "EQUALS",
+        value: 3,
+      }),
+    }));
+  });
 });

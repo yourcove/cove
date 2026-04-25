@@ -16,6 +16,7 @@ import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { createNestedRouteLinkProps } from "../components/cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
+import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 
 /** Convert 2-letter ISO country code to flag emoji */
 function countryToFlag(code: string): string {
@@ -24,20 +25,7 @@ function countryToFlag(code: string): string {
   return String.fromCodePoint(...[...upper].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
 }
 
-const SORT_OPTIONS = [
-  { value: "name", label: "Name" },
-  { value: "scene_count", label: "Scene Count" },
-  { value: "image_count", label: "Image Count" },
-  { value: "gallery_count", label: "Gallery Count" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "rating", label: "Rating" },
-  { value: "birthdate", label: "Birthdate" },
-  { value: "height", label: "Height" },
-  { value: "weight", label: "Weight" },
-  { value: "created_at", label: "Created At" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "random", label: "Random" },
-];
+const SORT_OPTIONS = PERFORMER_SORT_OPTIONS;
 
 interface Props {
   onNavigate: (r: any) => void;

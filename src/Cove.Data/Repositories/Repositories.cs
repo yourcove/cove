@@ -11,6 +11,192 @@ public class PerformerRepository : IPerformerRepository
     private readonly CoveContext _db;
     public PerformerRepository(CoveContext db) => _db = db;
 
+    private static IQueryable<Performer> ApplyCareerLengthCriterion(IQueryable<Performer> query, IntCriterion? criterion)
+    {
+        if (criterion == null)
+            return query;
+
+        var upperBound = criterion.Value2 ?? criterion.Value;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var lengthQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            HasCareer = performer.CareerStart != null,
+            CareerLength = performer.CareerStart == null
+                ? 0
+                : ((performer.CareerEnd ?? today).Year - performer.CareerStart.Value.Year)
+                    - (((performer.CareerEnd ?? today).Month < performer.CareerStart.Value.Month)
+                        || (((performer.CareerEnd ?? today).Month == performer.CareerStart.Value.Month)
+                            && ((performer.CareerEnd ?? today).Day < performer.CareerStart.Value.Day))
+                        ? 1
+                        : 0),
+        });
+
+        var filtered = criterion.Modifier switch
+        {
+            CriterionModifier.Equals => lengthQuery.Where(item => item.HasCareer && item.CareerLength == criterion.Value),
+            CriterionModifier.NotEquals => lengthQuery.Where(item => !item.HasCareer || item.CareerLength != criterion.Value),
+            CriterionModifier.GreaterThan => lengthQuery.Where(item => item.HasCareer && item.CareerLength > criterion.Value),
+            CriterionModifier.LessThan => lengthQuery.Where(item => item.HasCareer && item.CareerLength < criterion.Value),
+            CriterionModifier.Between => lengthQuery.Where(item => item.HasCareer && item.CareerLength >= criterion.Value && item.CareerLength <= upperBound),
+            CriterionModifier.NotBetween => lengthQuery.Where(item => !item.HasCareer || item.CareerLength < criterion.Value || item.CareerLength > upperBound),
+            CriterionModifier.IsNull => lengthQuery.Where(item => !item.HasCareer),
+            CriterionModifier.NotNull => lengthQuery.Where(item => item.HasCareer),
+            _ => lengthQuery,
+        };
+
+        return filtered.Select(item => item.Performer);
+    }
+
+    private static IQueryable<Performer> ApplyCareerLengthSort(IQueryable<Performer> query, bool desc)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var sortQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            HasCareer = performer.CareerStart != null,
+            CareerLength = performer.CareerStart == null
+                ? 0
+                : ((performer.CareerEnd ?? today).Year - performer.CareerStart.Value.Year)
+                    - (((performer.CareerEnd ?? today).Month < performer.CareerStart.Value.Month)
+                        || (((performer.CareerEnd ?? today).Month == performer.CareerStart.Value.Month)
+                            && ((performer.CareerEnd ?? today).Day < performer.CareerStart.Value.Day))
+                        ? 1
+                        : 0),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.HasCareer ? 0 : 1).ThenByDescending(item => item.CareerLength).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
+            : sortQuery.OrderBy(item => item.HasCareer ? 0 : 1).ThenBy(item => item.CareerLength).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+    }
+
+    private static IQueryable<Performer> ApplyHeightSort(IQueryable<Performer> query, bool desc)
+    {
+        var sortQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            HasHeight = performer.HeightCm != null && performer.HeightCm > 0,
+            Height = performer.HeightCm ?? 0,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.HasHeight ? 0 : 1).ThenByDescending(item => item.Height).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
+            : sortQuery.OrderBy(item => item.HasHeight ? 0 : 1).ThenBy(item => item.Height).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+    }
+
+    private static IQueryable<Performer> ApplyLastFavoriteSort(IQueryable<Performer> query, bool desc)
+    {
+        var sortQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            LastFavoriteAt = performer.ScenePerformers
+                .SelectMany(scenePerformer => scenePerformer.Scene!.OHistory)
+                .Select(history => (DateTime?)history.OccurredAt)
+                .Max(),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenByDescending(item => item.LastFavoriteAt).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
+            : sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenBy(item => item.LastFavoriteAt).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+    }
+
+    private static IQueryable<Performer> ApplyLastPlayedAtSort(IQueryable<Performer> query, bool desc)
+    {
+        var sortQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            HasLastPlayedAt = performer.ScenePerformers.Any(scenePerformer => scenePerformer.Scene != null && scenePerformer.Scene.LastPlayedAt != null),
+            LastPlayedAt = performer.ScenePerformers
+                .Select(scenePerformer => scenePerformer.Scene!.LastPlayedAt)
+                .Max(),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.HasLastPlayedAt ? 0 : 1).ThenByDescending(item => item.LastPlayedAt).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
+            : sortQuery.OrderBy(item => item.HasLastPlayedAt ? 0 : 1).ThenBy(item => item.LastPlayedAt).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+    }
+
+    private static IQueryable<Performer> ApplyPlayCountSort(IQueryable<Performer> query, bool desc)
+    {
+        var sortQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            HasPlayCount = performer.ScenePerformers.Any(scenePerformer => scenePerformer.Scene != null && scenePerformer.Scene.PlayCount > 0),
+            PlayCount = performer.ScenePerformers.Select(scenePerformer => (int?)scenePerformer.Scene!.PlayCount).Sum() ?? 0,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.HasPlayCount ? 0 : 1).ThenByDescending(item => item.PlayCount).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
+            : sortQuery.OrderBy(item => item.HasPlayCount ? 0 : 1).ThenBy(item => item.PlayCount).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+    }
+
+    private static IQueryable<Performer> ApplyMeasurementsSort(IQueryable<Performer> query, bool desc)
+    {
+        var measuredQuery = query.Select(performer => new
+        {
+            Performer = performer,
+            HasMeasurements = performer.Measurements != null && performer.Measurements != string.Empty,
+            NormalizedMeasurements = performer.Measurements == null ? string.Empty : performer.Measurements.Trim().ToUpper(),
+            FirstHyphen = performer.Measurements == null ? -1 : performer.Measurements.IndexOf("-"),
+        });
+
+        var segmentedQuery = measuredQuery.Select(item => new
+        {
+            item.Performer,
+            item.HasMeasurements,
+            BustSegment = item.FirstHyphen > 0
+                ? item.NormalizedMeasurements.Substring(0, item.FirstHyphen)
+                : item.NormalizedMeasurements,
+            RemainingSegments = item.FirstHyphen >= 0
+                ? item.NormalizedMeasurements.Substring(item.FirstHyphen + 1)
+                : string.Empty,
+        });
+
+        var sortQuery = segmentedQuery.Select(item => new
+        {
+            item.Performer,
+            item.HasMeasurements,
+            item.BustSegment,
+            RemainingHyphen = item.RemainingSegments.IndexOf("-"),
+            item.RemainingSegments,
+        });
+
+        var normalizedQuery = sortQuery.Select(item => new
+        {
+            item.Performer,
+            item.HasMeasurements,
+            item.BustSegment,
+            WaistSegment = item.RemainingHyphen > 0
+                ? item.RemainingSegments.Substring(0, item.RemainingHyphen)
+                : item.RemainingSegments,
+            HipsSegment = item.RemainingHyphen >= 0
+                ? item.RemainingSegments.Substring(item.RemainingHyphen + 1)
+                : string.Empty,
+        });
+
+        return desc
+            ? normalizedQuery
+                .OrderBy(item => item.HasMeasurements ? 0 : 1)
+                .ThenByDescending(item => item.BustSegment.Length)
+                .ThenByDescending(item => item.BustSegment)
+                .ThenByDescending(item => item.WaistSegment.Length)
+                .ThenByDescending(item => item.WaistSegment)
+                .ThenByDescending(item => item.HipsSegment.Length)
+                .ThenByDescending(item => item.HipsSegment)
+                .ThenByDescending(item => item.Performer.Id)
+                .Select(item => item.Performer)
+            : normalizedQuery
+                .OrderBy(item => item.HasMeasurements ? 0 : 1)
+                .ThenBy(item => item.BustSegment.Length)
+                .ThenBy(item => item.BustSegment)
+                .ThenBy(item => item.WaistSegment.Length)
+                .ThenBy(item => item.WaistSegment)
+                .ThenBy(item => item.HipsSegment.Length)
+                .ThenBy(item => item.HipsSegment)
+                .ThenBy(item => item.Performer.Id)
+                .Select(item => item.Performer);
+    }
+
     public async Task<Performer?> GetByIdAsync(int id, CancellationToken ct = default)
         => await _db.Performers.FindAsync([id], ct);
 
@@ -223,6 +409,7 @@ public class PerformerRepository : IPerformerRepository
             }
             query = FilterHelpers.ApplyString(query, filter.TattooCriterion, p => p.Tattoos);
             query = FilterHelpers.ApplyString(query, filter.PiercingsCriterion, p => p.Piercings);
+            query = ApplyCareerLengthCriterion(query, filter.CareerLengthCriterion);
 
             // Aliases criterion
             if (filter.AliasesCriterion != null)
@@ -349,12 +536,20 @@ public class PerformerRepository : IPerformerRepository
             "gallery_count" => desc
                 ? query.OrderByDescending(p => p.GalleryPerformers.Count)
                 : query.OrderBy(p => p.GalleryPerformers.Count),
-            "height" => desc ? query.OrderByDescending(p => p.HeightCm) : query.OrderBy(p => p.HeightCm),
+            "career_length" => ApplyCareerLengthSort(query, desc),
+            "height" => ApplyHeightSort(query, desc),
             "weight" => desc ? query.OrderByDescending(p => p.Weight) : query.OrderBy(p => p.Weight),
+            "measurements" => ApplyMeasurementsSort(query, desc),
             "tag_count" => desc
                 ? query.OrderByDescending(p => p.PerformerTags.Count)
                 : query.OrderBy(p => p.PerformerTags.Count),
-            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id),
+            "o_counter" => desc
+                ? query.OrderByDescending(p => p.ScenePerformers.Sum(sp => sp.Scene!.OCounter))
+                : query.OrderBy(p => p.ScenePerformers.Sum(sp => sp.Scene!.OCounter)),
+            "play_count" => ApplyPlayCountSort(query, desc),
+            "last_o_at" => ApplyLastFavoriteSort(query, desc),
+            "last_played_at" => ApplyLastPlayedAtSort(query, desc),
+            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id, desc),
             _ => desc ? query.OrderByDescending(p => p.UpdatedAt) : query.OrderBy(p => p.UpdatedAt),
         };
 
@@ -596,7 +791,7 @@ public class TagRepository : ITagRepository
             "studio_count" => desc ? query.OrderByDescending(t => t.StudioTags.Count) : query.OrderBy(t => t.StudioTags.Count),
             "created_at" => desc ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt),
             "updated_at" => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
-            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, t => t.Id),
+            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, t => t.Id, desc),
             _ => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
         };
 
@@ -1083,7 +1278,7 @@ public class StudioRepository : IStudioRepository
             "tag_count" => desc ? query.OrderByDescending(s => s.StudioTags.Count) : query.OrderBy(s => s.StudioTags.Count),
             "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
             "updated_at" => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
-            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, s => s.Id),
+            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, s => s.Id, desc),
             _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
         };
         var page = findFilter?.Page ?? 1;
@@ -1243,7 +1438,7 @@ public class GalleryRepository : IGalleryRepository
                 ? query.OrderByDescending(g => g.Files.Count(file => file.Basename.EndsWith(".zip")))
                 : query.OrderBy(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))),
             "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
-            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id),
+            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
             _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
         };
         var page = findFilter?.Page ?? 1;
@@ -1692,7 +1887,7 @@ public class ImageRepository : IImageRepository
     private static IQueryable<Image> ApplySorting(IQueryable<Image> query, string sort, bool desc, int? seed = null)
     {
         if (sort == "random")
-            return SeededRandomOrdering.OrderBy(query, seed, image => image.Id);
+            return SeededRandomOrdering.OrderBy(query, seed, image => image.Id, desc);
 
         return ApplySortingSwitch(query, sort, desc);
     }
@@ -2092,7 +2287,7 @@ public class GroupRepository : IGroupRepository
                 ? query.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating)
                 : query.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating),
             "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
-            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id),
+            "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
             _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
         };
         var page = findFilter?.Page ?? 1;

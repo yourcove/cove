@@ -10,6 +10,7 @@ interface RouteHistoryEntry {
 
 export const LOCATION_CHANGE_EVENT = "cove-locationchange";
 const ROUTE_HISTORY_KEY = "cove-route-history";
+type RouteHistoryMode = "push" | "history";
 
 function parsePath(pathname: string): Route {
   const parts = pathname.split("/").filter(Boolean);
@@ -106,13 +107,25 @@ function writeRouteHistory(entries: RouteHistoryEntry[]) {
   }
 }
 
-export function syncRouteHistory() {
+export function syncRouteHistory(mode: RouteHistoryMode = "push") {
   const currentEntry: RouteHistoryEntry = {
     url: buildCurrentUrl(window.location.pathname, window.location.search),
     route: parseCurrentRoute(),
   };
 
   const history = readRouteHistory();
+  if (mode === "history")
+  {
+    for (let index = history.length - 1; index >= 0; index -= 1)
+    {
+      if (history[index].url === currentEntry.url)
+      {
+        writeRouteHistory(history.slice(0, index + 1));
+        return;
+      }
+    }
+  }
+
   const lastEntry = history.length > 0 ? history[history.length - 1] : undefined;
   if (lastEntry?.url === currentEntry.url) {
     return;
