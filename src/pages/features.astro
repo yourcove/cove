@@ -4,47 +4,83 @@ import PlaceholderMedia from '../components/PlaceholderMedia.astro';
 import { withBase } from '../lib/paths';
 ---
 
-<MarketingLayout title="Features" description="A closer look at Cove's organization, search, customization, permissions, and local data model.">
+<MarketingLayout title="Features" description="A beginner-friendly tour of Cove's local media organization, search, metadata, permissions, and extension system.">
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Feature overview</p>
-      <h1 class="page-heading">Everything in one library</h1>
-      <p class="page-copy">Cove brings library management, discovery, security, customization, and extension-powered automation into one fast local system.</p>
+      <h1 class="page-heading">Powerful without making setup a project</h1>
+      <p class="page-copy">Cove is designed to feel approachable on day one and still be the place you want your library years later. This is the short version: what matters, why it helps, and where Cove gives you room to grow.</p>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner setup-grid">
+      <article class="setup-card step-card">
+        <h3>Install</h3>
+        <p>Use Docker all-in-one or a native build. Cove bundles or auto-manages the pieces most people do not want to assemble by hand.</p>
+      </article>
+      <article class="setup-card step-card">
+        <h3>Scan</h3>
+        <p>Add a folder, generate previews, index files, and let Cove create the first useful view of your collection.</p>
+      </article>
+      <article class="setup-card step-card">
+        <h3>Organize</h3>
+        <p>Add tags, performers, studios, groups, saved filters, covers, and metadata as you go. A small library can stay simple.</p>
+      </article>
+      <article class="setup-card step-card">
+        <h3>Grow</h3>
+        <p>Turn on users, permissions, downloaders, AI workflows, extensions, and deeper automation when you actually need them.</p>
+      </article>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner two-column">
       <div class="panel">
-        <h3>Scan once, keep improving</h3>
-        <p>Add library paths, scan your files, generate previews, attach metadata, clean up duplicates, and keep improving the same library over time.</p>
+        <p class="section-kicker">Library foundation</p>
+        <h3>More than a video list</h3>
+        <p>Cove treats scenes, images, galleries, audio, text, faces, segments, groups, performers, studios, tags, and generated media as parts of the same library. That matters when your collection stops fitting into one narrow category.</p>
         <ul class="feature-list">
-          <li>Scenes, images, galleries, audio, and text live in the same organization model.</li>
-          <li>Tags, tag groups, performers, studios, groups, and saved filters stay reusable across workflows.</li>
-          <li>Backups and provenance make changes easier to understand and recover from.</li>
+          <li>Scenes, images, galleries, audio, and text are first-class media.</li>
+          <li>Tags, tag groups, custom fields, performers, studios, and groups keep structure reusable.</li>
+          <li>Segments and virtual compilations let you organize moments inside media without duplicating files.</li>
         </ul>
       </div>
-      <PlaceholderMedia label="Library overview" caption="Demo-library capture coming soon." />
+      <PlaceholderMedia label="Unified library overview" caption="Scenes, images, galleries, audio, text, groups, and saved views." />
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner feature-grid">
-      <article class="feature-card"><h3>Full search and filters</h3><p>Find media by title, metadata, tags, people, studios, groups, and saved criteria instead of relying on exact filename memory.</p><a href={withBase('docs/user/library/search-and-filters/')}>Search docs</a></article>
-      <article class="feature-card"><h3>Dynamic groups and watch flows</h3><p>Save for Later, watch history, continue watching, saved filters, and smart groups all stay part of one library model.</p><a href={withBase('docs/user/library/dynamic-groups/')}>Dynamic group docs</a></article>
-      <article class="feature-card"><h3>Segments and compilations</h3><p>Create sub-scenes, review resolved spans, and build virtual compilations without making duplicate media files.</p><a href={withBase('docs/user/library/segments-and-compilations/')}>Segment docs</a></article>
-      <article class="feature-card"><h3>Users and permissions</h3><p>Run Cove for more than one person with users, groups, roles, content rules, share links, API tokens, and audit history.</p><a href={withBase('docs/user/security/users-roles-permissions/')}>Security docs</a></article>
-      <article class="feature-card"><h3>Themes and UI control</h3><p>Choose from 19 built-in themes, customize colors and components, adjust layout styles, and keep keyboard shortcuts close at hand.</p><a href={withBase('screenshots/')}>View UI tour</a></article>
-      <article class="feature-card"><h3>Extensions that feel native</h3><p>Add backend jobs, UI pages, tabs, slots, settings, data, themes, and automation through Cove's extension system.</p><a href={withBase('docs/developer/extensions/overview/')}>Developer docs</a></article>
+      <article class="feature-card"><h3>Search that goes past titles</h3><p>Search across titles, descriptions, paths, tags, aliases, performers, studios, groups, and saved criteria. Boolean search, quoted phrases, exclusions, regex modifiers, and saved filters are there when you need more precision.</p><a href={withBase('docs/user/library/search-and-filters/')}>Search docs</a></article>
+      <article class="feature-card"><h3>Metadata with memory</h3><p>Scrapers, metadata servers, imports, AI, and manual edits can all improve a library. Cove keeps provenance visible so you can understand what changed and where it came from.</p><a href={withBase('docs/user/metadata/provenance/')}>Provenance docs</a></article>
+      <article class="feature-card"><h3>Dynamic groups and watch flows</h3><p>Save for Later, watch history, Continue Watching, smart groups, and saved filters turn repeated browsing habits into living views.</p><a href={withBase('docs/user/library/dynamic-groups/')}>Dynamic group docs</a></article>
+      <article class="feature-card"><h3>Users and permissions</h3><p>Run Cove for yourself or more than one person with users, groups, roles, content rules, share links, API tokens, and audit history.</p><a href={withBase('docs/user/security/users-roles-permissions/')}>Security docs</a></article>
+      <article class="feature-card"><h3>Themes and UI control</h3><p>Choose from 19 built-in themes, customize colors and components, adjust layout styles, remap keyboard shortcuts, and set your own title and favicon.</p><a href={withBase('screenshots/')}>View UI tour</a></article>
+      <article class="feature-card"><h3>Extensions that feel native</h3><p>Add backend jobs, UI pages, tabs, slots, dialogs, settings, persistent data, permissions, APIs, and themes through Cove's extension system.</p><a href={withBase('docs/developer/extensions/overview/')}>Developer docs</a></article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">For established local libraries</p>
+      <h2 class="section-heading">The upgrade is not one feature. It is the ceiling.</h2>
+      <p class="section-copy">If you already know what local media organization can do, Cove is built around the next set of expectations: stronger imports, explainable metadata, deep search, real permissions, modern UI control, and extension hooks that reach both frontend and backend.</p>
+      <div class="comparison-grid">
+        <article class="comparison-card"><span class="before">Older tools often make review and import feel all-or-nothing.</span><span class="after">Cove uses per-field merge controls, source order, create-missing toggles, and provenance-aware review.</span></article>
+        <article class="comparison-card"><span class="before">Markers and generated clips can become a separate pile of data.</span><span class="after">Cove uses segments, resolved spans, generated segment media, and virtual compilations as one model.</span></article>
+        <article class="comparison-card"><span class="before">Plugin systems can stop at small UI tweaks or scripts.</span><span class="after">Cove extensions can add UI, APIs, jobs, events, settings, data, permissions, and themes.</span></article>
+        <article class="comparison-card"><span class="before">Large libraries expose every slow list, weak filter, and missing sort.</span><span class="after">Cove's release work includes broad filter/sort coverage, performance budgets, and migration speed targets.</span></article>
+      </div>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner two-column">
-      <PlaceholderMedia label="Theme gallery" caption="Demo-library capture coming soon." />
       <div class="panel">
-        <h3>Make Cove feel like your workspace</h3>
-        <p>The UI is designed to be beautiful without being precious: quick to scan, comfortable for repeated use, and customizable enough to match the way you browse.</p>
+        <p class="section-kicker">Personal workspace</p>
+        <h3>Make Cove feel like your library</h3>
+        <p>The UI is designed to be quick to scan, comfortable for repeated use, and customizable enough to match how you browse. Start with one of 19 built-in themes, then tune the details.</p>
         <div class="theme-strip" aria-label="Theme color samples">
           <span class="theme-swatch" style="--swatch-a:#071019;--swatch-b:#ff2f9a"></span>
           <span class="theme-swatch" style="--swatch-a:#10251f;--swatch-b:#33d17a"></span>
@@ -54,6 +90,7 @@ import { withBase } from '../lib/paths';
           <span class="theme-swatch" style="--swatch-a:#101820;--swatch-b:#13b8c2"></span>
         </div>
       </div>
+      <PlaceholderMedia label="Theme gallery" caption="Theme picker, custom colors, layout styles, and interface preferences." />
     </div>
   </section>
 </MarketingLayout>

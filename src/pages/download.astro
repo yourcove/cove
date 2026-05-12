@@ -7,7 +7,7 @@ import MarketingLayout from '../layouts/MarketingLayout.astro';
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Install</p>
       <h1 class="page-heading">Download Cove</h1>
-      <p class="page-copy">Cove is free, open source forever, and built to run on hardware you control. Docker is the fastest path for most installs, with native and source options available for people who want tighter control.</p>
+      <p class="page-copy">Cove is free, open source forever, and built to run on hardware you control. Start with Docker, use a native build, or bring an existing local library forward.</p>
     </div>
   </section>
 
@@ -15,25 +15,35 @@ import MarketingLayout from '../layouts/MarketingLayout.astro';
     <div class="marketing-section-inner download-grid">
       <div class="panel">
         <h3>Docker all-in-one</h3>
-        <p>Start Cove and its required services together, then open the web UI and finish setup with the first-run owner account.</p>
+        <p>Recommended for most server installs. Starts Cove, PostgreSQL, and FFmpeg together so you can open the web UI and finish setup.</p>
         <div class="code-block"><pre><code>cd docker&#10;docker compose -f docker-compose.allinone.yml up -d</code></pre></div>
       </div>
       <div class="panel">
-        <h3>Other install paths</h3>
+        <h3>Native builds</h3>
+        <p>Download a platform release when you want a single app-style install. Cove bundles the frontend and backend, auto-manages PostgreSQL and FFmpeg, and applies database migrations on startup.</p>
         <ul class="link-list">
-          <li><strong>Native packages:</strong> download platform builds from GitHub Releases.</li>
-          <li><strong>Source builds:</strong> clone the repository when you want to inspect or modify the app.</li>
-          <li><strong>Server installs:</strong> put Cove behind your own reverse proxy and security layer when exposing it outside your network.</li>
+          <li><strong>Windows, macOS, Linux:</strong> platform builds from GitHub Releases.</li>
+          <li><strong>Source builds:</strong> clone the repository when you want to inspect or modify Cove.</li>
+          <li><strong>Internet exposure:</strong> use your own reverse proxy and security layer.</li>
         </ul>
       </div>
     </div>
   </section>
 
   <section class="marketing-section">
+    <div class="marketing-section-inner setup-grid">
+      <article class="setup-card step-card"><h3>Create owner</h3><p>First launch creates the owner account and gives you control over setup, users, permissions, and library paths.</p></article>
+      <article class="setup-card step-card"><h3>Add media</h3><p>Point Cove at a folder, import from an existing local library, or use downloader workflows as your collection grows.</p></article>
+      <article class="setup-card step-card"><h3>Scan and review</h3><p>Cove indexes files, generates media, finds metadata, and lets you review changes instead of blindly accepting everything.</p></article>
+      <article class="setup-card step-card"><h3>Make it yours</h3><p>Choose a theme, save filters, set permissions, enable extensions, and build the workflow that fits your collection.</p></article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
     <div class="marketing-section-inner info-grid">
       <article class="info-card"><h3>No hosted account</h3><p>Cove runs on your machine or server. Your library data, generated media, users, roles, and metadata stay there.</p></article>
+      <article class="info-card"><h3>Bring a library forward</h3><p>Existing local-library users can migrate data and continue organizing with a broader, faster, more extensible model.</p></article>
       <article class="info-card"><h3>Open source</h3><p>The code is available for inspection, contribution, and self-hosted use.</p></article>
-      <article class="info-card"><h3>Docs included</h3><p>Installation, backups, upgrades, permissions, and troubleshooting are covered in the user docs.</p></article>
     </div>
   </section>
 </MarketingLayout>

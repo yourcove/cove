@@ -4,49 +4,99 @@ import PlaceholderMedia from '../components/PlaceholderMedia.astro';
 import { withBase } from '../lib/paths';
 ---
 
-<MarketingLayout title="Cove" description="Content Organization for Virtual Entertainment. A fast, extensible media organizer for serious personal libraries.">
+<MarketingLayout title="Cove" description="Cove is a free, open-source local media organizer that starts simple and scales into a serious personal library.">
   <section class="hero">
     <div>
       <div class="eyebrow">Content Organization for Virtual Entertainment</div>
       <h1>Cove</h1>
-      <p class="lead">A free, open-source media organizer for serious personal libraries. Cove keeps scenes, images, galleries, audio, and text organized with fast search, rich metadata, permissions, and an interface you can make your own.</p>
+      <p class="lead">The local media library that starts simple and keeps scaling. Add one folder or bring years of files, then grow into search, metadata, permissions, automation, and custom workflows without handing your library to a hosted service.</p>
       <div class="pill-row">
         <span class="pill">Free, Open Source Forever</span>
         <span class="pill">Your data stays on your system</span>
-        <span class="pill">19 built-in themes</span>
-        <span class="pill">Full search</span>
+        <span class="pill">Docker or native install</span>
+        <span class="pill">Import existing libraries</span>
       </div>
       <div class="button-row">
         <a class="button" href={withBase('download/')}>Download Cove</a>
-        <a class="button-ghost" href={withBase('docs/')}>Read the docs</a>
+        <a class="button-ghost" href={withBase('features/')}>Explore features</a>
         <a class="button-ghost" href={withBase('screenshots/')}>View screenshots</a>
       </div>
       <div class="trust-row">
         <span class="trust-item">No telemetry.</span>
         <span class="trust-item">No hosted account required.</span>
+        <span class="trust-item">Built for real archives.</span>
       </div>
     </div>
-    <PlaceholderMedia label="Cove library dashboard" caption="Demo-library capture coming soon." />
+    <PlaceholderMedia label="Cove library command center" caption="Dashboard, saved views, recent activity, and library health in one place." />
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner">
-      <p class="section-kicker">What makes Cove different</p>
-      <h2 class="section-heading">A library model that can keep up with the way people actually organize media.</h2>
-      <p class="section-copy">Cove is built for large, evolving collections: scenes, images, galleries, audio, text, performers, studios, tags, saved filters, generated media, backups, watch workflows, and metadata provenance that stays understandable.</p>
+      <p class="section-kicker">Two good ways to begin</p>
+      <h2 class="section-heading">Start fresh or move a serious library into something with more headroom.</h2>
+      <div class="audience-grid">
+        <article class="audience-card">
+          <h3>New to local organization</h3>
+          <p>Point Cove at a folder, scan your first collection, choose a theme, and build organization gradually. You do not need to learn every feature before the library becomes useful.</p>
+          <ul class="check-list">
+            <li>Docker all-in-one or native builds with the required pieces bundled.</li>
+            <li>Smart first steps for scanning, generated media, and basic metadata.</li>
+            <li>A clean path from a small collection to a large one.</li>
+          </ul>
+          <a class="button-ghost" href={withBase('download/')}>Get started</a>
+        </article>
+        <article class="audience-card">
+          <h3>Already have an organized library</h3>
+          <p>Bring your existing structure forward, then add the things older local organizers make hard: stronger search, clearer metadata history, real permissions, better automation, and native-feeling extensions.</p>
+          <ul class="check-list">
+            <li>Importer path for existing local libraries and their metadata.</li>
+            <li>Segments, dynamic groups, custom fields, and richer list tooling.</li>
+            <li>Performance and migration work designed for large archives.</li>
+          </ul>
+          <a class="button-ghost" href={withBase('features/')}>See what changes</a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner proof-grid">
+      <article class="proof-card"><strong>1</strong><span>native executable or Docker stack to start with.</span></article>
+      <article class="proof-card"><strong>5</strong><span>first-class media kinds: scenes, images, galleries, audio, and text.</span></article>
+      <article class="proof-card"><strong>19</strong><span>built-in themes, plus custom colors and layout preferences.</span></article>
+      <article class="proof-card"><strong>0</strong><span>telemetry endpoints for your library data.</span></article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Why people stay</p>
+      <h2 class="section-heading">Cove is calm for beginners, but it does not run out of room when your library gets complicated.</h2>
       <div class="feature-grid">
-        <article class="feature-card">
-          <h3>Media without silos</h3>
-          <p>Work with scenes, images, galleries, audio, text, performers, studios, tags, groups, and sub-scenes from one coherent library.</p>
-        </article>
-        <article class="feature-card">
-          <h3>Find it fast</h3>
-          <p>Use full search, filters, saved filters, dynamic groups, and keyboard-friendly pages built for collections that outgrow memory.</p>
-        </article>
-        <article class="feature-card">
-          <h3>Customize the whole feel</h3>
-          <p>Choose from 19 built-in themes, tune colors and component styles, and add extension-powered workflows that still feel native.</p>
-        </article>
+      <article class="feature-card">
+        <h3>Search that understands the library</h3>
+        <p>Find media by title, description, paths, tags, performers, studios, groups, aliases, and saved criteria instead of relying on exact filenames.</p>
+      </article>
+      <article class="feature-card">
+        <h3>Metadata you can trust</h3>
+        <p>Review sources, merge fields intentionally, understand where tags came from, and avoid mystery changes from scrapers or automation.</p>
+      </article>
+      <article class="feature-card">
+        <h3>Real access control</h3>
+        <p>Use users, groups, roles, content rules, share links, API tokens, and audit history instead of a single shared account.</p>
+      </article>
+      <article class="feature-card">
+        <h3>Segments over clutter</h3>
+        <p>Mark sub-scenes, tag time ranges, generate segment previews, and build virtual compilations without duplicating files.</p>
+      </article>
+      <article class="feature-card">
+        <h3>Extensions with deep hooks</h3>
+        <p>Add UI pages, tabs, slots, APIs, jobs, events, settings, data, and themes through one extension system.</p>
+      </article>
+      <article class="feature-card">
+        <h3>Fast by design</h3>
+        <p>PostgreSQL-backed search, performance budgets, job progress, and migration-speed work keep large libraries usable.</p>
+      </article>
       </div>
     </div>
   </section>
@@ -56,45 +106,54 @@ import { withBase } from '../lib/paths';
       <div class="panel">
         <p class="section-kicker">Built for real use</p>
         <h3>Your library stays on your system.</h3>
-        <p>Cove does not send telemetry or library data to Cove servers. Run it on the machine or server you control, then decide who can access it with users, groups, roles, permissions, share links, API tokens, audit history, and content rules.</p>
+        <p>Cove does not send telemetry or library data to Cove servers. Run it on the machine or server you control, then decide who can access it and which external providers, downloaders, or extensions you want to connect.</p>
+        <ul class="check-list">
+          <li>No hosted account required.</li>
+          <li>No library telemetry.</li>
+          <li>Free, Open Source Forever.</li>
+        </ul>
       </div>
-      <PlaceholderMedia label="Users, roles, and permissions" caption="Demo-library capture coming soon." />
-    </div>
-  </section>
-
-  <section class="marketing-section">
-    <div class="marketing-section-inner feature-grid">
-      <article class="feature-card">
-        <h3>Sub-scenes and virtual compilations</h3>
-        <p>Mark meaningful spans inside media, reuse them without duplicating files, and build compilations that stay tied to their source material.</p>
-      </article>
-      <article class="feature-card">
-        <h3>Understandable provenance</h3>
-        <p>See where metadata came from, what changed, and which source contributed it so automated organization never becomes a black box.</p>
-      </article>
-      <article class="feature-card">
-        <h3>Facial recognition support</h3>
-        <p>Use optional AI workflows for face detection, identity suggestions, and appearance review while keeping the resulting data in your Cove library.</p>
-      </article>
+      <PlaceholderMedia label="Users, roles, and permissions" caption="User management, content rules, share links, API tokens, and audit history." />
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner">
-      <p class="section-kicker">Learn more</p>
-      <h2 class="section-heading">Go straight to the docs that match what you are doing.</h2>
-      <div class="doc-split-grid">
-        <article class="doc-track-card">
-          <h3>User Docs</h3>
-          <p>Installation, first scan, organizing, search, permissions, backups, and troubleshooting for running Cove day to day.</p>
-          <a class="button-ghost" href={withBase('docs/user/')}>Open User Docs</a>
+      <p class="section-kicker">Common upgrade moments</p>
+      <h2 class="section-heading">When a folder, spreadsheet, or older organizer starts fighting you, Cove gives you a cleaner path forward.</h2>
+      <div class="comparison-grid">
+        <article class="comparison-card">
+          <span class="before">You need more than video-only organization.</span>
+          <span class="after">Cove models scenes, images, galleries, audio, text, faces, segments, and groups together.</span>
         </article>
-        <article class="doc-track-card">
-          <h3>Developer Docs</h3>
-          <p>Extension architecture, packaging, permissions, APIs, and contribution notes for builders working on top of Cove.</p>
-          <a class="button-ghost" href={withBase('docs/developer/')}>Open Developer Docs</a>
+        <article class="comparison-card">
+          <span class="before">You cannot tell why metadata changed.</span>
+          <span class="after">Cove tracks provenance so automation stays explainable.</span>
+        </article>
+        <article class="comparison-card">
+          <span class="before">Your filters and title search are no longer enough.</span>
+          <span class="after">Cove adds full search, saved filters, boolean search, regex modifiers, and richer sort options.</span>
+        </article>
+        <article class="comparison-card">
+          <span class="before">Plugins feel separate from the app.</span>
+          <span class="after">Cove extensions can participate in the UI, backend, jobs, settings, permissions, storage, and themes.</span>
         </article>
       </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner doc-split-grid">
+      <article class="doc-track-card">
+        <h3>Ready to install?</h3>
+        <p>Use Docker all-in-one, a native release, or source builds depending on how you like to run local software.</p>
+        <a class="button-ghost" href={withBase('download/')}>Download Cove</a>
+      </article>
+      <article class="doc-track-card">
+        <h3>Want details first?</h3>
+        <p>Read the user docs for installation and day-to-day workflows, or the developer docs for extension building.</p>
+        <a class="button-ghost" href={withBase('docs/')}>Open docs</a>
+      </article>
     </div>
   </section>
 </MarketingLayout>

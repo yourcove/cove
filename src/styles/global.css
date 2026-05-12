@@ -94,6 +94,7 @@ samp {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
+  color: var(--cove-text);
   text-decoration: none;
 }
 
@@ -147,7 +148,11 @@ samp {
 .feature-grid,
 .info-grid,
 .screenshot-grid,
-.doc-split-grid {
+.doc-split-grid,
+.audience-grid,
+.proof-grid,
+.comparison-grid,
+.setup-grid {
   display: grid;
   gap: 1rem;
 }
@@ -170,6 +175,16 @@ samp {
 .screenshot-grid,
 .doc-split-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.audience-grid,
+.comparison-grid,
+.setup-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.proof-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .eyebrow,
@@ -208,8 +223,8 @@ samp {
 .section-heading {
   max-width: 780px;
   margin: 0;
-  font-size: 2.15rem;
-  line-height: 1.08;
+  font-size: 1.95rem;
+  line-height: 1.14;
   letter-spacing: 0;
 }
 
@@ -280,7 +295,11 @@ samp {
 .placeholder-media,
 .cta-band,
 .doc-track-card,
-.info-card {
+.info-card,
+.audience-card,
+.proof-card,
+.comparison-card,
+.setup-card {
   border: 1px solid var(--cove-border);
   border-radius: 0.5rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
@@ -291,7 +310,11 @@ samp {
 .panel,
 .doc-track-card,
 .info-card,
-.cta-band {
+.cta-band,
+.audience-card,
+.proof-card,
+.comparison-card,
+.setup-card {
   padding: 1.2rem;
 }
 
@@ -307,14 +330,21 @@ samp {
 .feature-card h3,
 .panel h3,
 .doc-track-card h3,
-.info-card h3 {
+.info-card h3,
+.audience-card h3,
+.proof-card h3,
+.comparison-card h3,
+.setup-card h3 {
   margin-top: 0;
 }
 
 .feature-card a,
 .panel a,
 .doc-track-card a,
-.info-card a {
+.info-card a,
+.audience-card a,
+.comparison-card a,
+.setup-card a {
   color: #8ff3f8;
   font-weight: 700;
   text-decoration: none;
@@ -323,8 +353,34 @@ samp {
 .feature-card a:hover,
 .panel a:hover,
 .doc-track-card a:hover,
-.info-card a:hover {
+.info-card a:hover,
+.audience-card a:hover,
+.comparison-card a:hover,
+.setup-card a:hover {
   text-decoration: underline;
+}
+
+.audience-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.audience-card .button-ghost {
+  justify-self: start;
+}
+
+.proof-card strong {
+  display: block;
+  color: var(--cove-text);
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.proof-card span {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--cove-muted);
+  line-height: 1.45;
 }
 
 .trust-row {
@@ -341,7 +397,9 @@ samp {
 
 .feature-list,
 .release-list,
-.link-list {
+.link-list,
+.check-list,
+.step-list {
   display: grid;
   gap: 0.85rem;
   margin: 1rem 0 0;
@@ -351,11 +409,53 @@ samp {
 
 .feature-list li,
 .release-list li,
-.link-list li {
-  padding: 0.85rem;
-  border: 1px solid var(--cove-border);
-  border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.035);
+.link-list li,
+.check-list li,
+.step-list li {
+  padding: 0.2rem 0;
+  color: var(--cove-text);
+  line-height: 1.5;
+}
+
+.check-list li::before {
+  content: "";
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--cove-pink), var(--cove-teal));
+}
+
+.link-list strong {
+  color: var(--cove-text);
+}
+
+.comparison-card {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.comparison-card .before {
+  color: var(--cove-muted);
+}
+
+.comparison-card .after {
+  color: var(--cove-text);
+  font-weight: 700;
+}
+
+.step-card {
+  counter-increment: setup-step;
+}
+
+.setup-grid {
+  counter-reset: setup-step;
+}
+
+.step-card h3::before {
+  content: counter(setup-step) ". ";
+  color: var(--cove-teal);
 }
 
 .download-grid {
@@ -456,7 +556,11 @@ samp {
   .info-grid,
   .screenshot-grid,
   .doc-split-grid,
-  .download-grid {
+  .download-grid,
+  .audience-grid,
+  .proof-grid,
+  .comparison-grid,
+  .setup-grid {
     grid-template-columns: 1fr;
   }
 
