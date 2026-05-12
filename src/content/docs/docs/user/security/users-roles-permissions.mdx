@@ -7,7 +7,20 @@ description: Multi-user access, roles, permissions, and related guidance.
 
 Cove supports multi-user workflows with real permissions instead of a single shared account.
 
-- local owner bootstrap
-- roles and permission concepts
-- content rules and share links
-- reverse proxy guidance for internet-facing setups
+## Access model
+
+- **Users** identify the people or service accounts accessing Cove.
+- **Groups** let you manage related users together.
+- **Roles** bundle permissions into reusable access profiles.
+- **Content rules** control what a user or group can see.
+- **Share links** expose specific items without giving someone a full account.
+- **API tokens** let scripts and integrations authenticate without reusing a password.
+- **Audit history** helps administrators understand important account and access changes.
+
+## First account
+
+The first-run setup creates the owner account. Keep this account protected and use separate everyday accounts or API tokens for normal access.
+
+## Internet exposure
+
+Cove can be run for a household, trusted group, or personal server. If you make it reachable from the public internet, put it behind your own reverse proxy and security layer, keep TLS enabled, and avoid exposing administrator accounts directly.

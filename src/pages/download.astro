@@ -6,21 +6,34 @@ import MarketingLayout from '../layouts/MarketingLayout.astro';
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Install</p>
-      <h1 class="page-heading">Download and install</h1>
-      <p class="page-copy">Keep the first public path simple. Recommend Docker all-in-one first, then offer native downloads and source builds for advanced users.</p>
+      <h1 class="page-heading">Download Cove</h1>
+      <p class="page-copy">Cove is free, open source forever, and built to run on hardware you control. Docker is the fastest path for most installs, with native and source options available for people who want tighter control.</p>
     </div>
   </section>
 
   <section class="marketing-section">
-    <div class="marketing-section-inner two-column">
+    <div class="marketing-section-inner download-grid">
       <div class="panel">
         <h3>Docker all-in-one</h3>
+        <p>Start Cove and its required services together, then open the web UI and finish setup with the first-run owner account.</p>
         <div class="code-block"><pre><code>cd docker&#10;docker compose -f docker-compose.allinone.yml up -d</code></pre></div>
       </div>
       <div class="panel">
-        <h3>Native downloads placeholder</h3>
-        <p>Replace this with real Windows, macOS, and Linux release cards once public artifacts are available.</p>
+        <h3>Other install paths</h3>
+        <ul class="link-list">
+          <li><strong>Native packages:</strong> download platform builds from GitHub Releases.</li>
+          <li><strong>Source builds:</strong> clone the repository when you want to inspect or modify the app.</li>
+          <li><strong>Server installs:</strong> put Cove behind your own reverse proxy and security layer when exposing it outside your network.</li>
+        </ul>
       </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner info-grid">
+      <article class="info-card"><h3>No hosted account</h3><p>Cove runs on your machine or server. Your library data, generated media, users, roles, and metadata stay there.</p></article>
+      <article class="info-card"><h3>Open source</h3><p>The code is available for inspection, contribution, and self-hosted use.</p></article>
+      <article class="info-card"><h3>Docs included</h3><p>Installation, backups, upgrades, permissions, and troubleshooting are covered in the user docs.</p></article>
     </div>
   </section>
 </MarketingLayout>

@@ -1,0 +1,26 @@
+---
+title: Backups and Upgrades
+description: Back up Cove and keep installs moving across releases.
+---
+
+# Backups and upgrades
+
+Backups matter because Cove stores more than file paths. It also stores metadata, generated media references, users, roles, permissions, history, saved filters, groups, and extension data.
+
+## Back up
+
+- The database.
+- Configuration files and environment settings.
+- Generated media storage if you want previews and derived artifacts restored quickly.
+- Extension configuration and extension-owned data.
+
+## Upgrade
+
+1. Read the release notes.
+2. Stop Cove or pause write-heavy workflows.
+3. Take a fresh backup.
+4. Pull the new container image or install the new native package.
+5. Start Cove and let migrations complete.
+6. Verify login, scans, search, generated media, and important extensions.
+
+Keep the previous backup until you have used the upgraded install long enough to trust it.

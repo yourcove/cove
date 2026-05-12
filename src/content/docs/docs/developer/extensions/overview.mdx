@@ -5,9 +5,21 @@ description: High-level extension architecture and the boundaries of the host mo
 
 # Extension overview
 
-Cove's extension system is one of its biggest long-term strengths.
+Cove's extension system lets add-ons feel like part of the application instead of a separate sidecar.
 
-- UI contributions
-- API contributions
-- jobs, events, and data contributions
-- permissions and host boundaries
+Extensions can contribute:
+
+- UI pages, tabs, slots, dialogs, settings panels, and themes.
+- Backend APIs, background jobs, event handlers, and middleware.
+- Persistent extension storage, schema/data contributions, and generated artifacts.
+- Extension-owned permissions that administrators can review and assign.
+
+## Host boundaries
+
+Extensions run inside Cove's host model. They should request the minimum permissions needed, keep user-facing UI consistent with Cove's design system, and make extension-owned data understandable to administrators.
+
+## Where to go next
+
+- [Packaging](./packaging/) covers file layout and release expectations.
+- [Permissions](./permissions/) covers permission design and safety review.
+- [API Surface](../api/overview/) covers how extensions interact with Cove.

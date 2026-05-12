@@ -5,9 +5,21 @@ description: Install Cove with Docker, native downloads, or from source.
 
 # Install Cove
 
-The simplest public path is Docker all-in-one.
+The fastest way to run Cove is the Docker all-in-one setup. It starts Cove and the services it needs together, which makes upgrades and backups easier to reason about.
 
 ```bash
 cd docker
 docker compose -f docker-compose.allinone.yml up -d
 ```
+
+## First-run setup
+
+After the containers start, open the Cove web UI in your browser and create the owner account. The owner account can add library paths, configure users and roles, create API tokens, and decide which external providers or extensions are enabled.
+
+## Native and source installs
+
+Native packages are published through GitHub Releases for users who prefer platform builds. Source builds are available for people who want to inspect, modify, or contribute to Cove directly.
+
+## Exposing Cove outside your network
+
+Cove includes users, roles, permissions, share links, API tokens, audit history, and content rules. If you expose Cove to the internet, put it behind your own reverse proxy and security layer, keep TLS enabled, and treat it like any other self-hosted application that can access private media.

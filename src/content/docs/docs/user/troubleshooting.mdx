@@ -1,0 +1,32 @@
+---
+title: Troubleshooting
+description: Common checks for install, scan, search, media, and extension issues.
+---
+
+# Troubleshooting
+
+Start with the narrowest failing workflow and collect the logs around that action.
+
+## Install or startup
+
+- Confirm the container or service is running.
+- Check database connectivity.
+- Verify ports and reverse proxy rules.
+- Review environment variables and mounted volumes.
+
+## Scanning and media
+
+- Confirm Cove can read the media path.
+- Check generated-media write permissions.
+- Re-run a targeted scan before rescanning the whole library.
+- Look for skipped files, unsupported formats, or moved paths.
+
+## Search and organization
+
+- Refresh saved filters after major metadata changes.
+- Check whether content rules or permissions are hiding expected results.
+- Review provenance if an automated provider changed metadata unexpectedly.
+
+## Extensions
+
+Use troubleshooting mode when an extension affects the UI or runtime. Disable one extension at a time when isolating a behavior change.

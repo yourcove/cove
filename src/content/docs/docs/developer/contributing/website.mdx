@@ -5,9 +5,22 @@ description: Practical guidance for contributing to this docs and marketing site
 
 # Website contribution notes
 
-This page keeps the public site maintainable.
+This website uses Astro for marketing pages and Starlight for documentation.
 
-- marketing pages live in `src/pages/`
-- docs content lives under `src/content/docs/docs/`
-- User Docs and Developer Docs stay separate
-- GitHub Pages is the initial deployment target
+## Structure
+
+- Marketing pages live in `src/pages/`.
+- Shared marketing styles live in `src/styles/global.css`.
+- Docs content lives under `src/content/docs/docs/`.
+- User Docs stay under `src/content/docs/docs/user/`.
+- Developer Docs stay under `src/content/docs/docs/developer/`.
+
+## Local checks
+
+Run the production build before publishing changes:
+
+```bash
+npm run build
+```
+
+GitHub Pages publishes the built site from the deployment workflow.

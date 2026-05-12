@@ -1,0 +1,23 @@
+---
+title: API Surface
+description: How extensions and integrations should think about Cove APIs and host boundaries.
+---
+
+# API surface
+
+Cove exposes APIs for the application itself, extension-owned workflows, and external automation.
+
+## Integration principles
+
+- Use documented APIs instead of reaching into internal storage directly.
+- Keep long-running work in jobs or extension services rather than request handlers.
+- Respect user, role, permission, and content-rule boundaries.
+- Preserve provenance when automation changes user-visible metadata.
+
+## Data ownership
+
+Extensions can own data, but administrators should still be able to understand where that data appears, which permissions control it, and how it affects the library.
+
+## UI and API together
+
+When an extension adds API behavior that users need to configure or monitor, provide matching UI through settings panels, pages, tabs, or slots.

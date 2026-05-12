@@ -1,0 +1,20 @@
+---
+title: Extension Packaging
+description: Package Cove extensions so the host can load them predictably.
+---
+
+# Extension packaging
+
+An extension package should make its host requirements, permissions, UI contributions, backend contributions, settings, and assets clear.
+
+## Package contents
+
+- Manifest metadata: id, name, version, description, author, and compatibility.
+- Backend assemblies or services when the extension contributes server behavior.
+- Frontend assets when the extension contributes pages, tabs, slots, dialogs, settings, or themes.
+- Schema or data contribution metadata when the extension stores structured data.
+- Permission declarations administrators can review.
+
+## Release expectations
+
+Use stable extension ids, semantic versions, clear changelogs, and reproducible builds. Do not rename ids casually; Cove uses extension identity to connect settings, permissions, and stored data.

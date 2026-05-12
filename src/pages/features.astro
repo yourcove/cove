@@ -1,32 +1,59 @@
 ---
 import MarketingLayout from '../layouts/MarketingLayout.astro';
 import PlaceholderMedia from '../components/PlaceholderMedia.astro';
+import { withBase } from '../lib/paths';
 ---
 
-<MarketingLayout title="Features" description="A closer look at Cove's organization, search, customization, and privacy-first workflows.">
+<MarketingLayout title="Features" description="A closer look at Cove's organization, search, customization, permissions, and local data model.">
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Feature overview</p>
-      <h1 class="page-heading">Feature highlights</h1>
-      <p class="page-copy">This page is the sales-side tour: fast summaries, real screenshots later, and direct links into the right docs track.</p>
+      <h1 class="page-heading">Everything in one library</h1>
+      <p class="page-copy">Cove brings library management, discovery, security, customization, and extension-powered automation into one fast local system.</p>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner two-column">
       <div class="panel">
-        <h3>Library and scan pipeline</h3>
-        <p>Library paths, generated previews, metadata gathering, duplicate cleanup, backups, and a path from first scan to a stable library.</p>
+        <h3>Scan once, keep improving</h3>
+        <p>Add library paths, scan your files, generate previews, attach metadata, clean up duplicates, and keep improving the same library over time.</p>
+        <ul class="feature-list">
+          <li>Scenes, images, galleries, audio, and text live in the same organization model.</li>
+          <li>Tags, tag groups, performers, studios, groups, and saved filters stay reusable across workflows.</li>
+          <li>Backups and provenance make changes easier to understand and recover from.</li>
+        </ul>
       </div>
-      <PlaceholderMedia label="Scan pipeline placeholder" caption="Use a setup wizard or library overview screenshot here." />
+      <PlaceholderMedia label="Library overview" caption="Demo-library capture coming soon." />
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner feature-grid">
-      <article class="feature-card"><h3>Search and filtering</h3><p>Find media by meaningful metadata instead of relying on exact title memory.</p></article>
-      <article class="feature-card"><h3>Dynamic groups and watch flows</h3><p>Save for Later, watch history, and compilation-friendly workflows all stay part of one library model.</p></article>
-      <article class="feature-card"><h3>Extensions and themes</h3><p>Explain the power of the extension system in user language while keeping technical details in Developer Docs.</p></article>
+      <article class="feature-card"><h3>Full search and filters</h3><p>Find media by title, metadata, tags, people, studios, groups, and saved criteria instead of relying on exact filename memory.</p><a href={withBase('docs/user/library/search-and-filters/')}>Search docs</a></article>
+      <article class="feature-card"><h3>Dynamic groups and watch flows</h3><p>Save for Later, watch history, continue watching, saved filters, and smart groups all stay part of one library model.</p><a href={withBase('docs/user/library/dynamic-groups/')}>Dynamic group docs</a></article>
+      <article class="feature-card"><h3>Segments and compilations</h3><p>Create sub-scenes, review resolved spans, and build virtual compilations without making duplicate media files.</p><a href={withBase('docs/user/library/segments-and-compilations/')}>Segment docs</a></article>
+      <article class="feature-card"><h3>Users and permissions</h3><p>Run Cove for more than one person with users, groups, roles, content rules, share links, API tokens, and audit history.</p><a href={withBase('docs/user/security/users-roles-permissions/')}>Security docs</a></article>
+      <article class="feature-card"><h3>Themes and UI control</h3><p>Choose from 19 built-in themes, customize colors and components, adjust layout styles, and keep keyboard shortcuts close at hand.</p><a href={withBase('screenshots/')}>View UI tour</a></article>
+      <article class="feature-card"><h3>Extensions that feel native</h3><p>Add backend jobs, UI pages, tabs, slots, settings, data, themes, and automation through Cove's extension system.</p><a href={withBase('docs/developer/extensions/overview/')}>Developer docs</a></article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <PlaceholderMedia label="Theme gallery" caption="Demo-library capture coming soon." />
+      <div class="panel">
+        <h3>Make Cove feel like your workspace</h3>
+        <p>The UI is designed to be beautiful without being precious: quick to scan, comfortable for repeated use, and customizable enough to match the way you browse.</p>
+        <div class="theme-strip" aria-label="Theme color samples">
+          <span class="theme-swatch" style="--swatch-a:#071019;--swatch-b:#ff2f9a"></span>
+          <span class="theme-swatch" style="--swatch-a:#10251f;--swatch-b:#33d17a"></span>
+          <span class="theme-swatch" style="--swatch-a:#1a1526;--swatch-b:#9d7bff"></span>
+          <span class="theme-swatch" style="--swatch-a:#f7f2e9;--swatch-b:#276ef1"></span>
+          <span class="theme-swatch" style="--swatch-a:#201414;--swatch-b:#ff7043"></span>
+          <span class="theme-swatch" style="--swatch-a:#101820;--swatch-b:#13b8c2"></span>
+        </div>
+      </div>
     </div>
   </section>
 </MarketingLayout>
