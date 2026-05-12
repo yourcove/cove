@@ -6,6 +6,7 @@
   --cove-surface: #0d1824;
   --cove-panel: #152334;
   --cove-border: rgba(164, 185, 212, 0.18);
+  --cove-wordmark: #4f85ff;
   --cove-text: #f3f7fb;
   --cove-muted: #9fb0c3;
   --cove-pink: #ff2f9a;
@@ -98,11 +99,35 @@ samp {
   text-decoration: none;
 }
 
+.brand-wordmark {
+  display: block;
+  height: 2rem;
+  width: auto;
+  color: var(--cove-wordmark);
+}
+
+.brand-wordmark-footer {
+  height: 1.75rem;
+  margin-bottom: 0.4rem;
+}
+
 .brand-title {
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .brand-tagline,

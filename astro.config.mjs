@@ -16,6 +16,9 @@ export default defineConfig({
       description: 'Content Organization for Virtual Entertainment',
       titleDelimiter: '·',
       favicon: '/favicon.svg',
+      components: {
+        SiteTitle: './src/components/starlight/SiteTitle.astro',
+      },
       customCss: ['./src/styles/global.css'],
       social: [
         {

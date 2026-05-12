@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import CoveWordmark from '../components/CoveWordmark.astro';
 import { withBase } from '../lib/paths';
 
 interface Props {
@@ -37,8 +38,9 @@ const currentPath = Astro.url.pathname;
   <body class="marketing-body">
     <header class="site-header">
       <div class="site-header-inner">
-        <a class="brand-lockup" href={withBase('')}>
-          <span class="brand-title">Cove</span>
+        <a class="brand-lockup" href={withBase('')} aria-label="Cove home">
+          <span class="sr-only">Cove</span>
+          <CoveWordmark class="brand-wordmark" />
           <span class="brand-tagline">Content Organization for Virtual Entertainment</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
@@ -58,7 +60,8 @@ const currentPath = Astro.url.pathname;
     <footer class="site-footer">
       <div class="site-footer-inner">
         <div>
-          <div class="brand-title">Cove</div>
+          <span class="sr-only">Cove</span>
+          <CoveWordmark class="brand-wordmark brand-wordmark-footer" />
           <p>Free, open-source media organization for serious personal libraries. Your data stays on your system.</p>
         </div>
         <div class="footer-links">

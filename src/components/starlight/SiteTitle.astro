@@ -1,0 +1,29 @@
+---
+import CoveWordmark from '../CoveWordmark.astro';
+
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title sl-flex" aria-label="Cove documentation home">
+  <span class="sr-only">Cove</span>
+  <CoveWordmark class="docs-wordmark" />
+</a>
+
+<style>
+  @layer starlight.core {
+    .site-title {
+      align-items: center;
+      min-width: 0;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .docs-wordmark {
+      display: block;
+      height: calc(var(--sl-nav-height) - 2 * var(--sl-nav-pad-y));
+      width: auto;
+      max-width: 100%;
+      color: var(--cove-wordmark);
+    }
+  }
+</style>
