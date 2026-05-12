@@ -1,0 +1,32 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import PlaceholderMedia from '../components/PlaceholderMedia.astro';
+---
+
+<MarketingLayout title="Features" description="A closer look at Cove's organization, search, customization, and privacy-first workflows.">
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="eyebrow-small">Feature overview</p>
+      <h1 class="page-heading">Feature highlights</h1>
+      <p class="page-copy">This page is the sales-side tour: fast summaries, real screenshots later, and direct links into the right docs track.</p>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <div class="panel">
+        <h3>Library and scan pipeline</h3>
+        <p>Library paths, generated previews, metadata gathering, duplicate cleanup, backups, and a path from first scan to a stable library.</p>
+      </div>
+      <PlaceholderMedia label="Scan pipeline placeholder" caption="Use a setup wizard or library overview screenshot here." />
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner feature-grid">
+      <article class="feature-card"><h3>Search and filtering</h3><p>Find media by meaningful metadata instead of relying on exact title memory.</p></article>
+      <article class="feature-card"><h3>Dynamic groups and watch flows</h3><p>Save for Later, watch history, and compilation-friendly workflows all stay part of one library model.</p></article>
+      <article class="feature-card"><h3>Extensions and themes</h3><p>Explain the power of the extension system in user language while keeping technical details in Developer Docs.</p></article>
+    </div>
+  </section>
+</MarketingLayout>

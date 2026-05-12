@@ -1,0 +1,80 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import PlaceholderMedia from '../components/PlaceholderMedia.astro';
+import { withBase } from '../lib/paths';
+---
+
+<MarketingLayout title="Cove" description="Content Organization for Virtual Entertainment. A fast, extensible media organizer for serious personal libraries.">
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Content Organization for Virtual Entertainment</div>
+      <h1>Cove</h1>
+      <p class="lead">A fast, extensible media organizer for serious personal libraries. Cove combines strong organization, rich metadata, smart workflows, and a customizable interface without turning daily use into a project.</p>
+      <div class="pill-row">
+        <span class="pill">19 built-in themes</span>
+        <span class="pill">Roles and permissions</span>
+        <span class="pill">Audio and text support</span>
+        <span class="pill">Segments and compilations</span>
+      </div>
+      <div class="button-row">
+        <a class="button" href={withBase('download/')}>Download Cove</a>
+        <a class="button-ghost" href={withBase('docs/')}>Read the docs</a>
+        <a class="button-ghost" href={withBase('screenshots/')}>View screenshots</a>
+      </div>
+      <div class="status-chip">General release in progress</div>
+    </div>
+    <PlaceholderMedia label="Hero product preview" caption="Replace with a real Cove screenshot or muted loop from a safe demo library." />
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">What makes Cove different</p>
+      <h2 class="page-heading">Organize everything without losing the plot.</h2>
+      <p class="section-copy">Cove is built for real libraries: scenes, images, galleries, groups, performers, studios, tags, saved filters, generated media, backups, watch workflows, and metadata provenance that stays understandable.</p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>Organize Everything</h3>
+          <p>Scenes, images, galleries, groups, audio, text, performers, studios, tags, and the workflows around them.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Find It Fast</h3>
+          <p>Meaningful filters, saved filters, search, keyboard shortcuts, and fast list pages built for large libraries.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Customize Without Fighting the App</h3>
+          <p>19 built-in themes, custom styling, and extension-powered workflows that still feel like one product.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <div class="panel">
+        <p class="section-kicker">Built for real use</p>
+        <h3>Private by default, share when you choose.</h3>
+        <p>Cove is local-first and sends no telemetry. When you want multi-user access, it has roles, permissions, share links, API tokens, audit history, and content rules ready to support real setups.</p>
+      </div>
+      <PlaceholderMedia label="Security and admin placeholder" caption="Replace with a settings or permissions capture from a safe demo library." />
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Docs split</p>
+      <h2 class="page-heading">User docs and developer docs stay separate.</h2>
+      <div class="doc-split-grid">
+        <article class="doc-track-card">
+          <h3>User Docs</h3>
+          <p>Installation, scanning, organizing, search, permissions, and troubleshooting for running Cove day to day.</p>
+          <a class="button-ghost" href={withBase('docs/user/')}>Open User Docs</a>
+        </article>
+        <article class="doc-track-card">
+          <h3>Developer Docs</h3>
+          <p>Extension architecture, packaging, permissions, and contribution notes for builders working on top of Cove.</p>
+          <a class="button-ghost" href={withBase('docs/developer/')}>Open Developer Docs</a>
+        </article>
+      </div>
+    </div>
+  </section>
+</MarketingLayout>

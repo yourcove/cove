@@ -1,0 +1,74 @@
+---
+import '../styles/global.css';
+import { withBase } from '../lib/paths';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Cove',
+  description = 'Content Organization for Virtual Entertainment',
+} = Astro.props;
+
+const pageTitle = title === 'Cove' ? 'Cove' : `${title} | Cove`;
+const navItems = [
+  { href: '/', label: 'Home' },
+  { href: '/features/', label: 'Features' },
+  { href: '/download/', label: 'Download' },
+  { href: '/screenshots/', label: 'Screenshots' },
+  { href: '/docs/', label: 'Docs' },
+  { href: '/changelog/', label: 'Changelog' },
+  { href: '/about/', label: 'About' },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href={withBase('favicon.svg')} />
+  </head>
+  <body class="marketing-body">
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand-lockup" href={withBase('')}>
+          <span class="brand-title">Cove</span>
+          <span class="brand-tagline">Content Organization for Virtual Entertainment</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          {navItems.map((item) => {
+            const href = withBase(item.href);
+            const isCurrent = currentPath === href || currentPath === href.slice(0, -1);
+            return <a href={href} data-current={isCurrent ? 'true' : 'false'}>{item.label}</a>;
+          })}
+        </nav>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <div class="brand-title">Cove</div>
+          <p>Fast, extensible media organization with room for serious libraries and future growth.</p>
+        </div>
+        <div class="footer-links">
+          <a href={withBase('download/')}>Download</a>
+          <a href={withBase('docs/')}>Docs</a>
+          <a href={withBase('privacy/')}>Privacy</a>
+          <a href="https://github.com/yourcove/cove">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
