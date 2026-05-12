@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from '../layouts/MarketingLayout.astro';
+import CoveWordmark from '../components/CoveWordmark.astro';
 import PlaceholderMedia from '../components/PlaceholderMedia.astro';
 import { withBase } from '../lib/paths';
 ---
@@ -8,8 +9,11 @@ import { withBase } from '../lib/paths';
   <section class="hero">
     <div>
       <div class="eyebrow">Content Organization for Virtual Entertainment</div>
-      <h1>Cove</h1>
-      <p class="lead">A local media library that grows with you. Start with a folder, then go as deep — or stay as simple — as you want.</p>
+      <h1 class="hero-brand">
+        <span class="sr-only">Cove</span>
+        <CoveWordmark class="hero-wordmark" />
+      </h1>
+      <p class="lead">A local media library that grows with you. Start with a folder, then keep it simple or go as deep as you want.</p>
       <div class="pill-row">
         <span class="pill">Free, Open Source Forever</span>
         <span class="pill">Your data stays on your system</span>
@@ -37,7 +41,7 @@ import { withBase } from '../lib/paths';
       <div class="audience-grid">
         <article class="audience-card">
           <h3>New to local organization</h3>
-          <p>Point Cove at a folder, scan your first collection, and start browsing. The deeper features are there when you want them — not in the way when you don't.</p>
+          <p>Point Cove at a folder, scan your first collection, and start browsing. The deeper features are there when you want them, and out of the way when you don't.</p>
           <ul class="check-list">
             <li>Docker or native builds for easy installation.</li>
             <li>Guided first steps for scanning and basic metadata.</li>
@@ -61,8 +65,8 @@ import { withBase } from '../lib/paths';
 
   <section class="marketing-section">
     <div class="marketing-section-inner proof-grid">
-      <article class="proof-card"><strong>1</strong><span>click to install — Docker or a native build.</span></article>
-      <article class="proof-card"><strong>5</strong><span>first-class media kinds: scenes, images, galleries, audio, and text — each available when you want it or disablable if you don't.</span></article>
+      <article class="proof-card"><strong>1</strong><span>click to install with Docker or a native build.</span></article>
+      <article class="proof-card"><strong>5</strong><span>first-class media kinds: scenes, images, galleries, audio, and text. Use only what you need.</span></article>
       <article class="proof-card"><strong>19</strong><span>built-in themes, plus custom colors and layout preferences.</span></article>
       <article class="proof-card"><strong>100%</strong><span>of your library lives on hardware you control.</span></article>
     </div>
@@ -75,7 +79,7 @@ import { withBase } from '../lib/paths';
       <div class="feature-grid">
       <article class="feature-card">
         <h3>Search that understands the library</h3>
-        <p>Find media by title, description, paths, tags, performers, studios, groups, aliases, and saved criteria — not just filenames.</p>
+        <p>Find media by title, description, paths, tags, performers, studios, groups, aliases, and saved criteria, not just filenames.</p>
       </article>
       <article class="feature-card">
         <h3>Metadata you can trust</h3>
@@ -83,7 +87,7 @@ import { withBase } from '../lib/paths';
       </article>
       <article class="feature-card">
         <h3>Real users, not a shared password</h3>
-        <p>Add users and groups with roles, content rules, share links, API tokens, and audit history — so a household, a small team, or a friend can use the library without stepping on each other.</p>
+        <p>Add users and groups with roles, content rules, share links, API tokens, and audit history, so a household, or a friend can use the library without stepping on each other.</p>
       </article>
       <article class="feature-card">
         <h3>Segments as first-class citizens</h3>
@@ -106,7 +110,7 @@ import { withBase } from '../lib/paths';
       <div class="panel">
         <p class="section-kicker">Yours, end to end</p>
         <h3>Your library stays on your system.</h3>
-        <p>Cove runs on the machine or server you choose. You decide who can access it, which providers and downloaders to connect, and which extensions get to run — nothing leaves your network unless you ask it to.</p>
+        <p>Cove runs on the machine or server you choose. You decide who can access it, which providers and downloaders to connect, and which extensions get to run. Nothing leaves your network unless you ask it to.</p>
         <ul class="check-list">
           <li>No account required.</li>
           <li>Your files, metadata, and generated previews stay local.</li>
@@ -128,7 +132,7 @@ import { withBase } from '../lib/paths';
         </article>
         <article class="comparison-card">
           <span class="before">A record of every change</span>
-          <span class="after">Each field remembers which scraper, import, edit, or extension set it — so the library stays explainable instead of mysterious.</span>
+          <span class="after">Each field remembers which scraper, import, edit, or extension set it, so the library stays explainable instead of mysterious.</span>
         </article>
         <article class="comparison-card">
           <span class="before">A library for more than one person</span>

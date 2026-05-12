@@ -6,7 +6,7 @@
   --cove-surface: #0d1824;
   --cove-panel: #152334;
   --cove-border: rgba(164, 185, 212, 0.18);
-  --cove-wordmark: #4f85ff;
+  --cove-wordmark: #13b8c2;
   --cove-text: #f3f7fb;
   --cove-muted: #9fb0c3;
   --cove-pink: #ff2f9a;
@@ -26,6 +26,7 @@
 }
 
 :root[data-theme='light'] {
+  --cove-wordmark: #0f92a7;
   --sl-color-accent-low: #fde7f2;
   --sl-color-accent: #b91062;
   --sl-color-accent-high: #45172f;
@@ -94,6 +95,7 @@ samp {
 .brand-lockup {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 0.125rem;
   color: var(--cove-text);
   text-decoration: none;
@@ -101,8 +103,9 @@ samp {
 
 .brand-wordmark {
   display: block;
-  height: 2rem;
+  height: 1.9rem;
   width: auto;
+  max-width: 100%;
   color: var(--cove-wordmark);
 }
 
@@ -235,6 +238,18 @@ samp {
   margin: 0;
   line-height: 0.98;
   letter-spacing: 0;
+}
+
+.hero-brand {
+  margin: 0 0 0.25rem;
+}
+
+.hero-wordmark {
+  display: block;
+  height: clamp(3.2rem, 8vw, 4.8rem);
+  width: auto;
+  max-width: min(100%, 21rem);
+  color: var(--cove-wordmark);
 }
 
 .hero h1 {
@@ -591,6 +606,10 @@ samp {
 
   .hero h1 {
     font-size: 3.1rem;
+  }
+
+  .hero-wordmark {
+    height: 3.25rem;
   }
 
   .page-heading {
