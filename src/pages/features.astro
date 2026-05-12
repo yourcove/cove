@@ -43,7 +43,7 @@ import { withBase } from '../lib/paths';
         <ul class="feature-list">
           <li>Scenes, images, galleries, audio, and text are first-class media.</li>
           <li>Tags, tag groups, custom fields, performers, studios, and groups keep structure reusable.</li>
-          <li>Segments and virtual compilations let you organize moments inside media without duplicating files.</li>
+          <li>Segments and virtual compilations let you organize moments inside media, including who appears when, without duplicating files.</li>
         </ul>
       </div>
       <PlaceholderMedia label="Unified library overview" caption="Scenes, images, galleries, audio, text, groups, and saved views." />
@@ -53,8 +53,8 @@ import { withBase } from '../lib/paths';
   <section class="marketing-section">
     <div class="marketing-section-inner feature-grid">
       <article class="feature-card"><h3>Search that goes past titles</h3><p>Search across titles, descriptions, paths, tags, aliases, performers, studios, groups, and saved criteria. Boolean search, quoted phrases, exclusions, regex modifiers, and saved filters are there when you need more precision.</p><a href={withBase('docs/user/library/search-and-filters/')}>Search docs</a></article>
-      <article class="feature-card"><h3>Metadata with a memory</h3><p>Scrapers, metadata servers, imports, AI, and manual edits can all touch your library. Cove keeps a record of which one set each field, so you can review changes, roll one back, or re-run a source with confidence.</p><a href={withBase('docs/user/metadata/provenance/')}>Metadata history docs</a></article>
-      <article class="feature-card"><h3>Dynamic groups and watch flows</h3><p>Save for Later, watch history, Continue Watching, smart groups, and saved filters turn repeated browsing habits into living views.</p><a href={withBase('docs/user/library/dynamic-groups/')}>Dynamic group docs</a></article>
+      <article class="feature-card"><h3>Metadata with a memory</h3><p>Scrapers, metadata servers, imports, AI, and manual edits can all touch your library. Cove keeps a record of which one set each field, so you can compare sources and understand why your library looks the way it does.</p><a href={withBase('docs/user/metadata/provenance/')}>Metadata history docs</a></article>
+      <article class="feature-card"><h3>Contextual tags</h3><p>Tags do not have to stop at the whole scene. Cove can attach them to a specific performer, face, detection, or segment when that extra context matters.</p><a href={withBase('docs/user/library/organizing/')}>Organizing docs</a></article>
       <article class="feature-card"><h3>Real users, not a shared login</h3><p>Run Cove for yourself, a household, or a small team. Users, groups, roles, content rules, share links, API tokens, and audit history let people share one library without sharing one account.</p><a href={withBase('docs/user/security/users-roles-permissions/')}>Security docs</a></article>
       <article class="feature-card"><h3>Themes and UI control</h3><p>Choose from 19 built-in themes, customize colors and components, adjust layout styles, remap keyboard shortcuts, and set your own title and favicon.</p><a href={withBase('screenshots/')}>View UI tour</a></article>
       <article class="feature-card"><h3>Extensions that feel native</h3><p>Add backend jobs, UI pages, tabs, slots, dialogs, settings, persistent data, permissions, APIs, and themes through Cove's extension system.</p><a href={withBase('docs/developer/extensions/overview/')}>Developer docs</a></article>
@@ -65,11 +65,11 @@ import { withBase } from '../lib/paths';
     <div class="marketing-section-inner">
       <p class="section-kicker">If you've used a local organizer before</p>
       <h2 class="section-heading">It's not one feature. It's the ceiling.</h2>
-      <p class="section-copy">If you already know what local media organization can do, Cove is built around the next set of expectations: shared libraries that respect users, metadata you can audit, segments and groups as part of the same model, and extensions that reach the entire app.</p>
+      <p class="section-copy">If you already know what local media organization can do, Cove is built around the next set of expectations: shared libraries that respect users, metadata you can audit, segments and contextual tags as part of the same model, and extensions that reach the entire app.</p>
       <div class="comparison-grid">
         <article class="comparison-card"><span class="before">A library for more than one person</span><span class="after">Users, groups, and roles — plus content rules, share links, API tokens, and audit history — instead of a single shared login.</span></article>
-        <article class="comparison-card"><span class="before">Metadata you can audit</span><span class="after">Each field tracks which scraper, import, edit, or extension set it.</span></article>
-        <article class="comparison-card"><span class="before">Segments as a real concept</span><span class="after">Sub-scenes, time-range tags, generated previews, and virtual compilations all live in one model.</span></article>
+        <article class="comparison-card"><span class="before">Metadata you can audit</span><span class="after">Each field tracks which scraper, import, edit, or extension set it, so the result is explainable.</span></article>
+        <article class="comparison-card"><span class="before">Segments as a real concept</span><span class="after">Sub-scenes, time-range tags, performer context, generated previews, and virtual compilations all live in one model.</span></article>
         <article class="comparison-card"><span class="before">Extensions across the whole app</span><span class="after">UI pages, APIs, jobs, events, settings, persistent data, permissions, and themes are all part of the same extension system.</span></article>
         <article class="comparison-card"><span class="before">More media types in one place</span><span class="after">Scenes, images, galleries, audio, and text are first-class — with shared search, tagging, and grouping.</span></article>
         <article class="comparison-card"><span class="before">Built to keep up</span><span class="after">PostgreSQL-backed search and explicit performance targets in the server and the UI.</span></article>
