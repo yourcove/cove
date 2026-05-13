@@ -233,6 +233,10 @@ samp {
   background: rgba(19, 184, 194, 0.08);
 }
 
+.hero .eyebrow {
+  margin-bottom: 0.8rem;
+}
+
 .hero h1,
 .page-heading {
   margin: 0;
@@ -241,7 +245,7 @@ samp {
 }
 
 .hero-brand {
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.5rem;
 }
 
 .hero-wordmark {
@@ -266,6 +270,14 @@ samp {
   font-size: 1.95rem;
   line-height: 1.14;
   letter-spacing: 0;
+}
+
+.section-kicker + .section-heading {
+  margin-top: 0.7rem;
+}
+
+.section-heading + * {
+  margin-top: 1.3rem;
 }
 
 .lead {
