@@ -5,7 +5,8 @@ import starlight from '@astrojs/starlight';
 
 const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
 const site = process.env.SITE_URL ?? (owner ? `https://${owner}.github.io` : 'https://example.com');
-const base = process.env.GITHUB_ACTIONS === 'true' && repo ? `/${repo}/` : '/';
+const isGitHubPages = site.includes('github.io');
+const base = isGitHubPages && repo ? `/${repo}/` : '/';
 
 export default defineConfig({
   site,
