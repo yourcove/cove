@@ -2,20 +2,31 @@
 import MarketingLayout from '../layouts/MarketingLayout.astro';
 ---
 
-<MarketingLayout title="Privacy" description="Privacy notes for Cove and the public website.">
+<MarketingLayout title="Privacy" description="Privacy notes for Cove and the public docs site.">
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Privacy</p>
-      <h1 class="page-heading">Your data stays on your system</h1>
-      <p class="page-copy">Cove does not include telemetry and does not send your library data to Cove servers. The app runs where you install it, and you decide which external metadata providers, downloaders, reverse proxies, or integrations to use.</p>
+      <h1 class="page-heading">Cove is designed to keep library data on your own system</h1>
+      <p class="page-copy">
+        By default, Cove runs where you install it and does not send library data or telemetry anywhere. External traffic happens only when you deliberately enable features that depend on outside providers.
+      </p>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner info-grid">
-      <article class="info-card"><h3>Cove app</h3><p>No telemetry. Your library, generated media, metadata, users, roles, and permissions remain on the system running Cove.</p></article>
-      <article class="info-card"><h3>External services</h3><p>Cove only contacts external metadata, scraper, downloader, or AI services when you configure and use workflows that require them.</p></article>
-      <article class="info-card"><h3>This website</h3><p>The public docs site is a static GitHub Pages site and does not add first-party analytics.</p></article>
+      <article class="info-card">
+        <h3>Cove app</h3>
+        <p>No telemetry. Your media records, generated assets, user accounts, permissions, and metadata history remain on the system running Cove.</p>
+      </article>
+      <article class="info-card">
+        <h3>External providers</h3>
+        <p>Metadata servers, scrapers, downloaders, AI-related tools, and other integrations contact outside services only when you configure and use them.</p>
+      </article>
+      <article class="info-card">
+        <h3>This docs site</h3>
+        <p>The public website is a static site and does not add first-party analytics by default. If that changes later, the privacy text should be updated to match.</p>
+      </article>
     </div>
   </section>
 </MarketingLayout>

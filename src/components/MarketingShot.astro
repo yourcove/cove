@@ -1,0 +1,20 @@
+---
+interface Props {
+  src: string;
+  alt: string;
+  caption?: string;
+  variant?: 'default' | 'portrait';
+}
+
+const {
+  src,
+  alt,
+  caption,
+  variant = 'default',
+} = Astro.props;
+---
+
+<figure class="media-shot" data-variant={variant}>
+  <img src={src} alt={alt} loading="lazy" width="1700" height="1300" />
+  {caption ? <figcaption>{caption}</figcaption> : null}
+</figure>

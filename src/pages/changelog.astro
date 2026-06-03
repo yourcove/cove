@@ -1,21 +1,37 @@
 ---
 import MarketingLayout from '../layouts/MarketingLayout.astro';
+import { COVE_RELEASES, COVE_RELEASES_LATEST } from '../lib/site';
 ---
 
-<MarketingLayout title="Changelog" description="Current website milestones and future release-feed integration plan.">
+<MarketingLayout title="Changelog" description="Where to find Cove's releases, downloads, and version history.">
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Changelog</p>
-      <h1 class="page-heading">Release notes</h1>
-      <p class="page-copy">Highlights from Cove releases. Full release artifacts and source changes live in GitHub Releases.</p>
+      <h1 class="page-heading">Releases and version history</h1>
+      <p class="page-copy">
+        Every version of Cove is published on GitHub with its downloads and notes. The latest release is the best place to start; the full history covers everything that came before.
+      </p>
+      <div class="button-row">
+        <a class="button" href={COVE_RELEASES_LATEST}>Latest release</a>
+        <a class="button-ghost" href={COVE_RELEASES}>All releases</a>
+      </div>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner info-grid">
-      <article class="info-card"><h3>Cove 1.0</h3><p>General release with full library organization, search, permissions, themes, extension support, and user/developer documentation.</p></article>
-      <article class="info-card"><h3>Media model complete</h3><p>Scenes, images, galleries, audio, text, segments, sub-scenes, and virtual compilations share one organization model.</p></article>
-      <article class="info-card"><h3>Administration ready</h3><p>Users, groups, roles, content rules, share links, API tokens, audit history, backups, and upgrade guidance are documented.</p></article>
+      <article class="info-card">
+        <h3>Current website milestone</h3>
+        <p>The site now covers marketing pages, user docs, and developer docs as separate surfaces instead of one blended overview.</p>
+      </article>
+      <article class="info-card">
+        <h3>Current product focus</h3>
+        <p>Installation, search, organization, sharing, metadata tools, and extensibility are the main public product stories being documented here.</p>
+      </article>
+      <article class="info-card">
+        <h3>Where detailed release history lives</h3>
+        <p><a href={COVE_RELEASES}>GitHub Releases</a> holds the downloads and notes for every version. A summarized feed will be wired into this page in a later update.</p>
+      </article>
     </div>
   </section>
 </MarketingLayout>

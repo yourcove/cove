@@ -1,0 +1,89 @@
+---
+title: Providers, Scrapers, and Downloaders
+description: Understand how metadata servers, scrapers, and downloaders fit into Cove's metadata workflow.
+---
+
+# Providers, scrapers, and downloaders
+
+Cove separates “bring in new media” from “identify existing media” and from “apply metadata to media you already have.” That split makes the system easier to reason about and easier to trust.
+
+## The three main roles
+
+### Downloaders
+
+Downloaders bring new media into your library from supported sources. They are about acquisition and intake.
+
+Use downloaders when you want Cove to:
+
+- fetch new media directly
+- match a source URL to a supported tool
+- place new items into the library workflow without leaving the app
+
+### Scrapers
+
+Scrapers pull metadata for specific items from a source and present the result for review. They are best when you want item-level control.
+
+Use scrapers when you want to:
+
+- check one item carefully before trusting a source broadly
+- review suggested fields before applying them
+- work source by source instead of running a big batch immediately
+
+### Metadata servers
+
+Metadata servers match and enrich items at broader scale. They are usually the better fit once you already trust a provider and want higher-throughput identification or enrichment.
+
+Use metadata servers when you want to:
+
+- identify many items at once
+- enrich a larger portion of the library
+- keep recurring provider workflows centralized in settings
+
+## A recommended workflow
+
+1. Start with a scan or downloader intake.
+2. Test a scraper or metadata source on a small representative set.
+3. Review provenance and the quality of the result.
+4. Scale up only after the result looks trustworthy.
+5. Save the resulting cleanup or review workflows as filters or dynamic groups.
+
+## Provenance matters here
+
+Large libraries often combine manual edits, import data, scrapers, metadata servers, downloaders, and extensions. Provenance is how you keep that understandable instead of turning the result into a pile of unexplained values.
+
+## Common metadata server sections
+
+These sections are intentionally structured for later provider-specific content. Keep the headings stable so individual provider notes can be expanded without reorganizing the whole page.
+
+### Provider template
+
+For each metadata server you add later, document:
+
+- what it is best at
+- which media types it works well with
+- whether it is best for identification, enrichment, or both
+- common strengths
+- common failure modes
+- recommended first test workflow
+
+### Planned provider notes
+
+Add later content here for the common metadata servers you want Cove users to consider:
+
+#### Server 1
+
+Provider overview and setup notes go here later.
+
+#### Server 2
+
+Provider overview and setup notes go here later.
+
+#### Server 3
+
+Provider overview and setup notes go here later.
+
+## Downloaders and the extension model
+
+In Cove, downloaders are not a separate bolt-on subsystem. They fit into the broader extension story. That means installation, discovery, and future expansion can live inside the same host-aware model as other add-ons.
+
+If you are configuring the system as a user, treat downloaders like installable capabilities. If you are building one, use the developer docs for the implementation side.

@@ -1,0 +1,63 @@
+---
+title: Run Cove Locally
+description: Set up and run Cove locally in developer mode.
+---
+
+# Run Cove locally
+
+This guide is for developers working on Cove itself, not for ordinary user installs.
+
+## What you need
+
+- .NET 10 SDK
+- Node.js 22 or newer
+- PostgreSQL with pgvector available, or a Cove setup that manages the database side for you
+
+The frontend and backend have separate development loops, so expect to run both during normal work.
+
+## Standard local flow
+
+### Frontend
+
+Run the Vite dev server from `ui/`:
+
+```bash
+npm install
+npm run dev
+```
+
+### Backend
+
+Run the API from `src/`:
+
+```bash
+dotnet run --project Cove.Api
+```
+
+The frontend dev server proxies API and hub traffic to the backend while you work.
+
+## When to use a production-style build locally
+
+Use the normal dev loop for UI and backend changes. Use a built frontend when you specifically need to verify bundled behavior, release-like output, or asset copying into the backend’s web root.
+
+## Native instance considerations
+
+Native development can involve more than one local instance. The main knobs to keep straight are:
+
+- `COVE_HOME`
+- app port
+- managed PostgreSQL port or external connection string
+
+That becomes important when you need parallel test instances or want to isolate a safe demo library from your main development data.
+
+## A good first verification loop
+
+After the app starts:
+
+1. sign in
+2. open a list page
+3. confirm API-backed data is loading
+4. make a small frontend change and confirm hot reload
+5. make a small backend change and confirm the app still serves correctly
+
+If that works, your local loop is ready for feature work.

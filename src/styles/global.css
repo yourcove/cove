@@ -186,7 +186,7 @@ samp {
 }
 
 .hero {
-  grid-template-columns: 1.15fr 0.85fr;
+  grid-template-columns: 0.95fr 1.05fr;
   align-items: center;
   gap: 1.4rem;
 }
@@ -512,8 +512,195 @@ samp {
 
 .download-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.lane-grid,
+.feature-stack,
+.support-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.lane-grid,
+.support-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.feature-stack {
+  grid-template-columns: 1fr;
+}
+
+.lane-card,
+.feature-section,
+.expectation-card {
+  border: 1px solid var(--cove-border);
+  border-radius: 0.5rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+  box-shadow: var(--cove-shadow);
+}
+
+.lane-card,
+.feature-section,
+.expectation-card {
+  padding: 1.2rem;
+}
+
+.lane-card {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.lane-card h3,
+.feature-section h3,
+.expectation-card h3 {
+  margin: 0;
+}
+
+.lane-label {
+  display: inline-flex;
+  justify-self: start;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(19, 184, 194, 0.22);
+  border-radius: 999px;
+  color: var(--cove-teal);
+  background: rgba(19, 184, 194, 0.08);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.stat-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.stat-ribbon span {
+  display: inline-flex;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--cove-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--cove-text);
+  font-weight: 700;
+}
+
+.media-shot {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--cove-border);
+  border-radius: 0.5rem;
+  background: rgba(8, 16, 26, 0.94);
+  box-shadow: var(--cove-shadow);
+}
+
+.media-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1700 / 1300;
+  object-fit: cover;
+}
+
+.media-shot figcaption {
+  padding: 0.9rem 1rem 1rem;
+  color: var(--cove-muted);
+  line-height: 1.55;
+}
+
+.media-shot[data-variant='portrait'] img {
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+}
+
+.theme-reel-stage {
+  position: relative;
+  aspect-ratio: 1700 / 1300;
+  overflow: hidden;
+}
+
+.theme-reel-frame {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  animation: theme-reel-swap var(--theme-reel-duration) step-end infinite;
+  animation-delay: calc(var(--theme-reel-index) * 0.85s);
+}
+
+.theme-reel-frame:first-child {
+  opacity: 1;
+}
+
+.theme-reel-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.theme-reel-frame span {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  padding: 0.42rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(7, 16, 25, 0.72);
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.32);
+  font-size: 0.82rem;
+  font-weight: 800;
+  backdrop-filter: blur(14px);
+}
+
+@keyframes theme-reel-swap {
+  0%,
+  6.4% {
+    opacity: 1;
+  }
+
+  6.5%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.feature-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.feature-section-copy {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.feature-section-copy p {
+  margin: 0;
+}
+
+.feature-section-copy ul {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.feature-section-copy li {
+  color: var(--cove-text);
+  line-height: 1.55;
+}
+
+.expectation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.expectation-card p {
+  margin-bottom: 0;
 }
 
 .theme-strip {
@@ -609,10 +796,13 @@ samp {
   .screenshot-grid,
   .doc-split-grid,
   .download-grid,
+  .lane-grid,
+  .support-grid,
   .audience-grid,
   .proof-grid,
   .comparison-grid,
-  .setup-grid {
+  .setup-grid,
+  .expectation-grid {
     grid-template-columns: 1fr;
   }
 
@@ -640,5 +830,15 @@ samp {
     flex-direction: column;
     align-items: flex-start;
     padding: 1rem 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-reel-frame {
+    animation: none;
+  }
+
+  .theme-reel-frame:not(:first-child) {
+    display: none;
   }
 }

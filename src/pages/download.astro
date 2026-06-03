@@ -1,30 +1,56 @@
 ---
 import MarketingLayout from '../layouts/MarketingLayout.astro';
+import { COVE_RELEASES_LATEST } from '../lib/site';
+import { withBase } from '../lib/paths';
 ---
 
-<MarketingLayout title="Download" description="Install Cove with Docker, native downloads, or from source.">
+<MarketingLayout title="Download" description="Install Cove as a native app or with Docker, then point it at your media.">
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Install</p>
-      <h1 class="page-heading">Download Cove</h1>
-      <p class="page-copy">Cove is free, open source forever, and built to run on hardware you control. Start with Docker, use a native build, or migrate your existing Stash library forward.</p>
+      <h1 class="page-heading">Get Cove running on your own machine</h1>
+      <p class="page-copy">
+        Install Cove as a native app or run it with Docker. Either way, Cove sets itself up the first time you start it, so you can open the app, add your media, and start organizing right away.
+      </p>
+      <div class="button-row">
+        <a class="button" href={COVE_RELEASES_LATEST}>Download the latest release</a>
+        <a class="button-ghost" href={COVE_RELEASES_LATEST}>Release notes</a>
+      </div>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner download-grid">
       <div class="panel">
-        <h3>Docker all-in-one</h3>
-        <p>Recommended for most server installs. Starts Cove, PostgreSQL, and FFmpeg together so you can open the web UI and finish setup.</p>
-        <div class="code-block"><pre><code>cd docker&#10;docker compose -f docker-compose.allinone.yml up -d</code></pre></div>
+        <h3>Native app</h3>
+        <p>Download Cove for Windows, macOS, or Linux, then run it. The first time you start it, Cove gets everything it needs ready for you automatically. There is nothing to install or configure by hand.</p>
+        <ul class="check-list">
+          <li>One download per platform from the latest release.</li>
+          <li>Sets itself up on first launch, then opens in your browser.</li>
+          <li>Includes an instance manager so you can run and switch between separate Cove libraries from one place.</li>
+        </ul>
+        <a class="button-ghost" href={COVE_RELEASES_LATEST}>Get the native app</a>
       </div>
+
       <div class="panel">
-        <h3>Native builds</h3>
-        <p>Download a platform release when you want a single app-style install. Cove bundles the frontend and backend, auto-manages PostgreSQL and FFmpeg, and applies database migrations on startup.</p>
-        <ul class="link-list">
-          <li><strong>Windows, macOS, Linux:</strong> platform builds from GitHub Releases.</li>
-          <li><strong>Source builds:</strong> clone the repository when you want to inspect or modify Cove.</li>
-          <li><strong>Internet exposure:</strong> use your own reverse proxy and security layer.</li>
+        <h3>Docker image</h3>
+        <p>Run Cove from a single image that includes everything it needs. A good fit for a home server or NAS such as UnRAID or Synology, where you want one thing to start and keep running.</p>
+        <div class="code-block"><pre><code>docker compose -f docker-compose.allinone.yml up -d</code></pre></div>
+        <ul class="check-list">
+          <li>Everything Cove needs in one container.</li>
+          <li>Point it at a folder of media and a place to keep your library.</li>
+          <li>Best when you already run other apps this way.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h3>Docker Compose</h3>
+        <p>Run Cove and its database as separate pieces. This keeps them easy to manage, upgrade, and back up on their own, which suits people who like more control over their setup.</p>
+        <div class="code-block"><pre><code>docker compose up -d</code></pre></div>
+        <ul class="check-list">
+          <li>App and database run side by side.</li>
+          <li>Mount your media folder and add it as a library path in Cove.</li>
+          <li>Best when you want to manage each part separately.</li>
         </ul>
       </div>
     </div>
@@ -32,18 +58,48 @@ import MarketingLayout from '../layouts/MarketingLayout.astro';
 
   <section class="marketing-section">
     <div class="marketing-section-inner setup-grid">
-      <article class="setup-card step-card"><h3>Download and install</h3><p>Start with Docker or a native build, open Cove, and follow the simple installation wizard.</p></article>
-      <article class="setup-card step-card"><h3>Add media</h3><p>Point Cove at a folder, import from Stash, or use Cove's downloader platform with compatible downloaders as your collection grows.</p></article>
-      <article class="setup-card step-card"><h3>Scan and review</h3><p>Cove indexes files, generates media, finds metadata, and lets you review changes instead of blindly accepting everything.</p></article>
-      <article class="setup-card step-card"><h3>Make it yours</h3><p>Choose a theme, save filters, set permissions, enable extensions, and build the workflow that fits your collection.</p></article>
+      <article class="setup-card step-card">
+        <h3>Install</h3>
+        <p>Download the native app or start Cove with Docker, then open it and create your owner account.</p>
+      </article>
+      <article class="setup-card step-card">
+        <h3>Add media</h3>
+        <p>Point Cove at your library folders and let the first scan build your initial catalog.</p>
+      </article>
+      <article class="setup-card step-card">
+        <h3>Review and organize</h3>
+        <p>Use search, filters, tags, groups, and generated previews to turn a folder of files into a usable library.</p>
+      </article>
+      <article class="setup-card step-card">
+        <h3>Extend when needed</h3>
+        <p>Add downloaders, scrapers, and other extensions once you want Cove to do more than it does out of the box.</p>
+      </article>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner info-grid">
-      <article class="info-card"><h3>No account required</h3><p>Cove runs on your machine or server. Your files, generated previews, users, and metadata stay where you put them.</p></article>
-      <article class="info-card"><h3>Bring Stash with you</h3><p>If you're moving from Stash, Cove can import your library and keep going with improved performance, broader media support, downloader workflows, real users and groups, and a deeper extension system.</p></article>
-      <article class="info-card"><h3>Open source</h3><p>The code is available for inspection, contribution, and self-hosted use.</p></article>
+      <article class="info-card">
+        <h3>Cove handles setup</h3>
+        <p>However you install it, Cove gets the pieces it needs to run and process your media ready for you, applies updates on startup, and keeps your library working across upgrades.</p>
+      </article>
+      <article class="info-card">
+        <h3>You stay in control</h3>
+        <p>You decide where your library lives, which downloaders and providers are turned on, how Cove is reached on your network, and which extensions are allowed to run.</p>
+      </article>
+      <article class="info-card">
+        <h3>What to read next</h3>
+        <p>The <a href={withBase('docs/user/getting-started/install/')}>install guide</a> walks through each path step by step. The user docs cover your first scan, importing an existing library, metadata tools, and sharing.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Working on Cove itself?</p>
+      <p class="page-copy">
+        If you want to inspect, modify, or build extensions for Cove, run it from source. The <a href={withBase('docs/developer/')}>developer docs</a> cover local setup and extension development.
+      </p>
     </div>
   </section>
 </MarketingLayout>

@@ -1,25 +1,36 @@
 ---
 import MarketingLayout from '../layouts/MarketingLayout.astro';
-import PlaceholderMedia from '../components/PlaceholderMedia.astro';
+import MarketingShot from '../components/MarketingShot.astro';
+import ThemeReel from '../components/ThemeReel.astro';
+import { themeFrames } from '../lib/themeFrames';
+import { withBase } from '../lib/paths';
 ---
 
-<MarketingLayout title="Screenshots" description="Screenshot and demo media tour for Cove.">
+<MarketingLayout title="Screenshots" description="A real screenshot tour of Cove's local library, search, playback, security, and extension surfaces.">
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Visual tour</p>
-      <h1 class="page-heading">Screenshots</h1>
-      <p class="page-copy">A quick tour of the main Cove surfaces. Safe public demo-library captures will fill these slots as the demo library is prepared.</p>
+      <h1 class="page-heading">See the actual app</h1>
+      <p class="page-copy">
+        These captures come from a safe local demo library and are meant to show the app as it really looks when you browse, organize, search, and configure it.
+      </p>
     </div>
   </section>
 
   <section class="marketing-section">
     <div class="marketing-section-inner screenshot-grid">
-      <PlaceholderMedia label="Home dashboard" caption="Library status, recent activity, saved workflows, and quick entry points." />
-      <PlaceholderMedia label="Scene detail and timeline" caption="Metadata, generated media, span review, and related organization in one place." />
-      <PlaceholderMedia label="Search and filters" caption="Full search, saved filters, and large-library browsing controls." />
-      <PlaceholderMedia label="Themes and customization" caption="Theme selection, custom colors, and UI style controls." />
-      <PlaceholderMedia label="Users and permissions" caption="Roles, content rules, share links, API tokens, and audit history." />
-      <PlaceholderMedia label="Extensions and jobs" caption="Native-feeling extension pages, settings, background tasks, and contributed UI." />
+      <ThemeReel frames={themeFrames} caption="20 Built-in Beautiful Themes." />
+      <MarketingShot src={withBase('images/screenshots/dashboard-home.png')} alt="Cove home dashboard." caption="Home dashboard with continue watching, recent videos, studios, and groups." />
+      <MarketingShot src={withBase('images/screenshots/global-search.png')} alt="Cove global search." caption="Global search for jumping straight to matching library records." />
+      <MarketingShot src={withBase('images/screenshots/search-and-filters.png')} alt="Cove video list page with search and filters." caption="Search, filters, sorting, layout choices, and page-size controls on the video list." />
+      <MarketingShot src={withBase('images/screenshots/occurrence-tagging.png')} alt="Cove occurrence tagging on a video detail page." caption="Performer occurrence tagging for contextual metadata." />
+      <MarketingShot src={withBase('images/screenshots/segments-player-raw.png')} alt="Cove raw segment profile on a video player." caption="Raw segment profile with timeline markers and segment metadata." />
+      <MarketingShot src={withBase('images/screenshots/group-detail.png')} alt="Cove group detail page." caption="Group detail page for curated collections, compilations, and reusable organization." />
+      <MarketingShot src={withBase('images/screenshots/feed-viewer.png')} alt="Cove video feed view." caption="Feed-style browsing for a more social media-like way to move through the library." />
+      <MarketingShot src={withBase('images/screenshots/vertical-viewer.png')} alt="Cove vertical viewer." caption="Vertical browsing for a tall, focused way to explore the same local library." />
+      <MarketingShot src={withBase('images/screenshots/roles-permission-editor.png')} alt="Cove role permission editor." caption="Role permission editing with real access controls." />
+      <MarketingShot src={withBase('images/screenshots/extensions-registry.png')} alt="Cove extension discovery screen." caption="Extension discovery with downloaders, scrapers, and installable add-ons in one place." />
+      <MarketingShot src={withBase('images/screenshots/instance-manager.png')} alt="Cove instance manager with paths hidden." caption="Local instance manager for creating and switching between separate Cove libraries." />
     </div>
   </section>
 </MarketingLayout>

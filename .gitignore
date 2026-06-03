@@ -2,3 +2,4 @@ node_modules/
 .astro/
 dist/
 WEBSITE_PLAN.md
+.playwright-mcp

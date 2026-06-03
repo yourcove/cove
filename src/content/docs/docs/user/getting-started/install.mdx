@@ -1,25 +1,48 @@
 ---
 title: Install
-description: Install Cove with Docker, native downloads, or from source.
+description: Install Cove as a native app or with Docker, then open it and add your media.
 ---
 
 # Install Cove
 
-The fastest way to run Cove is the Docker all-in-one setup. It starts Cove and the services it needs together, which makes upgrades and backups easier to reason about.
+Cove runs on your own machine. You can install it as a native app or run it with Docker. Whichever you choose, Cove sets itself up the first time you start it, so there is nothing to assemble by hand.
+
+Downloads and release notes are on the [latest release page](https://github.com/yourcove/cove/releases/latest).
+
+## Native app
+
+Download Cove for Windows, macOS, or Linux from the [latest release](https://github.com/yourcove/cove/releases/latest) and run it. The first time you start Cove, it gets everything it needs ready for you and then opens in your browser.
+
+The native app includes an instance manager: a small companion that lets you create, start, stop, and switch between separate Cove libraries from one place. This is handy if you want, for example, a private library and a separate demo library on the same computer.
+
+## Docker image
+
+Run Cove from a single image that includes everything it needs. This is a good fit for a home server or NAS such as UnRAID or Synology.
 
 ```bash
-cd docker
 docker compose -f docker-compose.allinone.yml up -d
 ```
 
+Then open Cove in your browser, point it at a folder of media, and choose where your library should live.
+
+## Docker Compose
+
+Run Cove and its database as separate pieces so you can manage, upgrade, and back them up on their own.
+
+```bash
+docker compose up -d
+```
+
+Mount your media folder into the container, then add that folder as a library path in Cove's settings.
+
 ## First-run setup
 
-After the containers start, open the Cove web UI in your browser and create the owner account. The owner account can add library paths, configure users and roles, create API tokens, and decide which external providers or extensions are enabled.
+When Cove opens, create the owner account. The owner can add library paths, set up other users and roles, create access tokens, and decide which providers, downloaders, and extensions are enabled.
 
-## Native and source installs
+## Run from source
 
-Native packages are published through GitHub Releases for users who prefer platform builds. Source builds are available for people who want to inspect, modify, or contribute to Cove directly.
+If you want to inspect, modify, or build extensions for Cove, you can run it from source instead. See the [developer docs](/docs/developer/) for local setup.
 
 ## Exposing Cove outside your network
 
-Cove includes users, roles, permissions, share links, API tokens, audit history, and content rules. If you expose Cove to the internet, put it behind your own reverse proxy and security layer, keep TLS enabled, and treat it like any other self-hosted application that can access private media.
+Cove includes users, roles, permissions, share links, access tokens, audit history, and content rules. By default, those sharing features make the most sense for access within your network. If you make Cove reachable from the internet, put it behind your own reverse proxy and security layer, keep TLS enabled, and treat it like any other self-hosted app that can reach private media.

@@ -5,19 +5,34 @@ description: How extensions and integrations should think about Cove APIs and ho
 
 # API surface
 
-Cove exposes APIs for the application itself, extension-owned workflows, and external automation.
+Cove exposes APIs for the application itself, extension-backed workflows, and automation that lives outside the app.
 
-## Integration principles
+## The main rule
 
-- Use documented APIs instead of reaching into internal storage directly.
-- Keep long-running work in jobs or extension services rather than request handlers.
-- Respect user, role, permission, and content-rule boundaries.
-- Preserve provenance when automation changes user-visible metadata.
+Use the supported host and API surfaces instead of reaching into storage directly.
+
+That matters because Cove’s real value is not only the data model. It is also the behavior around permissions, provenance, jobs, and host-aware UI.
+
+## Practical integration principles
+
+- keep long-running work in jobs or services instead of request handlers
+- respect user, role, permission, and content-rule boundaries
+- preserve provenance when automations change user-visible metadata
+- pair user-configurable API behavior with an understandable UI surface when possible
 
 ## Data ownership
 
-Extensions can own data, but administrators should still be able to understand where that data appears, which permissions control it, and how it affects the library.
+Extensions can own data, but that ownership should still be understandable:
 
-## UI and API together
+- administrators should know what the extension stores
+- administrators should know which permissions control it
+- users should be able to tell when that data affects the library
 
-When an extension adds API behavior that users need to configure or monitor, provide matching UI through settings panels, pages, tabs, or slots.
+## Use this page with the extension guides
+
+This page is the conceptual boundary. Use it together with:
+
+- [Run Cove locally](../getting-started/local-development/)
+- [Create an extension](../extensions/create-extension/)
+- [Create a scraper](../extensions/create-scraper/)
+- [Create a downloader](../extensions/create-downloader/)

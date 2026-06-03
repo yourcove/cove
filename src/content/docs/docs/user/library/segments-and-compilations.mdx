@@ -1,20 +1,61 @@
 ---
 title: Segments and Compilations
-description: Work with sub-scenes, resolved spans, and virtual compilations.
+description: Work with segments, sub-videos, and compilations in Cove.
 ---
 
 # Segments and compilations
 
-Segments let you describe meaningful spans inside a media item. Virtual compilations let you reuse those spans without duplicating the original file.
+Segments are one of the main reasons Cove can organize a library in more detail than a simple whole-file model allows.
 
-## Segments
+## What a segment is
 
-A segment can represent a sub-scene, highlight, chapter, detected range, manual selection, or extension-generated span. Segments can be reviewed, refined, and connected back to their source media.
+A segment is a meaningful span inside a scene. Depending on the workflow, that span can represent:
 
-## Resolved spans
+- a sub-scene
+- a highlight
+- a manually selected range
+- a detected range
+- a performer or face occurrence
+- a tag or metadata event tied to time
 
-Resolved spans make overlapping or derived ranges easier to reason about. Cove can show where spans came from and how they combine, so automated detection does not hide the source context.
+## Why segments matter
 
-## Virtual compilations
+Segments make the rest of the library more expressive:
 
-Virtual compilations point at existing media and spans. They are useful when you want a playlist-like result without producing duplicate files for every combination.
+- you can tag a moment, not just a whole file
+- you can track who appears when
+- you can build compilations without duplicating media
+- you can turn internal structure into something the rest of the app can search and reuse
+
+## Raw and derived structure
+
+Some segment data is recorded directly. Some of it is derived from other timing-aware information. In practice, the important distinction is:
+
+- **raw** structure helps explain where the timing came from
+- **derived** structure helps you browse, play, filter, and compile the result
+
+That difference is most useful when you want both explainability and a cleaner day-to-day browsing surface.
+
+## Sub-videos
+
+Sub-videos are useful when one source file really contains multiple meaningful parts that you want to revisit independently. Treat them as reusable internal organization instead of creating duplicate exports for every use case.
+
+## Compilations
+
+Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful spans rather than only full scenes.
+
+Use compilations when:
+
+- you want a chosen sequence
+- you want to reuse existing media rather than duplicate files
+- a group already expresses the collection you want to play
+
+## When to adopt segments
+
+You do not need segments on every item. They pay off most when:
+
+- timing matters
+- performer occurrence matters
+- tags need to be contextual
+- you want reusable sub-videos
+- you want richer playback-driven organization

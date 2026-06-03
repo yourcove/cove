@@ -1,25 +1,39 @@
 ---
 title: Extension Overview
-description: High-level extension architecture and the boundaries of the host model.
+description: High-level extension architecture and host boundaries in Cove.
 ---
 
 # Extension overview
 
-Cove's extension system lets add-ons feel like part of the application instead of a separate sidecar.
+Cove’s extension system is meant to be broad enough for real product extensions, not just narrow one-off hooks.
 
-Extensions can contribute:
+## What extensions can contribute
 
-- UI pages, tabs, slots, dialogs, settings panels, and themes.
-- Backend APIs, background jobs, event handlers, and middleware.
-- Persistent extension storage, schema/data contributions, and generated artifacts.
-- Extension-owned permissions that administrators can review and assign.
+Extensions can add:
 
-## Host boundaries
+- UI pages, panels, tabs, dialogs, and settings
+- backend APIs and services
+- background jobs
+- themes and visual customization
+- installable tools such as downloaders and scrapers
+- extension-owned storage and related data surfaces
 
-Extensions run inside Cove's host model. They should request the minimum permissions needed, keep user-facing UI consistent with Cove's design system, and make extension-owned data understandable to administrators.
+## Why that matters
+
+The extension model exists so Cove can stay local and opinionated without being closed off. Users can add capabilities, and developers can build them in a way that still feels like part of the host.
+
+## The main boundaries
+
+Extensions should:
+
+- request the minimum permissions needed
+- expose behavior clearly enough for administrators to review
+- preserve provenance when changing user-visible metadata
+- keep UI additions consistent with the rest of Cove
 
 ## Where to go next
 
-- [Packaging](./packaging/) covers file layout and release expectations.
-- [Permissions](./permissions/) covers permission design and safety review.
-- [API Surface](../api/overview/) covers how extensions interact with Cove.
+- [Packaging](./packaging/) for artifact and layout expectations
+- [Permissions](./permissions/) for access design
+- [Create an extension](./create-extension/) for the practical starting flow
+- [API Surface](../api/overview/) for integration expectations

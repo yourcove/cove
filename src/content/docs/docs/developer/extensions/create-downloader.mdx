@@ -1,0 +1,49 @@
+---
+title: Create a Downloader
+description: Build a Cove downloader for source-driven media intake.
+---
+
+# Create a downloader
+
+Downloaders are the right tool when you want Cove to ingest new media from supported sources.
+
+## When a downloader is the right fit
+
+Build a downloader when the workflow is:
+
+- start from a source URL or source page
+- fetch media into the library
+- place the result into Cove’s normal organization and metadata workflow
+
+If the workflow starts with an item that already exists in Cove and you mainly want metadata, build a scraper instead.
+
+## Design goals
+
+A good downloader should:
+
+- match supported sources clearly
+- write media into the expected library flow
+- cooperate with later metadata and provenance workflows
+- fail clearly when a URL is unsupported or the source changes
+
+## Implementation flow
+
+1. Define which sources or URL patterns the downloader supports.
+2. Decide what the downloader should fetch directly and what later workflows should enrich.
+3. Test intake on a small safe sample first.
+4. Verify the new items appear in Cove the same way manually added media would.
+5. Package the downloader through the same broader extension story as other installable capabilities.
+
+## Local testing focus
+
+Verify:
+
+- source matching
+- download success and failure behavior
+- placement into the library
+- interaction with scans and generated media
+- handoff into scraper or metadata-server workflows when appropriate
+
+## Practical boundary
+
+Keep the downloader’s job clear: intake first, enrichment second. The best implementations leave the library in a good state for the rest of Cove’s metadata tools instead of trying to collapse every workflow into one step.
