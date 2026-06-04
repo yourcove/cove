@@ -2,22 +2,26 @@ import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
+import { COVE_REPO, COVE_SITE } from './src/lib/site.ts';
+import { DEFAULT_OG_IMAGE, SITE_DESCRIPTION, SITE_NAME, getAbsoluteUrl, getDocsSiteSchema } from './src/lib/seo.ts';
 
-const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
-const site = process.env.SITE_URL ?? (owner ? `https://${owner}.github.io` : 'https://example.com');
+const [, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+const site = process.env.SITE_URL ?? COVE_SITE;
 const isGitHubPages = site.includes('github.io');
 const base = isGitHubPages && repo ? `/${repo}/` : '/';
+const docsOgImage = getAbsoluteUrl(DEFAULT_OG_IMAGE, site);
 
 export default defineConfig({
   site,
   base,
   integrations: [
     starlight({
-      title: 'Cove',
-      description: 'Content Organization for Virtual Entertainment',
-      titleDelimiter: '·',
+      title: SITE_NAME,
+      description: SITE_DESCRIPTION,
+      titleDelimiter: '\u00B7',
       favicon: '/favicon.svg',
       components: {
+        Head: './src/components/starlight/Head.astro',
         SiteTitle: './src/components/starlight/SiteTitle.astro',
       },
       customCss: ['./src/styles/global.css'],
@@ -25,7 +29,44 @@ export default defineConfig({
         {
           icon: 'github',
           label: 'GitHub',
-          href: 'https://github.com/yourcove/cove',
+          href: COVE_REPO,
+        },
+      ],
+      head: [
+        {
+          tag: 'meta',
+          attrs: {
+            name: 'robots',
+            content: 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
+          },
+        },
+        {
+          tag: 'meta',
+          attrs: {
+            property: 'og:image',
+            content: docsOgImage,
+          },
+        },
+        {
+          tag: 'meta',
+          attrs: {
+            name: 'twitter:image',
+            content: docsOgImage,
+          },
+        },
+        {
+          tag: 'meta',
+          attrs: {
+            name: 'application-name',
+            content: SITE_NAME,
+          },
+        },
+        {
+          tag: 'script',
+          attrs: {
+            type: 'application/ld+json',
+          },
+          content: JSON.stringify(getDocsSiteSchema()),
         },
       ],
       sidebar: [

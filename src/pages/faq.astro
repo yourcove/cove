@@ -1,0 +1,176 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import { withBase } from '../lib/paths';
+
+const faqStructuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: 'What is Cove?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Cove is a local media organizer that helps you keep videos, images, galleries, audio, and text in one library you control.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Do I need a cloud account to use Cove?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'No. Cove runs where you install it and does not require a cloud account between you and your own library.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can Cove organize more than video?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Yes. Cove can organize videos, images, galleries, audio, and text, then connect them with tags, people, groups, studios, and other details.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can I share a Cove library with other people?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Yes. Cove supports users, roles, permissions, and share links so you can share a library within your network without handing out one all-powerful login.',
+        },
+      },
+    ],
+  },
+];
+---
+
+<MarketingLayout
+  title="Cove FAQ"
+  description="Common questions about Cove, local media organization, private libraries, and sharing within your network."
+  imagePath="/images/screenshots/dashboard-home.png"
+  extraStructuredData={faqStructuredData}
+>
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="eyebrow-small">FAQ</p>
+      <h1 class="page-heading">Questions people ask before they install Cove</h1>
+      <p class="page-copy">
+        This page answers the common practical questions around what Cove is, how it works, what kinds of libraries it fits, and how private sharing works.
+      </p>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Getting started</p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>What is Cove?</h3>
+          <p>Cove is a local media organizer that helps you keep videos, images, galleries, audio, and text in one library you control.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Do I need a cloud account to use it?</h3>
+          <p>No. Cove runs where you install it and does not require a cloud account between you and your own library.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can Cove organize more than video?</h3>
+          <p>Yes. Cove can organize videos, images, galleries, audio, and text, then connect them with tags, people, groups, studios, and other details.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can I try it without learning everything first?</h3>
+          <p>Yes. You can install Cove, scan a folder, and start browsing right away. The deeper features are there when your library needs them.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Privacy and sharing</p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>Can I share a library with other people?</h3>
+          <p>Yes. Cove supports users, roles, permissions, and share links so you can share a library within your network without handing out one all-powerful login.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Is Cove private by default?</h3>
+          <p>Yes. Your media records, metadata, generated previews, and accounts stay on the machine or server you control unless you deliberately turn on outside services.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can it work for a household or shared home server?</h3>
+          <p>Yes. Cove is useful for solo libraries, households, and small shared collections on your network where different people may need different levels of access.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Does Cove support local-only use?</h3>
+          <p>Yes. Cove is designed around local control, so you can keep the app and its library on your own hardware.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Library fit</p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>Is Cove only for one kind of library?</h3>
+          <p>No. Cove is meant for people who want a serious personal media library, whether that means a broad mixed collection or something more specific and sensitive.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can Cove replace folder-only organization?</h3>
+          <p>Yes. It sits on top of your files and gives you search, tags, groups, history, continue watching, and better ways to browse without forcing you to reorganize everything on disk first.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Does it help once the library gets large?</h3>
+          <p>Yes. Cove is built for bigger libraries with search, filters, saved searches, feed browsing, vertical browsing, and more detailed metadata.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can I add more to Cove later?</h3>
+          <p>Yes. Cove supports extensions, scrapers, downloaders, and themes so the app can grow with your setup.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">More specific questions</p>
+      <p class="page-copy">
+        Some people arrive here looking for software for more private, adult, or sensitive libraries. These questions are here to answer that directly and clearly.
+      </p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>Can Cove help organize adult media libraries?</h3>
+          <p>Yes. Cove can be used for adult media libraries when you want local control, better search, tagging, browsing, and more private access on hardware you manage yourself.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Is Cove a private organizer for NSFW collections?</h3>
+          <p>Yes. If you want an NSFW organizer that stays on your own machine or server instead of pushing your library into someone else's account system, Cove fits that model well.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can Cove work as a porn organizer?</h3>
+          <p>Yes. If what you need is a porn organizer with local control, real search, tagging, multiple viewing styles, and better permissions for shared access on your network, Cove can fill that role.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Is Cove only for adult libraries?</h3>
+          <p>No. Cove can organize many kinds of personal media libraries. Adult or NSFW use is one case, not the whole product story.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner doc-split-grid">
+      <article class="doc-track-card">
+        <h3>Want the feature tour?</h3>
+        <p>See the actual app and how search, browsing, permissions, extensions, and themes work in practice.</p>
+        <a class="button-ghost" href={withBase('features/')}>Open features</a>
+      </article>
+      <article class="doc-track-card">
+        <h3>Ready to install it?</h3>
+        <p>Start with the download page, then use the docs for setup, scanning, importing, and sharing.</p>
+        <a class="button-ghost" href={withBase('download/')}>Go to download</a>
+      </article>
+    </div>
+  </section>
+</MarketingLayout>

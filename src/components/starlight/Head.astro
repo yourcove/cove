@@ -1,0 +1,14 @@
+---
+import DefaultHead from '@astrojs/starlight/components/Head.astro';
+import { getDocPageSchema } from '../../lib/seo';
+
+const { entry } = Astro.locals.starlightRoute;
+const pageSchema = getDocPageSchema({
+  title: entry.data.title,
+  description: entry.data.description ?? '',
+  pathname: Astro.url.pathname,
+});
+---
+
+<DefaultHead />
+<script is:inline type="application/ld+json" set:html={JSON.stringify(pageSchema)} />

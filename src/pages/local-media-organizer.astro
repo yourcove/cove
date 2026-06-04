@@ -1,0 +1,179 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import MarketingShot from '../components/MarketingShot.astro';
+import { withBase } from '../lib/paths';
+
+const faqStructuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: 'What is a local media organizer?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'A local media organizer helps you keep a media library on hardware you control, then search it, browse it, tag it, and share it on your own terms.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can Cove organize more than video?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Yes. Cove can organize videos, images, galleries, audio, and text in one library, then connect them with tags, people, groups, studios, and other details.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Do I need a cloud account to use Cove?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'No. Cove is meant to run where you install it, and it does not require a cloud account between you and your own library.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can I share a Cove library with other people?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Yes. Cove supports separate users, roles, permissions, and share links so you can share a library within your network without handing out one all-powerful login.',
+        },
+      },
+    ],
+  },
+];
+---
+
+<MarketingLayout
+  title="Local Media Organizer"
+  description="Cove is a local media organizer for private libraries, shared households, and people who want more than folders and filenames."
+  imagePath="/images/screenshots/dashboard-home.png"
+  extraStructuredData={faqStructuredData}
+>
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <div>
+        <p class="eyebrow-small">Local media organizer</p>
+        <h1 class="page-heading">Keep your library on hardware you control, then actually enjoy using it</h1>
+        <p class="lead">
+          Cove is a local media organizer for people who want private media library software with real search, better browsing, richer tags, and room to grow beyond a basic catalog.
+        </p>
+        <div class="button-row">
+          <a class="button" href={withBase('download/')}>Download Cove</a>
+          <a class="button-ghost" href={withBase('features/')}>Explore features</a>
+        </div>
+      </div>
+      <MarketingShot
+        src={withBase('images/screenshots/dashboard-home.png')}
+        alt="Cove home dashboard showing a local media library."
+        caption="A local library with real search, browsing, and return-to-what-you-were-doing tools."
+      />
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner info-grid">
+      <article class="info-card">
+        <h3>Private by default</h3>
+        <p>Your media, generated previews, metadata, and accounts stay on the machine or server you choose unless you deliberately turn on outside services.</p>
+      </article>
+      <article class="info-card">
+        <h3>More than filenames</h3>
+        <p>Search by people, tags, groups, studios, titles, and other details instead of relying on folder memory alone.</p>
+      </article>
+      <article class="info-card">
+        <h3>Made for real use</h3>
+        <p>Browse in a grid, feed, or vertical page, keep watch history and save-for-later lists, and share within your network with roles and permissions.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <MarketingShot
+        src={withBase('images/screenshots/audio-detail.png')}
+        alt="Cove audio detail page connected to a local media library."
+        caption="One library can keep videos, images, galleries, audio, and text together."
+      />
+      <div class="panel">
+        <p class="section-kicker">Keep more in one place</p>
+        <h2 class="section-heading">Use one organizer for the media you already have</h2>
+        <p class="page-copy">
+          Cove is not only for video. Keep videos, images, galleries, audio, and text together, then connect them with people, tags, groups, studios, faces, and your own notes. That makes the library easier to search and easier to understand.
+        </p>
+        <ul class="check-list">
+          <li>Organize different kinds of media in one local library.</li>
+          <li>Connect related items instead of scattering them across separate apps.</li>
+          <li>Keep the details that help you find things later.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <div class="panel">
+        <p class="section-kicker">When folders stop being enough</p>
+        <h2 class="section-heading">Cove helps after the library gets big, shared, or hard to search</h2>
+        <p class="page-copy">
+          A good local media organizer should help both when you know exactly what you want and when you only remember part of it. Cove gives you global search, saved filters, richer tagging, groups, segments, and better ways to move through a large library without losing track of what matters.
+        </p>
+        <ul class="check-list">
+          <li>Jump to matching videos, people, tags, groups, and more from global search.</li>
+          <li>Save searches you want to come back to.</li>
+          <li>Share one library within your network without handing out one all-access account.</li>
+        </ul>
+      </div>
+      <MarketingShot
+        src={withBase('images/screenshots/global-search.png')}
+        alt="Cove global search for a local media library."
+        caption="Global search gives a growing library a faster front door."
+      />
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Common questions</p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>What is a local media organizer?</h3>
+          <p>It is software that helps you keep a media library on hardware you control, then search it, browse it, tag it, and share it on your own terms.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can Cove organize more than video?</h3>
+          <p>Yes. Cove can keep videos, images, galleries, audio, and text together in one library.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Do I need a cloud account?</h3>
+          <p>No. Cove is designed to run locally and does not require an account between you and your own library.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Can I share a library?</h3>
+          <p>Yes. Cove supports users, roles, permissions, and share links so you can share within your network more safely.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner doc-split-grid">
+      <article class="doc-track-card">
+        <h3>See how Cove works</h3>
+        <p>Browse the feature tour to see search, tagging, feed browsing, permissions, and extensions in the actual app.</p>
+        <a class="button-ghost" href={withBase('features/')}>Open the feature tour</a>
+      </article>
+      <article class="doc-track-card">
+        <h3>Ready to install it?</h3>
+        <p>Start with the download page, then use the user docs for scanning, importing, metadata, and sharing.</p>
+        <a class="button-ghost" href={withBase('download/')}>Go to download</a>
+      </article>
+      <article class="doc-track-card">
+        <h3>Want more direct answers?</h3>
+        <p>Read the FAQ for straightforward answers about privacy, sharing, library fit, and more specific use cases.</p>
+        <a class="button-ghost" href={withBase('faq/')}>Open FAQ</a>
+      </article>
+    </div>
+  </section>
+</MarketingLayout>

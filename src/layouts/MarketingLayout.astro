@@ -1,16 +1,26 @@
 ---
 import '../styles/global.css';
 import CoveWordmark from '../components/CoveWordmark.astro';
+import MarketingSeo from '../components/MarketingSeo.astro';
 import { withBase } from '../lib/paths';
+import { SITE_DESCRIPTION } from '../lib/seo';
 
 interface Props {
   title?: string;
   description?: string;
+  imagePath?: string;
+  pageType?: 'website' | 'article';
+  schemaPageType?: 'WebPage' | 'AboutPage' | 'CollectionPage';
+  extraStructuredData?: unknown[];
 }
 
 const {
   title = 'Cove',
-  description = 'Content Organization for Virtual Entertainment',
+  description = SITE_DESCRIPTION,
+  imagePath,
+  pageType = 'website',
+  schemaPageType = 'WebPage',
+  extraStructuredData = [],
 } = Astro.props;
 
 const pageTitle = title === 'Cove' ? 'Cove' : `${title} | Cove`;
@@ -34,6 +44,14 @@ const currentPath = Astro.url.pathname;
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={withBase('favicon.svg')} />
+    <MarketingSeo
+      title={pageTitle}
+      description={description}
+      imagePath={imagePath}
+      pageType={pageType}
+      schemaPageType={schemaPageType}
+      extraStructuredData={extraStructuredData}
+    />
   </head>
   <body class="marketing-body">
     <header class="site-header">
@@ -67,6 +85,8 @@ const currentPath = Astro.url.pathname;
         <div class="footer-links">
           <a href={withBase('download/')}>Download</a>
           <a href={withBase('docs/')}>Docs</a>
+          <a href={withBase('local-media-organizer/')}>Local Media Organizer</a>
+          <a href={withBase('faq/')}>FAQ</a>
           <a href={withBase('privacy/')}>Privacy</a>
           <a href="https://github.com/yourcove/cove">GitHub</a>
         </div>
