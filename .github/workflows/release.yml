@@ -258,6 +258,20 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
 
+      - name: Extract changelog entry for this version
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          {
+            echo 'CHANGELOG<<EOF'
+            awk -v ver="$VERSION" '
+              index($0, "## [" ver "]") == 1 { found=1; print; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Generate combined checksums
         working-directory: release-files
         run: |
@@ -269,6 +283,8 @@ jobs:
           prerelease: ${{ needs.check-version.outputs.is_stable != 'true' }}
           files: release-files/*
           body: |
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
             ## Downloads
 
             Standalone executables for Windows, Linux, and macOS are attached above.
