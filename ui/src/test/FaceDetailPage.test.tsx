@@ -102,8 +102,8 @@ describe("FaceDetailPage", () => {
         {
           id: 17,
           label: "Similar Jane",
-          performerId: 22,
-          performerName: "Jane Roe",
+          performerId: undefined,
+          performerName: undefined,
           coverImageUrl: "/img/faces/17.jpg",
           ignored: false,
           mergedIntoFaceId: undefined,
