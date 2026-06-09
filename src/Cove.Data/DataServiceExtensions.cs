@@ -59,13 +59,21 @@ public static class DataServiceExtensions
         services.AddScoped<ISegmentRepository, SegmentRepository>();
         services.AddScoped<IDetectionRepository, DetectionRepository>();
         services.AddScoped<IFaceRepository, FaceRepository>();
+        services.AddScoped<IPerformerMergeService, PerformerMergeService>();
         services.AddScoped<ITagApplicationRepository, TagApplicationRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();
         services.AddScoped<ICustomFieldRepository, CustomFieldRepository>();
         services.AddScoped<IFacePerformerPropagationService>(sp => sp.GetRequiredService<FacePerformerPropagationService>());
         services.AddScoped<IUserEngagementService, UserEngagementService>();
         services.AddScoped<IEmbeddingService>(sp => sp.GetRequiredService<EmbeddingService>());
-        services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingService>());
+services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingService>());
+        // Materialized face top-suggestion projection. The list reads the stored Face.TopSuggestion*
+        // columns; this service computes/upserts them and services invalidations, and the hosted
+        // materializer keeps the backlog drained off the request path. (Replaces the in-memory
+        // FaceTopSuggestionCache, which could not scale past its entry cap.)
+        services.AddScoped<FaceTopSuggestionService>();
+        services.AddScoped<IFaceTopSuggestionMaintenance>(sp => sp.GetRequiredService<FaceTopSuggestionService>());
+        services.AddHostedService<FaceTopSuggestionMaterializerService>();
 
         // Schema C Stage 1 dual-write
         services.AddScoped<IEntityIdentifierService, EntityIdentifierService>();

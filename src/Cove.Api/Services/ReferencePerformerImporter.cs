@@ -1,4 +1,5 @@
 using Cove.Core.Interfaces;
+using Cove.Core.Entities;
 using Cove.Data;
 
 using Microsoft.EntityFrameworkCore;
@@ -22,18 +23,14 @@ public sealed class ReferencePerformerImporter(IServiceScopeFactory scopeFactory
         if (performerId <= 0 || string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(externalId))
             return false;
 
+        endpoint = endpoint.Trim();
+        externalId = externalId.Trim();
+
         try
         {
             await using var scope = scopeFactory.CreateAsyncScope();
-            var metadataServer = scope.ServiceProvider.GetService<MetadataServerService>();
             var db = scope.ServiceProvider.GetService<CoveContext>();
-            if (metadataServer is null || db is null)
-                return false;
-
-            // Confirm a metadata server is actually configured for this site and the remote performer
-            // exists before mutating anything.
-            var match = await metadataServer.GetPerformerMatchAsync(endpoint, externalId, cancellationToken);
-            if (match is null)
+            if (db is null)
                 return false;
 
             var performer = await db.Performers
@@ -42,6 +39,31 @@ public sealed class ReferencePerformerImporter(IServiceScopeFactory scopeFactory
                 .Include(p => p.Urls)
                 .FirstOrDefaultAsync(p => p.Id == performerId, cancellationToken);
             if (performer is null)
+                return false;
+
+            var existingRemoteId = performer.RemoteIds.FirstOrDefault(id => string.Equals(id.Endpoint, endpoint, StringComparison.OrdinalIgnoreCase));
+            if (existingRemoteId is null)
+            {
+                performer.RemoteIds.Add(new PerformerRemoteId
+                {
+                    PerformerId = performer.Id,
+                    Endpoint = endpoint,
+                    RemoteId = externalId,
+                });
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            else if (!string.Equals(existingRemoteId.RemoteId, externalId, StringComparison.OrdinalIgnoreCase))
+            {
+                existingRemoteId.RemoteId = externalId;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            var metadataServer = scope.ServiceProvider.GetService<MetadataServerService>();
+            if (metadataServer is null)
+                return false;
+
+            var match = await metadataServer.GetPerformerMatchAsync(endpoint, externalId, cancellationToken);
+            if (match is null)
                 return false;
 
             var imported = await metadataServer.MergePerformerAsync(performer, endpoint, externalId, cancellationToken);

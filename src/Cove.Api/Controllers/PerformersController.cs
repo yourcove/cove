@@ -15,7 +15,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.PerformersRead)]
-public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IEntityIdentifierService entityIdentifiers, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IEntityIdentifierService entityIdentifiers, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private sealed record PerformerUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -769,37 +769,10 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     [RequiresPermission(Permissions.PerformersWrite)]
     public async Task<ActionResult<PerformerDto>> MergePerformers([FromBody] PerformerMergeDto dto, CancellationToken ct)
     {
-        var target = await performerRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
-        if (target == null) return NotFound("Target performer not found");
+        var merged = await performerMergeService.MergeAsync(dto.TargetId, dto.SourceIds, ct);
+        if (merged == null) return NotFound("Target performer not found");
 
-        var sources = await db.Performers
-            .Include(p => p.Aliases)
-            .Include(p => p.Urls)
-            .Include(p => p.VideoPerformers)
-            .Include(p => p.ImagePerformers)
-            .Include(p => p.GalleryPerformers)
-            .Where(p => dto.SourceIds.Contains(p.Id))
-            .ToListAsync(ct);
-
-        foreach (var source in sources)
-        {
-            // Move video associations
-            foreach (var sp in source.VideoPerformers)
-                if (!target.VideoPerformers.Any(t => t.VideoId == sp.VideoId))
-                    target.VideoPerformers.Add(new VideoPerformer { VideoId = sp.VideoId, PerformerId = target.Id });
-            // Move image associations
-            foreach (var ip in source.ImagePerformers)
-                if (!target.ImagePerformers.Any(t => t.ImageId == ip.ImageId))
-                    target.ImagePerformers.Add(new ImagePerformer { ImageId = ip.ImageId, PerformerId = target.Id });
-            // Add source name as alias
-            if (!target.Aliases.Any(a => a.Alias == source.Name))
-                target.Aliases.Add(new PerformerAlias { Alias = source.Name, PerformerId = target.Id });
-            // Delete source
-            db.Performers.Remove(source);
-        }
-
-        await db.SaveChangesAsync(ct);
-        var result = await performerRepo.GetByIdWithRelationsAsync(target.Id, ct);
+        var result = await performerRepo.GetByIdWithRelationsAsync(merged.Id, ct);
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }
 }

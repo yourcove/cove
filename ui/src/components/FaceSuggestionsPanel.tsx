@@ -1,5 +1,6 @@
 import { Fingerprint } from "lucide-react";
 import type { Face, FaceSuggestion } from "../api/types";
+import { SuggestionEvidenceText } from "./SuggestionEvidenceText";
 
 interface Props {
   face?: Face;
@@ -38,6 +39,9 @@ export function FaceSuggestionsPanel({
         <div className="space-y-3">
           {suggestions.map((suggestion) => {
             const isReferenceOnly = suggestion.performerId < 0;
+            // A match sourced from a reference database, whether or not it already resolved to a local
+            // performer (resolved ones have a positive id but still carry the external reference URL).
+            const isReferenceMatch = isReferenceOnly || !!suggestion.externalUrl;
 
             return (
               <article key={suggestion.performerId} className="rounded-2xl border border-border bg-surface/60 p-4">
@@ -45,7 +49,7 @@ export function FaceSuggestionsPanel({
                   {isReferenceOnly ? (
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-surface/90 text-left">
                       {suggestion.coverImageUrl ? (
-                        <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover" loading="lazy" />
+                        <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-muted">
                           <Fingerprint className="h-6 w-6" />
@@ -61,7 +65,7 @@ export function FaceSuggestionsPanel({
                       aria-label={`Open performer ${suggestion.performerName}`}
                     >
                       {suggestion.coverImageUrl ? (
-                        <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover" loading="lazy" />
+                        <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-muted">
                           <Fingerprint className="h-6 w-6" />
@@ -73,21 +77,23 @@ export function FaceSuggestionsPanel({
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        {isReferenceOnly ? (
-                          <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isReferenceOnly ? (
                             <span className="text-sm font-semibold text-foreground">{suggestion.performerName}</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => canReadPerformers && onNavigate({ page: "performer", id: suggestion.performerId })}
+                              className={`text-left text-sm font-semibold ${canReadPerformers ? "text-accent hover:underline" : "text-foreground"}`}
+                              disabled={!canReadPerformers}
+                            >
+                              {suggestion.performerName}
+                            </button>
+                          )}
+                          {isReferenceMatch ? (
                             <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">Reference DB</span>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => canReadPerformers && onNavigate({ page: "performer", id: suggestion.performerId })}
-                            className={`text-left text-sm font-semibold ${canReadPerformers ? "text-accent hover:underline" : "text-foreground"}`}
-                            disabled={!canReadPerformers}
-                          >
-                            {suggestion.performerName}
-                          </button>
-                        )}
+                          ) : null}
+                        </div>
                         <p className="mt-1 text-xs text-secondary">{suggestion.why}</p>
                       </div>
                       <div className="min-w-[124px] space-y-1">
@@ -107,7 +113,7 @@ export function FaceSuggestionsPanel({
                     <div className="space-y-2">
                       <div className="text-[11px] uppercase tracking-wide text-muted">Evidence</div>
                       {suggestion.evidence.length === 0 ? (
-                        <SuggestionEvidenceFallback suggestion={suggestion} isReferenceOnly={isReferenceOnly} />
+                        <SuggestionEvidenceText suggestion={suggestion} isReferenceOnly={isReferenceOnly} />
                       ) : (
                         <div className="flex flex-wrap gap-2">
                           {suggestion.evidence.slice(0, 5).map((evidence) => (
@@ -169,39 +175,6 @@ export function FaceSuggestionsPanel({
       )}
     </div>
   );
-}
-
-function SuggestionEvidenceFallback({ suggestion, isReferenceOnly }: { suggestion: FaceSuggestion; isReferenceOnly: boolean }) {
-  const evidenceLines = splitEvidenceLines(suggestion.why);
-  const hasReferenceSignal = !!suggestion.externalUrl || suggestion.localPerformerId != null || isReferenceOnly;
-
-  if (!hasReferenceSignal && evidenceLines.length === 0) {
-    return <p className="text-xs text-secondary">This suggestion did not include local face thumbnails.</p>;
-  }
-
-  return (
-    <div className="space-y-1 text-xs text-secondary">
-      {hasReferenceSignal ? (
-        <p>{isReferenceOnly ? "External reference match. Import it to create a local performer link." : "Reference match resolved to this local performer."}</p>
-      ) : null}
-      {evidenceLines.map((line) => (
-        <p key={line}>{line}</p>
-      ))}
-      {suggestion.externalUrl ? (
-        <a href={suggestion.externalUrl} target="_blank" rel="noreferrer" className="inline-flex text-accent hover:underline">
-          Open reference record
-        </a>
-      ) : null}
-    </div>
-  );
-}
-
-function splitEvidenceLines(value: string) {
-  return (value || "")
-    .split(/;\s*/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 4);
 }
 
 function formatPercent(value: number) {

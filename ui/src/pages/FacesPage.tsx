@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BoolCriterion, CriterionModifier, CustomFieldCriterion, FaceBatchOperationResult, FindFilter, FaceTopSuggestion, IntCriterion, MultiIdCriterion, StringCriterion } from "../api/types";
+import type { InfiniteData } from "@tanstack/react-query";
+import type { BoolCriterion, CriterionModifier, CustomFieldCriterion, FindFilter, FaceSuggestion, FaceTopSuggestion, IntCriterion, MultiIdCriterion, PaginatedResponse, StringCriterion } from "../api/types";
 import { faces } from "../api/client";
 import type { Face } from "../api/types";
 import { Fingerprint, Link2, Trash2 } from "lucide-react";
@@ -29,29 +30,20 @@ type TriState = "all" | "yes" | "no";
 type FaceSort = string;
 
 const defaultFaceSort: FaceSort = "suggestion_confidence";
+const defaultFaceDirection = "desc";
 const FACE_SORT_OPTIONS = [
-  { value: "suggestion_confidence", label: "Suggested match confidence" },
-  { value: "updated_desc", label: "Recently updated" },
-  { value: "created_desc", label: "Recently created" },
-  { value: "appearance_desc", label: "Most appearances" },
-  { value: "video_count_desc", label: "Most videos" },
-  { value: "image_count_desc", label: "Most images" },
-  { value: "label_asc", label: "Label A-Z" },
-  { value: "label_desc", label: "Label Z-A" },
-  { value: "performer_name_asc", label: "Performer A-Z" },
-  { value: "performer_name_desc", label: "Performer Z-A" },
-  { value: "detection_count_desc", label: "Most detections" },
-  { value: "detection_count_asc", label: "Fewest detections" },
-  { value: "appearance_count_desc", label: "Most appearances (strict)" },
-  { value: "appearance_count_asc", label: "Fewest appearances" },
-  { value: "frame_sample_count_desc", label: "Most frame samples" },
-  { value: "frame_sample_count_asc", label: "Fewest frame samples" },
-  { value: "video_count_asc", label: "Fewest videos" },
-  { value: "image_count_asc", label: "Fewest images" },
-  { value: "primary_source_key_asc", label: "Source A-Z" },
-  { value: "primary_source_key_desc", label: "Source Z-A" },
-  { value: "cover_present_desc", label: "Has cover first" },
-  { value: "cover_present_asc", label: "Missing cover first" },
+  { value: "suggestion_confidence", label: "Suggested Match Confidence" },
+  { value: "updated", label: "Updated At" },
+  { value: "created", label: "Created At" },
+  { value: "label", label: "Label" },
+  { value: "performer_name", label: "Performer Name" },
+  { value: "primary_source_key", label: "Source" },
+  { value: "detection_count", label: "Detection Count" },
+  { value: "appearance_count", label: "Appearance Count" },
+  { value: "frame_sample_count", label: "Frame Sample Count" },
+  { value: "video_count", label: "Video Count" },
+  { value: "image_count", label: "Image Count" },
+  { value: "cover_present", label: "Has Cover" },
 ];
 
 const FACE_CRITERIA: CriterionDefinition[] = [
@@ -253,6 +245,92 @@ function sanitizeFaceFilters(filter: Record<string, unknown>) {
   return next;
 }
 
+type FaceQueryPatchOptions = {
+  linked?: boolean;
+  performerIds?: string;
+  topSuggestionPerformerIds?: string;
+};
+
+function faceMatchesPatchedQuery(face: Face, query: FaceQueryPatchOptions) {
+  if (query.linked === true && !face.performerId) return false;
+  if (query.linked === false && face.performerId) return false;
+
+  const performerIds = parseIdSet(query.performerIds);
+  if (performerIds && (!face.performerId || !performerIds.has(face.performerId))) return false;
+
+  const topSuggestionPerformerIds = parseIdSet(query.topSuggestionPerformerIds);
+  if (topSuggestionPerformerIds && (!face.topSuggestion || !topSuggestionPerformerIds.has(face.topSuggestion.performerId))) return false;
+
+  return true;
+}
+
+function parseIdSet(value?: string) {
+  if (!value) return null;
+  const ids = value
+    .split(",")
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0);
+  return ids.length > 0 ? new Set(ids) : null;
+}
+
+function patchFacePage(page: PaginatedResponse<Face>, updatedFace: Face, keepFace: boolean): PaginatedResponse<Face> {
+  const existing = page.items.some((item) => item.id === updatedFace.id);
+  if (!existing) return page;
+
+  return {
+    ...page,
+    items: keepFace
+      ? page.items.map((item) => item.id === updatedFace.id ? updatedFace : item)
+      : page.items.filter((item) => item.id !== updatedFace.id),
+    totalCount: keepFace ? page.totalCount : Math.max(0, page.totalCount - 1),
+  };
+}
+
+function patchFaceListCache(data: unknown, updatedFace: Face, keepFace: boolean) {
+  if (!data || typeof data !== "object") return data;
+
+  if ("pages" in data && Array.isArray((data as InfiniteData<PaginatedResponse<Face>>).pages)) {
+    const infiniteData = data as InfiniteData<PaginatedResponse<Face>>;
+    return {
+      ...infiniteData,
+      pages: infiniteData.pages.map((page) => patchFacePage(page, updatedFace, keepFace)),
+    };
+  }
+
+  if ("items" in data && Array.isArray((data as PaginatedResponse<Face>).items)) {
+    return patchFacePage(data as PaginatedResponse<Face>, updatedFace, keepFace);
+  }
+
+  return data;
+}
+
+function removeFacesFromListCache(data: unknown, deletedFaceIds: Set<number>) {
+  if (!data || typeof data !== "object" || deletedFaceIds.size === 0) return data;
+
+  if ("pages" in data && Array.isArray((data as InfiniteData<PaginatedResponse<Face>>).pages)) {
+    const infiniteData = data as InfiniteData<PaginatedResponse<Face>>;
+    return {
+      ...infiniteData,
+      pages: infiniteData.pages.map((page) => ({
+        ...page,
+        items: page.items.filter((item) => !deletedFaceIds.has(item.id)),
+        totalCount: Math.max(0, page.totalCount - deletedFaceIds.size),
+      })),
+    };
+  }
+
+  if ("items" in data && Array.isArray((data as PaginatedResponse<Face>).items)) {
+    const page = data as PaginatedResponse<Face>;
+    return {
+      ...page,
+      items: page.items.filter((item) => !deletedFaceIds.has(item.id)),
+      totalCount: Math.max(0, page.totalCount - deletedFaceIds.size),
+    };
+  }
+
+  return data;
+}
+
 function formatTriState(value: unknown, yesLabel: string, noLabel: string) {
   const resolved = readTriState(value);
   return resolved === "yes" ? yesLabel : resolved === "no" ? noLabel : "All";
@@ -287,7 +365,7 @@ export function FacesPage({ onNavigate }: Props) {
   const canWriteFaces = canWriteEntity("face", hasPermission);
   const canDeleteFaces = canDeleteEntity("face", hasPermission);
   const defaultState = useMemo(() => ({
-    filter: { page: 1, perPage: 36, sort: defaultFaceSort } as FindFilter,
+    filter: { page: 1, perPage: 36, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter,
     objectFilter: { linked: "no" },
     displayMode: "grid" as DisplayMode,
   }), []);
@@ -331,11 +409,14 @@ export function FacesPage({ onNavigate }: Props) {
     },
   ], []);
   const [comparison, setComparison] = useState<{ face: Face; suggestion: FaceTopSuggestion } | null>(null);
-  const [batchResult, setBatchResult] = useState<FaceBatchOperationResult | null>(null);
+  const [batchCompareFaceIds, setBatchCompareFaceIds] = useState<number[]>([]);
+  const [batchCompareIndex, setBatchCompareIndex] = useState(0);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const [confirmBatchLink, setConfirmBatchLink] = useState(false);
+  const [createFromReference, setCreateFromReference] = useState(true);
+  const [linkConflicting, setLinkConflicting] = useState(false);
+  const [mergeConflicting, setMergeConflicting] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const comparisonFaceId = comparison?.face.id ?? null;
-
   const query = useMemo(() => ({
     q: filter.q?.trim() || undefined,
     linked: linked === "all" ? undefined : linked === "yes",
@@ -372,8 +453,6 @@ export function FacesPage({ onNavigate }: Props) {
     page: filter.page ?? 1,
     perPage: filter.perPage ?? 36,
   }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, hasCoverCriterion?.value, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linked, linkedPerformerIds, mergedIntoFaceIdCriterion?.value, minSuggestionConfidence, primarySourceKeyCriterion?.modifier, primarySourceKeyCriterion?.value, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
-  const batchMinConfidence = readSuggestionConfidenceLowerBound(objectFilter.suggestionConfidenceCriterion) ?? minSuggestionConfidence ?? 60;
-
   const listData = useInfiniteListData<Face>({
     queryKey: ["faces", query],
     filter,
@@ -392,15 +471,32 @@ export function FacesPage({ onNavigate }: Props) {
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const selectedFaceIds = useMemo(() => Array.from(selectedIds).map((value) => Number(value)), [selectedIds]);
+  const batchComparableFaces = useMemo(() => items.filter((face) => selectedIds.has(face.id) && !face.performerId && face.topSuggestion), [items, selectedIds]);
+  const batchComparisonFace = batchCompareFaceIds.length > 0 ? items.find((face) => face.id === batchCompareFaceIds[batchCompareIndex]) : undefined;
+  const activeComparison = batchComparisonFace?.topSuggestion ? { face: batchComparisonFace, suggestion: batchComparisonFace.topSuggestion } : comparison;
+  const comparisonFaceId = activeComparison?.face.id ?? null;
   const { data: comparisonFaceDetections = [] } = useQuery({
     queryKey: ["face", comparisonFaceId, "detections"],
     queryFn: () => faces.detections(comparisonFaceId!),
     enabled: comparisonFaceId != null,
   });
   const comparisonFaceImageUrls = useMemo(
-    () => buildFaceCarouselSampleImageUrls(comparison?.face, comparisonFaceDetections, faces.detectionCropUrl),
-    [comparison?.face, comparisonFaceDetections],
+    () => buildFaceCarouselSampleImageUrls(activeComparison?.face, comparisonFaceDetections, faces.detectionCropUrl),
+    [activeComparison?.face, comparisonFaceDetections],
   );
+  // Pull the full ranked suggestions for the compared face so the dialog can show the same evidence and
+  // conflict/merge chooser as the face detail page (the cached topSuggestion projection lacks why,
+  // evidence, and conflict grouping).
+  const { data: comparisonSuggestions = [] } = useQuery({
+    queryKey: ["face", comparisonFaceId, "suggestions"],
+    queryFn: () => faces.suggestions(comparisonFaceId!),
+    enabled: comparisonFaceId != null,
+  });
+  const comparisonSuggestion = useMemo(() => {
+    if (!activeComparison) return null;
+    return comparisonSuggestions.find((item) => item.performerId === activeComparison.suggestion.performerId)
+      ?? activeComparison.suggestion;
+  }, [activeComparison, comparisonSuggestions]);
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
     try {
@@ -417,17 +513,22 @@ export function FacesPage({ onNavigate }: Props) {
   }, [queryClient]);
 
   const suggestionDecisionMutation = useMutation({
-    mutationFn: (data: { faceId: number; performerId: number; decision: "accept" | "reject"; setPerformerImage?: boolean }) =>
-      faces.recordSuggestionDecision(data.faceId, { performerId: data.performerId, decision: data.decision, setPerformerImage: data.setPerformerImage }),
-    onSuccess: (_, variables) => {
+    mutationFn: (data: { faceId: number; performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) =>
+      faces.recordSuggestionDecision(data.faceId, { performerId: data.performerId, decision: data.decision, setPerformerImage: data.setPerformerImage, secondaryPerformerIds: data.secondaryPerformerIds }),
+    onSuccess: (updatedFace, variables) => {
+      queryClient.setQueryData(["face", variables.faceId], updatedFace);
+      if (variables.decision === "accept") {
+        const keepFace = faceMatchesPatchedQuery(updatedFace, query);
+        queryClient.setQueriesData({ queryKey: ["faces", query] }, (data) => patchFaceListCache(data, updatedFace, keepFace));
+      }
       invalidateFace(variables.faceId);
     },
   });
 
   const batchLinkTopSuggestionMutation = useMutation({
-    mutationFn: () => faces.batchLinkTopSuggestion({ faceIds: selectedFaceIds, minConfidence: batchMinConfidence }),
-    onSuccess: (result) => {
-      setBatchResult(result);
+    mutationFn: (options: { createFromReference: boolean; linkConflicting: boolean; mergeConflicting: boolean }) =>
+      faces.batchLinkTopSuggestion({ faceIds: selectedFaceIds, ...options }),
+    onSuccess: () => {
       selectNone();
       queryClient.invalidateQueries({ queryKey: ["faces"] });
     },
@@ -436,7 +537,8 @@ export function FacesPage({ onNavigate }: Props) {
   const batchDeleteMutation = useMutation({
     mutationFn: () => faces.batchDelete({ faceIds: selectedFaceIds }),
     onSuccess: (result) => {
-      setBatchResult(result);
+      const deletedFaceIds = new Set(result.succeeded);
+      queryClient.setQueriesData({ queryKey: ["faces", query] }, (data) => removeFacesFromListCache(data, deletedFaceIds));
       selectNone();
       queryClient.invalidateQueries({ queryKey: ["faces"] });
     },
@@ -452,15 +554,31 @@ export function FacesPage({ onNavigate }: Props) {
 
   const compareBusy = suggestionDecisionMutation.isPending;
 
+  const finishBatchCompare = useCallback(() => {
+    setBatchCompareFaceIds([]);
+    setBatchCompareIndex(0);
+    selectNone();
+  }, [selectNone]);
+
+  const advanceBatchCompare = useCallback(() => {
+    if (batchCompareIndex + 1 >= batchCompareFaceIds.length) {
+      finishBatchCompare();
+      return;
+    }
+
+    setBatchCompareIndex((current) => current + 1);
+  }, [batchCompareFaceIds.length, batchCompareIndex, finishBatchCompare]);
+
   const handleConfirmSuggestion = useCallback((face: Face, suggestion: FaceTopSuggestion, options?: { setPerformerImage?: boolean }) => {
     suggestionDecisionMutation.mutate({ faceId: face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage });
     setComparison(null);
   }, [suggestionDecisionMutation]);
 
-  const handleRejectSuggestion = useCallback((face: Face, suggestion: FaceTopSuggestion) => {
-    suggestionDecisionMutation.mutate({ faceId: face.id, performerId: suggestion.performerId, decision: "reject" });
+  const handleStartBatchCompare = useCallback(() => {
+    setBatchCompareFaceIds(batchComparableFaces.map((face) => face.id));
+    setBatchCompareIndex(0);
     setComparison(null);
-  }, [suggestionDecisionMutation]);
+  }, [batchComparableFaces]);
 
   return (
     <>
@@ -497,7 +615,19 @@ export function FacesPage({ onNavigate }: Props) {
             {canWriteFaces ? (
               <button
                 type="button"
-                onClick={() => batchLinkTopSuggestionMutation.mutate()}
+                onClick={handleStartBatchCompare}
+                disabled={batchComparableFaces.length === 0 || batchLinkTopSuggestionMutation.isPending || batchDeleteMutation.isPending || compareBusy}
+                className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-accent hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                title="Compare selected unlinked faces that have top suggestions"
+              >
+                <Fingerprint className="h-3.5 w-3.5" />
+                Compare
+              </button>
+            ) : null}
+            {canWriteFaces ? (
+              <button
+                type="button"
+                onClick={() => setConfirmBatchLink(true)}
                 disabled={selectedFaceIds.length === 0 || batchLinkTopSuggestionMutation.isPending || batchDeleteMutation.isPending}
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-accent hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -535,7 +665,7 @@ export function FacesPage({ onNavigate }: Props) {
             renderItem={(face) => (
               <FaceTile
                 face={face}
-                onClick={() => onNavigate({ page: "face", id: face.id })}
+                onClick={() => selecting ? toggle(face.id) : onNavigate({ page: "face", id: face.id })}
                 selected={selectedIds.has(face.id)}
                 onSelect={() => toggle(face.id)}
                 selecting={selecting}
@@ -579,13 +709,6 @@ export function FacesPage({ onNavigate }: Props) {
         ) : null}
       </ListPage>
 
-      {batchResult ? (
-        <div className="mx-1 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/80 px-4 py-3 text-sm text-secondary">
-          <span>{describeBatchResult(batchResult)}</span>
-          <button type="button" onClick={() => setBatchResult(null)} className="text-xs text-accent hover:underline">Dismiss</button>
-        </div>
-      ) : null}
-
       <ConfirmDialog
         open={confirmBatchDelete}
         title="Delete selected faces?"
@@ -598,39 +721,143 @@ export function FacesPage({ onNavigate }: Props) {
         }}
       />
 
+      {confirmBatchLink ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/60" onClick={() => setConfirmBatchLink(false)} />
+          <div className="relative mx-4 w-full max-w-sm rounded-lg border border-border bg-surface p-6 shadow-xl">
+            <h3 className="mb-2 text-lg font-semibold">Link suggested performers?</h3>
+            <p className="mb-4 text-sm text-secondary">
+              {`Link the top suggestion for ${selectedFaceIds.length} selected face${selectedFaceIds.length === 1 ? "" : "s"} that meet the confidence threshold.`}
+            </p>
+            <label className="mb-4 flex cursor-pointer items-start gap-2 text-sm text-secondary">
+              <input
+                type="checkbox"
+                checked={createFromReference}
+                onChange={(e) => setCreateFromReference(e.target.checked)}
+                className="mt-0.5 rounded border-border bg-surface accent-accent"
+              />
+              <span>
+                Create new performers from metadata servers for reference matches.
+                <span className="mt-0.5 block text-xs text-muted">
+                  When unchecked, faces whose only match is a reference pack identity without a local performer are skipped.
+                </span>
+              </span>
+            </label>
+            <label className="mb-4 flex cursor-pointer items-start gap-2 text-sm text-secondary">
+              <input
+                type="checkbox"
+                checked={linkConflicting}
+                onChange={(e) => setLinkConflicting(e.target.checked)}
+                className="mt-0.5 rounded border-border bg-surface accent-accent"
+              />
+              <span>
+                Also link faces with conflicting matches.
+                <span className="mt-0.5 block text-xs text-muted">
+                  When unchecked, faces that matched more than one performer are skipped so you can review them.
+                </span>
+              </span>
+            </label>
+            {linkConflicting ? (
+              <div className="mb-4 ml-6 space-y-2 border-l border-border pl-3 text-sm text-secondary">
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input
+                    type="radio"
+                    name="conflict-resolution"
+                    checked={!mergeConflicting}
+                    onChange={() => setMergeConflicting(false)}
+                    className="mt-0.5 accent-accent"
+                  />
+                  <span>Link the top match directly.</span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input
+                    type="radio"
+                    name="conflict-resolution"
+                    checked={mergeConflicting}
+                    onChange={() => setMergeConflicting(true)}
+                    className="mt-0.5 accent-accent"
+                  />
+                  <span>
+                    Merge the matches into the top one.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      The highest-confidence match becomes the primary; the others are folded in as aliases and links.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmBatchLink(false)}
+                className="px-4 py-2 text-sm text-secondary transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmBatchLink(false);
+                  batchLinkTopSuggestionMutation.mutate({ createFromReference, linkConflicting, mergeConflicting });
+                }}
+                className="rounded-md bg-accent px-4 py-2 text-sm text-white transition-colors hover:bg-accent-hover"
+              >
+                Link suggested
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <FaceCompareDialog
-        open={comparison != null}
-        face={comparison?.face ?? null}
-        suggestion={comparison?.suggestion ?? null}
+        open={activeComparison != null}
+        face={activeComparison?.face ?? null}
+        suggestion={comparisonSuggestion}
+        siblingSuggestions={comparisonSuggestions}
         faceImageUrls={comparisonFaceImageUrls}
         disabled={compareBusy}
         canReadPerformers={canReadPerformers}
-        onClose={() => setComparison(null)}
+        batchLabel={batchCompareFaceIds.length > 0 ? `${batchCompareIndex + 1} of ${batchCompareFaceIds.length}` : undefined}
+        onSkip={batchCompareFaceIds.length > 0 ? advanceBatchCompare : undefined}
+        onClose={() => {
+          setComparison(null);
+          setBatchCompareFaceIds([]);
+          setBatchCompareIndex(0);
+        }}
         onConfirm={(suggestion, options) => {
-          if (comparison) {
-            handleConfirmSuggestion(comparison.face, suggestion as FaceTopSuggestion, options);
+          if (activeComparison) {
+            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage });
+            if (batchCompareFaceIds.length > 0) {
+              advanceBatchCompare();
+            } else {
+              setComparison(null);
+            }
           }
         }}
         onReject={(suggestion) => {
-          if (comparison) {
-            handleRejectSuggestion(comparison.face, suggestion as FaceTopSuggestion);
+          if (activeComparison) {
+            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: suggestion.performerId, decision: "reject" });
+            if (batchCompareFaceIds.length > 0) {
+              advanceBatchCompare();
+            } else {
+              setComparison(null);
+            }
+          }
+        }}
+        onMerge={(primaryPerformerId, secondaryPerformerIds) => {
+          if (activeComparison) {
+            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: primaryPerformerId, decision: "merge", secondaryPerformerIds });
+            if (batchCompareFaceIds.length > 0) {
+              advanceBatchCompare();
+            } else {
+              setComparison(null);
+            }
           }
         }}
         onNavigate={onNavigate}
       />
     </>
   );
-}
-
-function describeBatchResult(result: FaceBatchOperationResult) {
-  const parts = [
-    `${result.succeeded.length} succeeded`,
-    result.skipped.length > 0 ? `${result.skipped.length} skipped` : null,
-    result.failed.length > 0 ? `${result.failed.length} failed` : null,
-  ].filter(Boolean);
-
-  const firstIssue = result.failed[0]?.error ?? result.skipped[0]?.reason;
-  return firstIssue ? `${parts.join(", ")}. ${firstIssue}` : `${parts.join(", ")}.`;
 }
 
 function FaceListTable({
@@ -741,7 +968,7 @@ function FaceListRow({
   selecting: boolean;
   density: FaceListDensity;
 }) {
-  const title = face.label?.trim() || face.performerName || `Face #${face.id}`;
+  const title = face.performerId && face.performerName ? face.performerName : face.label?.trim() || `Face #${face.id}`;
 
   return (
     <div
@@ -838,18 +1065,18 @@ function TopSuggestionFooter({
     : null;
 
   return (
-    <div className={`relative z-20 flex items-center gap-3 ${compact ? "min-w-0" : ""}`}>
+      <div className={`relative z-20 flex items-center gap-3 ${compact ? "min-w-0" : ""}`}>
       <div className={`${compact ? "h-10 w-10" : "h-12 w-12"} shrink-0 overflow-hidden rounded-xl bg-surface/80`}>
         {suggestion.coverImageUrl ? (
-          <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover" loading="lazy" />
+          <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted">
             <Fingerprint className="h-5 w-5" />
           </div>
         )}
       </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Top suggestion</div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Top suggestion</div>
         {performerLinkProps ? (
           <a {...performerLinkProps} className="block truncate text-sm font-medium text-accent hover:underline">
             {suggestion.performerName}
@@ -861,10 +1088,10 @@ function TopSuggestionFooter({
         ) : (
           <div className="truncate text-sm font-medium text-foreground">{suggestion.performerName}</div>
         )}
-        <div className="text-xs text-secondary">{formatPercent(suggestion.confidence)}% confidence</div>
-      </div>
+          <div className={canWriteFaces ? "pr-20 text-xs text-secondary" : "text-xs text-secondary"}>{formatPercent(suggestion.confidence)}% confidence</div>
+        </div>
       {canWriteFaces ? (
-        <div className="relative z-20 flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="absolute bottom-0 right-0 z-20 flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={(event) => {
@@ -873,10 +1100,12 @@ function TopSuggestionFooter({
               onLinkSuggestion(suggestion);
             }}
             disabled={actionDisabled}
-            className={`inline-flex items-center gap-1 rounded-lg border border-accent bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "px-2 py-1" : "px-3 py-1.5"}`}
+            title="Link"
+            aria-label="Link top suggestion"
+            className="inline-flex items-center gap-1 rounded-lg border border-accent bg-accent/10 px-1.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Link2 className="h-3.5 w-3.5" />
-            Link
+            <span className="sr-only">Link</span>
           </button>
           <button
             type="button"
@@ -886,10 +1115,12 @@ function TopSuggestionFooter({
               onOpenCompare(suggestion);
             }}
             disabled={actionDisabled}
-            className={`inline-flex items-center gap-1 rounded-lg border border-border text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "px-2 py-1" : "px-3 py-1.5"}`}
+            title="Compare"
+            aria-label="Compare top suggestion"
+            className="inline-flex items-center gap-1 rounded-lg border border-border px-1.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Fingerprint className="h-3.5 w-3.5" />
-            Compare
+            <span className="sr-only">Compare</span>
           </button>
         </div>
       ) : null}

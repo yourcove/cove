@@ -1402,7 +1402,14 @@ export interface FaceLink {
 
 export interface FaceBatchLinkTopSuggestionRequest {
   faceIds: number[];
-  minConfidence?: number;
+  // Create + link performers for reference (SAIE) matches with no local performer, scraping a
+  // configured metadata server where available. When false those faces are skipped.
+  createFromReference?: boolean;
+  // Link faces whose top matches conflict (the same face matched 2+ performers). When false such faces
+  // are skipped. When true, mergeConflicting decides whether to merge the competing matches into the top
+  // one or just link the top match directly.
+  linkConflicting?: boolean;
+  mergeConflicting?: boolean;
 }
 
 export interface FaceBatchDeleteRequest {
@@ -1495,6 +1502,8 @@ export interface FaceSuggestion {
   externalUrl?: string;
   localPerformerHasImage?: boolean;
   localPerformerIsLocalOnly?: boolean;
+  // Shared by all competing matches for the same face when 2+ reference sources disagree.
+  conflictGroupId?: string;
 }
 
 export type AiDataKind = "embedding" | "detection" | "segment" | "tagApplication" | "face";

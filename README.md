@@ -58,12 +58,10 @@ docker compose up -d
 For more Docker-specific details, volumes, GPU passthrough, and environment variables, see [docker/README.md](docker/README.md).
 
 ## After first start
-
-1. Create the owner account if you're using authorization.
-2. Add one or more media folders.
-3. Run the first scan.
-4. Start searching, tagging, browsing, and organizing.
-5. Add downloaders, scrapers, or other extensions when you want Cove to do more.
+1. Add one or more media folders.
+2. Run the first scan.
+3. Start searching, tagging, browsing, and organizing.
+4. Add downloaders, scrapers, or other extensions when you want Cove to do more.
 
 ## What makes Cove different
 

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { videos, performers, studios, tags, galleries, groups, savedFilters } from "../api/client";
-import type { AffinityHostType, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter } from "../api/types";
+import type { AffinityHostType, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter } from "../api/types";
 import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { RatingBanner } from "../components/Rating";
 import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers } from "lucide-react";
@@ -26,6 +26,40 @@ interface SavedFilterRow {
 }
 
 type FrontPageContent = CustomFilter | SavedFilterRow;
+
+const DEFAULT_SORT_BY_MODE: Record<FilterMode, string> = {
+  videos: "date",
+  performers: "latest_video_date",
+  studios: "latest_video_date",
+  tags: "latest_video_date",
+  galleries: "date",
+  groups: "date",
+};
+
+function normalizeFilterMode(mode: string | undefined): FilterMode | null {
+  const normalized = mode?.toLowerCase();
+  if (
+    normalized === "videos" ||
+    normalized === "performers" ||
+    normalized === "studios" ||
+    normalized === "tags" ||
+    normalized === "galleries" ||
+    normalized === "groups"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function parseJsonObject<T extends object>(json: string | undefined): T | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as T : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // ─── Default content (matches standard defaults) ───────────────────────
 
@@ -223,30 +257,30 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
     queryFn: () => savedFilters.get(savedFilterId),
   });
 
-  const mode = filter?.mode as FilterMode | undefined;
-  const parsedFilter = useMemo(() => {
-    if (!filter?.findFilter) return {};
-    try { return JSON.parse(filter.findFilter); } catch { return {}; }
-  }, [filter]);
-
-  const parsedObjectFilter = useMemo(() => {
-    if (!filter?.objectFilter) return undefined;
-    try { return JSON.parse(filter.objectFilter); } catch { return undefined; }
-  }, [filter]);
+  const mode = normalizeFilterMode(filter?.mode);
+  const parsedFilter = useMemo(() => parseJsonObject<FindFilter>(filter?.findFilter) ?? {}, [filter?.findFilter]);
+  const parsedObjectFilter = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.objectFilter), [filter?.objectFilter]);
+  const hasObjectFilter = !!parsedObjectFilter && Object.keys(parsedObjectFilter).length > 0;
 
   const fetchFn = useMemo((): (() => Promise<any>) => {
     if (!mode) return () => Promise.resolve({ items: [], totalCount: 0 });
-    const findFilter = { perPage: 25, sort: parsedFilter.sort, direction: parsedFilter.direction };
+    const findFilter = {
+      ...parsedFilter,
+      page: 1,
+      perPage: 25,
+      sort: parsedFilter.sort ?? DEFAULT_SORT_BY_MODE[mode],
+      direction: parsedFilter.direction ?? "desc",
+    };
     const fetchMap: Record<string, () => Promise<any>> = {
-      videos: parsedObjectFilter ? () => videos.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => videos.find(findFilter),
-      performers: parsedObjectFilter ? () => performers.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => performers.find(findFilter),
-      studios: parsedObjectFilter ? () => studios.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => studios.find(findFilter),
+      videos: hasObjectFilter ? () => videos.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => videos.find(findFilter),
+      performers: hasObjectFilter ? () => performers.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => performers.find(findFilter),
+      studios: hasObjectFilter ? () => studios.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => studios.find(findFilter),
       tags: () => tags.find(findFilter),
-      galleries: parsedObjectFilter ? () => galleries.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => galleries.find(findFilter),
-      groups: parsedObjectFilter ? () => groups.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => groups.find(findFilter),
+      galleries: hasObjectFilter ? () => galleries.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => galleries.find(findFilter),
+      groups: hasObjectFilter ? () => groups.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => groups.find(findFilter),
     };
     return fetchMap[mode] ?? (() => Promise.resolve({ items: [], totalCount: 0 }));
-  }, [mode, parsedFilter, parsedObjectFilter]);
+  }, [mode, parsedFilter, parsedObjectFilter, hasObjectFilter]);
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["front-page-saved", savedFilterId, mode, parsedFilter, parsedObjectFilter],
@@ -255,9 +289,9 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
   });
 
   const items = (data as any)?.items ?? [];
-  const engagementHostType = getRecommendationEngagementHostType(mode);
+  const engagementHostType = getRecommendationEngagementHostType(mode ?? undefined);
   const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
-  if (!filter || (!isLoading && items.length === 0)) return null;
+  if (!filter || !mode || (!isLoading && items.length === 0)) return null;
 
   return (
     <RecommendationRowShell
@@ -631,6 +665,8 @@ function FrontPageEditor({
     queryFn: () => savedFilters.list(),
   });
 
+  const savedFilterById = useMemo(() => new Map(allSavedFilters?.map((filter) => [filter.id, filter] as const) ?? []), [allSavedFilters]);
+
   const moveItem = (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= items.length) return;
     const newItems = [...items];
@@ -687,7 +723,7 @@ function FrontPageEditor({
             <GripVertical className="w-4 h-4 text-muted" />
             <div className="flex-1">
               <p className="text-sm text-foreground">
-                {item.type === "custom" ? item.header : `Saved Filter #${item.savedFilterId}`}
+                {item.type === "custom" ? item.header : getSavedFilterLabel(item, savedFilterById)}
               </p>
               <p className="text-xs text-muted">
                 {item.type === "custom" ? `${item.mode} • ${item.sortBy} • ${item.direction}` : "Saved filter"}
@@ -755,5 +791,9 @@ function FrontPageEditor({
       )}
     </div>
   );
+}
+
+function getSavedFilterLabel(item: SavedFilterRow, savedFilterById: Map<number, SavedFilter>) {
+  return savedFilterById.get(item.savedFilterId)?.name ?? `Saved Filter #${item.savedFilterId}`;
 }
 

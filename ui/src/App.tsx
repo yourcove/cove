@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Database, Loader2 } from "lucide-react";
 import { Navbar } from "./components/Navbar";
 import { TutorialStoryboardDialog, TUTORIAL_STORYBOARD_EVENT, type TutorialOpenRequest } from "./components/TutorialStoryboardDialog";
@@ -13,7 +13,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { AuthBootstrapPage } from "./pages/AuthBootstrapPage";
 import { RedeemInvitePage } from "./pages/RedeemInvitePage";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
-import { database } from "./api/client";
+import { auth, database } from "./api/client";
 import { useKeySequence } from "./hooks/useKeySequence";
 import { useResolvedKeybindingOverrides } from "./hooks/useResolvedKeybindingOverrides";
 import { resolveKeybinding } from "./keyboard/keybindings";
@@ -259,6 +259,11 @@ function getPostLoginRedirectUrl(): string {
 
 function AuthGateInner({ children }: { children: React.ReactNode }) {
   const { authEnabled, user, loading } = useAuth();
+  const { data: bootstrapStatus } = useQuery({
+    queryKey: ["auth", "bootstrap-status"],
+    queryFn: auth.bootstrapStatus,
+    enabled: authEnabled && !user,
+  });
 
   useEffect(() => {
     if (!authEnabled || !user || window.location.pathname !== "/login") {
@@ -280,6 +285,9 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
       </div>
     );
+  }
+  if (authEnabled && !user && bootstrapStatus?.ownerExists === false) {
+    return <AuthBootstrapPage />;
   }
   if (authEnabled && !user) {
     return <LoginPage />;

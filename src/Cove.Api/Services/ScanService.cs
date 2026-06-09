@@ -29,6 +29,19 @@ public class ScanService(
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> FolderCreationLocks = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan FileModTimeUnchangedTolerance = TimeSpan.FromMilliseconds(1);
+
+    // Number of changed/new files a worker accumulates before flushing them to the database in a
+    // single transaction. Each Postgres commit is a network round-trip + fsync, so committing once
+    // per file (as the original code did) dominated scan time on large libraries. Batching amortises
+    // that cost; a failed batch falls back to per-file saves so one bad row can't poison its neighbours.
+    private const int ScanSaveBatchSize = 50;
+
+    // Resolving ffprobe walks PATH doing a File.Exists per entry. That is cheap once but was being
+    // repeated for every single file (millions of redundant syscalls on a large scan). The resolved
+    // path cannot change within a scan, so cache it after the first lookup.
+    private readonly object _ffprobeResolveLock = new();
+    private string? _cachedFfprobePath;
+    private bool _ffprobeResolved;
     /// <summary>
     /// Resolves the max degree of parallelism from config.
     /// -1 means use all processors; 0 or 1 means single-threaded; >1 means that many threads.
@@ -270,6 +283,14 @@ public class ScanService(
                     .ToList();
                 if (files.Count != beforeDedup)
                     logger.LogInformation("Scan de-duplicated {DuplicateCount} discovered file path(s).", beforeDedup - files.Count);
+
+                // Process files in stable alphabetical (a-z) path order. This matches stash's
+                // directory-sorted walk so progress is predictable, and — because a sorted path list
+                // groups every file in a directory contiguously — it keeps the parallel workers
+                // reading from the same / adjacent folders at once for far better disk locality.
+                files = files
+                    .OrderBy(file => file.StoredPath, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
             }
 
             if (files.Count > 0)
@@ -400,13 +421,18 @@ public class ScanService(
                     filesToProcess.Add((file, isKnownFile));
                 }
 
+                // Resolve every parent folder once, up front, into a shared id map. Workers then look
+                // folders up in memory instead of each re-querying (and re-locking) the Folders table,
+                // and the batched save path below stays free of incidental folder writes.
+                var folderIdsByPath = await ResolveScanFolderIdsAsync(db, filesToProcess, ct);
+
                 // Phase 2b: process the changed/new files across a fixed pool of workers.
                 // Concurrency is capped at the configured maximum so the UI and other jobs
                 // are not starved (a value of 1 reproduces the original sequential path).
-                // Each worker owns its own DbContext and folder cache because EF contexts
-                // are not thread-safe; shared state is updated via thread-safe primitives,
-                // and each file is isolated by its own try/catch so one failure can never
-                // abort the others.
+                // Each worker owns its own DbContext because EF contexts are not thread-safe;
+                // shared state is updated via thread-safe primitives. Workers commit in batches
+                // (ScanSaveBatchSize) to amortise Postgres commit overhead; a failed batch is
+                // retried one file at a time so a single bad file can never abort its neighbours.
                 var maxParallelism = Math.Max(1, ResolveMaxParallelism());
                 if (filesToProcess.Count > 0)
                 {
@@ -417,11 +443,116 @@ public class ScanService(
 
                     var workQueue = new ConcurrentQueue<(DiscoveredFile File, bool IsKnownFile)>(filesToProcess);
 
+                    int? ResolveFolderId(DiscoveredFile file)
+                    {
+                        var dir = NormalizeStoredFolderPath(Path.GetDirectoryName(file.Path) ?? file.Path);
+                        return folderIdsByPath.TryGetValue(dir, out var id) ? id : null;
+                    }
+
                     async Task RunScanWorkerAsync()
                     {
                         using var workerScope = scopeFactory.CreateScope();
                         var workerDb = workerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                        var workerFolderCache = new Dictionary<string, Folder>(StringComparer.OrdinalIgnoreCase);
+
+                        // The current un-committed batch, plus the entity events to publish once it commits.
+                        var batchItems = new List<(DiscoveredFile File, bool IsKnownFile)>(ScanSaveBatchSize);
+                        var batchEvents = new List<Action>(ScanSaveBatchSize);
+
+                        // Stage one file's entities into the worker context (no save). Appends the event
+                        // to fire once persisted. Galleries are excluded here as they commit internally.
+                        async Task StageAsync((DiscoveredFile File, bool IsKnownFile) work, List<Action> events)
+                        {
+                            var file = work.File;
+                            var isKnownFile = work.IsKnownFile;
+                            var folderId = ResolveFolderId(file);
+
+                            if (videoExts.Contains(file.Extension))
+                            {
+                                processedVideoPaths.TryAdd(file.Path, 0);
+                                var videoFile = await ProcessVideoFileAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId);
+                                events.Add(() => { if (videoFile.VideoId.HasValue) PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile); });
+                            }
+                            else if (imageExts.Contains(file.Extension))
+                            {
+                                processedImagePaths.TryAdd(file.Path, 0);
+                                var image = await ProcessImageFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId);
+                                events.Add(() => PublishScanEntityEvent("Image", image.Id, isKnownFile));
+                            }
+                            else if (audioExts.Contains(file.Extension))
+                            {
+                                processedAudioPaths.TryAdd(file.Path, 0);
+                                var audio = await ProcessAudioFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId);
+                                events.Add(() => PublishScanEntityEvent("Audio", audio.Id, isKnownFile));
+                            }
+                            else if (textExts.Contains(file.Extension))
+                            {
+                                processedTextPaths.TryAdd(file.Path, 0);
+                                var textDocument = await ProcessTextFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId);
+                                events.Add(() => PublishScanEntityEvent("Text", textDocument.Id, isKnownFile));
+                            }
+                        }
+
+                        // Process a single item in its own transaction. Used for galleries (which commit
+                        // internally) and as the fallback when a batch save fails.
+                        async Task ProcessSingleAsync((DiscoveredFile File, bool IsKnownFile) work)
+                        {
+                            var file = work.File;
+                            var isKnownFile = work.IsKnownFile;
+                            try
+                            {
+                                if (galleryExts.Contains(file.Extension))
+                                {
+                                    var gallery = await ProcessGalleryFileAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file));
+                                    await workerDb.SaveChangesAsync(ct);
+                                    PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);
+                                }
+                                else
+                                {
+                                    var events = new List<Action>(1);
+                                    await StageAsync(work, events);
+                                    await workerDb.SaveChangesAsync(ct);
+                                    foreach (var publish in events)
+                                        publish();
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                            {
+                                Interlocked.Increment(ref failedCount);
+                                logger.LogError(ex, "Error processing file: {Path}", file.Path);
+                            }
+                            finally
+                            {
+                                workerDb.ChangeTracker.Clear();
+                            }
+                        }
+
+                        // Commit the staged batch. On failure, discard it and retry each item individually
+                        // so one bad row can't fail the whole group.
+                        async Task FlushBatchAsync()
+                        {
+                            if (batchItems.Count == 0)
+                                return;
+
+                            try
+                            {
+                                await workerDb.SaveChangesAsync(ct);
+                                workerDb.ChangeTracker.Clear();
+                                foreach (var publish in batchEvents)
+                                    publish();
+                                batchItems.Clear();
+                                batchEvents.Clear();
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                            {
+                                logger.LogWarning(ex, "Batched scan save of {Count} file(s) failed; retrying individually.", batchItems.Count);
+                                workerDb.ChangeTracker.Clear();
+                                var retryItems = batchItems.ToList();
+                                batchItems.Clear();
+                                batchEvents.Clear();
+                                foreach (var retry in retryItems)
+                                    await ProcessSingleAsync(retry);
+                            }
+                        }
 
                         while (workQueue.TryDequeue(out var item))
                         {
@@ -429,64 +560,45 @@ public class ScanService(
                                 break;
 
                             var file = item.File;
-                            var isKnownFile = item.IsKnownFile;
 
-                            try
+                            if (galleryExts.Contains(file.Extension))
                             {
-                                if (videoExts.Contains(file.Extension))
-                                {
-                                    processedVideoPaths.TryAdd(file.Path, 0);
-                                    var videoFile = await ProcessVideoFileAsync(workerDb, file.Path, null, ct, file.Stat, workerFolderCache, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir);
-                                    await workerDb.SaveChangesAsync(ct);
-                                    if (videoFile.VideoId.HasValue)
-                                        PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile);
-                                    workerDb.ChangeTracker.Clear();
-                                }
-                                else if (imageExts.Contains(file.Extension))
-                                {
-                                    processedImagePaths.TryAdd(file.Path, 0);
-                                    var image = await ProcessImageFileAsync(workerDb, file.Path, null, ct, file.Stat, workerFolderCache, knownNew: !isKnownFile);
-                                    await workerDb.SaveChangesAsync(ct);
-                                    PublishScanEntityEvent("Image", image.Id, isKnownFile);
-                                    workerDb.ChangeTracker.Clear();
-                                }
-                                else if (audioExts.Contains(file.Extension))
-                                {
-                                    processedAudioPaths.TryAdd(file.Path, 0);
-                                    var audio = await ProcessAudioFileAsync(workerDb, file.Path, null, ct, file.Stat, workerFolderCache, knownNew: !isKnownFile);
-                                    await workerDb.SaveChangesAsync(ct);
-                                    PublishScanEntityEvent("Audio", audio.Id, isKnownFile);
-                                    workerDb.ChangeTracker.Clear();
-                                }
-                                else if (textExts.Contains(file.Extension))
-                                {
-                                    processedTextPaths.TryAdd(file.Path, 0);
-                                    var textDocument = await ProcessTextFileAsync(workerDb, file.Path, null, ct, file.Stat, workerFolderCache, knownNew: !isKnownFile);
-                                    await workerDb.SaveChangesAsync(ct);
-                                    PublishScanEntityEvent("Text", textDocument.Id, isKnownFile);
-                                    workerDb.ChangeTracker.Clear();
-                                }
-                                else if (galleryExts.Contains(file.Extension))
-                                {
-                                    var gallery = await ProcessGalleryFileAsync(workerDb, file.Path, null, ct, file.Stat, workerFolderCache);
-                                    await workerDb.SaveChangesAsync(ct);
-                                    PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);
-                                    workerDb.ChangeTracker.Clear();
-                                }
+                                // Galleries commit internally, so flush any pending batch first to keep
+                                // ordering and error isolation intact.
+                                await FlushBatchAsync();
+                                await ProcessSingleAsync(item);
                             }
-                            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                            else
                             {
-                                Interlocked.Increment(ref failedCount);
-                                logger.LogError(ex, "Error processing file: {Path}", file.Path);
-
-                                // Discard the failed entity so it can't poison this worker's
-                                // next SaveChanges and cascade into failing later files.
-                                workerDb.ChangeTracker.Clear();
+                                try
+                                {
+                                    await StageAsync(item, batchEvents);
+                                    batchItems.Add(item);
+                                    if (batchItems.Count >= ScanSaveBatchSize)
+                                        await FlushBatchAsync();
+                                }
+                                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                                {
+                                    // Staging threw mid-item, leaving partial tracked state. Drop the
+                                    // whole pending batch, count this file as failed, and re-stage the
+                                    // previously-good items one at a time. Rare: the hot path (new files,
+                                    // ffprobe errors are swallowed internally) does not throw here.
+                                    Interlocked.Increment(ref failedCount);
+                                    logger.LogError(ex, "Error processing file: {Path}", file.Path);
+                                    workerDb.ChangeTracker.Clear();
+                                    var good = batchItems.ToList();
+                                    batchItems.Clear();
+                                    batchEvents.Clear();
+                                    foreach (var recovered in good)
+                                        await ProcessSingleAsync(recovered);
+                                }
                             }
 
                             Interlocked.Increment(ref processedCount);
                             ReportProcessingProgress(false, file.Path);
                         }
+
+                        await FlushBatchAsync();
                     }
 
                     var workers = new Task[workerCount];
@@ -1270,6 +1382,118 @@ public class ScanService(
             eventBus.Publish(new EntityEvent(EventType.GalleryCreated, "Gallery", gallery.Id));
     }
 
+    /// <summary>
+    /// Resolves (and creates, where missing) the parent folder of every file about to be processed,
+    /// returning a path → folder-id map shared by all scan workers.
+    ///
+    /// Previously each worker owned its own folder cache and re-queried the database for the same
+    /// folders, so a single folder could be looked up once per worker. Doing the resolution once up
+    /// front — and outside the parallel phase — means workers never touch the Folders table and the
+    /// per-folder creation locks are never contended during processing, which also keeps the batched
+    /// SaveChanges path (below) free of incidental folder writes.
+    /// </summary>
+    private async Task<ConcurrentDictionary<string, int>> ResolveScanFolderIdsAsync(
+        CoveContext db,
+        IReadOnlyCollection<(DiscoveredFile File, bool IsKnownFile)> filesToProcess,
+        CancellationToken ct)
+    {
+        var folderIdsByPath = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        var directories = filesToProcess
+            .Select(item => NormalizeStoredFolderPath(Path.GetDirectoryName(item.File.Path) ?? item.File.Path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (directories.Count == 0)
+            return folderIdsByPath;
+
+        // Load all already-known folders in bulk.
+        foreach (var chunk in directories.Chunk(1000))
+        {
+            var rows = await db.Folders
+                .AsNoTracking()
+                .Where(folder => chunk.Contains(folder.Path))
+                .Select(folder => new { folder.Path, folder.Id })
+                .ToListAsync(ct);
+
+            foreach (var row in rows)
+                folderIdsByPath[row.Path] = row.Id;
+        }
+
+        // Create any folders that don't exist yet. Shallowest paths first so a child can pick up its
+        // parent's id from the map without an extra query.
+        var missing = directories
+            .Where(dir => !folderIdsByPath.ContainsKey(dir))
+            .OrderBy(dir => dir.Count(c => c == '/'))
+            .ThenBy(dir => dir, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var dir in missing)
+        {
+            if (folderIdsByPath.ContainsKey(dir))
+                continue;
+
+            var existing = await db.Folders.AsNoTracking().FirstOrDefaultAsync(f => f.Path == dir, ct);
+            if (existing != null)
+            {
+                folderIdsByPath[dir] = existing.Id;
+                continue;
+            }
+
+            var folder = new Folder
+            {
+                Path = dir,
+                ModTime = TryGetDirectoryModTime(dir),
+            };
+
+            var parentDir = GetParentStoredFolderPath(dir);
+            if (!string.IsNullOrEmpty(parentDir) && parentDir != dir)
+            {
+                if (folderIdsByPath.TryGetValue(parentDir, out var parentId))
+                    folder.ParentFolderId = parentId;
+                else
+                {
+                    var parent = await db.Folders.AsNoTracking().FirstOrDefaultAsync(f => f.Path == parentDir, ct);
+                    if (parent != null)
+                        folder.ParentFolderId = parent.Id;
+                }
+            }
+
+            db.Folders.Add(folder);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                // Lost a race (or unique-constraint hit): fall back to the persisted row.
+                db.Entry(folder).State = EntityState.Detached;
+                var raced = await db.Folders.AsNoTracking().FirstOrDefaultAsync(f => f.Path == dir, ct);
+                if (raced == null)
+                    throw;
+                folderIdsByPath[dir] = raced.Id;
+                continue;
+            }
+
+            folderIdsByPath[dir] = folder.Id;
+            db.Entry(folder).State = EntityState.Detached;
+        }
+
+        return folderIdsByPath;
+    }
+
+    private static DateTime TryGetDirectoryModTime(string dirPath)
+    {
+        try
+        {
+            return Directory.GetLastWriteTimeUtc(dirPath);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+        {
+            return DateTime.UtcNow;
+        }
+    }
+
     private async Task<Folder> EnsureFolderAsync(CoveContext db, string dirPath, CancellationToken ct, Dictionary<string, Folder>? folderCache = null)
     {
         dirPath = NormalizeStoredFolderPath(dirPath);
@@ -1344,11 +1568,12 @@ public class ScanService(
         Dictionary<string, Folder>? folderCache = null,
         bool syncCaptions = true,
         bool knownNew = false,
-        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null)
+        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
+        int? parentFolderId = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
-        var folder = await EnsureFolderAsync(db, dirPath, ct, folderCache);
+        var folderId = parentFolderId ?? (await EnsureFolderAsync(db, dirPath, ct, folderCache)).Id;
 
         var basename = Path.GetFileName(path);
         // When the scan index already established this is a brand-new file, the lookup is
@@ -1359,7 +1584,7 @@ public class ScanService(
             var existingQuery = syncCaptions
                 ? db.VideoFiles.Include(file => file.Captions)
                 : db.VideoFiles.AsQueryable();
-            existing = await existingQuery.FirstOrDefaultAsync(f => f.ParentFolderId == folder.Id && f.Basename == basename, ct);
+            existing = await existingQuery.FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
         }
 
         Video? targetVideo = null;
@@ -1398,7 +1623,7 @@ public class ScanService(
         var videoFile = new VideoFile
         {
             Basename = basename,
-            ParentFolderId = folder.Id,
+            ParentFolderId = folderId,
             Size = stat.Size,
             ModTime = stat.ModTime,
             Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
@@ -1564,18 +1789,19 @@ public class ScanService(
         CancellationToken ct,
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
-        bool knownNew = false)
+        bool knownNew = false,
+        int? parentFolderId = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
-        var folder = await EnsureFolderAsync(db, dirPath, ct, folderCache);
+        var folderId = parentFolderId ?? (await EnsureFolderAsync(db, dirPath, ct, folderCache)).Id;
 
         var basename = Path.GetFileName(path);
         var existing = knownNew
             ? null
             : await db.ImageFiles
                 .Include(f => f.Image)
-                .FirstOrDefaultAsync(f => f.ParentFolderId == folder.Id && f.Basename == basename, ct);
+                .FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
 
         if (existing != null)
         {
@@ -1587,7 +1813,7 @@ public class ScanService(
         var imageFile = new ImageFile
         {
             Basename = basename,
-            ParentFolderId = folder.Id,
+            ParentFolderId = folderId,
             Size = stat.Size,
             ModTime = stat.ModTime,
             Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant()
@@ -1640,17 +1866,18 @@ public class ScanService(
         int? galleryId,
         CancellationToken ct,
         FileStat? fileStat = null,
-        Dictionary<string, Folder>? folderCache = null)
+        Dictionary<string, Folder>? folderCache = null,
+        int? parentFolderId = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
-        var folder = await EnsureFolderAsync(db, dirPath, ct, folderCache);
+        var folderId = parentFolderId ?? (await EnsureFolderAsync(db, dirPath, ct, folderCache)).Id;
 
         var basename = Path.GetFileName(path);
         var existing = await db.Set<GalleryFile>()
             .Include(gf => gf.Gallery)
             .ThenInclude(g => g!.ImageGalleries)
-            .FirstOrDefaultAsync(f => f.ParentFolderId == folder.Id && f.Basename == basename, ct);
+            .FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
 
         // If gallery exists and already has images, skip re-processing
         if (existing?.Gallery?.ImageGalleries.Count > 0)
@@ -1677,7 +1904,7 @@ public class ScanService(
             galleryFile = new GalleryFile
             {
                 Basename = basename,
-                ParentFolderId = folder.Id,
+                ParentFolderId = folderId,
                 Size = stat.Size,
                 ModTime = stat.ModTime
             };
@@ -1818,11 +2045,12 @@ public class ScanService(
         CancellationToken ct,
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
-        bool knownNew = false)
+        bool knownNew = false,
+        int? parentFolderId = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
-        var folder = await EnsureFolderAsync(db, dirPath, ct, folderCache);
+        var folderId = parentFolderId ?? (await EnsureFolderAsync(db, dirPath, ct, folderCache)).Id;
 
         var basename = Path.GetFileName(path);
         var existing = knownNew
@@ -1831,7 +2059,7 @@ public class ScanService(
                 .Include(file => file.Fingerprints)
                 .Include(file => file.Audio)
                 .ThenInclude(audio => audio!.Files)
-                .FirstOrDefaultAsync(file => file.ParentFolderId == folder.Id && file.Basename == basename, ct);
+                .FirstOrDefaultAsync(file => file.ParentFolderId == folderId && file.Basename == basename, ct);
 
         if (existing != null)
         {
@@ -1848,7 +2076,7 @@ public class ScanService(
         var audioFile = new AudioFile
         {
             Basename = basename,
-            ParentFolderId = folder.Id,
+            ParentFolderId = folderId,
             Path = BaseFileEntity.ComputePath(dirPath, basename),
             Size = stat.Size,
             ModTime = stat.ModTime,
@@ -1890,11 +2118,12 @@ public class ScanService(
         CancellationToken ct,
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
-        bool knownNew = false)
+        bool knownNew = false,
+        int? parentFolderId = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
-        var folder = await EnsureFolderAsync(db, dirPath, ct, folderCache);
+        var folderId = parentFolderId ?? (await EnsureFolderAsync(db, dirPath, ct, folderCache)).Id;
 
         var basename = Path.GetFileName(path);
         var existing = knownNew
@@ -1903,7 +2132,7 @@ public class ScanService(
                 .Include(file => file.Fingerprints)
                 .Include(file => file.TextDocument)
                 .ThenInclude(text => text!.Files)
-                .FirstOrDefaultAsync(file => file.ParentFolderId == folder.Id && file.Basename == basename, ct);
+                .FirstOrDefaultAsync(file => file.ParentFolderId == folderId && file.Basename == basename, ct);
 
         if (existing != null)
         {
@@ -1920,7 +2149,7 @@ public class ScanService(
         var textFile = new TextFile
         {
             Basename = basename,
-            ParentFolderId = folder.Id,
+            ParentFolderId = folderId,
             Path = BaseFileEntity.ComputePath(dirPath, basename),
             Size = stat.Size,
             ModTime = stat.ModTime,
@@ -2337,6 +2566,22 @@ public class ScanService(
     }
 
     private string? FindFfprobe()
+    {
+        if (_ffprobeResolved)
+            return _cachedFfprobePath;
+
+        lock (_ffprobeResolveLock)
+        {
+            if (_ffprobeResolved)
+                return _cachedFfprobePath;
+
+            _cachedFfprobePath = ResolveFfprobePath();
+            _ffprobeResolved = true;
+            return _cachedFfprobePath;
+        }
+    }
+
+    private string? ResolveFfprobePath()
     {
         // Check configured FFmpeg path directory for ffprobe
         if (!string.IsNullOrEmpty(config.FfmpegPath))

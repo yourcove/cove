@@ -35,6 +35,99 @@ public sealed class FacePerformerPropagationService(CoveContext db, IFieldProven
         }
     }
 
+    public async Task ReconcileHostAsync(FaceAppearanceHostType hostType, int hostId, CancellationToken cancellationToken = default)
+    {
+        var kind = hostType == FaceAppearanceHostType.Video ? FaceHostKind.Video : FaceHostKind.Image;
+
+        // Linked faces currently appearing on this host, with appearance metadata for provenance.
+        var appearanceRows = await _db.FaceAppearances
+            .AsNoTracking()
+            .Where(appearance => appearance.HostType == hostType && appearance.HostId == hostId)
+            .Join(
+                _db.Faces.AsNoTracking().Where(face => face.PerformerId != null),
+                appearance => appearance.FaceId,
+                face => face.Id,
+                (appearance, face) => new
+                {
+                    FaceId = face.Id,
+                    // Guaranteed non-null by the Where(face.PerformerId != null) above; COALESCE keeps the
+                    // projection translatable.
+                    PerformerId = face.PerformerId ?? 0,
+                    appearance.SourceKey,
+                    appearance.SourceRunId,
+                    appearance.FirstSeenAtSec,
+                    appearance.LastSeenAtSec,
+                    appearance.TopConfidence,
+                })
+            .ToListAsync(cancellationToken);
+
+        // Best appearance row per face (one assignment per face), and the set of desired (face, performer) pairs.
+        var desiredByFace = appearanceRows
+            .GroupBy(row => row.FaceId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(row => row.TopConfidence ?? -1f).First());
+        var desiredPairs = desiredByFace.Values
+            .Select(row => (row.FaceId, row.PerformerId))
+            .ToHashSet();
+
+        // Ensure each desired performer is present on the host (added once per performer), and decide
+        // whether face propagation owns it — never adopt a performer placed by other means (manual, scraper).
+        var faceOwnedPerformers = new HashSet<int>();
+        foreach (var performerId in desiredByFace.Values.Select(row => row.PerformerId).Distinct())
+        {
+            var hostRef = new FaceHostRef(kind, hostId);
+            var alreadyOwned = await HasOwnedHostAssignmentAsync(performerId, hostRef, cancellationToken);
+            var added = kind == FaceHostKind.Video
+                ? await AddVideoPerformerAsync(hostId, performerId, cancellationToken)
+                : await AddImagePerformerAsync(hostId, performerId, cancellationToken);
+            if (added || alreadyOwned)
+                faceOwnedPerformers.Add(performerId);
+        }
+
+        foreach (var row in desiredByFace.Values)
+        {
+            if (!faceOwnedPerformers.Contains(row.PerformerId))
+                continue;
+
+            var host = new FaceHostRef(kind, hostId, row.FirstSeenAtSec, row.LastSeenAtSec, row.SourceKey, row.SourceRunId, row.TopConfidence);
+            await UpsertAssignmentAsync(row.FaceId, row.PerformerId, host, cancellationToken);
+        }
+
+        // Drop assignments for faces that no longer appear on the host (or were unlinked/relinked),
+        // removing the host performer only when no remaining linked face keeps it here.
+        var assignmentRows = await _db.ExtensionData
+            .Where(item => item.Key.StartsWith(AssignmentKeyPrefix))
+            .ToListAsync(cancellationToken);
+        var hostAssignments = assignmentRows
+            .Select(row => (Row: row, Assignment: TryParseAssignment(row.Key)))
+            .Where(item => item.Assignment is not null && item.Assignment.Value.Kind == kind && item.Assignment.Value.HostId == hostId)
+            .Select(item => (item.Row, Assignment: item.Assignment!.Value))
+            .ToArray();
+
+        foreach (var (row, assignment) in hostAssignments)
+        {
+            if (desiredPairs.Contains((assignment.FaceId, assignment.PerformerId)))
+                continue;
+
+            var performerStillKeptHere = desiredPairs.Any(pair => pair.PerformerId == assignment.PerformerId);
+            if (!performerStillKeptHere)
+                await RemoveHostPerformerAsync(assignment.Kind, assignment.HostId, assignment.PerformerId, cancellationToken);
+
+            _db.ExtensionData.Remove(row);
+        }
+
+        // Re-record the host's performer provenance from the resulting face-propagation assignment set.
+        var representativeSourceKey = desiredByFace.Values
+            .Select(row => row.SourceKey)
+            .FirstOrDefault(sourceKey => !string.IsNullOrWhiteSpace(sourceKey));
+        await RecordHostPerformerProvenanceAsync(
+            null,
+            new FaceHostRef(kind, hostId),
+            ResolveSourceKey(new FaceHostRef(kind, hostId, SourceKey: representativeSourceKey), null),
+            cancellationToken);
+    }
+
     public async Task<IReadOnlyList<FaceHostRef>> LoadFaceHostsAsync(int faceId, CancellationToken cancellationToken = default)
     {
         var appearances = await _db.FaceAppearances

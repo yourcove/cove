@@ -1,6 +1,5 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
-using Cove.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -12,7 +11,7 @@ namespace Cove.Data.Auth;
 /// Bootstraps the auth system on startup:
 ///   1. Upserts the permission catalog from <see cref="IPermissionRegistry"/>.
 ///   2. Seeds the built-in roles (Owner / Admin / Member / Viewer / Guest).
-///   3. Creates the Owner user from <see cref="AuthConfig"/> if no users exist.
+///   3. Backfills the Owner role for existing system users.
 ///
 /// Runs after the DB has been migrated by Program.cs (we register it as a hosted
 /// service that executes once at startup).
@@ -21,7 +20,6 @@ public sealed class BootstrapAuthService : IHostedService
 {
     private readonly IServiceProvider _services;
     private readonly IPermissionRegistry _registry;
-    private readonly CoveConfiguration _config;
     private readonly ILogger<BootstrapAuthService> _log;
     private readonly SemaphoreSlim _bootstrapLock = new(1, 1);
     private CancellationTokenSource? _bootstrapCts;
@@ -30,12 +28,10 @@ public sealed class BootstrapAuthService : IHostedService
     public BootstrapAuthService(
         IServiceProvider services,
         IPermissionRegistry registry,
-        CoveConfiguration config,
         ILogger<BootstrapAuthService> log)
     {
         _services = services;
         _registry = registry;
-        _config = config;
         _log = log;
     }
 
@@ -256,8 +252,7 @@ public sealed class BootstrapAuthService : IHostedService
     }
     private async Task EnsureOwnerUserAsync(CoveContext db, CancellationToken ct)
     {
-        var hasUsers = await db.Users.AnyAsync(ct);
-        if (hasUsers)
+        if (await db.Users.AnyAsync(ct))
         {
             // Backfill: if an "owner" user exists but has no Owner role, assign it.
             var ownerRole = await db.Roles.FirstAsync(r => r.Name == BuiltinRoles.Owner, ct);
@@ -273,64 +268,6 @@ public sealed class BootstrapAuthService : IHostedService
                 }
             }
             await db.SaveChangesAsync(ct);
-            return;
         }
-
-        var auth = _config.Auth;
-        var username = string.IsNullOrWhiteSpace(auth.Username) ? "owner" : auth.Username;
-        string passwordHash;
-        if (!string.IsNullOrEmpty(auth.HashedPassword))
-        {
-            passwordHash = auth.HashedPassword;
-        }
-        else
-        {
-            // Generate a random initial password and surface it in a sentinel file.
-            var seed = TokenService.NewOpaqueToken();
-            var plain = seed.plain[..16];
-            passwordHash = PasswordHasher.HashPassword(plain);
-            try
-            {
-                var dataDir = CoveDefaultPaths.GetDataRoot();
-                Directory.CreateDirectory(dataDir);
-                var sentinel = Path.Combine(dataDir, "owner_password.txt");
-                await File.WriteAllTextAsync(sentinel,
-                    $"Cove generated an initial Owner password on first start.\n" +
-                    $"Username: {username}\nPassword: {plain}\n" +
-                    $"Change it via the UI then delete this file.\n",
-                    ct);
-                _log.LogWarning("Owner account created with generated password. See {Path}", sentinel);
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Failed to write owner_password sentinel for generated owner password.");
-            }
-        }
-
-        var owner = new User
-        {
-            Username = username,
-            DisplayName = "Owner",
-            PasswordHash = passwordHash,
-            PasswordAlgo = PasswordHasher.DetectAlgorithm(passwordHash),
-            IsActive = true,
-            IsLocked = false,
-            IsSystem = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        };
-        db.Users.Add(owner);
-        await db.SaveChangesAsync(ct);
-
-        var ownerRoleEntity = await db.Roles.FirstAsync(r => r.Name == BuiltinRoles.Owner, ct);
-        db.UserRoleAssignments.Add(new UserRoleAssignment
-        {
-            UserId = owner.Id,
-            RoleId = ownerRoleEntity.Id,
-            GrantedAt = DateTime.UtcNow,
-        });
-        await db.SaveChangesAsync(ct);
-
-        _log.LogInformation("Bootstrapped Owner user '{Username}'", username);
     }
 }

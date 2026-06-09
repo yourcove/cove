@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { database, jobs, metadata, system, stashMigration } from "../api/client";
+import { auth, database, jobs, metadata, system, stashMigration } from "../api/client";
 import type { StashPreviewResult, StashImportOptions, StashImportResult, StashPathMapping } from "../api/client";
 import type { CoveConfig, CovePathConfig, JobInfo } from "../api/types";
+import { authStore } from "../auth/authStore";
+import { useAuth } from "../auth/AuthContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { navigateToUrl } from "../router/location";
 import {
@@ -25,7 +27,7 @@ interface Props {
   onComplete: (options?: { showTutorial?: boolean }) => void;
 }
 
-type Step = "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "theme" | "done";
+type Step = "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "owner" | "theme" | "done";
 type SetupMode = "fresh" | "stash" | "backup" | null;
 
 interface BackupRestoreResultSummary {
@@ -254,7 +256,11 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const [restoreConfirmed, setRestoreConfirmed] = useState(false);
   const [backupRestoreResult, setBackupRestoreResult] = useState<BackupRestoreResultSummary | null>(null);
   const [scanJobId, setScanJobId] = useState<string | null>(null);
+  const [ownerUsername, setOwnerUsername] = useState("owner");
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [ownerConfirmPassword, setOwnerConfirmPassword] = useState("");
   const queryClient = useQueryClient();
+  const { refreshMe } = useAuth();
   const { availableThemes, activeThemeId, setActiveTheme } = useExtensions();
   const importPathMappings = pathMappings
     .map((mapping) => ({ source: mapping.source.trim(), target: mapping.target.trim() }))
@@ -279,12 +285,19 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       : step === "backup-restore" || backupRestoreResult !== null
       ? "backup"
       : "fresh");
+  const bootstrapStatusQuery = useQuery({ queryKey: ["auth", "bootstrap-status"], queryFn: auth.bootstrapStatus });
+  const needsOwnerSetup = bootstrapStatusQuery.data?.ownerExists === false;
+  const ownerStep: Step[] = needsOwnerSetup ? ["owner"] : [];
   const stepList: Step[] = activeMode === "stash"
-    ? ["welcome", "source", "stash-config", "theme", "done"]
+    ? ["welcome", "source", "stash-config", ...ownerStep, "theme", "done"]
     : activeMode === "backup"
-    ? ["welcome", "source", "backup-restore", "theme", "done"]
-    : ["welcome", "source", "paths", "confirm", "theme", "done"];
+    ? ["welcome", "source", "backup-restore", ...ownerStep, "theme", "done"]
+    : ["welcome", "source", "paths", "confirm", ...ownerStep, "theme", "done"];
   const themeOptions = useMemo(() => availableThemes, [availableThemes]);
+  const goToPostContentSetup = async () => {
+    const status = await bootstrapStatusQuery.refetch();
+    setStep(status.data?.ownerExists === false ? "owner" : "theme");
+  };
 
   const stashPreviewMut = useMutation({
     mutationFn: () => stashMigration.preview(stashDbPath),
@@ -354,7 +367,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       setError(null);
       setBackupRestoreResult(result);
       await queryClient.invalidateQueries();
-      setStep("theme");
+      await goToPostContentSetup();
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -363,7 +376,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     if (!stashImportResultQuery.data) return;
     setError(null);
     setStashResult(stashImportResultQuery.data);
-    setStep("theme");
+    goToPostContentSetup();
     queryClient.invalidateQueries();
   }, [queryClient, stashImportResultQuery.data]);
 
@@ -385,7 +398,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     mutationFn: (cfg: CoveConfig) => system.saveConfig(cfg),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["system-config"] });
-      setStep("theme");
+      goToPostContentSetup();
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -396,6 +409,19 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       setError(null);
       setScanJobId(jobId);
       await queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const ownerMut = useMutation({
+    mutationFn: () => auth.bootstrapOwner(ownerUsername.trim(), ownerPassword),
+    onSuccess: async (response) => {
+      setError(null);
+      authStore.clearShareCredentials();
+      authStore.setTokens(response.token, response.refreshToken);
+      await refreshMe();
+      await bootstrapStatusQuery.refetch();
+      setStep("theme");
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -420,6 +446,16 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       covePaths: validPaths,
     };
     saveMut.mutate(updatedConfig);
+  };
+
+  const handleOwnerSubmit = () => {
+    setError(null);
+    if (ownerPassword !== ownerConfirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    ownerMut.mutate();
   };
 
   const handleFinish = (target: "videos" | "settings" = "videos") => {
@@ -933,6 +969,76 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 >
                   {saveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                   Save & Continue
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "owner" && (
+            <div className="p-8">
+              <h2 className="text-xl font-bold text-foreground mb-2">Set the owner password</h2>
+              <p className="text-sm text-secondary mb-6">
+                Create the Owner account now so Cove is ready if authentication is enabled later or the outside-IP failsafe requires sign-in.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="setup-owner-username" className="block text-sm font-medium text-foreground mb-2">Owner username</label>
+                  <input
+                    id="setup-owner-username"
+                    type="text"
+                    autoComplete="username"
+                    value={ownerUsername}
+                    onChange={(event) => setOwnerUsername(event.target.value)}
+                    disabled={ownerMut.isPending}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-foreground outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="setup-owner-password" className="block text-sm font-medium text-foreground mb-2">Owner password</label>
+                  <input
+                    id="setup-owner-password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={ownerPassword}
+                    onChange={(event) => setOwnerPassword(event.target.value)}
+                    disabled={ownerMut.isPending}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-foreground outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="setup-owner-confirm" className="block text-sm font-medium text-foreground mb-2">Confirm password</label>
+                  <input
+                    id="setup-owner-confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    value={ownerConfirmPassword}
+                    onChange={(event) => setOwnerConfirmPassword(event.target.value)}
+                    disabled={ownerMut.isPending}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-foreground outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+
+              {error ? <div role="alert" className="mt-4 rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300">{error}</div> : null}
+
+              <div className="flex justify-between mt-6">
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setStep(activeMode === "fresh" ? "confirm" : activeMode === "stash" ? "stash-config" : "backup-restore");
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                  onClick={handleOwnerSubmit}
+                  disabled={ownerMut.isPending || !ownerUsername.trim() || !ownerPassword || !ownerConfirmPassword}
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium disabled:opacity-50 transition-colors"
+                >
+                  {ownerMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Save owner password
                 </button>
               </div>
             </div>

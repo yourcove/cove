@@ -926,7 +926,15 @@ public record FaceLinkDto(int? PerformerId, bool SetPerformerImage = false);
 
 public record FaceBatchLinkTopSuggestionDto(
     IReadOnlyList<int> FaceIds,
-    float? MinConfidence = null);
+    // When true, top suggestions that are reference (SAIE) matches without a local performer are
+    // created via their provider (which may scrape a configured metadata server) and then linked.
+    // When false (default) such faces are skipped.
+    bool CreateFromReference = false,
+    // A face whose top matches conflict (the same face matched two or more different performers) is
+    // skipped unless LinkConflicting is true. When linking conflicts, MergeConflicting merges every
+    // competing match into the top one; otherwise the single top match is linked directly.
+    bool LinkConflicting = false,
+    bool MergeConflicting = false);
 
 public record FaceBatchDeleteDto(IReadOnlyList<int> FaceIds);
 
@@ -971,7 +979,10 @@ public record FaceDeleteImpactDto(
 public record FaceSuggestionDecisionDto(
     int PerformerId,
     string Decision,
-    bool SetPerformerImage = false);
+    bool SetPerformerImage = false,
+    // The other competing matches when Decision is "merge". Each id mirrors PerformerId (a real performer
+    // id or a provider-encoded reference id). Null/empty for accept and reject.
+    IReadOnlyList<int>? SecondaryPerformerIds = null);
 
 public record FaceSuggestionEvidenceDto(
     int FaceId,
@@ -988,7 +999,11 @@ public record FaceSuggestionDto(
     int? LocalPerformerId = null,
     string? ExternalUrl = null,
     bool LocalPerformerHasImage = false,
-    bool LocalPerformerIsLocalOnly = false);
+    bool LocalPerformerIsLocalOnly = false,
+    // Set when 2+ reference matches from different sources compete for the same face. All competing
+    // suggestions for a face share the same id, so the UI can group them into a single "possible
+    // duplicate" choice (use one, use the other, or merge them).
+    string? ConflictGroupId = null);
 
 public record FaceSimilarDto(
     int Id,

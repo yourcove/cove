@@ -92,7 +92,7 @@ public sealed class FaceSuggestionControllerTests
             ]));
 
         var rejectResult = await controller.RecordSuggestionDecision(face.Id, new FaceSuggestionDecisionDto(rejectedPerformer.Id, FaceSuggestionDecisionValues.Reject), CancellationToken.None);
-        Assert.IsType<NoContentResult>(rejectResult);
+        Assert.IsType<OkObjectResult>(rejectResult.Result);
 
         var suggestionsResult = await controller.GetSuggestions(face.Id, 5, CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(suggestionsResult.Result);
@@ -130,7 +130,7 @@ public sealed class FaceSuggestionControllerTests
             ]));
 
         var acceptResult = await controller.RecordSuggestionDecision(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Accept), CancellationToken.None);
-        Assert.IsType<NoContentResult>(acceptResult);
+        Assert.IsType<OkObjectResult>(acceptResult.Result);
 
         var persistedFace = await context.Faces.SingleAsync(item => item.Id == face.Id);
         Assert.Equal(performer.Id, persistedFace.PerformerId);

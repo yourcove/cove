@@ -3,7 +3,7 @@ namespace Cove.Core.Interfaces;
 /// <summary>
 /// Best-effort import of a performer's full metadata from a configured metadata server, keyed by the
 /// site endpoint and that site's remote id. Used when a face reference (SAIE) match is accepted and a
-/// brand-new local performer was created: if the user has the originating site configured as a
+/// local performer was created or matched by name: if the user has the originating site configured as a
 /// metadata server, the performer is enriched (image, bio, measurements, aliases, …) from it.
 ///
 /// Implemented by the host (which owns the metadata-server integration) and consumed by extensions.

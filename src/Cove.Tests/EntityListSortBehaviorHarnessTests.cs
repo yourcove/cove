@@ -5,6 +5,8 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Data.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -36,8 +38,11 @@ public class EntityListSortBehaviorHarnessTests
             if (!IsBehaviorTested(sort))
                 continue;
 
-            if (sort.Entity.Equals("faces", StringComparison.OrdinalIgnoreCase))
+            if (sort.Entity.Equals("faces", StringComparison.OrdinalIgnoreCase)
+                && sort.Key.Equals("suggestion_confidence", StringComparison.OrdinalIgnoreCase))
             {
+                // suggestion_confidence is a composite review ordering that intentionally ignores
+                // the direction toggle, so only the descending surface is meaningful.
                 yield return [sort.Entity, sort.Key, CoveSortDirection.Desc];
                 continue;
             }
@@ -483,7 +488,7 @@ public class EntityListSortBehaviorHarnessTests
 
     private static async Task<IReadOnlyList<int>> QueryFaceIdsAsync(CoveContext context, string sortKey, CoveSortDirection direction = CoveSortDirection.Desc)
     {
-        var controller = new FacesController(context, null!, null!, null!, [], null!, [], null);
+        var controller = new FacesController(context, null!, null!, null!, [], NullLogger<FacesController>.Instance, [], null);
         var response = await controller.List(
             q: null,
             performerId: null,
@@ -534,7 +539,7 @@ public class EntityListSortBehaviorHarnessTests
         string? imageCountModifier = null,
         string? customFieldCriteria = null)
     {
-        var controller = new FacesController(context, null!, null!, null!, [], null!, [], null);
+        var controller = new FacesController(context, null!, null!, null!, [], NullLogger<FacesController>.Instance, [], null);
         var response = await controller.List(
             q: null,
             performerId: performerId,
@@ -634,7 +639,7 @@ public class EntityListSortBehaviorHarnessTests
             "performers" => ProjectPerformerIds(fixture, sortKey, descending),
             "studios" => ProjectStudioIds(fixture, sortKey, descending),
             "tags" => ProjectTagIds(fixture, sortKey, descending),
-            "faces" => ProjectFaceIds(fixture, sortKey),
+            "faces" => ProjectFaceIds(fixture, sortKey, descending),
             _ => throw new InvalidOperationException($"No sort projection configured for entity '{entity}'."),
         };
     }
@@ -864,35 +869,24 @@ public class EntityListSortBehaviorHarnessTests
             _ => throw new InvalidOperationException($"No tag sort projection configured for '{sortKey}'."),
         };
 
-    private static IReadOnlyList<int> ProjectFaceIds(SortHarnessFixture fixture, string sortKey)
+    private static IReadOnlyList<int> ProjectFaceIds(SortHarnessFixture fixture, string sortKey, bool descending)
         => sortKey switch
         {
-            "created_desc" => fixture.Faces.OrderByDescending(face => face.CreatedAt).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "updated_desc" => fixture.Faces.OrderByDescending(face => face.UpdatedAt).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "appearance_desc" => fixture.Faces.OrderBy(face => face.MergedIntoFaceId != null).ThenByDescending(face => face.AppearanceCount).ThenByDescending(face => face.FrameSampleCount).ThenBy(face => face.Label).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "video_count_desc" => fixture.Faces.OrderByDescending(face => face.VideoCount).ThenByDescending(face => face.AppearanceCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "image_count_desc" => fixture.Faces.OrderByDescending(face => face.ImageCount).ThenByDescending(face => face.AppearanceCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
+            // Composite review ordering: direction-agnostic (ignores the toggle).
             "suggestion_confidence" => fixture.Faces.OrderByDescending(face => face.UpdatedAt).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "label_asc" => fixture.Faces.OrderBy(FaceLabel).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "label_desc" => fixture.Faces.OrderByDescending(FaceLabel).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "performer_name_asc" => fixture.Faces.OrderBy(FacePerformerName).ThenBy(face => face.Label).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "performer_name_desc" => fixture.Faces.OrderByDescending(FacePerformerName).ThenByDescending(face => face.Label).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "primary_source_key_asc" => fixture.Faces.OrderBy(face => face.PrimarySourceKey ?? string.Empty).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "primary_source_key_desc" => fixture.Faces.OrderByDescending(face => face.PrimarySourceKey ?? string.Empty).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "ignored_asc" => fixture.Faces.OrderBy(face => face.Ignored).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "ignored_desc" => fixture.Faces.OrderByDescending(face => face.Ignored).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "merged_asc" => fixture.Faces.OrderBy(face => face.MergedIntoFaceId != null).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "merged_desc" => fixture.Faces.OrderByDescending(face => face.MergedIntoFaceId != null).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "cover_present_asc" => fixture.Faces.OrderBy(face => !string.IsNullOrEmpty(face.CoverBlobId)).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "cover_present_desc" => fixture.Faces.OrderByDescending(face => !string.IsNullOrEmpty(face.CoverBlobId)).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "detection_count_asc" => fixture.Faces.OrderBy(face => face.DetectionCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "detection_count_desc" => fixture.Faces.OrderByDescending(face => face.DetectionCount).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "appearance_count_asc" => fixture.Faces.OrderBy(face => face.AppearanceCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "appearance_count_desc" => fixture.Faces.OrderByDescending(face => face.AppearanceCount).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "frame_sample_count_asc" => fixture.Faces.OrderBy(face => face.FrameSampleCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "frame_sample_count_desc" => fixture.Faces.OrderByDescending(face => face.FrameSampleCount).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray(),
-            "video_count_asc" => fixture.Faces.OrderBy(face => face.VideoCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "image_count_asc" => fixture.Faces.OrderBy(face => face.ImageCount).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
+            "created" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.CreatedAt, descending),
+            "updated" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.UpdatedAt, descending),
+            "label" => OrderWithDirectionalIdTieBreaker(fixture.Faces, FaceLabel, descending),
+            "performer_name" => descending
+                ? fixture.Faces.OrderByDescending(FacePerformerName).ThenByDescending(face => face.Label).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray()
+                : fixture.Faces.OrderBy(FacePerformerName).ThenBy(face => face.Label).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
+            "primary_source_key" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.PrimarySourceKey ?? string.Empty, descending),
+            "detection_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.DetectionCount, descending),
+            "appearance_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.AppearanceCount, descending),
+            "frame_sample_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.FrameSampleCount, descending),
+            "video_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.VideoCount, descending),
+            "image_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.ImageCount, descending),
+            "cover_present" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => !string.IsNullOrEmpty(face.CoverBlobId), descending),
             _ => throw new InvalidOperationException($"No face sort projection configured for '{sortKey}'."),
         };
 

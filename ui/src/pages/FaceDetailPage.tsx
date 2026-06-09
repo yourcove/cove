@@ -273,7 +273,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   });
 
   const suggestionDecisionMutation = useMutation({
-    mutationFn: (data: { performerId: number; decision: "accept" | "reject"; setPerformerImage?: boolean }) => faces.recordSuggestionDecision(id, data),
+    mutationFn: (data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) => faces.recordSuggestionDecision(id, data),
     onSuccess: () => {
       invalidateFace();
     },
@@ -777,6 +777,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         faceImageUrls={carouselSampleImageUrls}
         disabled={suggestionDecisionMutation.isPending}
         canReadPerformers={canReadPerformers}
+        siblingSuggestions={faceSuggestions}
         onClose={() => setComparingSuggestion(null)}
         onConfirm={(value, options) => {
           if ("performerId" in value) {
@@ -788,6 +789,10 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           if ("performerId" in value) {
             suggestionDecisionMutation.mutate({ performerId: value.performerId, decision: "reject" });
           }
+          setComparingSuggestion(null);
+        }}
+        onMerge={(primaryPerformerId, secondaryPerformerIds) => {
+          suggestionDecisionMutation.mutate({ performerId: primaryPerformerId, decision: "merge", secondaryPerformerIds });
           setComparingSuggestion(null);
         }}
         onNavigate={onNavigate}

@@ -4001,10 +4001,10 @@ function LogsPanel() {
       ) : filteredLogEntries.length > 0 ? (
         <div className="max-h-[600px] overflow-y-auto rounded border border-border bg-background font-mono text-xs">
           {filteredLogEntries.map((entry, i) => (
-            <div key={i} className="flex gap-3 border-b border-border/50 px-3 py-1.5 hover:bg-surface">
-              <span className="shrink-0 text-muted">{entry.timestamp}</span>
-              <span className={`shrink-0 w-14 font-semibold ${levelColor(entry.level)}`}>{entry.level}</span>
-              <span className="text-foreground break-all">{entry.message}</span>
+            <div key={i} className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3 border-b border-border/50 px-3 py-1.5 hover:bg-surface">
+              <span className="whitespace-nowrap text-muted">{entry.timestamp}</span>
+              <span className={`whitespace-nowrap font-semibold ${levelColor(entry.level)}`}>{entry.level}</span>
+              <span className="min-w-0 break-all text-foreground">{entry.message}</span>
             </div>
           ))}
         </div>

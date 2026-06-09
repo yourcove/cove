@@ -8,9 +8,10 @@ interface Props {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  maxWidthClassName?: string;
 }
 
-export function EditModal({ title, open, onClose, children }: Props) {
+export function EditModal({ title, open, onClose, children, maxWidthClassName = "sm:max-w-2xl" }: Props) {
   useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
@@ -25,7 +26,7 @@ export function EditModal({ title, open, onClose, children }: Props) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative bg-surface sm:rounded-lg shadow-xl w-full sm:max-w-2xl h-full sm:h-auto sm:max-h-[85vh] flex flex-col sm:mx-4">
+      <div className={`relative bg-surface sm:rounded-lg shadow-xl w-full ${maxWidthClassName} h-full sm:h-auto sm:max-h-[85vh] flex flex-col sm:mx-4`}>
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} className="text-secondary hover:text-foreground p-1">

@@ -524,7 +524,7 @@ export const faces: {
   setIgnored: (id: number, data: FaceIgnore) => Promise<Face>;
   similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceSimilar>>;
   suggestions: (id: number, maxResults?: number) => Promise<FaceSuggestion[]>;
-  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject"; setPerformerImage?: boolean }) => Promise<void>;
+  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) => Promise<Face>;
 } = {
   list: (opts?: FaceListOptions) =>
     request<PaginatedResponse<Face>>(`/faces${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, {
@@ -590,8 +590,8 @@ export const faces: {
     request<PaginatedResponse<FaceSimilar>>(`/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`),
   suggestions: (id: number, maxResults?: number) =>
     request<FaceSuggestion[]>(`/faces/${id}/suggestions${buildQuery(undefined, { maxResults })}`),
-  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject"; setPerformerImage?: boolean }) =>
-    request<void>(`/faces/${id}/suggestions/decision`, { method: "POST", body: JSON.stringify(data) }),
+  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) =>
+    request<Face>(`/faces/${id}/suggestions/decision`, { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const entityEngagement = {

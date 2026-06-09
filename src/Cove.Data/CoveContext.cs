@@ -161,6 +161,16 @@ public partial class CoveContext : DbContext
             entity.Property(interval => interval.Context).HasColumnType("jsonb");
         });
 
+        modelBuilder.Entity<Face>(entity =>
+        {
+            // Sort/filter the unlinked-faces list by suggestion confidence in SQL.
+            entity.HasIndex(face => new { face.PerformerId, face.TopSuggestionConfidence });
+            // Filter the list by suggested (local) performer.
+            entity.HasIndex(face => face.TopSuggestionLocalPerformerId);
+            // Background materializer scan: unlinked faces awaiting (re)compute.
+            entity.HasIndex(face => new { face.PerformerId, face.TopSuggestionComputedAt });
+        });
+
         foreach (var ext in _dataExtensions)
         {
             ext.ConfigureModel(modelBuilder);
