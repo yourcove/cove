@@ -22,7 +22,11 @@ public class BackupService(
 
     private string DataRoot => dataRootOverride ?? CoveDefaultPaths.GetDataRoot();
 
-    private string BackupDir => Path.Combine(DataRoot, "backups");
+    // Prefer an explicit configured backup location (Docker maps this to the /backups bind mount so
+    // backups aren't lost with the container). Tests pass dataRootOverride and rely on the fallback.
+    private string BackupDir => dataRootOverride == null && !string.IsNullOrWhiteSpace(config.BackupPath)
+        ? CoveDefaultPaths.ResolveDataPath(config.BackupPath)
+        : Path.Combine(DataRoot, "backups");
 
     public async Task<BackupResultDto> CreateBackupAsync(string? reason = null, CancellationToken ct = default)
     {

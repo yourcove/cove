@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -42,7 +44,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo) : Control
         var filter = new SavedFilter
         {
             Name = dto.Name, Mode = filterMode,
-            FindFilter = dto.FindFilter, ObjectFilter = dto.ObjectFilter, UIOptions = dto.UIOptions
+            FindFilter = StripRandomSeed(dto.FindFilter), ObjectFilter = dto.ObjectFilter, UIOptions = dto.UIOptions
         };
 
         filter = await filterRepo.AddAsync(filter, ct);
@@ -58,7 +60,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo) : Control
 
         if (dto.Name != null) filter.Name = dto.Name;
         if (dto.Mode != null && Enum.TryParse<FilterMode>(dto.Mode, true, out var mode)) filter.Mode = mode;
-        if (dto.FindFilter != null) filter.FindFilter = dto.FindFilter;
+        if (dto.FindFilter != null) filter.FindFilter = StripRandomSeed(dto.FindFilter);
         if (dto.ObjectFilter != null) filter.ObjectFilter = dto.ObjectFilter;
         if (dto.UIOptions != null) filter.UIOptions = dto.UIOptions;
 
@@ -128,6 +130,33 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo) : Control
             await filterRepo.DeleteAsync(existing.Id, ct);
 
         return Ok((SavedFilterDto?)null);
+    }
+
+    // When a filter using random sort is persisted, drop the random seed so the saved/default
+    // filter re-shuffles on every load instead of reproducing the same "random" order forever.
+    internal static string? StripRandomSeed(string? findFilterJson)
+    {
+        if (string.IsNullOrWhiteSpace(findFilterJson)) return findFilterJson;
+
+        JsonNode? node;
+        try
+        {
+            node = JsonNode.Parse(findFilterJson);
+        }
+        catch (JsonException)
+        {
+            return findFilterJson;
+        }
+
+        if (node is not JsonObject obj) return findFilterJson;
+
+        var sort = obj.TryGetPropertyValue("sort", out var sortNode) ? sortNode?.GetValue<string>() : null;
+        if (!string.Equals(sort, "random", StringComparison.OrdinalIgnoreCase)) return findFilterJson;
+
+        if (!obj.ContainsKey("seed")) return findFilterJson;
+
+        obj.Remove("seed");
+        return obj.ToJsonString();
     }
 
     private static SavedFilterDto MapToDto(SavedFilter f) => new(

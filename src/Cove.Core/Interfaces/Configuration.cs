@@ -6,6 +6,9 @@ public class CoveConfiguration
     public string DatabaseConnectionString { get; set; } = string.Empty;
     public string GeneratedPath { get; set; } = CoveDefaultPaths.GetDataSubdirectory("generated");
     public string CachePath { get; set; } = CoveDefaultPaths.GetDataSubdirectory("cache");
+    // Where database/config backups are written. Empty => DataRoot/backups (back-compat). In Docker
+    // this is pointed at the dedicated /backups bind mount so backups survive `docker compose down -v`.
+    public string BackupPath { get; set; } = string.Empty;
     public string? FfmpegPath { get; set; }
     public string? FfprobePath { get; set; }
     public string Host { get; set; } = "0.0.0.0";

@@ -25,7 +25,11 @@ interface SavedFilterRow {
   savedFilterId: number;
 }
 
-type FrontPageContent = CustomFilter | SavedFilterRow;
+interface ContinueWatchingRowConfig {
+  type: "continueWatching";
+}
+
+type FrontPageContent = CustomFilter | SavedFilterRow | ContinueWatchingRowConfig;
 
 const DEFAULT_SORT_BY_MODE: Record<FilterMode, string> = {
   videos: "date",
@@ -64,6 +68,7 @@ function parseJsonObject<T extends object>(json: string | undefined): T | undefi
 // ─── Default content (matches standard defaults) ───────────────────────
 
 const DEFAULT_CONTENT: FrontPageContent[] = [
+  { type: "continueWatching" },
   { type: "custom", mode: "videos", sortBy: "date", direction: "desc", header: "Recently Released Videos" },
   { type: "custom", mode: "studios", sortBy: "created_at", direction: "desc", header: "Recently Added Studios" },
   { type: "custom", mode: "groups", sortBy: "date", direction: "desc", header: "Recently Released Groups" },
@@ -85,11 +90,26 @@ const PREMADE_FILTERS: CustomFilter[] = [
 ];
 
 const STORAGE_KEY = "cove-front-page-content";
+// One-time flag so we add the Continue Watching row to pre-existing layouts exactly once.
+// After this, the user is free to remove it and it won't be re-added.
+const CONTINUE_WATCHING_MIGRATION_KEY = "cove-front-page-continue-watching-migrated";
 
 function loadContent(): FrontPageContent[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const content = JSON.parse(stored) as FrontPageContent[];
+      // Migrate layouts saved before Continue Watching became a customizable row: it used to be
+      // hardcoded at the top, so preserve that behavior by inserting it once.
+      const migrated = localStorage.getItem(CONTINUE_WATCHING_MIGRATION_KEY) === "true";
+      if (!migrated) {
+        localStorage.setItem(CONTINUE_WATCHING_MIGRATION_KEY, "true");
+        if (!content.some((item) => item.type === "continueWatching")) {
+          return [{ type: "continueWatching" }, ...content];
+        }
+      }
+      return content;
+    }
   } catch { /* ignore */ }
   return DEFAULT_CONTENT;
 }
@@ -125,9 +145,10 @@ export function HomePage({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
-      <ContinueWatchingRow onNavigate={onNavigate} />
       {content.map((item, i) => (
-        <RecommendationRow key={i} content={item} onNavigate={onNavigate} />
+        item.type === "continueWatching"
+          ? <ContinueWatchingRow key={i} onNavigate={onNavigate} />
+          : <RecommendationRow key={i} content={item} onNavigate={onNavigate} />
       ))}
       <div className="flex justify-end pb-4">
         <button
@@ -203,6 +224,9 @@ function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string;
 // ─── Recommendation Row (dispatcher) ────────────────────────────────────────
 
 function RecommendationRow({ content, onNavigate }: { content: FrontPageContent; onNavigate: (r: any) => void }) {
+  if (content.type === "continueWatching") {
+    return <ContinueWatchingRow onNavigate={onNavigate} />;
+  }
   if (content.type === "saved") {
     return <SavedFilterRecommendationRow savedFilterId={content.savedFilterId} onNavigate={onNavigate} />;
   }
@@ -723,10 +747,10 @@ function FrontPageEditor({
             <GripVertical className="w-4 h-4 text-muted" />
             <div className="flex-1">
               <p className="text-sm text-foreground">
-                {item.type === "custom" ? item.header : getSavedFilterLabel(item, savedFilterById)}
+                {item.type === "custom" ? item.header : item.type === "continueWatching" ? "Continue Watching" : getSavedFilterLabel(item, savedFilterById)}
               </p>
               <p className="text-xs text-muted">
-                {item.type === "custom" ? `${item.mode} • ${item.sortBy} • ${item.direction}` : "Saved filter"}
+                {item.type === "custom" ? `${item.mode} • ${item.sortBy} • ${item.direction}` : item.type === "continueWatching" ? "Premade filter" : "Saved filter"}
               </p>
             </div>
             <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-300 p-1">
@@ -752,6 +776,14 @@ function FrontPageEditor({
 
             <h4 className="text-sm font-medium text-muted mb-2">Premade Filters</h4>
             <div className="space-y-1 mb-4">
+              {!items.some((item) => item.type === "continueWatching") && (
+                <button
+                  onClick={() => addItem({ type: "continueWatching" })}
+                  className="block w-full text-left px-3 py-2 text-sm text-foreground hover:bg-card rounded"
+                >
+                  Continue Watching
+                </button>
+              )}
               {PREMADE_FILTERS.map((f, i) => (
                 <button
                   key={i}

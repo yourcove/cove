@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { groups } from "../api/client";
 import type { EntityEngagement, FindFilter, Group, GroupCreate, GroupFilterCriteria, PaginatedResponse } from "../api/types";
@@ -18,7 +18,7 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
 import { CustomFieldsEditor } from "../components/shared";
-import { DynamicGroupFilterEditor, FILTER_DYNAMIC_SOURCE_KEY, defaultDynamicGroupFilterQueryJson } from "../components/DynamicGroupFilterEditor";
+import { DynamicGroupFilterEditor, FILTER_DYNAMIC_SOURCE_KEY, defaultDynamicGroupFilterQueryJson, isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
@@ -104,7 +104,17 @@ export function GroupsPage({ onNavigate }: Props) {
   const manualOrderingEnabled = !listData.infinitePageSize && displayMode === "grid" && !hasObjectFilter && !filter.q && (filter.sort ?? "sort_order") === "sort_order" && (filter.direction ?? "asc") !== "desc";
   const { engagementById } = useEntityEngagementBatch("group", items.map((item) => item.id));
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle: toggleRaw, selectIds: selectIdsRaw, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  // Built-in/system groups (Save for Later, Watch History, Continue Watching) can't be deleted,
+  // so they must not be selectable for bulk actions.
+  const builtInGroupIds = useMemo(
+    () => new Set(items.filter((group) => isProtectedBuiltInGroup(group.querySourceKey)).map((group) => group.id)),
+    [items],
+  );
+  const isSelectableGroup = useCallback((id: number) => !builtInGroupIds.has(id), [builtInGroupIds]);
+  const toggle = useCallback((id: number) => { if (isSelectableGroup(id)) toggleRaw(id); }, [isSelectableGroup, toggleRaw]);
+  const selectAll = useCallback(() => selectIdsRaw(items.filter((group) => isSelectableGroup(group.id)).map((group) => group.id)), [items, isSelectableGroup, selectIdsRaw]);
+  const selectIds = useCallback((ids: number[]) => selectIdsRaw(ids.filter(isSelectableGroup)), [isSelectableGroup, selectIdsRaw]);
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -210,6 +220,7 @@ export function GroupsPage({ onNavigate }: Props) {
                 selected={selectedIds.has(g.id)}
                 onSelect={() => toggle(g.id)}
                 selecting={selecting}
+                selectable={isSelectableGroup(g.id)}
                 dragHandleProps={canWriteGroup ? dragHandleProps : undefined}
                 isDragging={isDragging}
                 isOver={isOver}
@@ -230,11 +241,12 @@ export function GroupsPage({ onNavigate }: Props) {
               <GroupTile
                 group={g}
                 engagement={engagementById.get(g.id)}
-                onClick={() => selecting ? toggle(g.id) : onNavigate({ page: "group", id: g.id })}
+                onClick={() => selecting && isSelectableGroup(g.id) ? toggle(g.id) : onNavigate({ page: "group", id: g.id })}
                 onNavigate={onNavigate}
                 selected={selectedIds.has(g.id)}
                 onSelect={() => toggle(g.id)}
                 selecting={selecting}
+                selectable={isSelectableGroup(g.id)}
               />
             )}
           />

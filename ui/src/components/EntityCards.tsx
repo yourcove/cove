@@ -43,6 +43,7 @@ interface EntityTileFrameProps {
   selected?: boolean;
   onSelect?: () => void;
   selecting?: boolean;
+  selectable?: boolean;
   mediaClassName?: string;
   bodyClassName?: string;
   extensionClassName?: string;
@@ -64,6 +65,7 @@ export function EntityTileFrame({
   selected,
   onSelect,
   selecting,
+  selectable = true,
   mediaClassName = "aspect-video bg-gradient-to-br from-surface to-card",
   bodyClassName = "p-2.5",
   extensionClassName = "px-2 py-1.5",
@@ -78,10 +80,10 @@ export function EntityTileFrame({
       onClick={selecting ? onClick : undefined}
       className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"} ${isDragging ? "opacity-50" : ""} ${isOver ? "outline outline-2 outline-accent" : ""} ${className}`}
     >
-      <RouteCardLinkOverlay route={route} onClick={onClick} label={label} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
+      <RouteCardLinkOverlay route={route} onClick={onClick} label={label} disabled={selecting} selectionSafeZone={selectable && (selected !== undefined || selecting)} />
       <div className={`card-media relative flex shrink-0 items-center justify-center overflow-hidden ${mediaClassName}`}>
         {media}
-        {(selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
+        {selectable && (selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
       </div>
       <div className={`card-body flex flex-1 flex-col gap-1 border-t border-border/50 ${bodyClassName}`}>{body}</div>
       {children && extensionBeforeFooter ? <div className={`relative z-10 ${extensionClassName}`}>{children}</div> : null}
@@ -1520,13 +1522,14 @@ interface GroupTileProps {
   selected?: boolean;
   onSelect?: () => void;
   selecting?: boolean;
+  selectable?: boolean;
   bookmarkInitiallySaved?: boolean;
   dragHandleProps?: EntityTileDragHandleProps;
   isDragging?: boolean;
   isOver?: boolean;
 }
 
-export function GroupTile({ group, engagement, onClick, onNavigate, selected, onSelect, selecting, bookmarkInitiallySaved, dragHandleProps, isDragging, isOver }: GroupTileProps & { engagement?: EntityEngagement }) {
+export function GroupTile({ group, engagement, onClick, onNavigate, selected, onSelect, selecting, selectable, bookmarkInitiallySaved, dragHandleProps, isDragging, isOver }: GroupTileProps & { engagement?: EntityEngagement }) {
   const previewCountItems: Array<{ key: string; kind: GroupPreviewKind; title: string; count: number; icon: ReactNode }> = [
     { key: "image", kind: "image" as const, title: "Images", count: group.imageCount ?? 0, icon: <ImagesIcon className="w-3.5 h-3.5" /> },
     { key: "audio", kind: "audio" as const, title: "Audios", count: group.audioCount ?? 0, icon: <Headphones className="w-3.5 h-3.5" /> },
@@ -1552,6 +1555,7 @@ export function GroupTile({ group, engagement, onClick, onNavigate, selected, on
       selected={selected}
       onSelect={onSelect}
       selecting={selecting}
+      selectable={selectable}
       dragHandleProps={dragHandleProps}
       isDragging={isDragging}
       isOver={isOver}

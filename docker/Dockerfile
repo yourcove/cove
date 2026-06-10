@@ -57,6 +57,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove gnupg lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
+# Vendor-neutral GPU acceleration *loaders* only (a few MB). ffmpeg's hwaccel paths
+# dlopen libva-drm.so.2 and libvulkan; if they're absent the process hard-aborts at
+# startup (e.g. "libva-drm.so.2: cannot open shared object file", "Unable to open the
+# libvulkan library!"). Installing just the dispatch loaders prevents that crash and
+# lets hwaccel fail soft when no driver is present — without bloating the image with a
+# vendor-specific driver that only helps some users.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libva2 \
+        libva-drm2 \
+        libvulkan1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Optional vendor GPU drivers, off by default so non-Intel/CPU-only users aren't
+# burdened. Build with --build-arg COVE_GPU_VENDOR=intel (iHD/oneVPL, for Arc & recent
+# iGPUs) or =amd (Mesa radeonsi/RADV). The driver is what actually enables acceleration;
+# the loaders above are enough to avoid the startup crash.
+ARG COVE_GPU_VENDOR=none
+RUN if [ "$COVE_GPU_VENDOR" = "intel" ]; then \
+        ( [ -f /etc/apt/sources.list.d/debian.sources ] \
+            && sed -i 's/^Components: main.*$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources \
+            || sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list ) \
+        && apt-get update && apt-get install -y --no-install-recommends \
+            intel-media-va-driver-non-free libmfx-gen1.2 mesa-vulkan-drivers vainfo \
+        && rm -rf /var/lib/apt/lists/* ; \
+    elif [ "$COVE_GPU_VENDOR" = "amd" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            mesa-va-drivers mesa-vulkan-drivers vainfo \
+        && rm -rf /var/lib/apt/lists/* ; \
+    fi
+
 # Install FFmpeg with hwaccel support (BtbN GPL-SHARED builds)
 # The gpl-shared variant includes the FFmpeg shared libraries (.so files) that
 # FFmpeg.AutoGen's DynamicallyLoadedBindings needs to dlopen for in-process
@@ -135,10 +165,15 @@ RUN mkdir -p /data /config /generated /cache /backups \
 RUN mkdir -p /var/lib/postgresql/cove-data \
     && chown -R postgres:postgres /var/lib/postgresql/cove-data
 
-ENV COVE__Host=0.0.0.0 \
+# COVE_HOME points the data root (cove-config.json + installed extensions + app state) at the
+# /config bind mount so it survives container removal / `docker compose down -v`. Backups go to the
+# dedicated /backups mount. Generated assets and cache use their own mounts.
+ENV COVE_HOME=/config \
+    COVE__Host=0.0.0.0 \
     COVE__Port=5073 \
     COVE__GeneratedPath=/generated \
     COVE__CachePath=/cache \
+    COVE__BackupPath=/backups \
     COVE__Postgres__Managed=false \
     COVE__Postgres__Port=5432 \
     COVE__Postgres__Database=cove \

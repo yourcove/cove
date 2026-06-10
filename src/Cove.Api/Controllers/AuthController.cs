@@ -51,6 +51,13 @@ public class AuthController : ControllerBase
         if (!_config.Auth.Enabled && !Cove.Api.Middleware.AuthDisabledRequestGuard.IsTrustedLocalRequest(HttpContext, _config.Auth))
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "LOCAL_ONLY", message = "Owner bootstrap is only available from a local address while authentication is disabled." });
 
+        // When the deployment is in token-first setup mode (an unconsumed setup token exists), the
+        // owner account MUST be created by redeeming that token via /auth/setup-token-redeem. Allowing
+        // direct password-only bootstrap here would let an unauthenticated visitor claim the owner
+        // account before the admin redeems the token, bypassing the setup-token requirement entirely.
+        if (await _users.HasSetupTokenAsync(ct))
+            return StatusCode(StatusCodes.Status403Forbidden, new { code = "SETUP_TOKEN_REQUIRED", message = "A setup token is required to create the owner account." });
+
         try
         {
             var owner = await _users.BootstrapOwnerAsync(request.Username, request.Password, CovePrincipal.Anonymous(ip, ua), ct);

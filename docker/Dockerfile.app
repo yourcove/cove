@@ -53,6 +53,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Vendor-neutral GPU acceleration loaders only (a few MB). ffmpeg's hwaccel paths
+# dlopen libva-drm.so.2 and libvulkan; if absent the process hard-aborts at startup
+# (e.g. "libva-drm.so.2: cannot open shared object file" on Intel Arc). Installing the
+# dispatch loaders prevents that crash and lets hwaccel fail soft when no driver is present.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libva2 \
+        libva-drm2 \
+        libvulkan1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Optional vendor GPU drivers, off by default so non-Intel/CPU-only users aren't burdened.
+# Build with --build-arg COVE_GPU_VENDOR=intel (Arc / recent iGPUs) or =amd (Mesa).
+ARG COVE_GPU_VENDOR=none
+RUN if [ "$COVE_GPU_VENDOR" = "intel" ]; then \
+        ( [ -f /etc/apt/sources.list.d/debian.sources ] \
+            && sed -i 's/^Components: main.*$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources \
+            || sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list ) \
+        && apt-get update && apt-get install -y --no-install-recommends \
+            intel-media-va-driver-non-free libmfx-gen1.2 mesa-vulkan-drivers vainfo \
+        && rm -rf /var/lib/apt/lists/* ; \
+    elif [ "$COVE_GPU_VENDOR" = "amd" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            mesa-va-drivers mesa-vulkan-drivers vainfo \
+        && rm -rf /var/lib/apt/lists/* ; \
+    fi
+
 RUN useradd -m -s /bin/bash cove
 
 COPY --from=api-build /app /opt/cove
@@ -63,10 +89,15 @@ RUN mkdir -p /data /config /generated /cache /backups \
 USER cove
 WORKDIR /opt/cove
 
-ENV COVE__Host=0.0.0.0 \
+# COVE_HOME points the data root (cove-config.json + installed extensions + app state) at the
+# /config bind mount so it survives container removal / `docker compose down -v`. Backups go to
+# the dedicated /backups mount.
+ENV COVE_HOME=/config \
+    COVE__Host=0.0.0.0 \
     COVE__Port=5073 \
     COVE__GeneratedPath=/generated \
     COVE__CachePath=/cache \
+    COVE__BackupPath=/backups \
     COVE__Postgres__Managed=false
 
 EXPOSE 5073

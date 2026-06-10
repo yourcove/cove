@@ -360,6 +360,19 @@ public class SystemController(
         return Ok(scraperService.ReloadScrapers());
     }
 
+    // Recomputes every denormalized summary/count column (video durations/resolutions, gallery image
+    // counts, studio/performer/tag rollups) from source data. Use to repair libraries where these
+    // columns are stale or were never populated — e.g. data bulk-imported before the import recompute
+    // step existed — which otherwise makes count-based filters and sorts behave as if every value were 0.
+    [HttpPost("maintenance/recompute-derived-counts")]
+    [RequiresPermission(Permissions.SystemSettingsWrite)]
+    public async Task<ActionResult<RecomputeDerivedCountsResult>> RecomputeDerivedCounts(CancellationToken ct)
+    {
+        var recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
+        logger.LogInformation("Recomputed derived counts for {Count} entities", recomputed);
+        return Ok(new RecomputeDerivedCountsResult(recomputed));
+    }
+
     [HttpPost("scrapers/scrape-url")]
     [RequiresPermission(Permissions.SystemRead)]
     public async Task<ActionResult<Dictionary<string, object>?>> ScrapeUrl([FromBody] ScrapeUrlRequest req, CancellationToken ct)

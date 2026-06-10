@@ -287,7 +287,11 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
     );
   }
   if (authEnabled && !user && bootstrapStatus?.ownerExists === false) {
-    return <AuthBootstrapPage />;
+    // Token-first setup: when an unconsumed setup token exists the owner must be created by redeeming
+    // it (RedeemInvitePage auto-selects setup mode), not via the password-only bootstrap page. This
+    // also covers odd URLs like a double-slashed "//auth/redeem-invite" that miss the exact-path
+    // checks above and fall through here. The server enforces the same rule (SETUP_TOKEN_REQUIRED).
+    return bootstrapStatus.hasSetupToken ? <RedeemInvitePage /> : <AuthBootstrapPage />;
   }
   if (authEnabled && !user) {
     return <LoginPage />;

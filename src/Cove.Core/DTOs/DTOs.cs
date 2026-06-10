@@ -2383,6 +2383,7 @@ public record GroupScrapeInput
 }
 
 // ===== SCRAPER EXECUTION REQUEST DTOs =====
+public record RecomputeDerivedCountsResult(int EntitiesRecomputed);
 public record ScrapeUrlRequest(string ScraperId, string EntityType, string Url);
 public record ScrapeNameRequest(string ScraperId, string EntityType, string Name);
 public record ScrapeFragmentRequest(string ScraperId, string EntityType, Dictionary<string, object> Fragment);

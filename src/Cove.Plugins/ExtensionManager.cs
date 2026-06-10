@@ -156,7 +156,7 @@ public class ExtensionManager
                         if (!File.Exists(cachedDll)) continue;
 
                         var loadContext = new ExtensionLoadContext(sourceDll, binaryCache.SourceRoot, binaryCache.CacheRoot);
-                        var assembly = loadContext.LoadFromAssemblyPath(cachedDll);
+                        var assembly = loadContext.LoadFromAssemblyPath(Path.GetFullPath(cachedDll));
                         var extensionTypes = assembly.GetTypes()
                             .Where(t => typeof(IExtension).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface);
 
@@ -1930,7 +1930,7 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
 
         var path = _resolver.ResolveAssemblyToPath(assemblyName);
         var cachedPath = MapToCachePath(path);
-        return cachedPath != null ? LoadFromAssemblyPath(cachedPath) : null;
+        return cachedPath != null ? LoadFromAssemblyPath(Path.GetFullPath(cachedPath)) : null;
     }
 
     protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
@@ -2040,13 +2040,15 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
                 return defaultAssembly;
             }
 
-            return AssemblyLoadContext.Default.LoadFromAssemblyPath(preferredPath);
+            return AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(preferredPath));
         }
     }
 
     private static string CreateSharedShadowCopy(string extensionsRoot, string assemblyName, string sourcePath)
     {
-        var sharedDir = Path.Combine(extensionsRoot, ".load-cache", "__shared", assemblyName);
+        // extensionsRoot may be supplied as a relative path (e.g. "cove/extensions"); AssemblyLoadContext
+        // .LoadFromAssemblyPath requires an absolute path, so anchor everything to the full path here.
+        var sharedDir = Path.GetFullPath(Path.Combine(extensionsRoot, ".load-cache", "__shared", assemblyName));
         Directory.CreateDirectory(sharedDir);
 
         var destinationPath = Path.Combine(sharedDir, Path.GetFileName(sourcePath));

@@ -13,6 +13,7 @@ import { InteractiveRating } from "../components/Rating";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { useAppConfig } from "../state/AppConfigContext";
 import { DetailListToolbar } from "../components/DetailListToolbar";
+import { useDefaultSavedFilterOnMount } from "../components/SavedFilterMenu";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
@@ -979,6 +980,12 @@ function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
+  // Honor the user's default "videos" saved filter for this embedded list (sort/direction + object
+  // filter), while the performer constraint stays applied separately via the query params.
+  useDefaultSavedFilterOnMount("videos", (findFilter, defaultObjectFilter) => {
+    if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
+    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
+  });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["performer-videos", performerId, objectFilter],
@@ -1003,7 +1010,7 @@ function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="videos" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
@@ -1054,7 +1061,7 @@ function PerformerGalleriesPanel({ performerId, filter, setFilter, onNavigate }:
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />;
@@ -1103,7 +1110,7 @@ function PerformerImagesPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />;
@@ -1151,7 +1158,7 @@ function PerformerAudiosPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />;
@@ -1196,7 +1203,7 @@ function PerformerTextsPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />;
@@ -1244,7 +1251,7 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />;

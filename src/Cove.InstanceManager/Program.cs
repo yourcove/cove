@@ -501,6 +501,11 @@ internal sealed class InstanceManagerService
                 }
             }
 
+            // The instance's managed PostgreSQL postmaster is started detached (via pg_ctl), so it is
+            // NOT part of cove's process tree and survives the Kill above. Stop it explicitly here,
+            // otherwise every start/stop cycle leaks an orphaned "postgres" process.
+            StopInstancePostgres(instance);
+
             instance.LastProcessId = null;
             instance.LastStoppedAt = DateTimeOffset.UtcNow;
             instance.UpdatedAt = DateTimeOffset.UtcNow;
@@ -512,6 +517,72 @@ internal sealed class InstanceManagerService
         }
 
         return await ToDtoAsync(instance);
+    }
+
+    // Stops an instance's managed PostgreSQL. Prefers a clean `pg_ctl stop` (flushes WAL); falls back
+    // to force-killing the postmaster by the PID recorded in postmaster.pid. Best-effort.
+    private static void StopInstancePostgres(CoveInstanceRecord instance)
+    {
+        if (!instance.ManagedPostgres || string.IsNullOrWhiteSpace(instance.HomePath))
+            return;
+
+        try
+        {
+            var dataDir = Path.Combine(instance.HomePath, "pgdata");
+            var pidFile = Path.Combine(dataDir, "postmaster.pid");
+            if (!File.Exists(pidFile))
+                return;
+
+            var pgCtl = Path.Combine(instance.HomePath, "pgsql", "bin",
+                RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "pg_ctl.exe" : "pg_ctl");
+
+            if (File.Exists(pgCtl))
+            {
+                try
+                {
+                    using var stop = Process.Start(new ProcessStartInfo(pgCtl, $"stop -D \"{dataDir}\" -m fast -w -t 30")
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = Path.GetDirectoryName(pgCtl)!,
+                    });
+                    if (stop != null && stop.WaitForExit(35000) && stop.ExitCode == 0)
+                        return;
+                }
+                catch
+                {
+                    // Fall through to PID kill.
+                }
+            }
+
+            KillPostmasterByPidFile(pidFile);
+        }
+        catch
+        {
+            // Best-effort cleanup; never let a stop fail because of postgres teardown.
+        }
+    }
+
+    private static void KillPostmasterByPidFile(string pidFile)
+    {
+        try
+        {
+            var firstLine = File.ReadLines(pidFile).FirstOrDefault();
+            if (!int.TryParse(firstLine?.Trim(), out var pid) || pid <= 0)
+                return;
+
+            using var postmaster = Process.GetProcessById(pid);
+            // Guard against a recycled PID: only kill if it is actually a postgres process.
+            if (!postmaster.HasExited && postmaster.ProcessName.Contains("postgres", StringComparison.OrdinalIgnoreCase))
+            {
+                postmaster.Kill(entireProcessTree: true);
+                postmaster.WaitForExit(10000);
+            }
+        }
+        catch
+        {
+            // Process already gone, PID reused by something inaccessible, or no permission — ignore.
+        }
     }
 
     public void Open(string id)

@@ -27,7 +27,15 @@ public class ScanService(
     ExtensionManager extensionManager,
     ILogger<ScanService> logger) : IScanService
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> FolderCreationLocks = new(StringComparer.OrdinalIgnoreCase);
+    // Striped lock pool: serializes concurrent creation of the same folder path. A fixed pool keeps
+    // memory constant — the previous per-path ConcurrentDictionary added a SemaphoreSlim for every
+    // unique folder ever scanned and never released them, leaking for the life of the process. Hash
+    // collisions only cause occasional extra serialization between unrelated folders, which is benign.
+    private static readonly SemaphoreSlim[] FolderCreationLocks =
+        Enumerable.Range(0, 256).Select(static _ => new SemaphoreSlim(1, 1)).ToArray();
+
+    private static SemaphoreSlim GetFolderCreationLock(string dirPath)
+        => FolderCreationLocks[(uint)StringComparer.OrdinalIgnoreCase.GetHashCode(dirPath) % (uint)FolderCreationLocks.Length];
     private static readonly TimeSpan FileModTimeUnchangedTolerance = TimeSpan.FromMilliseconds(1);
 
     // Number of changed/new files a worker accumulates before flushing them to the database in a
@@ -1507,7 +1515,7 @@ public class ScanService(
             return folder;
         }
 
-        var folderLock = FolderCreationLocks.GetOrAdd(dirPath, static _ => new SemaphoreSlim(1, 1));
+        var folderLock = GetFolderCreationLock(dirPath);
         await folderLock.WaitAsync(ct);
         try
         {
@@ -1586,6 +1594,11 @@ public class ScanService(
                 : db.VideoFiles.AsQueryable();
             existing = await existingQuery.FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
         }
+
+        // Also consult entities added in this unit of work but not yet saved. Without this, a file
+        // enumerated twice in the same batch (or a stale knownNew hint) would insert a second row and
+        // violate the unique (ParentFolderId, Basename) index, aborting the whole SaveChanges batch.
+        existing ??= db.VideoFiles.Local.FirstOrDefault(f => f.ParentFolderId == folderId && f.Basename == basename);
 
         Video? targetVideo = null;
         if (videoId.HasValue)
@@ -1803,6 +1816,10 @@ public class ScanService(
                 .Include(f => f.Image)
                 .FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
 
+        // Consult entities added but not yet saved in this batch to avoid violating the unique
+        // (ParentFolderId, Basename) index when a file is enumerated twice in one pass.
+        existing ??= db.ImageFiles.Local.FirstOrDefault(f => f.ParentFolderId == folderId && f.Basename == basename);
+
         if (existing != null)
         {
             existing.Size = stat.Size;
@@ -1878,6 +1895,10 @@ public class ScanService(
             .Include(gf => gf.Gallery)
             .ThenInclude(g => g!.ImageGalleries)
             .FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
+
+        // Consult entities added but not yet saved in this batch to avoid violating the unique
+        // (ParentFolderId, Basename) index when a file is enumerated twice in one pass.
+        existing ??= db.Set<GalleryFile>().Local.FirstOrDefault(f => f.ParentFolderId == folderId && f.Basename == basename);
 
         // If gallery exists and already has images, skip re-processing
         if (existing?.Gallery?.ImageGalleries.Count > 0)

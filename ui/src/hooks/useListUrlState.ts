@@ -22,6 +22,11 @@ interface UseListUrlStateOptions<TDisplayMode extends string> {
 
 const MANAGED_KEYS = ["q", "page", "perPage", "sort", "direction", "view", "viewMode", "filters", "seed", "searchMode"];
 const DEFAULT_SEARCH_MODE = "text";
+const MAX_RANDOM_SORT_SEED = 2147483647;
+
+function generateRandomSortSeed(): number {
+  return Math.floor(Math.random() * MAX_RANDOM_SORT_SEED) || 1;
+}
 
 function cloneFilter(filter: FindFilter): FindFilter {
   return { ...filter };
@@ -92,13 +97,22 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
   const defaultSearchMode = options.defaultSearchMode ?? DEFAULT_SEARCH_MODE;
   const allowedSearchModes = options.allowedSearchModes ?? [defaultSearchMode];
   const searchModeParam = params.get("searchMode");
+  const sort = params.get("sort") ?? options.defaultFilter.sort;
+  let seed = normalizeInteger(params.get("seed"), options.defaultFilter.seed);
+  // Random sort with no seed (e.g. a saved/default filter that intentionally omits one) would
+  // otherwise fall back to the backend's fixed default seed and produce the *same* "random" order
+  // on every load. Mint a fresh seed per mount so results actually re-shuffle; it's written back
+  // to the URL so pagination stays consistent within this view.
+  if (sort === "random" && seed == null) {
+    seed = generateRandomSortSeed();
+  }
   const filter: FindFilter = {
     q: params.get("q") ?? options.defaultFilter.q,
     page: normalizeInteger(params.get("page"), options.defaultFilter.page),
     perPage: normalizePerPage(params.get("perPage"), options.defaultFilter.perPage, options.allowInfinitePageSize === true),
-    sort: params.get("sort") ?? options.defaultFilter.sort,
+    sort,
     direction: normalizeDirection(params.get("direction"), options.defaultFilter.direction),
-    seed: normalizeInteger(params.get("seed"), options.defaultFilter.seed),
+    seed,
   };
 
   const rawView = params.get("view");

@@ -22,6 +22,7 @@ public class MetadataController(
     IThumbnailService thumbnailService,
     IFingerprintService fingerprintService,
     IServiceScopeFactory scopeFactory,
+    IHttpClientFactory httpClientFactory,
     CoveConfiguration config,
     ILogger<MetadataController> logger) : ControllerBase
 {
@@ -1161,7 +1162,8 @@ public class MetadataController(
         {
             using var scope = scopeFactory.CreateScope();
             var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            using var httpClient = new HttpClient();
+            // Use the pooled factory rather than `new HttpClient()` to avoid socket exhaustion.
+            using var httpClient = httpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromSeconds(30);
             if (!string.IsNullOrEmpty(apiKey))
                 httpClient.DefaultRequestHeaders.Add("ApiKey", apiKey);

@@ -29,9 +29,14 @@ services:
     environment:
       COVE__Postgres__Managed: "false"
       COVE__Postgres__ConnectionString: "Host=db;Port=5432;Database=cove;Username=cove;Password=cove"
+      # Persist cove's config (cove-config.json) + installed extensions on /config, and backups on
+      # /backups, so important data lives on bind mounts and survives `docker compose down -v`.
+      COVE_HOME: /config
       COVE__GeneratedPath: /generated
       COVE__CachePath: /cache
+      COVE__BackupPath: /backups
     volumes:
+      # Reserved for managed-Postgres data (COVE__Postgres__DataPath); unused with external Postgres.
       - ${COVE_DATA_DIR:-./cove-data}/data:/data
       - ${COVE_DATA_DIR:-./cove-data}/config:/config
       - ${COVE_DATA_DIR:-./cove-data}/generated:/generated

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   apiTokensApi,
   auditApi,
@@ -20,6 +20,7 @@ import {
 } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { SettingsButton as Btn, SettingsField as Field, SettingsSection as Section } from "../../components/SettingsPrimitives";
+import { EditModal } from "../../components/EditModal";
 import { buildRoutePath } from "../../router/location";
 import { EntityReferenceSelector } from "../../components/EntityReferenceSelector";
 
@@ -60,6 +61,10 @@ const ENTITY_LIST_ROUTES: Record<string, string> = {
   segment: "segments",
   marker: "segments",
 };
+
+const inputClassName = "w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+const checkboxClassName = "h-4 w-4 rounded border-border bg-card text-accent focus:ring-accent/40";
+const checkboxCardClassName = "inline-flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm text-foreground transition-colors hover:border-accent/50 hover:bg-card-hover";
 
 function formatEntityKind(entityKind: string) {
   return entityKind === "marker" ? "segment" : entityKind;
@@ -352,15 +357,15 @@ function ContentRuleScopeFields({ scopeKind, draft, onChange }: { scopeKind: Sim
     return (
       <div className="space-y-3">
         <Field label="Identifier scheme">
-          <select className="input" value={draft.identifierScheme} onChange={(event) => onChange({ identifierScheme: event.target.value as IdentifierScheme })}>
+          <select className={inputClassName} value={draft.identifierScheme} onChange={(event) => onChange({ identifierScheme: event.target.value as IdentifierScheme })}>
             {IDENTIFIER_SCHEMES.map((scheme) => <option key={scheme.value || "any"} value={scheme.value}>{scheme.label}</option>)}
           </select>
         </Field>
         <Field label="Identifier value">
-          <input className="input" value={draft.identifierValue} onChange={(event) => onChange({ identifierValue: event.target.value })} placeholder="https://example.com/item/123" />
+          <input className={inputClassName} value={draft.identifierValue} onChange={(event) => onChange({ identifierValue: event.target.value })} placeholder="https://example.com/item/123" />
         </Field>
         <Field label="Source (optional)">
-          <input className="input" value={draft.identifierSource} onChange={(event) => onChange({ identifierSource: event.target.value })} placeholder="Useful for remote IDs" />
+          <input className={inputClassName} value={draft.identifierSource} onChange={(event) => onChange({ identifierSource: event.target.value })} placeholder="Useful for remote IDs" />
         </Field>
       </div>
     );
@@ -369,19 +374,19 @@ function ContentRuleScopeFields({ scopeKind, draft, onChange }: { scopeKind: Sim
   return (
     <div className="space-y-3">
       <Field label="Attribute path">
-        <input className="input" value={draft.attributePath} onChange={(event) => onChange({ attributePath: event.target.value })} placeholder="details or rating" />
+        <input className={inputClassName} value={draft.attributePath} onChange={(event) => onChange({ attributePath: event.target.value })} placeholder="details or rating" />
       </Field>
       <Field label="Operator">
-        <select className="input" value={draft.attributeOperator} onChange={(event) => onChange({ attributeOperator: event.target.value as AttributeOperator })}>
+        <select className={inputClassName} value={draft.attributeOperator} onChange={(event) => onChange({ attributeOperator: event.target.value as AttributeOperator })}>
           {ATTRIBUTE_OPERATORS.map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}
         </select>
       </Field>
       {draft.attributeOperator !== "exists" && draft.attributeOperator !== "notExists" ? (
         <Field label={draft.attributeOperator === "in" ? "Values" : "Value"}>
           {draft.attributeOperator === "in" ? (
-            <textarea className="input min-h-24" value={draft.attributeValue} onChange={(event) => onChange({ attributeValue: event.target.value })} placeholder="one value per line or comma-separated" />
+            <textarea className={`${inputClassName} min-h-24`} value={draft.attributeValue} onChange={(event) => onChange({ attributeValue: event.target.value })} placeholder="one value per line or comma-separated" />
           ) : (
-            <input className="input" value={draft.attributeValue} onChange={(event) => onChange({ attributeValue: event.target.value })} placeholder="Value to compare" />
+            <input className={inputClassName} value={draft.attributeValue} onChange={(event) => onChange({ attributeValue: event.target.value })} placeholder="Value to compare" />
           )}
         </Field>
       ) : null}
@@ -447,7 +452,7 @@ export function UsersTab() {
           <>
           <div className="space-y-3 md:hidden">
             {usersQ.data.map((userRow) => (
-              <article key={userRow.id} className="rounded-xl border border-app bg-surface-2 p-3 text-sm">
+              <article key={userRow.id} className="rounded-xl border border-border bg-card p-3 text-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="break-words font-medium">{userRow.username}{userRow.isSystem ? <span className="ml-1 text-xs text-secondary">(system)</span> : null}</div>
@@ -456,7 +461,7 @@ export function UsersTab() {
                   <UserStatus user={userRow} />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1">
-                  {userRow.roles.length ? userRow.roles.map((role) => <span key={role} className="rounded border border-app bg-surface px-2 py-0.5 text-xs">{role}</span>) : <span className="text-xs text-secondary">No roles</span>}
+                  {userRow.roles.length ? userRow.roles.map((role) => <span key={role} className="rounded border border-border bg-surface px-2 py-0.5 text-xs">{role}</span>) : <span className="text-xs text-secondary">No roles</span>}
                 </div>
                 <div className="mt-3 text-xs text-secondary">Last login: {userRow.lastLoginAt ? new Date(userRow.lastLoginAt).toLocaleString() : "never"}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -475,7 +480,7 @@ export function UsersTab() {
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full text-sm">
-              <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+              <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
                 <tr>
                   <th className="px-2 py-2">Username</th>
                   <th className="px-2 py-2">Display name</th>
@@ -487,13 +492,13 @@ export function UsersTab() {
               </thead>
               <tbody>
                 {usersQ.data.map((u) => (
-                  <tr key={u.id} className="border-b border-app/40">
+                  <tr key={u.id} className="border-b border-border/40">
                     <td className="px-2 py-2 font-medium">{u.username}{u.isSystem ? <span className="ml-1 text-xs text-secondary">(system)</span> : null}</td>
                     <td className="px-2 py-2">{u.displayName ?? <span className="text-secondary">—</span>}</td>
                     <td className="px-2 py-2">
                       {u.roles.length ? (
                         <div className="flex flex-wrap gap-1">
-                          {u.roles.map((role) => <span key={role} className="rounded border border-app bg-surface-2 px-2 py-0.5 text-xs">{role}</span>)}
+                          {u.roles.map((role) => <span key={role} className="rounded border border-border bg-card px-2 py-0.5 text-xs">{role}</span>)}
                         </div>
                       ) : <span className="text-secondary">—</span>}
                     </td>
@@ -591,25 +596,25 @@ function CreateUserDialog({ roles, canInvite, onClose }: { roles: RoleRow[]; can
   return (
     <Modal title="Create user" onClose={onClose}>
       <div className="space-y-3">
-        <Field label={credentialMode === "invite" ? "Username (optional)" : "Username"}><input className="input" value={username} onChange={(e) => setUsername(e.target.value)} /></Field>
-        <Field label="Display name"><input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
-        <Field label="Email"><input className="input" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label={credentialMode === "invite" ? "Username (optional)" : "Username"}><input className={inputClassName} value={username} onChange={(e) => setUsername(e.target.value)} /></Field>
+        <Field label="Display name"><input className={inputClassName} value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
+        <Field label="Email"><input className={inputClassName} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label="Roles">
           <div className="flex flex-wrap gap-2">
             {roles.map(r => (
-              <label key={r.name} className="inline-flex items-center gap-1.5 rounded border border-app px-2 py-1 text-sm">
-                <input type="checkbox" checked={selectedRoles.includes(r.name)} onChange={(e) => setSelectedRoles(s => e.target.checked ? [...s, r.name] : s.filter(x => x !== r.name))} />
+              <label key={r.name} className={checkboxCardClassName}>
+                <input className={checkboxClassName} type="checkbox" checked={selectedRoles.includes(r.name)} onChange={(e) => setSelectedRoles(s => e.target.checked ? [...s, r.name] : s.filter(x => x !== r.name))} />
                 {r.name}
               </label>
             ))}
           </div>
         </Field>
         <Field label="Password setup">
-          <div className="grid grid-cols-2 gap-2 rounded border border-app bg-surface-2 p-1">
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-card p-1">
             <button
               type="button"
               onClick={() => setCredentialMode("password")}
-              className={`rounded px-3 py-2 text-sm font-medium ${credentialMode === "password" ? "bg-blue-600 text-white" : "text-secondary hover:text-primary"}`}
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${credentialMode === "password" ? "bg-accent text-white" : "text-secondary hover:bg-card-hover hover:text-foreground"}`}
             >
               Set now
             </button>
@@ -617,7 +622,7 @@ function CreateUserDialog({ roles, canInvite, onClose }: { roles: RoleRow[]; can
               type="button"
               disabled={!canInvite}
               onClick={() => setCredentialMode("invite")}
-              className={`rounded px-3 py-2 text-sm font-medium ${credentialMode === "invite" ? "bg-blue-600 text-white" : "text-secondary hover:text-primary"} disabled:opacity-50`}
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${credentialMode === "invite" ? "bg-accent text-white" : "text-secondary hover:bg-card-hover hover:text-foreground"} disabled:opacity-50`}
             >
               Invite link
             </button>
@@ -625,9 +630,9 @@ function CreateUserDialog({ roles, canInvite, onClose }: { roles: RoleRow[]; can
         </Field>
         {credentialMode === "password" ? (
           <>
-            <Field label="Password"><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+            <Field label="Password"><input className={inputClassName} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
             <label className="inline-flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
+              <input className={checkboxClassName} type="checkbox" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
               Force password change at next login
             </label>
           </>
@@ -662,17 +667,17 @@ function EditUserDialog({ user, roles, onClose }: { user: UserRow; roles: RoleRo
   return (
     <Modal title={`Edit ${user.username}`} onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Display name"><input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
-        <Field label="Email"><input className="input" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label="Display name"><input className={inputClassName} value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
+        <Field label="Email"><input className={inputClassName} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <label className="inline-flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+          <input className={checkboxClassName} type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
           Active
         </label>
         <Field label="Roles">
           <div className="flex flex-wrap gap-2">
             {roles.map(r => (
-              <label key={r.name} className="inline-flex items-center gap-1.5 rounded border border-app px-2 py-1 text-sm">
-                <input type="checkbox" checked={selectedRoles.includes(r.name)} disabled={user.isSystem && r.name === "Owner"} onChange={(e) => setSelectedRoles(s => e.target.checked ? [...s, r.name] : s.filter(x => x !== r.name))} />
+              <label key={r.name} className={checkboxCardClassName}>
+                <input className={checkboxClassName} type="checkbox" checked={selectedRoles.includes(r.name)} disabled={user.isSystem && r.name === "Owner"} onChange={(e) => setSelectedRoles(s => e.target.checked ? [...s, r.name] : s.filter(x => x !== r.name))} />
                 {r.name}
               </label>
             ))}
@@ -722,7 +727,7 @@ function InviteDialog({ user, onClose }: { user: UserRow; onClose: () => void })
 function InviteLinkPanel({ invite, onClose }: { invite: InviteTokenRow; onClose: () => void }) {
   return (
     <div className="space-y-3">
-      <Field label="Invite URL"><input className="input font-mono text-xs" value={invite.url} readOnly /></Field>
+      <Field label="Invite URL"><input className={`${inputClassName} font-mono text-xs`} value={invite.url} readOnly /></Field>
       <p className="text-sm text-amber-400">Copy this link now. It will not be shown again.</p>
       <div className="flex justify-end gap-2 pt-2">
         <Btn onClick={() => navigator.clipboard.writeText(invite.token)}>Copy raw token</Btn>
@@ -760,7 +765,7 @@ export function RolesTab() {
         {rolesQ.data ? (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+              <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
                 <tr>
                   <th className="px-2 py-2">Name</th>
                   <th className="px-2 py-2">Description</th>
@@ -771,7 +776,7 @@ export function RolesTab() {
               </thead>
               <tbody>
                 {rolesQ.data.map((r) => (
-                  <tr key={r.id} className="border-b border-app/40">
+                  <tr key={r.id} className="border-b border-border/40">
                     <td className="px-2 py-2 font-medium">{r.name}{r.isBuiltin ? <span className="ml-1 text-xs text-secondary">(builtin)</span> : null}</td>
                     <td className="px-2 py-2 text-secondary">{r.description ?? "—"}</td>
                     <td className="px-2 py-2 text-secondary">{r.source}</td>
@@ -825,17 +830,17 @@ function RoleEditor({ role, permissions, onClose }: { role?: RoleRow; permission
   return (
     <Modal title={role ? `${isReadOnly ? "View" : "Edit"} role: ${role.name}` : "New role"} onClose={onClose} wide>
       <div className="space-y-3">
-        {!role ? <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field> : null}
-        <Field label="Description"><input className="input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={isReadOnly} /></Field>
+        {!role ? <Field label="Name"><input className={inputClassName} value={name} onChange={(e) => setName(e.target.value)} /></Field> : null}
+        <Field label="Description"><input className={inputClassName} value={description} onChange={(e) => setDescription(e.target.value)} disabled={isReadOnly} /></Field>
         <Field label={`Permissions (${perms.length} selected)`}>
-          <div className="max-h-96 overflow-auto rounded border border-app p-2 space-y-3">
+          <div className="max-h-96 overflow-auto rounded-xl border border-border bg-card/70 p-3 space-y-3">
             {grouped.map(([cat, list]) => (
               <div key={cat}>
                 <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-secondary">{cat}</h4>
                 <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
                   {list.map(p => (
                     <label key={p.key} className="inline-flex items-start gap-1.5 text-sm">
-                      <input type="checkbox" disabled={isReadOnly} checked={perms.includes(p.key)} onChange={(e) => setPerms(s => e.target.checked ? [...s, p.key] : s.filter(x => x !== p.key))} />
+                      <input className={checkboxClassName} type="checkbox" disabled={isReadOnly} checked={perms.includes(p.key)} onChange={(e) => setPerms(s => e.target.checked ? [...s, p.key] : s.filter(x => x !== p.key))} />
                       <span>
                         <code className="text-xs">{p.key}</code>
                         {p.dangerous ? <span className="ml-1 text-red-400 text-xs">(dangerous)</span> : null}
@@ -878,10 +883,10 @@ export function AuditTab() {
   return (
     <Section title="Audit log" description="Records of authentication, authorization, and administrative actions.">
       <div className="mb-3 flex flex-wrap items-end gap-2">
-        <Field label="Action"><input className="input" value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }} placeholder="e.g. user.create" /></Field>
-        <Field label="Actor"><input className="input" value={actor} onChange={(e) => { setActor(e.target.value); setPage(1); }} placeholder="username" /></Field>
+        <Field label="Action"><input className={inputClassName} value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }} placeholder="e.g. user.create" /></Field>
+        <Field label="Actor"><input className={inputClassName} value={actor} onChange={(e) => { setActor(e.target.value); setPage(1); }} placeholder="username" /></Field>
         <Field label="Outcome">
-          <select className="input" value={outcome} onChange={(e) => { setOutcome(e.target.value); setPage(1); }}>
+          <select className={inputClassName} value={outcome} onChange={(e) => { setOutcome(e.target.value); setPage(1); }}>
             <option value="">Any</option>
             <option value="success">success</option>
             <option value="failure">failure</option>
@@ -895,7 +900,7 @@ export function AuditTab() {
         <>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+              <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
                 <tr>
                   <th className="px-2 py-2">When</th>
                   <th className="px-2 py-2">Actor</th>
@@ -908,7 +913,7 @@ export function AuditTab() {
               </thead>
               <tbody>
                 {q.data.items.map((e) => (
-                  <tr key={e.id} className="border-b border-app/40">
+                  <tr key={e.id} className="border-b border-border/40">
                     <td className="px-2 py-2 whitespace-nowrap text-secondary">{new Date(e.occurredAt).toLocaleString()}</td>
                     <td className="px-2 py-2">{e.actorUsername ?? <span className="text-secondary">{e.actorKind}</span>}</td>
                     <td className="px-2 py-2"><code className="text-xs">{e.action}</code></td>
@@ -977,7 +982,7 @@ export function ContentRulesTab() {
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <Field label="Role filter">
             <select
-              className="input"
+              className={inputClassName}
               value={filterRoleId}
               onChange={(event) => setFilterRoleId(event.target.value === "" ? "" : Number(event.target.value))}
             >
@@ -1057,7 +1062,7 @@ function ContentRuleTable({ rules, canWrite, onDelete }: { rules: ContentRuleRow
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
-        <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+        <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
           <tr>
             <th className="px-2 py-2">Role</th>
             <th className="px-2 py-2">Entity</th>
@@ -1070,7 +1075,7 @@ function ContentRuleTable({ rules, canWrite, onDelete }: { rules: ContentRuleRow
         </thead>
         <tbody>
           {rules.map((rule) => (
-            <tr key={rule.id} className="border-b border-app/40">
+            <tr key={rule.id} className="border-b border-border/40">
               <td className="px-2 py-2 font-medium">{rule.roleName}</td>
               <td className="px-2 py-2">{formatEntityKind(rule.entityKind)}</td>
               <td className="px-2 py-2">
@@ -1099,7 +1104,7 @@ function EntityOverrideTable({ overrides, canWrite, onDelete }: { overrides: Ent
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
-        <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+        <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
           <tr>
             <th className="px-2 py-2">Role</th>
             <th className="px-2 py-2">Entity</th>
@@ -1112,7 +1117,7 @@ function EntityOverrideTable({ overrides, canWrite, onDelete }: { overrides: Ent
         </thead>
         <tbody>
           {overrides.map((overrideItem) => (
-            <tr key={overrideItem.id} className="border-b border-app/40">
+            <tr key={overrideItem.id} className="border-b border-border/40">
               <td className="px-2 py-2 font-medium">{overrideItem.roleName}</td>
               <td className="px-2 py-2">{formatEntityKind(overrideItem.entityKind)}</td>
               <td className="px-2 py-2 text-secondary">{overrideItem.entityId}</td>
@@ -1157,9 +1162,9 @@ function ExpressionRuleBuilder({
   };
 
   return (
-    <div className="space-y-3 rounded-lg border border-app/60 bg-surface-2 p-3">
+    <div className="space-y-3 rounded-xl border border-border bg-card/70 p-3">
       <Field label="Expression mode">
-        <select className="input" value={operator} onChange={(event) => onOperatorChange(event.target.value as ExpressionOperator)}>
+        <select className={inputClassName} value={operator} onChange={(event) => onOperatorChange(event.target.value as ExpressionOperator)}>
           <option value="and">All of these rules must match</option>
           <option value="or">Any of these rules may match</option>
           <option value="not">None of these rules may match</option>
@@ -1168,14 +1173,14 @@ function ExpressionRuleBuilder({
 
       <div className="space-y-3">
         {rules.map((rule, index) => (
-          <div key={rule.id} className="rounded border border-app/60 bg-surface p-3">
+          <div key={rule.id} className="rounded-xl border border-border bg-surface p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="text-sm font-medium">Condition {index + 1}</span>
               <Btn onClick={() => removeRule(rule.id)} disabled={rules.length === 1}>Remove</Btn>
             </div>
 
             <Field label="Condition type">
-              <select className="input" value={rule.scopeKind} onChange={(event) => updateRule(rule.id, { scopeKind: event.target.value as SimpleScopeKind })}>
+              <select className={inputClassName} value={rule.scopeKind} onChange={(event) => updateRule(rule.id, { scopeKind: event.target.value as SimpleScopeKind })}>
                 {SIMPLE_SCOPE_KINDS.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </Field>
@@ -1236,31 +1241,31 @@ function CreateContentRuleDialog({ roles, onClose }: { roles: RoleRow[]; onClose
   return (
     <Modal title="Create content rule" onClose={onClose}>
       <div className="space-y-3">
-        <div className="flex gap-2 border-b border-app pb-2">
-          <Btn onClick={() => setMode("rule")} className={mode === "rule" ? "border-blue-500" : ""}>Rule</Btn>
-          <Btn onClick={() => setMode("override")} className={mode === "override" ? "border-blue-500" : ""}>Override</Btn>
+        <div className="flex gap-2 border-b border-border pb-3">
+          <Btn onClick={() => setMode("rule")} className={mode === "rule" ? "border-accent bg-accent/10 text-foreground" : ""}>Rule</Btn>
+          <Btn onClick={() => setMode("override")} className={mode === "override" ? "border-accent bg-accent/10 text-foreground" : ""}>Override</Btn>
         </div>
 
         <Field label="Role">
-          <select className="input" value={roleId} onChange={(event) => setRoleId(Number(event.target.value))}>
+          <select className={inputClassName} value={roleId} onChange={(event) => setRoleId(Number(event.target.value))}>
             {roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
           </select>
         </Field>
 
         <Field label="Entity kind">
-          <select className="input" value={entityKind} onChange={(event) => setEntityKind(event.target.value as (typeof ENTITY_KINDS)[number])}>
+          <select className={inputClassName} value={entityKind} onChange={(event) => setEntityKind(event.target.value as (typeof ENTITY_KINDS)[number])}>
             {ENTITY_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
           </select>
         </Field>
 
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Effect">
-            <select className="input" value={effect} onChange={(event) => setEffect(event.target.value as (typeof EFFECTS)[number])}>
+            <select className={inputClassName} value={effect} onChange={(event) => setEffect(event.target.value as (typeof EFFECTS)[number])}>
               {EFFECTS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </Field>
           <Field label="Applies to">
-            <select className="input" value={appliesTo} onChange={(event) => setAppliesTo(event.target.value as (typeof APPLIES_TO)[number])}>
+            <select className={inputClassName} value={appliesTo} onChange={(event) => setAppliesTo(event.target.value as (typeof APPLIES_TO)[number])}>
               {APPLIES_TO.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </Field>
@@ -1269,7 +1274,7 @@ function CreateContentRuleDialog({ roles, onClose }: { roles: RoleRow[]; onClose
         {mode === "rule" ? (
           <>
             <Field label="Scope kind">
-              <select className="input" value={scopeKind} onChange={(event) => setScopeKind(event.target.value as (typeof SCOPE_KINDS)[number])}>
+              <select className={inputClassName} value={scopeKind} onChange={(event) => setScopeKind(event.target.value as (typeof SCOPE_KINDS)[number])}>
                 {SCOPE_KINDS.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </Field>
@@ -1291,7 +1296,7 @@ function CreateContentRuleDialog({ roles, onClose }: { roles: RoleRow[]; onClose
           </>
         ) : (
           <Field label="Entity id">
-            <input className="input" value={entityId} onChange={(event) => setEntityId(event.target.value)} placeholder="123" />
+            <input className={inputClassName} value={entityId} onChange={(event) => setEntityId(event.target.value)} placeholder="123" />
           </Field>
         )}
 
@@ -1316,7 +1321,7 @@ function ApiTokensTable({ tokens, onRevoke }: { tokens: ApiTokenRow[]; onRevoke:
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
-        <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+        <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
           <tr>
             <th className="px-2 py-2">Name</th>
             <th className="px-2 py-2">Prefix</th>
@@ -1329,7 +1334,7 @@ function ApiTokensTable({ tokens, onRevoke }: { tokens: ApiTokenRow[]; onRevoke:
         </thead>
         <tbody>
           {tokens.map((token) => (
-            <tr key={token.id} className="border-b border-app/40">
+            <tr key={token.id} className="border-b border-border/40">
               <td className="px-2 py-2 font-medium">{token.name}</td>
               <td className="px-2 py-2 font-mono text-xs">{token.prefix}…</td>
               <td className="px-2 py-2 text-secondary">{token.scope?.length ? `${token.scope.length} perms` : "full"}</td>
@@ -1370,8 +1375,8 @@ function CreateApiTokenDialog({ onClose, onIssued }: { onClose: () => void; onIs
   return (
     <Modal title="Create API token" onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Name"><input className="input" value={name} onChange={(event) => setName(event.target.value)} placeholder="my-laptop" /></Field>
-        <Field label="Expires (ISO datetime, blank = never)"><input className="input" value={expires} onChange={(event) => setExpires(event.target.value)} placeholder="2026-12-31T00:00:00Z" /></Field>
+        <Field label="Name"><input className={inputClassName} value={name} onChange={(event) => setName(event.target.value)} placeholder="my-laptop" /></Field>
+        <Field label="Expires (ISO datetime, blank = never)"><input className={inputClassName} value={expires} onChange={(event) => setExpires(event.target.value)} placeholder="2026-12-31T00:00:00Z" /></Field>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
         <div className="flex justify-end gap-2 pt-2">
           <Btn onClick={onClose}>Cancel</Btn>
@@ -1387,7 +1392,7 @@ function IssuedTokenDialog({ token, onClose }: { token: ApiTokenIssuedRow; onClo
     <Modal title="Token issued" onClose={onClose}>
       <div className="space-y-3">
         <p className="text-sm text-amber-400">Copy this token now. You will not be shown it again.</p>
-        <pre className="overflow-auto rounded border border-app bg-surface-2 p-3 text-xs">{token.plaintextToken}</pre>
+        <pre className="overflow-auto rounded-xl border border-border bg-card p-3 text-xs text-foreground">{token.plaintextToken}</pre>
         <div className="flex justify-end gap-2 pt-2">
           <Btn variant="primary" onClick={() => { navigator.clipboard.writeText(token.plaintextToken); onClose(); }}>Copy & close</Btn>
         </div>
@@ -1400,7 +1405,7 @@ function ShareLinksTable({ links, onRevoke }: { links: ShareLinkRow[]; onRevoke:
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
-        <thead className="border-b border-app text-left text-xs uppercase tracking-wide text-secondary">
+        <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-secondary">
           <tr>
             <th className="px-2 py-2">Created by</th>
             <th className="px-2 py-2">Entity</th>
@@ -1413,7 +1418,7 @@ function ShareLinksTable({ links, onRevoke }: { links: ShareLinkRow[]; onRevoke:
         </thead>
         <tbody>
           {links.map((link) => (
-            <tr key={link.id} className="border-b border-app/40">
+            <tr key={link.id} className="border-b border-border/40">
               <td className="px-2 py-2">{link.createdByUsername ?? <span className="text-secondary">—</span>}</td>
               <td className="px-2 py-2">{formatEntityKind(link.entityKind)}</td>
               <td className="px-2 py-2 text-secondary">{link.entityIds.length}</td>
@@ -1464,18 +1469,18 @@ function CreateShareLinkDialog({ onClose, onIssued }: { onClose: () => void; onI
     <Modal title="Create share link" onClose={onClose}>
       <div className="space-y-3">
         <Field label="Entity kind">
-          <select className="input" value={entityKind} onChange={(event) => setEntityKind(event.target.value as (typeof ENTITY_KINDS)[number])}>
+          <select className={inputClassName} value={entityKind} onChange={(event) => setEntityKind(event.target.value as (typeof ENTITY_KINDS)[number])}>
             {ENTITY_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
           </select>
         </Field>
         <Field label="Entity ids (comma- or space-separated)">
-          <input className="input" value={ids} onChange={(event) => setIds(event.target.value)} placeholder="123, 124, 125" />
+          <input className={inputClassName} value={ids} onChange={(event) => setIds(event.target.value)} placeholder="123, 124, 125" />
         </Field>
         <Field label="Expires (ISO datetime, blank = never)">
-          <input className="input" value={expires} onChange={(event) => setExpires(event.target.value)} />
+          <input className={inputClassName} value={expires} onChange={(event) => setExpires(event.target.value)} />
         </Field>
         <Field label="Password (optional)">
-          <input className="input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <input className={inputClassName} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
         </Field>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
         <div className="flex justify-end gap-2 pt-2">
@@ -1501,7 +1506,7 @@ function IssuedShareLinkDialog({ link, onClose }: { link: ShareLinkIssuedRow; on
     <Modal title="Share link issued" onClose={onClose}>
       <div className="space-y-3">
         <p className="text-sm text-amber-400">Copy this link now. The plaintext share token will not be shown again.</p>
-        <pre className="overflow-auto rounded border border-app bg-surface-2 p-3 text-xs">{shareUrl.toString()}</pre>
+        <pre className="overflow-auto rounded-xl border border-border bg-card p-3 text-xs text-foreground">{shareUrl.toString()}</pre>
         {link.hasPassword ? <p className="text-xs text-secondary">This link is password-gated. Share the password separately; the recipient will be prompted for it.</p> : null}
         <div className="flex justify-end gap-2 pt-2">
           <Btn onClick={() => navigator.clipboard.writeText(link.plaintextToken)}>Copy raw token</Btn>
@@ -1515,30 +1520,11 @@ function IssuedShareLinkDialog({ link, onClose }: { link: ShareLinkIssuedRow; on
 // =========================================================================
 // shared
 // =========================================================================
-function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  const pointerStartedOnBackdrop = useRef(false);
-
+function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onPointerDown={(event) => {
-        pointerStartedOnBackdrop.current = event.target === event.currentTarget;
-      }}
-      onPointerUp={(event) => {
-        if (pointerStartedOnBackdrop.current && event.target === event.currentTarget) {
-          onClose();
-        }
-        pointerStartedOnBackdrop.current = false;
-      }}
-    >
-      <div className={`rounded-2xl border border-app bg-surface p-5 shadow-xl ${wide ? "w-full max-w-3xl" : "w-full max-w-lg"}`} onClick={(e) => e.stopPropagation()}>
-        <header className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-secondary hover:text-primary">✕</button>
-        </header>
-        {children}
-      </div>
-    </div>
+    <EditModal title={title} open onClose={onClose} maxWidthClassName={wide ? "sm:max-w-3xl" : "sm:max-w-lg"}>
+      {children}
+    </EditModal>
   );
 }
 

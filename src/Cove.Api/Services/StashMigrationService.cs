@@ -17,8 +17,10 @@ using System.Data.Common;
 
 namespace Cove.Api.Services;
 
-public record StashPreviewResult(bool IsValid, string? Error, int Scenes, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
-public record StashImportResult(int Scenes, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
+// Stash calls them "scenes"; Cove's domain (and the UI/API contract) calls them "videos".
+// The property is named Videos so it serializes to `videos`, matching the frontend's StashPreviewResult/StashImportResult.
+public record StashPreviewResult(bool IsValid, string? Error, int Videos, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
+public record StashImportResult(int Videos, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
 public record StashPathMapping(string Source, string Target);
 public record StashImportOptions(string? CoveGeneratedPath, bool MigrateGeneratedContent = true, IReadOnlyList<StashPathMapping>? PathMappings = null);
 
@@ -482,6 +484,20 @@ public partial class StashMigrationService
                 _logger.LogInformation("Skipping generated content migration for {Path}", stashDbPath);
                 progress.Report(GeneratedAssetsEnd, "Skipping generated scene assets");
             }
+
+            // Bulk insert paths can leave the denormalized summary/count columns (video durations &
+            // resolutions, gallery image counts, studio/performer/tag rollups) unpopulated, which makes
+            // count-based filters and sorts behave as if every row were zero. Recompute them once the
+            // whole library is in place so those filters/sorts work on freshly imported data.
+            await RunMigrationPhaseAsync(
+                "recompute derived counts",
+                sw,
+                async () =>
+                {
+                    progress.Report(GeneratedAssetsEnd, "Recomputing counts and summaries...");
+                    await _db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
+                    progress.Report(1.0, "Counts and summaries recomputed");
+                });
 
             _logger.LogInformation("Migration complete in {Elapsed}: {S} scenes, {P} performers, {T} tags, {St} studios, {G} groups, {I} images, {Ga} galleries",
                 sw.Elapsed, sceneCount, performerIdMap.Count, tagIdMap.Count, studioIdMap.Count, groupIdMap.Count, imageIdMap.Count, galleryCount);

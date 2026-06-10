@@ -349,11 +349,11 @@ export function TaskCard({
 
 export function SettingsButton(props: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "danger" | "ghost" }) {
   const { variant = "ghost", className = "", type = "button", ...rest } = props;
-  const base = "inline-flex min-h-10 items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition sm:min-h-0 sm:py-1.5";
+  const base = "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-1.5";
   const variantClass =
-    variant === "primary" ? "bg-blue-600 text-white hover:bg-blue-500" :
+    variant === "primary" ? "bg-accent text-white hover:bg-accent-hover" :
     variant === "danger" ? "bg-red-600 text-white hover:bg-red-500" :
-    "border border-app bg-surface-2 hover:bg-surface-3";
+    "border border-border bg-card text-secondary hover:border-accent/50 hover:bg-card-hover hover:text-foreground";
 
   return <button {...rest} type={type} className={`${base} ${variantClass} ${className}`} />;
 }

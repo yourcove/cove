@@ -41,7 +41,7 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "items" | "containingGroups" | (string & {});
+type TabKey = "items" | "subGroups" | (string & {});
 
 const GROUP_ITEM_SORT_OPTIONS = [
   { value: "order", label: "Item #" },
@@ -123,7 +123,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>("items");
   const { allTabs: groupTabs, renderExtensionTab } = useExtensionTabs("group", [
     { key: "items", label: "Items" },
-    { key: "containingGroups", label: "Containing Groups" },
+    { key: "subGroups", label: "Sub-Groups" },
   ], id);
   const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "asc", sort: "date" });
   const queryClient = useQueryClient();
@@ -185,16 +185,16 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       count:
         tab.key === "items"
           ? group?.kind === "dynamic" ? group.itemCount ?? groupItems.length : groupItems.length + (group?.subGroupCount ?? 0)
-          : tab.key === "containingGroups"
-            ? group?.containingGroupCount
+          : tab.key === "subGroups"
+            ? group?.subGroupCount
             : undefined,
     }));
 
     return filterItemsByPermission(countedTabs, {
       items: canReadVideos || canReadGroups ? "groups.read" : "__denied__",
-      containingGroups: "groups.read",
+      subGroups: "groups.read",
     }, hasPermission).filter((tab) => tab.key !== "items" || canReadVideos || canReadGroups);
-  }, [canReadGroups, canReadVideos, group?.containingGroupCount, group?.subGroupCount, groupItems.length, groupTabs, hasPermission]);
+  }, [canReadGroups, canReadVideos, group?.subGroupCount, groupItems.length, groupTabs, hasPermission]);
 
   useEffect(() => {
     if (tabs.length > 0 && !tabs.some((tab) => tab.key === activeTab)) {
@@ -229,21 +229,21 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
     />
   );
 
-  const containingGroupsContent = (
+  const subGroupsContent = (
     <section className="rounded-2xl border border-border bg-card/70 p-5">
       <div className="mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Containing Groups</h2>
-        <p className="mt-1 text-sm text-secondary">Browse the parent collections that already include this group.</p>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Sub-Groups</h2>
+        <p className="mt-1 text-sm text-secondary">Groups contained within this group.</p>
       </div>
-      <GroupContainingGroupsPanel groupId={id} onNavigate={onNavigate} />
+      <GroupSubGroupsPanel groupId={id} canWriteGroup={canWriteGroup && canReadGroups} onNavigate={onNavigate} />
     </section>
   );
 
   const activeContent =
     activeTab === "items"
       ? itemsContent
-      : activeTab === "containingGroups"
-        ? containingGroupsContent
+      : activeTab === "subGroups"
+        ? subGroupsContent
         : renderExtensionTab(activeTab, id, onNavigate);
 
   const countMetrics = getGroupCountMetrics(group);
@@ -582,7 +582,9 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     && (mixedFilter.sort ?? "order") === "order"
     && (mixedFilter.page ?? 1) === 1;
   const existingSubGroupIds = new Set(subGroups.map((subGroup) => subGroup.id));
-  const availableGroupResults = (searchResults?.items ?? []).filter((candidate) => candidate.id !== group.id && !existingSubGroupIds.has(candidate.id));
+  // Built-in groups (Save for Later, Watch History, Continue Watching) can't participate in
+  // parent/child relations, so keep them out of the sub-group picker.
+  const availableGroupResults = (searchResults?.items ?? []).filter((candidate) => candidate.id !== group.id && !existingSubGroupIds.has(candidate.id) && !isProtectedBuiltInGroup(candidate.querySourceKey));
   const loadedSelectedItems = useMemo(() => displayedMixedItems.filter((item) => selectedIds.has(item.id)), [displayedMixedItems, selectedIds]);
   const selectedDeletableKinds = useMemo(() => getSelectedDeletableKinds(loadedSelectedItems, hasPermission), [hasPermission, loadedSelectedItems]);
   const canDeleteSelectedItems = selectedCount > 0 && (selectedDeletableKinds.size > 0 || canDeleteAnyMixedHostType(hasPermission));
@@ -2331,23 +2333,6 @@ function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: 
   );
 }
 
-function GroupContainingGroupsPanel({ groupId, onNavigate }: { groupId: number; onNavigate: (r: any) => void }) {
-  const { data: containingGroups, isLoading } = useQuery({
-    queryKey: ["group-containinggroups", groupId],
-    queryFn: () => groups.containingGroups(groupId),
-  });
-
-  if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading containing groups..." />;
-  if (!containingGroups || containingGroups.length === 0) return <EmptyPanel icon={<Layers className="h-12 w-12" />} message="No containing groups" />;
-
-  return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-      {containingGroups.map((g) => (
-        <GroupTile key={g.id} group={g} onClick={() => onNavigate({ page: "group", id: g.id })} />
-      ))}
-    </div>
-  );
-}
 
 function LoadingPanel({ icon, message }: { icon: React.ReactNode; message: string }) {
   return (

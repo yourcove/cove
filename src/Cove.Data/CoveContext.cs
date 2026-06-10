@@ -1030,6 +1030,60 @@ public partial class CoveContext : DbContext
         }
     }
 
+    /// <summary>
+    /// Recomputes every denormalized summary/count column from source data for the whole library:
+    /// video/image file summaries (duration, resolution, file size, …), gallery image/video counts,
+    /// and studio/performer/tag rollup counts. The per-SaveChanges maintenance only touches entities
+    /// changed in a unit of work, so this is the catch-all used to repair data that predates a fix or
+    /// was loaded through a path that didn't trigger maintenance (e.g. a bulk import). Idempotent.
+    /// Returns the number of entities recomputed.
+    /// </summary>
+    public async Task<int> RecomputeAllDerivedCountsAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    {
+        const int batchSize = 500;
+        var total = 0;
+        var alreadyPersisting = _persistingDerivedCounts;
+        _persistingDerivedCounts = true;
+        try
+        {
+            total += await RecomputeAllAsync<Video>("videos", ids => RefreshVideoMetricsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Image>("images", ids => RefreshImageMetricsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Gallery>("galleries", ids => RefreshGalleryCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Studio>("studios", ids => RefreshStudioCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Performer>("performers", ids => RefreshPerformerCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Tag>("tags", ids => RefreshTagCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+        }
+        finally
+        {
+            _persistingDerivedCounts = alreadyPersisting;
+        }
+
+        return total;
+    }
+
+    private async Task<int> RecomputeAllAsync<TEntity>(
+        string label,
+        Func<HashSet<int>, Task> refresh,
+        int batchSize,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+        where TEntity : BaseEntity
+    {
+        var allIds = await Set<TEntity>().AsNoTracking().Select(entity => entity.Id).ToListAsync(cancellationToken);
+        var processed = 0;
+        foreach (var batch in allIds.Chunk(batchSize))
+        {
+            await refresh([.. batch]);
+            if (ChangeTracker.HasChanges())
+                await base.SaveChangesAsync(cancellationToken);
+            ChangeTracker.Clear();
+            processed += batch.Length;
+            progress?.Report($"Recomputed {processed}/{allIds.Count} {label}");
+        }
+
+        return allIds.Count;
+    }
+
     private void RefreshTagCounts(HashSet<int> affectedTagIds)
     {
         var tags = Tags.Where(BuildIdContainsPredicate<Tag>(affectedTagIds.ToArray())).ToDictionary(tag => tag.Id);

@@ -8,6 +8,22 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.2.0] - 2026-06-09
+
+- Security settings panel ui improvements
+- Face improvements
+- Homepage fixes
+- Log visibility improvements in the UI
+- Improvements to setup of the owner account password
+- Homepage fixes
+- Scan duplicate fixes
+- Group/subgroup improvements
+- Stash migration fixes
+- Saved filter random now doesnt store seed (random on every load)
+- Scan memory leak fixed
+- Fix instancemanager leaving orphaned postgres processes
+
+
 ## [0.1.0] - 2026-06-09
 
 - Further scan speed improvements

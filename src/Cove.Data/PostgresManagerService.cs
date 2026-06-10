@@ -127,9 +127,39 @@ public class PostgresManagerService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error during PostgreSQL shutdown — it may already be stopped");
+            _logger.LogWarning(ex, "Error during PostgreSQL shutdown — force-stopping by PID to avoid an orphaned process");
+            TryKillPostmasterByPidFile();
         }
         _started = false;
+    }
+
+    /// <summary>
+    /// Force-kills the postmaster recorded in postmaster.pid. Used only as a fallback when
+    /// `pg_ctl stop` fails, so a managed postgres started detached isn't left running. Guards
+    /// against recycled PIDs by checking the process name.
+    /// </summary>
+    private void TryKillPostmasterByPidFile()
+    {
+        try
+        {
+            var pidFile = Path.Combine(DataDir, "postmaster.pid");
+            if (!File.Exists(pidFile)) return;
+
+            var firstLine = File.ReadLines(pidFile).FirstOrDefault();
+            if (!int.TryParse(firstLine?.Trim(), out var pid) || pid <= 0) return;
+
+            using var postmaster = System.Diagnostics.Process.GetProcessById(pid);
+            if (!postmaster.HasExited && postmaster.ProcessName.Contains("postgres", StringComparison.OrdinalIgnoreCase))
+            {
+                postmaster.Kill(entireProcessTree: true);
+                postmaster.WaitForExit(10000);
+                _logger.LogInformation("Force-stopped managed PostgreSQL postmaster (PID {Pid})", pid);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to force-stop managed PostgreSQL postmaster by PID");
+        }
     }
 
     // ─── Download ───────────────────────────────────────────────────
@@ -923,12 +953,18 @@ public class PostgresManagerService : IHostedService
         }
         catch (Exception ex)
         {
-            // If it fails (process already dead), just remove the pid file
-            _logger.LogWarning(ex, "Failed to stop stale PostgreSQL instance; attempting to delete {PidFile}", pidFile);
+            // pg_ctl stop failed. The recorded postmaster may still be alive (e.g. cove was killed
+            // before it could shut PostgreSQL down). Force-kill it by PID first so we don't abandon a
+            // live process, THEN remove the now-stale pid file.
+            _logger.LogWarning(ex, "Failed to stop stale PostgreSQL instance; force-stopping by PID then clearing {PidFile}", pidFile);
+            TryKillPostmasterByPidFile();
             try
             {
-                File.Delete(pidFile);
-                _logger.LogInformation("Deleted stale PostgreSQL pid file {PidFile}", pidFile);
+                if (File.Exists(pidFile))
+                {
+                    File.Delete(pidFile);
+                    _logger.LogInformation("Deleted stale PostgreSQL pid file {PidFile}", pidFile);
+                }
             }
             catch (Exception deleteEx)
             {

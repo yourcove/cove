@@ -5,6 +5,7 @@ import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthP
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { LIST_PER_PAGE_OPTIONS, toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
+import { SavedFilterMenu } from "./SavedFilterMenu";
 
 const PER_PAGE_OPTIONS = LIST_PER_PAGE_OPTIONS;
 
@@ -49,11 +50,24 @@ interface DetailListToolbarProps {
   allowInfinitePageSize?: boolean;
   infinitePageSizeOnly?: boolean;
   showPagingControls?: boolean;
+  // When set (e.g. "videos"), shows the saved-filter menu so embedded lists inside detail pages
+  // (a performer's videos, a studio's galleries, …) can save, apply and default-pin filters too.
+  filterMode?: string;
 }
 
-export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true }: DetailListToolbarProps) {
+export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode }: DetailListToolbarProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
+  // Random sort with no seed (e.g. a default saved filter, or a re-mounted detail-page list) would
+  // otherwise hit the backend's fixed fallback seed and return the *same* "random" order every time.
+  // Mint a seed once so embedded lists re-shuffle on mount, matching the top-level list pages.
+  useEffect(() => {
+    if (filter.sort === "random" && filter.seed == null) {
+      onFilterChange(reshuffleRandomSort(filter));
+    }
+    // Only react to the sort/seed pair; reshuffle sets a seed which clears this condition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter.sort, filter.seed]);
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const pageSizeOptions = useMemo(() => {
     if (infinitePageSizeOnly) return [];
@@ -161,6 +175,16 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
         {criteriaDefinitions && onObjectFilterChange ? (
           <FilterButton activeCount={Object.keys(activeObjectFilter).length} onClick={() => setFilterDialogOpen(true)} />
+        ) : null}
+
+        {filterMode ? (
+          <SavedFilterMenu
+            mode={filterMode}
+            currentFilter={filter}
+            currentObjectFilter={activeObjectFilter}
+            onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, { ...nextFilter, page: 1 }))}
+            onApplyObjectFilter={onObjectFilterChange}
+          />
         ) : null}
 
         {displayMode && onDisplayModeChange ? (

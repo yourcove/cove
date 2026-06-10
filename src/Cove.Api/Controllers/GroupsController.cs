@@ -343,6 +343,26 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         var group = await groupRepo.GetByIdAsync(id, ct);
         if (group == null) return NotFound();
 
+        if (id == dto.SubGroupId)
+            return BadRequest(new { message = "A group cannot contain itself." });
+
+        var subGroup = await groupRepo.GetByIdAsync(dto.SubGroupId, ct);
+        if (subGroup == null) return NotFound("Sub-group not found");
+
+        // Built-in/system-managed dynamic groups (Save for Later, Watch History, Continue Watching)
+        // resolve their items from a query and cannot be deleted, so they must not participate in
+        // parent/child relations on either side.
+        if (DynamicGroupResolver.IsProtectedBuiltInGroup(group.QuerySourceKey))
+            return BadRequest(new { message = "Built-in groups cannot contain sub-groups." });
+        if (DynamicGroupResolver.IsProtectedBuiltInGroup(subGroup.QuerySourceKey))
+            return BadRequest(new { message = "Built-in groups cannot be added as a sub-group." });
+
+        // Reject a direct cycle (the prospective sub-group already contains this group).
+        var wouldCreateCycle = await db.Set<GroupRelation>()
+            .AnyAsync(r => r.ContainingGroupId == dto.SubGroupId && r.SubGroupId == id, ct);
+        if (wouldCreateCycle)
+            return BadRequest(new { message = "That group already contains this group; the relationship would create a cycle." });
+
         var existing = await db.Set<GroupRelation>()
             .Where(r => r.ContainingGroupId == id)
             .ToListAsync(ct);

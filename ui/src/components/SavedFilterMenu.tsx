@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { savedFilters } from "../api/client";
 import type { FindFilter } from "../api/types";
@@ -15,6 +15,16 @@ const DEFAULT_SORT_BY_MODE: Record<string, string> = {
   studios: "latest_video_date",
   tags: "latest_video_date",
 };
+
+// Random sort seeds are intentionally not persisted: a saved/default filter using random sort
+// should re-shuffle on every load rather than reproduce the same order. Drop the seed on save.
+function stripRandomSeed(findFilter: FindFilter): FindFilter {
+  if (findFilter.sort === "random" && findFilter.seed != null) {
+    const { seed: _seed, ...rest } = findFilter;
+    return rest;
+  }
+  return findFilter;
+}
 
 function normalizeSavedFindFilter(mode: string, findFilter: FindFilter | undefined): FindFilter | undefined {
   if (!findFilter) return findFilter;
@@ -37,9 +47,29 @@ export function getDefaultFilter(mode: string): { findFilter?: FindFilter; objec
   } catch { return null; }
 }
 
+/**
+ * Applies a mode's default saved filter exactly once on mount. Lets embedded list views inside
+ * detail pages (a performer's videos, a studio's galleries, …) honor the user's default the same
+ * way the top-level list pages do. `apply` receives the default's findFilter/objectFilter (if any).
+ */
+export function useDefaultSavedFilterOnMount(
+  mode: string,
+  apply: (findFilter: FindFilter | undefined, objectFilter: Record<string, unknown> | undefined) => void,
+) {
+  const appliedRef = useRef(false);
+  useEffect(() => {
+    if (appliedRef.current) return;
+    appliedRef.current = true;
+    const def = getDefaultFilter(mode);
+    if (def) apply(def.findFilter, def.objectFilter);
+    // Intentionally mount-only: the default is a starting point the user can then change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 /** Set the default filter for a mode in localStorage */
 function setDefaultFilter(mode: string, findFilter: FindFilter, objectFilter?: Record<string, unknown>, uiOptions?: Record<string, unknown>) {
-  localStorage.setItem(`cove-default-filter-${mode}`, JSON.stringify({ findFilter, objectFilter, uiOptions }));
+  localStorage.setItem(`cove-default-filter-${mode}`, JSON.stringify({ findFilter: stripRandomSeed(findFilter), objectFilter, uiOptions }));
 }
 
 /** Clear the default filter for a mode */
@@ -82,7 +112,7 @@ export function SavedFilterMenu({
       savedFilters.create({
         mode,
         name: saveName,
-        findFilter: JSON.stringify(currentFilter),
+        findFilter: JSON.stringify(stripRandomSeed(currentFilter)),
         objectFilter: currentObjectFilter && Object.keys(currentObjectFilter).length > 0 ? JSON.stringify(currentObjectFilter) : undefined,
         uiOptions: currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
       }),
