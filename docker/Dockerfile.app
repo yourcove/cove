@@ -40,29 +40,36 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 # These include NVENC, VAAPI, QSV, Vulkan — much more capable than Debian's ffmpeg
 ARG TARGETARCH
 # FFMPEG_MIRROR_BASE, when set (CI passes this repo's ffmpeg-payload release), is tried first; we
-# fall back to BtbN's rolling "latest". BtbN republishes its assets in place (brief 404s mid-publish,
-# old builds not retained), so the mirror gives container builds a stable, always-available source.
+# fall back to BtbN's latest release API. BtbN release assets are versioned and old builds are not
+# retained, so the mirror gives container builds a stable, always-available source.
 ARG FFMPEG_MIRROR_BASE=""
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         xz-utils \
     && case "${TARGETARCH:-amd64}" in \
-        amd64) FFMPEG_ASSET="ffmpeg-master-latest-linux64-gpl.tar.xz" ;; \
-        arm64) FFMPEG_ASSET="ffmpeg-master-latest-linuxarm64-gpl.tar.xz" ;; \
+        amd64) FFMPEG_ASSET="ffmpeg-master-latest-linux64-gpl.tar.xz"; BTBN_PLATFORM="linux64" ;; \
+        arm64) FFMPEG_ASSET="ffmpeg-master-latest-linuxarm64-gpl.tar.xz"; BTBN_PLATFORM="linuxarm64" ;; \
         *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac \
-    && BTBN_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest" \
+    && BTBN_VARIANT="gpl" \
     && if [ -n "${FFMPEG_MIRROR_BASE}" ]; then \
            echo "Fetching ffmpeg from mirror: ${FFMPEG_MIRROR_BASE}/${FFMPEG_ASSET}"; \
            curl -fL --retry 3 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${FFMPEG_MIRROR_BASE}/${FFMPEG_ASSET}" || rm -f /tmp/ffmpeg.tar.xz; \
        fi \
     && if [ ! -s /tmp/ffmpeg.tar.xz ]; then \
-           echo "Fetching ffmpeg from BtbN: ${BTBN_BASE}/${FFMPEG_ASSET}"; \
-           curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${BTBN_BASE}/${FFMPEG_ASSET}"; \
+           echo "Resolving ffmpeg from BtbN latest release API: ${BTBN_PLATFORM}/${BTBN_VARIANT}"; \
+           curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/btbn-release.json "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"; \
+           BTBN_URL=$(grep -o '"browser_download_url": "[^"]*"' /tmp/btbn-release.json \
+             | sed 's/.*"browser_download_url": "\([^"]*\)".*/\1/' \
+             | grep -E "/ffmpeg-N-[^/]*-${BTBN_PLATFORM}-${BTBN_VARIANT}\.tar\.xz$" \
+             | head -n 1); \
+           if [ -z "${BTBN_URL}" ]; then echo "Unable to find BtbN asset for ${BTBN_PLATFORM}/${BTBN_VARIANT}" && exit 1; fi; \
+           echo "Fetching ffmpeg from BtbN: ${BTBN_URL}"; \
+           curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${BTBN_URL}"; \
        fi \
     && tar -Jx --strip-components=2 -C /usr/local/bin/ --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' -f /tmp/ffmpeg.tar.xz \
-    && rm -f /tmp/ffmpeg.tar.xz \
+    && rm -f /tmp/ffmpeg.tar.xz /tmp/btbn-release.json \
     && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
     && apt-get purge -y --auto-remove xz-utils \
     && rm -rf /var/lib/apt/lists/*

@@ -1,10 +1,9 @@
 name: Mirror FFmpeg Builds
 
-# Mirrors BtbN's rolling "latest" FFmpeg builds into this repository's own releases so container
-# image builds have a stable, always-available source. BtbN republishes the "latest" assets in place
-# (they intermittently 404 mid-publish, and old builds are not retained), which breaks Docker image
-# builds. The Dockerfiles try this mirror first (via the FFMPEG_MIRROR_BASE build arg that
-# release.yml passes) and fall back to BtbN if the mirror is unavailable.
+# Mirrors BtbN's latest FFmpeg builds into this repository's own releases so container image builds
+# have a stable, always-available source. BtbN uses versioned asset names and does not retain old
+# builds. The Dockerfiles try this mirror first (via the FFMPEG_MIRROR_BASE build arg that release.yml
+# passes) and fall back to BtbN's latest release API if the mirror is unavailable.
 #
 # Downloads go through the `gh` CLI (authenticated) rather than raw `curl` to the release download
 # URLs, which 404 intermittently from GitHub Actions runners.
@@ -45,19 +44,20 @@ jobs:
           # Variants consumed by the Dockerfiles:
           #   *-gpl.tar.xz        -> docker/Dockerfile.app (static binaries)
           #   *-gpl-shared.tar.xz -> docker/Dockerfile      (shared libs for in-process frame extraction)
-          gh release download latest --repo BtbN/FFmpeg-Builds --clobber \
-            --pattern 'ffmpeg-master-latest-linux64-gpl.tar.xz' \
-            --pattern 'ffmpeg-master-latest-linuxarm64-gpl.tar.xz' \
-            --pattern 'ffmpeg-master-latest-linux64-gpl-shared.tar.xz' \
-            --pattern 'ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz' \
+          # Omit the tag so gh selects GitHub's latest release. BtbN no longer publishes a "latest"
+          # tag or ffmpeg-master-latest-* assets; current assets are versioned as ffmpeg-N-*.
+          gh release download --repo BtbN/FFmpeg-Builds --clobber \
+            --pattern 'ffmpeg-N-*-linux64-gpl.tar.xz' \
+            --pattern 'ffmpeg-N-*-linuxarm64-gpl.tar.xz' \
+            --pattern 'ffmpeg-N-*-linux64-gpl-shared.tar.xz' \
+            --pattern 'ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz' \
             --pattern 'checksums.sha256'
 
           : > to-verify.sha256
-          for asset in \
-            ffmpeg-master-latest-linux64-gpl.tar.xz \
-            ffmpeg-master-latest-linuxarm64-gpl.tar.xz \
-            ffmpeg-master-latest-linux64-gpl-shared.tar.xz \
-            ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz; do
+          for asset in ffmpeg-N-*-linux64-gpl.tar.xz \
+            ffmpeg-N-*-linuxarm64-gpl.tar.xz \
+            ffmpeg-N-*-linux64-gpl-shared.tar.xz \
+            ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz; do
             # Exact filename match (field 2) so we only verify what we downloaded.
             awk -v f="$asset" '$2 == f' checksums.sha256 >> to-verify.sha256
           done
@@ -65,13 +65,19 @@ jobs:
           echo "Verifying checksums"
           sha256sum -c to-verify.sha256
 
+          mv ffmpeg-N-*-linux64-gpl.tar.xz ffmpeg-master-latest-linux64-gpl.tar.xz
+          mv ffmpeg-N-*-linuxarm64-gpl.tar.xz ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+          mv ffmpeg-N-*-linux64-gpl-shared.tar.xz ffmpeg-master-latest-linux64-gpl-shared.tar.xz
+          mv ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz
+          sha256sum ffmpeg-master-latest-*.tar.xz > checksums.sha256
+
       - name: Publish mirror release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: FFmpeg payload mirror
           body: |
-            Mirror of BtbN FFmpeg-Builds `latest` (GPL static + GPL shared, linux64 + linuxarm64),
+            Mirror of BtbN FFmpeg-Builds latest release (GPL static + GPL shared, linux64 + linuxarm64),
             re-hosted here so container image builds have a stable, always-available source.
             Refreshed by the "Mirror FFmpeg Builds" workflow. Checksums verified against BtbN.
           files: |

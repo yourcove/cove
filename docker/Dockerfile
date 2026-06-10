@@ -95,22 +95,29 @@ RUN if [ "$COVE_GPU_VENDOR" = "intel" ]; then \
 # (which sets LibrariesPath to the directory of the ffmpeg binary) can find them.
 ARG TARGETARCH
 # FFMPEG_MIRROR_BASE, when set (CI passes this repo's ffmpeg-payload release), is tried first; we
-# fall back to BtbN's rolling "latest". BtbN republishes its assets in place (brief 404s mid-publish,
-# old builds not retained), so the mirror gives container builds a stable, always-available source.
+# fall back to BtbN's latest release API. BtbN release assets are versioned and old builds are not
+# retained, so the mirror gives container builds a stable, always-available source.
 ARG FFMPEG_MIRROR_BASE=""
 RUN case "${TARGETARCH}" in \
-        amd64) FFMPEG_ASSET="ffmpeg-master-latest-linux64-gpl-shared.tar.xz" ;; \
-        arm64) FFMPEG_ASSET="ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz" ;; \
+        amd64) FFMPEG_ASSET="ffmpeg-master-latest-linux64-gpl-shared.tar.xz"; BTBN_PLATFORM="linux64" ;; \
+        arm64) FFMPEG_ASSET="ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz"; BTBN_PLATFORM="linuxarm64" ;; \
         *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac \
-    && BTBN_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest" \
+    && BTBN_VARIANT="gpl-shared" \
     && if [ -n "${FFMPEG_MIRROR_BASE}" ]; then \
            echo "Fetching ffmpeg from mirror: ${FFMPEG_MIRROR_BASE}/${FFMPEG_ASSET}"; \
            curl -fL --retry 3 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${FFMPEG_MIRROR_BASE}/${FFMPEG_ASSET}" || rm -f /tmp/ffmpeg.tar.xz; \
        fi \
     && if [ ! -s /tmp/ffmpeg.tar.xz ]; then \
-           echo "Fetching ffmpeg from BtbN: ${BTBN_BASE}/${FFMPEG_ASSET}"; \
-           curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${BTBN_BASE}/${FFMPEG_ASSET}"; \
+           echo "Resolving ffmpeg from BtbN latest release API: ${BTBN_PLATFORM}/${BTBN_VARIANT}"; \
+           curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/btbn-release.json "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"; \
+           BTBN_URL=$(grep -o '"browser_download_url": "[^"]*"' /tmp/btbn-release.json \
+             | sed 's/.*"browser_download_url": "\([^"]*\)".*/\1/' \
+             | grep -E "/ffmpeg-N-[^/]*-${BTBN_PLATFORM}-${BTBN_VARIANT}\.tar\.xz$" \
+             | head -n 1); \
+           if [ -z "${BTBN_URL}" ]; then echo "Unable to find BtbN asset for ${BTBN_PLATFORM}/${BTBN_VARIANT}" && exit 1; fi; \
+           echo "Fetching ffmpeg from BtbN: ${BTBN_URL}"; \
+           curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${BTBN_URL}"; \
        fi \
     && mkdir -p /tmp/ffmpeg-extract \
     && tar -Jx -C /tmp/ffmpeg-extract -f /tmp/ffmpeg.tar.xz \
@@ -122,7 +129,7 @@ RUN case "${TARGETARCH}" in \
     && find /usr/local/lib/ffmpeg -name "*.so*" -exec ln -sf {} /usr/local/bin/ \; \
     && echo "/usr/local/lib/ffmpeg" > /etc/ld.so.conf.d/ffmpeg.conf \
     && ldconfig \
-    && rm -rf /tmp/ffmpeg-extract /tmp/ffmpeg.tar.xz
+    && rm -rf /tmp/ffmpeg-extract /tmp/ffmpeg.tar.xz /tmp/btbn-release.json
 
 
 # Install s6-overlay for multi-process supervision
