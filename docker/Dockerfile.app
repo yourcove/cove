@@ -62,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/btbn-release.json "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"; \
            BTBN_URL=$(grep -o '"browser_download_url": "[^"]*"' /tmp/btbn-release.json \
              | sed 's/.*"browser_download_url": "\([^"]*\)".*/\1/' \
-             | grep -E "/ffmpeg-N-[^/]*-${BTBN_PLATFORM}-${BTBN_VARIANT}\.tar\.xz$" \
+             | grep -E "/${FFMPEG_ASSET}$|/ffmpeg-N-[^/]*-${BTBN_PLATFORM}-${BTBN_VARIANT}\.tar\.xz$" \
              | head -n 1); \
            if [ -z "${BTBN_URL}" ]; then echo "Unable to find BtbN asset for ${BTBN_PLATFORM}/${BTBN_VARIANT}" && exit 1; fi; \
            echo "Fetching ffmpeg from BtbN: ${BTBN_URL}"; \

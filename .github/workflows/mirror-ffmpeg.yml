@@ -44,35 +44,114 @@ jobs:
           # Variants consumed by the Dockerfiles:
           #   *-gpl.tar.xz        -> docker/Dockerfile.app (static binaries)
           #   *-gpl-shared.tar.xz -> docker/Dockerfile      (shared libs for in-process frame extraction)
-          # Omit the tag so gh selects GitHub's latest release. BtbN no longer publishes a "latest"
-          # tag or ffmpeg-master-latest-* assets; current assets are versioned as ffmpeg-N-*.
-          gh release download --repo BtbN/FFmpeg-Builds --clobber \
-            --pattern 'ffmpeg-N-*-linux64-gpl.tar.xz' \
-            --pattern 'ffmpeg-N-*-linuxarm64-gpl.tar.xz' \
-            --pattern 'ffmpeg-N-*-linux64-gpl-shared.tar.xz' \
-            --pattern 'ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz' \
-            --pattern 'checksums.sha256'
+          # Resolve exact asset names from the release API. Do not rely on gh wildcard matching here:
+          # BtbN alternates between stable ffmpeg-master-latest-* names and versioned ffmpeg-N-* names.
+          gh api repos/BtbN/FFmpeg-Builds/releases/latest > release.json
+          python3 <<'PY' > resolved-assets.env
+          import json
+          import re
+          import shlex
+          import sys
 
-          shopt -s nullglob
-          assets=(
-            ffmpeg-N-*-linux64-gpl.tar.xz
-            ffmpeg-N-*-linuxarm64-gpl.tar.xz
-            ffmpeg-N-*-linux64-gpl-shared.tar.xz
-            ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz
-          )
-          if [ "${#assets[@]}" -ne 4 ]; then
-            printf 'Expected 4 FFmpeg assets, found %s:\n' "${#assets[@]}"
+          with open("release.json", encoding="utf-8") as f:
+              release = json.load(f)
+
+          tag = release.get("tag_name") or ""
+          release_assets = release.get("assets", [])
+          assets = [asset.get("name", "") for asset in release_assets]
+          digests = {
+              asset.get("name", ""): asset.get("digest", "").removeprefix("sha256:")
+              for asset in release_assets
+          }
+
+          def resolve(platform, variant):
+              stable = f"ffmpeg-master-latest-{platform}-{variant}.tar.xz"
+              if stable in assets:
+                  return stable
+
+              pattern = re.compile(rf"^ffmpeg-N-.*-{re.escape(platform)}-{re.escape(variant)}\.tar\.xz$")
+              matches = [asset for asset in assets if pattern.match(asset)]
+              if len(matches) != 1:
+                  print(f"Expected exactly one BtbN asset for {platform}/{variant}, got:", file=sys.stderr)
+                  for match in matches:
+                      print(f"  {match}", file=sys.stderr)
+                  print("Available assets:", file=sys.stderr)
+                  for asset in assets:
+                      print(f"  {asset}", file=sys.stderr)
+                  sys.exit(1)
+              return matches[0]
+
+          resolved = {
+              "tag": tag,
+              "linux64_gpl": resolve("linux64", "gpl"),
+              "linuxarm64_gpl": resolve("linuxarm64", "gpl"),
+              "linux64_gpl_shared": resolve("linux64", "gpl-shared"),
+              "linuxarm64_gpl_shared": resolve("linuxarm64", "gpl-shared"),
+          }
+          resolved.update({f"{key}_sha": digests.get(value, "") for key, value in list(resolved.items()) if key != "tag"})
+
+          if not tag:
+              print("Unable to resolve BtbN latest release tag", file=sys.stderr)
+              sys.exit(1)
+
+          required = {value for key, value in resolved.items() if key != "tag" and not key.endswith("_sha")}
+          missing = sorted(required.difference(assets))
+          if missing:
+              print("Missing required BtbN assets:", file=sys.stderr)
+              for asset in missing:
+                  print(f"  {asset}", file=sys.stderr)
+              sys.exit(1)
+
+          missing_digest = sorted(key for key, value in resolved.items() if key.endswith("_sha") and not value)
+          if missing_digest:
+              print("Missing GitHub release digests:", file=sys.stderr)
+              for key in missing_digest:
+                  print(f"  {key}", file=sys.stderr)
+              sys.exit(1)
+
+          for key, value in resolved.items():
+              print(f"{key}={shlex.quote(value)}")
+          PY
+          source resolved-assets.env
+
+          assets=("${linux64_gpl}" "${linuxarm64_gpl}" "${linux64_gpl_shared}" "${linuxarm64_gpl_shared}")
+          if [ "$(printf '%s\n' "${assets[@]}" | sort -u | wc -l)" -ne 4 ]; then
+            echo "Resolved duplicate FFmpeg assets in BtbN latest release ${tag}:"
             printf '  %s\n' "${assets[@]}"
             exit 1
           fi
 
-          echo "Verifying checksums"
-          sha256sum --ignore-missing -c checksums.sha256
+          echo "Resolved BtbN latest release ${tag}:"
+          printf '  %s\n' "${assets[@]}"
 
-          mv ffmpeg-N-*-linux64-gpl.tar.xz ffmpeg-master-latest-linux64-gpl.tar.xz
-          mv ffmpeg-N-*-linuxarm64-gpl.tar.xz ffmpeg-master-latest-linuxarm64-gpl.tar.xz
-          mv ffmpeg-N-*-linux64-gpl-shared.tar.xz ffmpeg-master-latest-linux64-gpl-shared.tar.xz
-          mv ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz
+          for asset in "${assets[@]}"; do
+            echo "Downloading ${asset}"
+            gh release download "${tag}" --repo BtbN/FFmpeg-Builds --clobber --pattern "${asset}"
+          done
+
+          verify_sha256() {
+            local file="$1"
+            local expected="$2"
+            local actual
+            actual=$(sha256sum "${file}" | cut -d ' ' -f 1)
+            if [ "${actual}" != "${expected}" ]; then
+              echo "Checksum mismatch for ${file}"
+              echo "  expected: ${expected}"
+              echo "  actual:   ${actual}"
+              exit 1
+            fi
+          }
+
+          echo "Verifying checksums"
+          verify_sha256 "${linux64_gpl}" "${linux64_gpl_sha}"
+          verify_sha256 "${linuxarm64_gpl}" "${linuxarm64_gpl_sha}"
+          verify_sha256 "${linux64_gpl_shared}" "${linux64_gpl_shared_sha}"
+          verify_sha256 "${linuxarm64_gpl_shared}" "${linuxarm64_gpl_shared_sha}"
+
+          [ "${linux64_gpl}" = ffmpeg-master-latest-linux64-gpl.tar.xz ] || mv "${linux64_gpl}" ffmpeg-master-latest-linux64-gpl.tar.xz
+          [ "${linuxarm64_gpl}" = ffmpeg-master-latest-linuxarm64-gpl.tar.xz ] || mv "${linuxarm64_gpl}" ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+          [ "${linux64_gpl_shared}" = ffmpeg-master-latest-linux64-gpl-shared.tar.xz ] || mv "${linux64_gpl_shared}" ffmpeg-master-latest-linux64-gpl-shared.tar.xz
+          [ "${linuxarm64_gpl_shared}" = ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz ] || mv "${linuxarm64_gpl_shared}" ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz
           sha256sum ffmpeg-master-latest-*.tar.xz > checksums.sha256
 
       - name: Publish mirror release
