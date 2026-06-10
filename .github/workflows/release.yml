@@ -231,6 +231,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}
+            FFMPEG_MIRROR_BASE=https://github.com/${{ github.repository }}/releases/download/ffmpeg-payload
 
   # ── Create GitHub Release ───────────────────────────────────────
   release:

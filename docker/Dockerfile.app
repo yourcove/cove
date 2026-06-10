@@ -39,16 +39,30 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 # Install FFmpeg with hwaccel support (BtbN GPL static builds)
 # These include NVENC, VAAPI, QSV, Vulkan — much more capable than Debian's ffmpeg
 ARG TARGETARCH
+# FFMPEG_MIRROR_BASE, when set (CI passes this repo's ffmpeg-payload release), is tried first; we
+# fall back to BtbN's rolling "latest". BtbN republishes its assets in place (brief 404s mid-publish,
+# old builds not retained), so the mirror gives container builds a stable, always-available source.
+ARG FFMPEG_MIRROR_BASE=""
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         xz-utils \
     && case "${TARGETARCH:-amd64}" in \
-        amd64) FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" ;; \
-        arm64) FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz" ;; \
+        amd64) FFMPEG_ASSET="ffmpeg-master-latest-linux64-gpl.tar.xz" ;; \
+        arm64) FFMPEG_ASSET="ffmpeg-master-latest-linuxarm64-gpl.tar.xz" ;; \
         *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac \
-    && curl -fsSL "$FFMPEG_URL" | tar -Jx --strip-components=2 -C /usr/local/bin/ --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' \
+    && BTBN_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest" \
+    && if [ -n "${FFMPEG_MIRROR_BASE}" ]; then \
+           echo "Fetching ffmpeg from mirror: ${FFMPEG_MIRROR_BASE}/${FFMPEG_ASSET}"; \
+           curl -fL --retry 3 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${FFMPEG_MIRROR_BASE}/${FFMPEG_ASSET}" || rm -f /tmp/ffmpeg.tar.xz; \
+       fi \
+    && if [ ! -s /tmp/ffmpeg.tar.xz ]; then \
+           echo "Fetching ffmpeg from BtbN: ${BTBN_BASE}/${FFMPEG_ASSET}"; \
+           curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/ffmpeg.tar.xz "${BTBN_BASE}/${FFMPEG_ASSET}"; \
+       fi \
+    && tar -Jx --strip-components=2 -C /usr/local/bin/ --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' -f /tmp/ffmpeg.tar.xz \
+    && rm -f /tmp/ffmpeg.tar.xz \
     && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
     && apt-get purge -y --auto-remove xz-utils \
     && rm -rf /var/lib/apt/lists/*

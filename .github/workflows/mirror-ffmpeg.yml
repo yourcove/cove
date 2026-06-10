@@ -1,0 +1,78 @@
+name: Mirror FFmpeg Builds
+
+# Mirrors BtbN's rolling "latest" FFmpeg builds into this repository's own releases so container
+# image builds have a stable, always-available source. BtbN republishes the "latest" assets in place
+# (they briefly 404 mid-publish, and old builds are not retained), which intermittently breaks Docker
+# image builds. The Dockerfiles try this mirror first (via the FFMPEG_MIRROR_BASE build arg that
+# release.yml passes) and fall back to BtbN if the mirror is unavailable.
+#
+# Run this manually after first setting up the repo, and let the monthly schedule keep it current.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to publish the mirrored FFmpeg assets under
+        required: false
+        default: 'ffmpeg-payload'
+  schedule:
+    # Refresh on the 1st of each month so the mirror tracks reasonably current FFmpeg builds.
+    - cron: '0 6 1 * *'
+
+permissions:
+  contents: write
+
+env:
+  BTBN_BASE: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+  RELEASE_TAG: ${{ github.event.inputs.release_tag || 'ffmpeg-payload' }}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and verify FFmpeg builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mirror
+          cd mirror
+
+          # Variants consumed by the Dockerfiles:
+          #   *-gpl.tar.xz        -> docker/Dockerfile.app (static binaries)
+          #   *-gpl-shared.tar.xz -> docker/Dockerfile      (shared libs for in-process frame extraction)
+          ASSETS=(
+            ffmpeg-master-latest-linux64-gpl.tar.xz
+            ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+            ffmpeg-master-latest-linux64-gpl-shared.tar.xz
+            ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz
+          )
+
+          # BtbN publishes a single checksums.sha256 covering every asset in the release.
+          curl -fL --retry 5 --retry-all-errors --retry-delay 10 -o checksums.sha256 "$BTBN_BASE/checksums.sha256"
+
+          : > to-verify.sha256
+          for asset in "${ASSETS[@]}"; do
+            echo "Downloading $asset"
+            curl -fL --retry 5 --retry-all-errors --retry-delay 10 -o "$asset" "$BTBN_BASE/$asset"
+            # Exact filename match (field 2) so we only verify what we downloaded.
+            awk -v f="$asset" '$2 == f' checksums.sha256 >> to-verify.sha256
+          done
+
+          echo "Verifying checksums"
+          sha256sum -c to-verify.sha256
+
+      - name: Publish mirror release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: FFmpeg payload mirror
+          body: |
+            Mirror of BtbN FFmpeg-Builds `latest` (GPL static + GPL shared, linux64 + linuxarm64),
+            re-hosted here so container image builds have a stable, always-available source.
+            Refreshed by the "Mirror FFmpeg Builds" workflow. Checksums verified against BtbN.
+          files: |
+            mirror/ffmpeg-master-latest-linux64-gpl.tar.xz
+            mirror/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+            mirror/ffmpeg-master-latest-linux64-gpl-shared.tar.xz
+            mirror/ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz
+            mirror/checksums.sha256
