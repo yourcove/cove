@@ -53,17 +53,21 @@ jobs:
             --pattern 'ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz' \
             --pattern 'checksums.sha256'
 
-          : > to-verify.sha256
-          for asset in ffmpeg-N-*-linux64-gpl.tar.xz \
-            ffmpeg-N-*-linuxarm64-gpl.tar.xz \
-            ffmpeg-N-*-linux64-gpl-shared.tar.xz \
-            ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz; do
-            # Exact filename match (field 2) so we only verify what we downloaded.
-            awk -v f="$asset" '$2 == f' checksums.sha256 >> to-verify.sha256
-          done
+          shopt -s nullglob
+          assets=(
+            ffmpeg-N-*-linux64-gpl.tar.xz
+            ffmpeg-N-*-linuxarm64-gpl.tar.xz
+            ffmpeg-N-*-linux64-gpl-shared.tar.xz
+            ffmpeg-N-*-linuxarm64-gpl-shared.tar.xz
+          )
+          if [ "${#assets[@]}" -ne 4 ]; then
+            printf 'Expected 4 FFmpeg assets, found %s:\n' "${#assets[@]}"
+            printf '  %s\n' "${assets[@]}"
+            exit 1
+          fi
 
           echo "Verifying checksums"
-          sha256sum -c to-verify.sha256
+          sha256sum --ignore-missing -c checksums.sha256
 
           mv ffmpeg-N-*-linux64-gpl.tar.xz ffmpeg-master-latest-linux64-gpl.tar.xz
           mv ffmpeg-N-*-linuxarm64-gpl.tar.xz ffmpeg-master-latest-linuxarm64-gpl.tar.xz
