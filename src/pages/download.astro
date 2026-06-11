@@ -1,6 +1,6 @@
 ---
 import MarketingLayout from '../layouts/MarketingLayout.astro';
-import { COVE_RELEASES_LATEST } from '../lib/site';
+import { COVE_RELEASES, COVE_RELEASES_LATEST } from '../lib/site';
 import { withBase } from '../lib/paths';
 ---
 
@@ -14,11 +14,11 @@ import { withBase } from '../lib/paths';
       <p class="eyebrow-small">Install</p>
       <h1 class="page-heading">Get Cove running on your own machine</h1>
       <p class="page-copy">
-        Install Cove as a native app or run it with Docker. Either way, Cove sets itself up the first time you start it, so you can open the app, add your media, and start organizing right away.
+        Install Cove as a native app or run it with Docker. Either way, it sets itself up the first time you start it. There's nothing to configure before you can add media and start organizing.
       </p>
       <div class="button-row">
         <a class="button" href={COVE_RELEASES_LATEST}>Download the latest release</a>
-        <a class="button-ghost" href={COVE_RELEASES_LATEST}>Release notes</a>
+        <a class="button-ghost" href={COVE_RELEASES}>All releases</a>
       </div>
     </div>
   </section>
@@ -27,18 +27,18 @@ import { withBase } from '../lib/paths';
     <div class="marketing-section-inner download-grid">
       <div class="panel">
         <h3>Native app</h3>
-        <p>Download Cove for Windows, macOS, or Linux, then run it. The first time you start it, Cove gets everything it needs ready for you automatically. There is nothing to install or configure by hand.</p>
+        <p>Download Cove for Windows, macOS, or Linux and run it. On first launch it downloads and sets up everything it needs, then opens in your browser. No database to install manually, no manual configuration.</p>
         <ul class="check-list">
           <li>One download per platform from the latest release.</li>
-          <li>Sets itself up on first launch, then opens in your browser.</li>
-          <li>Includes an instance manager so you can run and switch between separate Cove libraries from one place.</li>
+          <li>Sets itself up on first launch.</li>
+          <li>Includes an instance manager for running separate Cove libraries.</li>
         </ul>
         <a class="button-ghost" href={COVE_RELEASES_LATEST}>Get the native app</a>
       </div>
 
       <div class="panel">
         <h3>Docker image</h3>
-        <p>Run Cove from a single image that includes everything it needs. A good fit for a home server or NAS such as UnRAID or Synology, where you want one thing to start and keep running.</p>
+        <p>One image with everything included. A good fit for a home server or NAS like UnRAID or Synology, where you want a single container to start and keep running.</p>
         <div class="code-block"><pre><code>docker compose -f docker-compose.allinone.yml up -d</code></pre></div>
         <ul class="check-list">
           <li>Everything Cove needs in one container.</li>
@@ -49,7 +49,7 @@ import { withBase } from '../lib/paths';
 
       <div class="panel">
         <h3>Docker Compose</h3>
-        <p>Run Cove and its database as separate pieces. This keeps them easy to manage, upgrade, and back up on their own, which suits people who like more control over their setup.</p>
+        <p>Run the app and its database as separate containers, so you can upgrade and back up each one on its own. The right choice if you like more control over your setup.</p>
         <div class="code-block"><pre><code>docker compose up -d</code></pre></div>
         <ul class="check-list">
           <li>App and database run side by side.</li>
@@ -84,16 +84,16 @@ import { withBase } from '../lib/paths';
   <section class="marketing-section">
     <div class="marketing-section-inner info-grid">
       <article class="info-card">
-        <h3>Cove handles setup</h3>
-        <p>However you install it, Cove gets the pieces it needs to run and process your media ready for you, applies updates on startup, and keeps your library working across upgrades.</p>
+        <h3>Setup is handled</h3>
+        <p>However you install it, Cove brings its own database and media tools, applies updates on startup, and backs up your library before every upgrade.</p>
       </article>
       <article class="info-card">
         <h3>You stay in control</h3>
-        <p>You decide where your library lives, which downloaders and providers are turned on, how Cove is reached on your network, and which extensions are allowed to run.</p>
+        <p>You decide where your library lives, which downloaders and providers are enabled, how Cove is reached on your network, and which extensions can run.</p>
       </article>
       <article class="info-card">
         <h3>What to read next</h3>
-        <p>The <a href={withBase('docs/user/getting-started/install/')}>install guide</a> walks through each path step by step. The user docs cover your first scan, importing an existing library, metadata tools, and sharing.</p>
+        <p>The <a href={withBase('docs/user/getting-started/install/')}>install guide</a> walks through each path step by step, and the user docs cover your first scan, importing an existing library, and sharing.</p>
       </article>
     </div>
   </section>

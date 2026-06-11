@@ -14,9 +14,9 @@ import { withBase } from '../lib/paths';
   <section class="marketing-section">
     <div class="marketing-section-inner">
       <p class="eyebrow-small">Feature overview</p>
-      <h1 class="page-heading">Built for people who need more than a simple catalog</h1>
+      <h1 class="page-heading">Everything Cove can do</h1>
       <p class="page-copy">
-        Cove starts as a local organizer you can install, scan, and browse. As your library grows, it gives you better search, richer details, safer sharing, and room to add more through extensions.
+        Out of the box, Cove is simple: install it, scan a folder, browse. This page covers a bit of what's underneath for when your library gets bigger, more detailed, or shared with other people.
       </p>
     </div>
   </section>
@@ -31,14 +31,14 @@ import { withBase } from '../lib/paths';
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Your library</p>
-          <h3>Keep more kinds of media in one place</h3>
+          <h3>Keep all your media in one place</h3>
           <p>
-            Cove is not limited to video. Keep videos, images, galleries, audio, and text together, then connect them with people, studios, tags, tag groups, groups, faces, and your own custom details.
+            Cove isn't limited to video. Videos, images, galleries, audio, and text all live in the same library, connected by people, studios, tags, groups, and faces.
           </p>
           <ul>
-            <li>Use one app for video, image, gallery, audio, and text collections.</li>
-            <li>Organize by the details you remember, not just by folders and filenames.</li>
-            <li>Browse, clean up, watch, and share from the same local library.</li>
+            <li>One app instead of a separate tool per media type.</li>
+            <li>Organize by the details you remember, not just folders and filenames.</li>
+            <li>Browse, clean up, watch, and share from the same place.</li>
           </ul>
           <a href={withBase('docs/user/library/media-types/')}>Read about media types</a>
         </div>
@@ -49,19 +49,19 @@ import { withBase } from '../lib/paths';
           <p class="section-kicker">Global search</p>
           <h3>Jump straight to the thing you remember</h3>
           <p>
-            Search the whole library when you remember a person, tag, title, studio, or group but not where it lives. Cove can take you straight to the matching video, tag, person, group, or other library page.
+            When you remember a person, a tag, a title, or a studio but not where it lives, global search takes you straight there from the top bar.
           </p>
           <ul>
-            <li>Search across the whole library from the top bar.</li>
-            <li>Find things by names, tags, studios, groups, paths, and more.</li>
-            <li>Spend less time hunting through folders.</li>
+            <li>Search the whole library from anywhere in the app.</li>
+            <li>Match on names, tags, studios, groups, paths, and more.</li>
+            <li>Land on the right page instead of hunting through folders.</li>
           </ul>
           <a href={withBase('docs/user/library/search-and-filters/')}>Read search and filter docs</a>
         </div>
         <MarketingShot
           src={withBase('images/screenshots/global-search.png')}
           alt="Cove global search showing results for a library query."
-          caption="Global search helps you jump to matching videos, people, tags, groups, and other library pages."
+          caption="Global search jumps to matching videos, people, tags, and groups."
         />
       </article>
 
@@ -69,18 +69,18 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/search-and-filters.png')}
           alt="Cove videos page with search, sorting, filters, and page-size controls."
-          caption="Search inside a media page, sort it, filter it, change how it looks, or show more items at once."
+          caption="Search a page, sort it, filter it, and change how it looks."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Search and filters</p>
-          <h3>Narrow a big library down to what you want</h3>
+          <h3>Narrow a big library down fast</h3>
           <p>
-            When a library gets large, search needs to do more than match a filename. Cove lets you search inside a media page, sort the results, filter by details like tags and people, and save searches you use often.
+            Every media page can be searched, sorted, and filtered by details like tags and people. If there's a filter or sort you run all the time, save it and come back with one click.
           </p>
           <ul>
-            <li>Save searches you come back to often.</li>
-            <li>Choose a grid, list, wall, tagger, feed, or vertical page.</li>
-            <li>Show more items at once when you want to keep scrolling.</li>
+            <li>Filter by tags, people, studios, and other details.</li>
+            <li>Save the searches you use often.</li>
+            <li>Show more items per page when you'd rather keep scrolling.</li>
           </ul>
           <a href={withBase('docs/user/library/search-and-filters/')}>Read search docs</a>
         </div>
@@ -89,21 +89,21 @@ import { withBase } from '../lib/paths';
       <article class="feature-section two-column">
         <div class="feature-section-copy">
           <p class="section-kicker">Tagging and occurrence tagging</p>
-          <h3>Tag the whole item, or tag a specific person in a specific moment</h3>
+          <h3>Tags that know who and when</h3>
           <p>
-            Some tags belong on an entire video. Others only make sense for one performer, one appearance, or one part of a video. Cove supports both, so your tags can describe what is actually happening.
+            Some tags describe a whole video. Others only fit one performer or when that performer occurs in a video. Cove supports both, so a tag can stay attached to the right person and the right moment instead of vaguely describing the whole file.
           </p>
           <ul>
-            <li>Add a normal tag when it applies to the whole item.</li>
-            <li>Add a performer occurrence tag when it belongs to one person or appearance.</li>
-            <li>Use tag groups when related tags should stay organized together.</li>
+            <li>Tag the whole item when that's all you need.</li>
+            <li>Tag a specific performer's appearance when it isn't.</li>
+            <li>Keep related tags together with tag groups.</li>
           </ul>
           <a href={withBase('docs/user/library/organizing/')}>Read organizing docs</a>
         </div>
         <MarketingShot
           src={withBase('images/screenshots/occurrence-tagging.png')}
           alt="Cove video detail page showing performer occurrence tagging."
-          caption="Performer occurrence tagging keeps a tag attached to the right person and moment."
+          caption="Occurrence tagging keeps a tag attached to the right person and moment."
         />
       </article>
 
@@ -111,18 +111,18 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/segments-player-raw.png')}
           alt="Cove video player with a raw segment profile and segment markers on the timeline."
-          caption="The Raw profile shows the exact segment directly on the player timeline."
+          caption="Segments show up directly on the player timeline."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Segments and sub-videos</p>
-          <h3>Mark useful parts inside a video</h3>
+          <h3>Mark the parts of a video that matter</h3>
           <p>
-            Segments let Cove remember meaningful parts of a video without making duplicate files. A segment can carry tags, performers, faces, timing, and other details that help you find or reuse that exact part later.
+            A segment is a time range inside a video that Cove remembers, with its own tags, people, and notes. No duplicate files, no editing software. The part you care about becomes something you can find, play, and reuse.
           </p>
           <ul>
-            <li>Save a specific time range inside a video.</li>
-            <li>Attach tags, people, faces, or notes to that part.</li>
-            <li>Use segments to build sub-videos and compilations.</li>
+            <li>Save a time range inside any video.</li>
+            <li>Give it tags, people, faces, or notes of its own.</li>
+            <li>Turn segments into sub-videos and compilations.</li>
           </ul>
           <a href={withBase('docs/user/library/segments-and-compilations/')}>Read segment docs</a>
         </div>
@@ -131,14 +131,15 @@ import { withBase } from '../lib/paths';
       <article class="feature-section two-column">
         <div class="feature-section-copy">
           <p class="section-kicker">Groups and compilations</p>
-          <h3>Collect related content without moving files around</h3>
+          <h3>Collect related content without moving files</h3>
           <p>
-            Groups are useful for collections, playlists, projects, and compilations. They sit on top of your library, so you can organize content in new ways without changing the folders on disk.
+            Groups work for collections, playlists, projects, and compilations. They sit on top of your library, so you can organize things any number of ways without ever touching the folders on disk.
           </p>
           <ul>
-            <li>Create collections that have their own page and details.</li>
-            <li>Use groups for playlists, themes, projects, or compilations.</li>
+            <li>Every group gets its own page and details.</li>
+            <li>One video can belong to as many groups as you like.</li>
             <li>Combine groups with segments when only part of a video belongs.</li>
+            <li>Use groups to view compilations without taking extra disk space or needing editing software.</li>
           </ul>
           <a href={withBase('docs/user/library/segments-and-compilations/')}>Read compilation docs</a>
         </div>
@@ -153,18 +154,18 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/feed-viewer.png')}
           alt="Cove feed view for videos."
-          caption="Feed browsing gives Cove a more social media-like way to move through your library."
+          caption="Feed browsing, for when a grid feels too stiff."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Feed browsing</p>
-          <h3>Scroll through media like a feed</h3>
+          <h3>Scroll your library like a feed</h3>
           <p>
-            Feed browsing is for the times when a grid feels too stiff. You can move through filtered content in a more familiar, social media-style layout while still using Cove's tags, people, search, and library details.
+            Sometimes you're organizing, and sometimes you're just watching. Feed view moves through your filtered library the way you'd scroll a social app, with all your tags, people, and search still attached.
           </p>
           <ul>
-            <li>Browse filtered media in a feed-style page.</li>
-            <li>Keep tags, people, groups, and search connected to what you are seeing.</li>
-            <li>Move between browsing and organizing without switching apps.</li>
+            <li>Scroll through filtered media without clicking into each item.</li>
+            <li>Tags, people, and groups stay one tap away.</li>
+            <li>Switch back to a grid whenever you want.</li>
           </ul>
           <a href={withBase('docs/user/library/search-and-filters/')}>Read browsing docs</a>
         </div>
@@ -173,21 +174,21 @@ import { withBase } from '../lib/paths';
       <article class="feature-section two-column">
         <div class="feature-section-copy">
           <p class="section-kicker">Vertical browsing</p>
-          <h3>Use a tall, focused page when that fits the media better</h3>
+          <h3>A tall, focused view for one item at a time</h3>
           <p>
-            Vertical browsing gives Cove another social media-style way to explore content. It is still your local library underneath, with the same search, tags, people, and saved details.
+            Vertical view shows one item at a time in a full-height page, which suits some media much better than a grid. It's the same local library underneath, with the same search and details.
           </p>
           <ul>
-            <li>Browse one item at a time in a taller page.</li>
-            <li>Use it when a grid is not the right feel for the content.</li>
-            <li>Keep your library details close while you browse.</li>
+            <li>Move through items one at a time.</li>
+            <li>Better fit for tall and portrait content.</li>
+            <li>Library details stay close while you browse.</li>
           </ul>
           <a href={withBase('docs/user/library/search-and-filters/')}>Read viewer docs</a>
         </div>
         <MarketingShot
           src={withBase('images/screenshots/vertical-viewer.png')}
           alt="Cove vertical viewing mode for videos."
-          caption="Vertical browsing is another way to explore the same local library."
+          caption="Vertical browsing is another way to move through the same library."
         />
       </article>
 
@@ -195,18 +196,18 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/dashboard-home.png')}
           alt="Cove dashboard showing continue watching and recent activity."
-          caption="Continue watching and recent activity make it easy to return to what you were doing."
+          caption="Continue watching and recent activity on the home dashboard."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Watch later, history, and continue watching</p>
-          <h3>Come back to what matters</h3>
+          <h3>Pick up where you left off</h3>
           <p>
-            Cove can remember what you started, what you recently opened, and what you saved for later. That keeps everyday use inside the organizer instead of scattered across bookmarks, notes, or browser history.
+            Cove remembers what you started, what you opened recently, and what you saved for later, the same way a streaming app would. Your half-watched videos and "save this for tonight" finds stop living in browser tabs.
           </p>
           <ul>
             <li>Resume unfinished media from continue watching.</li>
-            <li>Save items for later without making a full collection.</li>
-            <li>Return to recent activity from the home dashboard.</li>
+            <li>Save items for later without building a whole collection.</li>
+            <li>Get back to recent activity from the home dashboard.</li>
           </ul>
           <a href={withBase('docs/user/library/dynamic-groups/')}>Read dynamic group docs</a>
         </div>
@@ -217,19 +218,19 @@ import { withBase } from '../lib/paths';
           <p class="section-kicker">Metadata and downloaders</p>
           <h3>Bring in content and fill in the details</h3>
           <p>
-            Cove can work with scrapers, metadata servers, and downloaders to help bring in media, identify it, add details, and show where those details came from. You stay in control of what gets applied.
+            Downloaders bring media in, and scrapers and metadata servers identify it and add details. Nothing is applied blindly: you can review changes, and Cove records where each detail came from.
           </p>
           <ul>
-            <li>Use scrapers and metadata servers to help identify content.</li>
-            <li>Install compatible downloaders through Cove's extension area.</li>
-            <li>Review automated changes instead of blindly accepting them.</li>
+            <li>Identify content with scrapers and metadata servers.</li>
+            <li>Install downloaders from Cove's extension discovery page.</li>
+            <li>Review automated changes before accepting them.</li>
           </ul>
           <a href={withBase('docs/user/metadata/providers-scrapers-downloaders/')}>Read metadata docs</a>
         </div>
         <MarketingShot
           src={withBase('images/screenshots/extensions-registry.png')}
           alt="Cove extension discovery screen showing installable add-ons."
-          caption="Discover scrapers, downloaders, and installable add-ons from inside Cove."
+          caption="Discover scrapers, downloaders, and other add-ons from inside Cove."
         />
       </article>
 
@@ -237,18 +238,18 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/roles-permission-editor.png')}
           alt="Cove role permission editor showing detailed permission controls."
-          caption="Roles let you decide exactly what each kind of user is allowed to do."
+          caption="Roles decide exactly what each kind of user is allowed to do."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Users, roles, and permissions</p>
-          <h3>Share a library within your network without sharing one all-powerful login</h3>
+          <h3>One library, separate accounts</h3>
           <p>
-            Cove supports separate accounts, reusable roles, content rules, API tokens, and share links. That means one library can serve more than one person on your network without giving everyone the same level of access.
+            Everyone on your network can have their own account instead of sharing one login. Roles, permissions, and content rules control what each person can see and do, and share links let someone view selected content with no account at all.
           </p>
           <ul>
             <li>Give people only the access they need.</li>
-            <li>Limit what some users can see when needed.</li>
-            <li>Share selected content within your network without creating a full account.</li>
+            <li>Hide parts of the library from some users.</li>
+            <li>Share selected content with a link.</li>
           </ul>
           <a href={withBase('docs/user/security/users-roles-permissions/')}>Read security docs</a>
         </div>
@@ -257,20 +258,20 @@ import { withBase } from '../lib/paths';
       <article class="feature-section two-column">
         <div class="feature-section-copy">
           <p class="section-kicker">Themes and customization</p>
-          <h3>20 built-in beautiful themes, with more possible through extensions</h3>
+          <h3>20 built-in themes</h3>
           <p>
-            Cove can feel quiet, neon, glassy, high-contrast, cinematic, or colorful without requiring a custom CSS project. Choose from 20 built-in themes, then add or create more through Cove's extension system.
+            Cove can look quiet, neon, glassy, high-contrast, or cinematic without you writing any CSS. Pick from 20 built-in themes, and install or build more through extensions.
           </p>
           <ul>
-            <li>Choose built-in themes such as emerald, rose, copper, cyberpunk, synthwave, and more.</li>
-            <li>Change the app's look from inside Cove.</li>
-            <li>Install or build additional themes with extensions.</li>
+            <li>Themes like emerald, rose, copper, cyberpunk, and synthwave.</li>
+            <li>Further customize the look from inside the app.</li>
+            <li>Add more themes with extensions.</li>
           </ul>
           <a href={withBase('screenshots/')}>View the screenshot tour</a>
         </div>
         <ThemeReel
           frames={themeFrames}
-          caption="20 Built-in Beautiful Themes."
+          caption="20 built-in themes."
         />
       </article>
 
@@ -278,18 +279,18 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/extensions-registry.png')}
           alt="Cove extension registry page."
-          caption="Extensions can add downloaders, scrapers, pages, jobs, settings, APIs, themes, and more."
+          caption="Extensions can add downloaders, scrapers, pages, jobs, settings, APIs, and themes."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Extensions</p>
-          <h3>Add more to Cove when you need it</h3>
+          <h3>Add what Cove doesn't have yet</h3>
           <p>
-            Cove's extension system is meant for more than one small plugin hook. Extensions can add useful tools, new pages, background jobs, settings, APIs, themes, scrapers, and downloaders.
+            The extension system goes well past one small plugin hook. Extensions can add new pages, background jobs, settings, APIs, themes, scrapers, and downloaders, and you can see what each one does before enabling it.
           </p>
           <ul>
-            <li>Install extensions through Cove's discovery page.</li>
-            <li>Add new tools without waiting for every idea to ship in the main app.</li>
+            <li>Install extensions from the discovery page inside Cove.</li>
             <li>See what an extension can do before you enable it.</li>
+            <li>Build your own when something is missing.</li>
           </ul>
           <a href={withBase('docs/developer/extensions/overview/')}>Read extension docs</a>
         </div>
@@ -298,21 +299,21 @@ import { withBase } from '../lib/paths';
       <article class="feature-section two-column">
         <div class="feature-section-copy">
           <p class="section-kicker">Multiple libraries</p>
-          <h3>Create, start, and switch between separate Cove libraries</h3>
+          <h3>Run more than one library</h3>
           <p>
-            Sometimes one library is not enough. Cove's instance manager lets you keep separate libraries for private use, sharing, testing, or demos without manually juggling every setup detail yourself.
+            The instance manager creates, starts, and switches between fully separate Cove libraries. Keep one for private use and one for sharing, or spin one up just for testing, without juggling the setup yourself.
           </p>
           <ul>
-            <li>Create and name separate libraries that stay independent.</li>
-            <li>Start, stop, and open each library from one manager.</li>
-            <li>Keep each library's content, accounts, and settings separate.</li>
+            <li>Create and name independent libraries.</li>
+            <li>Start, stop, and open each one from a single manager.</li>
+            <li>Content, accounts, and settings stay fully separate.</li>
           </ul>
           <a href={withBase('download/')}>See install options</a>
         </div>
         <MarketingShot
           src={withBase('images/screenshots/instance-manager.png')}
           alt="Cove instance manager with local file paths hidden."
-          caption="The instance manager helps you run separate local Cove libraries from one place."
+          caption="The instance manager runs separate local Cove libraries from one place."
         />
       </article>
 
@@ -320,18 +321,19 @@ import { withBase } from '../lib/paths';
         <MarketingShot
           src={withBase('images/screenshots/search-and-filters.png')}
           alt="Cove videos page with large-library browsing controls."
-          caption="Search, filters, sorting, and page size controls help large libraries stay usable."
+          caption="Search, filters, sorting, and page-size controls keep large libraries usable."
         />
         <div class="feature-section-copy">
           <p class="section-kicker">Speed and scale</p>
-          <h3>Built to stay fast after your library stops being small</h3>
+          <h3>Stays fast as the library grows</h3>
           <p>
-            Cove is designed for larger collections, so search, browsing, filtering, and generated previews stay practical as the library grows.
+            Cove is built for libraries that stop being small. Search and filtering stay responsive, and preview and thumbnail generation can use your graphics card instead of grinding on the CPU.
           </p>
           <ul>
-            <li>Search and filters stay responsive across large libraries.</li>
-            <li>Hardware acceleration can use your graphics card for previews and thumbnails.</li>
-            <li>Large page sizes and scrolling views help big libraries feel easier to browse.</li>
+            <li>Significantly faster than other media organizers.</li>
+            <li>Search and filters hold up across large libraries.</li>
+            <li>Hardware-accelerated previews and thumbnails.</li>
+            <li>Big page sizes and scrolling views for big collections.</li>
           </ul>
           <a href={withBase('download/')}>See install options</a>
         </div>
