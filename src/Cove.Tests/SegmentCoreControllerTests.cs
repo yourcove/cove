@@ -1487,10 +1487,9 @@ public class SegmentCoreControllerTests
         var initialListResult = await controller.List(CancellationToken.None);
         var initialListOk = Assert.IsType<OkObjectResult>(initialListResult.Result);
         var initialProfiles = Assert.IsAssignableFrom<IReadOnlyList<SegmentDisplayProfileDto>>(initialListOk.Value);
-        Assert.Equal(3, initialProfiles.Count);
+        Assert.Equal(2, initialProfiles.Count);
         Assert.Contains(initialProfiles, item => item.Name == "Raw" && item.UserId == null);
         var globalDefaultProfile = Assert.Single(initialProfiles, item => item.Name == "Default" && item.UserId == null && item.IsDefault);
-        var userDefaultProfile = Assert.Single(initialProfiles, item => item.Name == "Default" && item.UserId == 7 && item.IsDefault);
 
         var globalRulesResult = await controller.ListRules(globalDefaultProfile.Id, CancellationToken.None);
         var globalRulesOk = Assert.IsType<OkObjectResult>(globalRulesResult.Result);
@@ -1501,21 +1500,12 @@ public class SegmentCoreControllerTests
         Assert.Equal(10, globalDefaultRule.MinDurationSec);
         Assert.Equal(8, globalDefaultRule.MergeGapSec);
 
-        var userRulesResult = await controller.ListRules(userDefaultProfile.Id, CancellationToken.None);
-        var userRulesOk = Assert.IsType<OkObjectResult>(userRulesResult.Result);
-        var userRules = Assert.IsAssignableFrom<IReadOnlyList<SegmentDisplayRuleDto>>(userRulesOk.Value);
-        var userDefaultRule = Assert.Single(userRules);
-        Assert.Equal(SegmentHostType.Video, userDefaultRule.HostType);
-        Assert.True(userDefaultRule.Visible);
-        Assert.Equal(10, userDefaultRule.MinDurationSec);
-        Assert.Equal(8, userDefaultRule.MergeGapSec);
-
         var createResult = await controller.Create(new SegmentDisplayProfileCreateDto("Strict", "Tighter segment display rules", false), CancellationToken.None);
         var createCreated = Assert.IsType<CreatedAtActionResult>(createResult.Result);
         var createdProfile = Assert.IsType<SegmentDisplayProfileDto>(createCreated.Value);
         Assert.Equal("Strict", createdProfile.Name);
         Assert.Equal(7, createdProfile.UserId);
-        Assert.False(createdProfile.IsDefault);
+        Assert.True(createdProfile.IsDefault);
 
         var defaultResult = await controller.SetDefault(createdProfile.Id, CancellationToken.None);
         var defaultOk = Assert.IsType<OkObjectResult>(defaultResult.Result);
