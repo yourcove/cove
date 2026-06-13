@@ -77,6 +77,8 @@ interface ExtensionState {
   manifest: ExtensionManifest | null;
   loaded: boolean;
   error?: string;
+  /** Refetch the manifest data (e.g. after installing an extension) without re-registering routes/bundles. Returns the fresh manifest. */
+  refreshManifest: () => Promise<ExtensionManifest | null>;
   activeThemeId: string | null;
   setActiveTheme: (id: string | null) => void;
   availableThemes: ExtensionThemeDef[];
@@ -122,6 +124,7 @@ interface ExtensionState {
 const ExtensionContext = createContext<ExtensionState>({
   manifest: null,
   loaded: false,
+  refreshManifest: async () => null,
   activeThemeId: null,
   setActiveTheme: () => {},
   availableThemes: [],
@@ -734,11 +737,24 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
     [listSorts]
   );
 
+  const refreshManifest = useCallback(async () => {
+    if (troubleshootingMode) return null;
+    try {
+      const m = await extensions.getManifest();
+      setManifest(m);
+      return m;
+    } catch (err) {
+      console.warn("[ExtensionLoader] Failed to refresh manifest:", err);
+      return null;
+    }
+  }, [troubleshootingMode]);
+
   return (
     <ExtensionContext.Provider
       value={{
         manifest,
         loaded,
+        refreshManifest,
         error,
         activeThemeId,
         setActiveTheme,

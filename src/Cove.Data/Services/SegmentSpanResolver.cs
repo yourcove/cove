@@ -16,8 +16,8 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
     private const double BuiltInDefaultMergeGapSec = 8d;
     private const double BuiltInDefaultMinDurationSec = 10d;
     private const int DefaultSpanCacheMinutes = 5;
-    private static readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> VideoCacheKeys = new();
-    private static readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> ProfileCacheKeys = new();
+    private readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> VideoCacheKeys = new();
+    private readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> ProfileCacheKeys = new();
     private static readonly SemaphoreSlim ProfileInitializationLock = new(1, 1);
 
     public async Task<VideoResolvedSpansDto> ResolveVideoAsync(int videoId, int? profileId, CancellationToken ct)
@@ -774,13 +774,13 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         return 0;
     }
 
-    private static void RegisterCacheKey(int videoId, int profileId, string cacheKey)
+    private void RegisterCacheKey(int videoId, int profileId, string cacheKey)
     {
         VideoCacheKeys.GetOrAdd(videoId, static _ => new ConcurrentDictionary<string, byte>())[cacheKey] = 0;
         ProfileCacheKeys.GetOrAdd(profileId, static _ => new ConcurrentDictionary<string, byte>())[cacheKey] = 0;
     }
 
-    private static void RegisterVideoCacheKey(int videoId, string cacheKey)
+    private void RegisterVideoCacheKey(int videoId, string cacheKey)
     {
         VideoCacheKeys.GetOrAdd(videoId, static _ => new ConcurrentDictionary<string, byte>())[cacheKey] = 0;
     }

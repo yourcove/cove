@@ -3115,6 +3115,8 @@ export interface ExtensionTutorialTopic {
   order: number;
   slides?: ExtensionTutorialSlide[];
   parentTopicId?: string;
+  /** When "setup", this topic is the extension's setup guide and is surfaced after install. */
+  kind?: string;
 }
 
 export interface ExtensionTutorialSlide {

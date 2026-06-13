@@ -559,7 +559,8 @@ public record UITutorialTopic(
     string? ExtensionId = null,
     int Order = 100,
     List<UITutorialSlide>? Slides = null,
-    string? ParentTopicId = null
+    string? ParentTopicId = null,
+    string? Kind = null
 );
 
 /// <summary>Single tutorial slide shown inside a tutorial topic.</summary>

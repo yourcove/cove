@@ -37,6 +37,8 @@ export interface TutorialStoryboardTopic {
   contexts?: string[];
   extensionId?: string;
   parentTopicId?: string;
+  /** When "setup", this topic is an extension's setup guide (surfaced after install). */
+  kind?: string;
   order: number;
   slides: TutorialStoryboardSlide[];
 }
@@ -68,6 +70,18 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
         topicLinks: [
           { label: "How list pages work", topicId: "list-pages" },
           { label: "What the content types are for", topicId: "content-types" },
+        ],
+      },
+      {
+        id: "library-paths",
+        title: "Point Cove at your folders",
+        caption: "In Settings, open Library → Paths & Storage and use + Add path to add each folder you keep media in. These are the roots the scanner will read.",
+        imageSrc: "/manual/screenshots/library-paths.png",
+        imageAlt: "The Library Paths settings with the Add path button",
+        points: [
+          "[green] + Add path, add one row per content root",
+          "Per path, you can exclude videos, images, audio, or text if a folder only holds one kind",
+          "Cove only reads these folders — your files stay where they are",
         ],
       },
       {
@@ -763,6 +777,222 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       },
     ],
   },
+  {
+    id: "content-types-people",
+    title: "Performers and Studios",
+    description: "The detail pages for the people and studios in your library.",
+    pages: ["performers", "performer", "studios", "studio"],
+    parentTopicId: "content-types",
+    order: 31,
+    slides: [
+      {
+        id: "performer-page",
+        title: "A performer's page",
+        caption: "A performer page gathers everything they appear in. Tabs across the top split their content by type — Videos, Galleries, Images, Audios, Texts, Groups — plus Appears With and Similar.",
+        imageSrc: "/manual/screenshots/performer-page.png",
+        imageAlt: "A performer detail page with content tabs",
+        points: [
+          "[green] the content tabs, each with a count",
+          "[blue] Appears With shows performers who share content with this one",
+          "Similar suggests performers you might also want",
+        ],
+      },
+      {
+        id: "studio-page",
+        title: "A studio's page",
+        caption: "A studio page works the same way, with one extra: Sub-studios. Studios can be nested, so a parent studio can show the studios beneath it.",
+        imageSrc: "/manual/screenshots/studio-page.png",
+        imageAlt: "A studio detail page showing the Sub-studios tab",
+        points: [
+          "[green] content tabs by type, like performers",
+          "[blue] Sub-studios, the studios nested under this one",
+        ],
+      },
+    ],
+  },
+  {
+    id: "content-types-viewers",
+    title: "Viewing each media type",
+    description: "How images, galleries, audio, and text open in Cove.",
+    pages: ["images", "image", "galleries", "gallery", "audios", "audio", "texts", "text"],
+    parentTopicId: "content-types",
+    order: 32,
+    slides: [
+      {
+        id: "images-galleries",
+        title: "Images and galleries",
+        caption: "Open an image to view it full screen in the lightbox, with zoom and prev/next. A gallery groups images together — its Images tab shows the grid, and you can open any one in the same lightbox.",
+        imageSrc: "/manual/screenshots/image-lightbox.png",
+        imageAlt: "An image open in the lightbox viewer",
+        points: [
+          "[green] the lightbox, with zoom and next/previous",
+          "[blue] a gallery's Images tab holds its grid",
+        ],
+      },
+      {
+        id: "audio-text",
+        title: "Audio and text",
+        caption: "Audio opens in a player with a scrubber and volume, and lists its tracks. Text and PDFs open in a reader — PDFs get page controls so you can jump through the document.",
+        imageSrc: "/manual/screenshots/audio-text.png",
+        imageAlt: "An audio detail page with the player and tracks",
+        points: [
+          "[green] the audio player and its Tracks tab",
+          "[blue] the text/PDF reader with page controls",
+        ],
+      },
+    ],
+  },
+  {
+    id: "detail-pages",
+    title: "Detail Pages",
+    description: "What's on a video's page: playback, metadata, ratings, and editing.",
+    pages: ["video", "image", "audio", "text", "gallery"],
+    order: 35,
+    slides: [
+      {
+        id: "scene-anatomy",
+        title: "Anatomy of a video page",
+        caption: "A video page puts the player up top and everything Cove knows about the video below, split into tabs: Details, Segments, Similar, Audio Similar, Filters, File Info, History, and Edit.",
+        imageSrc: "/manual/screenshots/video-detail.png",
+        imageAlt: "A video detail page showing the player and the row of tabs",
+        points: [
+          "[green] the player at the top",
+          "[blue] the tabs that organize everything else",
+          "[purple] the Details tab: studio, performers, tags, groups, galleries, and faces",
+        ],
+        topicLinks: [
+          { label: "Tags and people", topicId: "content-types" },
+          { label: "Segments", topicId: "segments" },
+        ],
+      },
+      {
+        id: "ratings-actions",
+        title: "Rate, favorite, and organize",
+        caption: "Alongside the video you can set a star rating, mark it a favorite, and flag it Organized once you've finished tidying its metadata. Cove also tracks likes and how often you've opened it.",
+        imageSrc: "/manual/screenshots/video-detail-actions.png",
+        imageAlt: "The rating, favorite, and organized controls on a video page",
+        points: [
+          "[green] the 5-star rating",
+          "[blue] the favorite heart",
+          "[orange] Organized, your 'this one's done' marker",
+        ],
+      },
+      {
+        id: "edit-metadata",
+        title: "Edit the details",
+        caption: "The Edit tab turns the metadata into a form so you can fix titles, dates, and descriptions or adjust tags, performers, and groups by hand.",
+        imageSrc: "/manual/screenshots/video-edit.png",
+        imageAlt: "The Edit tab of a video showing the metadata form",
+        points: [
+          "Editing needs write permission on that content type",
+          "Manual edits are recorded in provenance, so you can always see what you changed",
+        ],
+        topicLinks: [
+          { label: "Field provenance", topicId: "metadata-provenance" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "detail-pages-playback",
+    title: "Playback and Shortcuts",
+    description: "Player controls, the timeline, and keyboard shortcuts.",
+    pages: ["video"],
+    parentTopicId: "detail-pages",
+    order: 36,
+    slides: [
+      {
+        id: "player-controls",
+        title: "The player and timeline",
+        caption: "Play, scrub, change speed, loop a section, and go fullscreen. The scrubber isn't just a progress bar — it shows swimlanes for segments, detections, and faces so you can see what's where and jump to it.",
+        imageSrc: "/manual/screenshots/video-scrubber.png",
+        imageAlt: "The video player scrubber showing segment and face swimlanes",
+        points: [
+          "[green] the scrubber with segment and face swimlanes",
+          "[blue] speed and loop controls",
+          "Click a swimlane marker to jump straight to that moment",
+        ],
+        topicLinks: [
+          { label: "How segments work", topicId: "segments" },
+        ],
+      },
+      {
+        id: "keyboard-shortcuts",
+        title: "Keyboard shortcuts",
+        caption: "The player is built for the keyboard. Learn a few keys and you'll move through videos far faster than with the mouse.",
+        points: [
+          "Space or K — play and pause",
+          "Left / Right — seek 5 seconds (hold Shift for 10)",
+          "Up / Down — volume; M — mute",
+          "F — fullscreen",
+          "0–9 — jump to that percent of the video",
+        ],
+      },
+    ],
+  },
+  {
+    id: "save-for-later-history",
+    title: "Save for Later and History",
+    description: "Bookmark things to come back to, and pick up where you left off.",
+    pages: ["home", "videos", "video", "groups"],
+    order: 95,
+    slides: [
+      {
+        id: "save-for-later",
+        title: "Save things for later",
+        caption: "The bookmark button — Save for Later — is on cards and detail pages. Saved items collect in the built-in Save for Later group so you can find them again without hunting.",
+        points: [
+          "[green] the bookmark / Save for Later button",
+          "Your saved items live in the built-in Save for Later group",
+        ],
+        topicLinks: [
+          { label: "Groups", topicId: "groups" },
+        ],
+      },
+      {
+        id: "continue-watching",
+        title: "Continue watching",
+        caption: "Cove remembers where you stopped. The Continue Watching row on the home page brings you back to videos in progress, and your watch history is kept as its own built-in group.",
+        imageSrc: "/manual/screenshots/continue-watching.png",
+        imageAlt: "The Continue Watching row on the home page",
+        points: [
+          "[green] the Continue Watching row on Home",
+          "Watch history is a built-in group you can browse any time",
+        ],
+      },
+    ],
+  },
+  {
+    id: "backups-upgrades",
+    title: "Backups and Upgrades",
+    description: "Keep your library safe and understand the update prompt.",
+    pages: ["settings"],
+    contexts: ["settings-tab:operations/backup-restore", "route:/settings/operations/backup-restore"],
+    order: 125,
+    slides: [
+      {
+        id: "backups",
+        title: "Back up your library",
+        caption: "In Settings, open Operations → Backup & Restore. Create a database backup before big changes, and you can restore from one if something goes wrong. You can also export and import metadata here.",
+        imageSrc: "/manual/screenshots/backup-restore.png",
+        imageAlt: "The Backup & Restore settings with create and restore controls",
+        points: [
+          "[green] Create Database Backup, do this before risky changes",
+          "[blue] Restore Database, roll back to a saved backup",
+          "Export/Import Metadata moves library data in and out",
+        ],
+      },
+      {
+        id: "upgrades",
+        title: "When Cove needs to update",
+        caption: "After an update, Cove may need to apply database changes before the library opens. You'll see a Database Update Required screen — it makes a backup first, then you click Run Migration.",
+        points: [
+          "A backup is created automatically before any migration runs",
+          "[green] Run Migration, then Cove opens as usual",
+        ],
+      },
+    ],
+  },
 ];
 
 export function hasCompletedTutorialStoryboard() {
@@ -1090,6 +1320,7 @@ function mergeTutorialTopics(extensionTopics: ExtensionTutorialTopic[]): Tutoria
       contexts: normalizeManualContexts(topic.contexts),
       extensionId: topic.extensionId,
       parentTopicId: topic.parentTopicId,
+      kind: topic.kind,
       order: topic.order ?? 100,
       slides: (topic.slides ?? []).map((slide) => ({
         id: slide.id,

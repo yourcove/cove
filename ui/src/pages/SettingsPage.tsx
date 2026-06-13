@@ -5925,7 +5925,7 @@ function ExtensionSettingsForm({ extensionId, schema }: { extensionId: string; s
 
 // ===== Extensions Panel — unified view of all extensions =====
 function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
-  const { availableThemes, activeThemeId, setActiveTheme, getSettingsPanelsForTab, resolveComponent } = useExtensions();
+  const { availableThemes, activeThemeId, setActiveTheme, getSettingsPanelsForTab, resolveComponent, manifest, refreshManifest } = useExtensions();
   const settingsPanels = getSettingsPanelsForTab("extensions");
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -5933,6 +5933,19 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [extensionToUninstall, setExtensionToUninstall] = useState<PendingExtensionUninstall | null>(null);
   const [pendingDependencyInstall, setPendingDependencyInstall] = useState<PendingExtensionInstall | null>(null);
+  // Just-installed extension that ships a setup guide, shown as a post-install CTA (we don't auto-open it).
+  const [justInstalledSetup, setJustInstalledSetup] = useState<{ name: string; topicId: string } | null>(null);
+
+  // Map an extension id to its setup-guide topic id (topics flagged kind === "setup" in the manifest).
+  const setupTopicByExtension = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const topic of manifest?.tutorialTopics ?? []) {
+      if (topic.kind === "setup" && topic.extensionId && !map.has(topic.extensionId)) {
+        map.set(topic.extensionId, topic.id);
+      }
+    }
+    return map;
+  }, [manifest]);
 
   // .NET extensions from the extension manager
   const { data: extList } = useQuery({
@@ -5994,6 +6007,17 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+
+      // Pull the freshened manifest so a newly installed extension's setup guide becomes
+      // available, then offer it as a CTA rather than opening the manual automatically.
+      void refreshManifest().then((fresh) => {
+        const setupTopic = fresh?.tutorialTopics?.find(
+          (topic) => topic.kind === "setup" && topic.extensionId === variables.id,
+        );
+        if (setupTopic) {
+          setJustInstalledSetup({ name: data.extension?.name ?? variables.name ?? variables.id, topicId: setupTopic.id });
+        }
+      });
     },
   });
 
@@ -6150,6 +6174,34 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 
   return (
     <>
+      {justInstalledSetup && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded border border-accent/30 bg-accent/10 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <BookOpen className="h-4 w-4 shrink-0 text-accent" />
+            <span><span className="font-medium">{justInstalledSetup.name}</span> is installed. View its setup guide to finish getting it ready.</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                openTutorialStoryboard({ topicId: justInstalledSetup.topicId });
+                setJustInstalledSetup(null);
+              }}
+              className="px-3 py-1 text-xs rounded font-medium bg-accent text-background hover:bg-accent/90"
+            >
+              View setup guide
+            </button>
+            <button
+              type="button"
+              onClick={() => setJustInstalledSetup(null)}
+              className="rounded px-2 py-1 text-xs text-secondary hover:bg-card-hover/40"
+              aria-label="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
       <ConfirmDialog
         open={extensionToUninstall != null}
         title="Uninstall Extension"
@@ -6293,6 +6345,21 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                       >
                         {upgradeMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                         Upgrade
+                      </button>
+                    )}
+                    {setupTopicByExtension.has(ext.id) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const topicId = setupTopicByExtension.get(ext.id);
+                          if (topicId) openTutorialStoryboard({ topicId });
+                        }}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+                        title="Open this extension's setup guide"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                        Setup guide
                       </button>
                     )}
                     {isBundle ? (
