@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
@@ -162,6 +163,24 @@ public partial class StashMigrationService
             pendingBatch.Clear();
         }
 
+        // Guard the unique (ParentFolderId, Basename) index: if two scene files resolve to the same
+        // folder+basename (e.g. genuine duplicates), skip the second instead of letting SaveChanges
+        // throw and abort the entire import. Keys are compared case-sensitively to match the index.
+        var candidateParentFolderIds = fileData.Values
+            .Where(file => folderIdMap.ContainsKey(file.FolderId))
+            .Select(file => folderIdMap[file.FolderId])
+            .Distinct()
+            .ToList();
+        var existingFileKeys = new HashSet<string>(
+            await _db.Set<BaseFileEntity>()
+                .AsNoTracking()
+                .Where(file => candidateParentFolderIds.Contains(file.ParentFolderId))
+                .Select(file => GetImportedBaseFileKey(file.ParentFolderId, file.Basename))
+                .ToListAsync(ct),
+            StringComparer.Ordinal);
+        var seenFileKeys = new HashSet<string>(StringComparer.Ordinal);
+        var skippedDuplicateFiles = 0;
+
         foreach (var row in sceneRows)
         {
             var oHistory = sceneODates.GetValueOrDefault(row.Id, []);
@@ -205,6 +224,13 @@ public partial class StashMigrationService
                 if (!fileData.TryGetValue(fileId, out var fd)) continue;
                 if (!videoData.TryGetValue(fileId, out var vd)) continue;
                 if (!folderIdMap.TryGetValue(fd.FolderId, out var coveFolderId)) continue;
+
+                var fileKey = GetImportedBaseFileKey(coveFolderId, fd.Basename);
+                if (existingFileKeys.Contains(fileKey) || !seenFileKeys.Add(fileKey))
+                {
+                    skippedDuplicateFiles++;
+                    continue;
+                }
 
                 scene.Files.Add(new VideoFile
                 {
@@ -278,6 +304,8 @@ public partial class StashMigrationService
         await AddImportedAffinitiesAsync(sceneAffinitySeeds, idMap, AffinityHostType.Video, ct);
 
         _logger.LogInformation("Imported {Count} scenes in {Elapsed}", count, stopwatch.Elapsed);
+        if (skippedDuplicateFiles > 0)
+            _logger.LogWarning("Skipped {Count} duplicate scene files because a file with the same folder/basename was already imported", skippedDuplicateFiles);
 
         var generatedMap = new Dictionary<int, SceneGeneratedData>();
         foreach (var row in sceneRows)

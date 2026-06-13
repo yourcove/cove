@@ -74,6 +74,7 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
             .ToListAsync(ct);
 
         var deletedCount = 0;
+        var deletedFromDisk = 0;
         foreach (var file in files)
         {
             if (dto.DeleteFromDisk)
@@ -82,7 +83,8 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
                 if (System.IO.File.Exists(path))
                 {
                     System.IO.File.Delete(path);
-                    logger.LogInformation("Deleted file from disk: {Path}", path);
+                    deletedFromDisk++;
+                    logger.LogDebug("Deleted file from disk: {Path}", path);
                 }
             }
 
@@ -91,6 +93,7 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
         }
 
         await db.SaveChangesAsync(ct);
+        logger.LogInformation("Deleted {Count} file record(s) ({DiskCount} also removed from disk)", deletedCount, deletedFromDisk);
         return Ok(new { deleted = deletedCount });
     }
 

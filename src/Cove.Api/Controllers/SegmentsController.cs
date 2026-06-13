@@ -295,6 +295,14 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var now = DateTime.UtcNow;
         foreach (var segment in segments)
         {
+            // A "tag" segment only exists to mark where that tag occurs — removing the tag
+            // leaves nothing meaningful, so delete it rather than orphan a kind=tag row with no tag.
+            if (string.Equals(segment.Kind?.Trim(), "tag", StringComparison.OrdinalIgnoreCase))
+            {
+                db.Segments.Remove(segment);
+                continue;
+            }
+
             segment.TagId = null;
             segment.UpdatedAt = now;
         }

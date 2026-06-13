@@ -3,11 +3,10 @@ import type { FindFilter } from "../api/types";
 import { isValidElement, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
-import { LIST_PER_PAGE_OPTIONS, toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
+import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
+import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu } from "./SavedFilterMenu";
-
-const PER_PAGE_OPTIONS = LIST_PER_PAGE_OPTIONS;
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -69,11 +68,6 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter.sort, filter.seed]);
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
-  const pageSizeOptions = useMemo(() => {
-    if (infinitePageSizeOnly) return [];
-    if (infinitePageSize || PER_PAGE_OPTIONS.includes(perPage)) return PER_PAGE_OPTIONS;
-    return [...PER_PAGE_OPTIONS, perPage].sort((left, right) => left - right);
-  }, [infinitePageSize, infinitePageSizeOnly, perPage]);
   const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
   const totalPages = Math.max(1, Math.ceil(totalCount / effectivePerPage));
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (page - 1) * effectivePerPage + 1) : 0;
@@ -205,18 +199,13 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         ) : null}
 
         <div className={toolbarSegmentClass}>
-          <select
-            value={infinitePageSize ? "infinite" : String(perPage)}
-            onChange={(e) => onFilterChange({ ...filter, perPage: e.target.value === "infinite" ? 0 : Number(e.target.value), page: 1 })}
-            className={`${toolbarSelectClass} min-w-[4.75rem]`}
-            title="Items per page"
-            disabled={infinitePageSizeOnly}
-          >
-            {allowInfinitePageSize ? <option value="infinite">Infinite</option> : null}
-            {pageSizeOptions.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+          <PageSizeSelect
+            perPage={perPage}
+            allowInfinite={allowInfinitePageSize}
+            infinitePageSize={infinitePageSize}
+            infinitePageSizeOnly={infinitePageSizeOnly}
+            onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: nextPerPage, page: 1 })}
+          />
 
           {effectiveZoomLevel !== undefined && onZoomChange && (
             <div className="hidden items-center gap-1 pl-1 md:flex">

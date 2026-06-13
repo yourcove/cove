@@ -8,8 +8,18 @@ public static class AuthDisabledRequestGuard
 {
     public static bool IsTrustedLocalRequest(HttpContext context, AuthConfig authConfig)
     {
+        var effectiveHost = GetEffectiveHost(context);
+
+        // An operator can explicitly allowlist the hostname(s) they serve Cove on so
+        // they can intentionally run with auth disabled behind a trusted reverse proxy
+        // (e.g. nginx ingress) on a custom public domain. A matching host is trusted
+        // regardless of client IP, since behind such a proxy the effective remote
+        // address resolves to the real (public) client and would otherwise never pass.
+        if (IsExplicitlyTrustedHost(effectiveHost, authConfig.TrustedHosts))
+            return true;
+
         return IsTrustedLocalAddress(GetEffectiveRemoteAddress(context, authConfig))
-            && IsTrustedLocalHost(GetEffectiveHost(context));
+            && IsTrustedLocalHost(effectiveHost);
     }
 
     public static IPAddress? GetEffectiveRemoteAddress(HttpContext context, AuthConfig authConfig)
@@ -130,15 +140,60 @@ public static class AuthDisabledRequestGuard
         return (bytes[0] & 0xfe) == 0xfc;
     }
 
-    private static bool IsTrustedLocalHost(string? rawHost)
+    private static bool IsExplicitlyTrustedHost(string? rawHost, IEnumerable<string>? trustedHosts)
+    {
+        if (trustedHosts is null)
+            return false;
+
+        var host = NormalizeHost(rawHost);
+        if (string.IsNullOrEmpty(host))
+            return false;
+
+        foreach (var rawEntry in trustedHosts)
+        {
+            var entry = rawEntry?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(entry))
+                continue;
+
+            if (entry == "*")
+                return true;
+
+            if (entry.StartsWith("*.", StringComparison.Ordinal))
+            {
+                var suffix = entry[1..]; // ".example.com"
+                if (host.EndsWith(suffix, StringComparison.Ordinal) && host.Length > suffix.Length)
+                    return true;
+                continue;
+            }
+
+            if (string.Equals(host, entry, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string? NormalizeHost(string? rawHost)
     {
         if (string.IsNullOrWhiteSpace(rawHost))
-            return true;
+            return null;
 
         var host = rawHost.Trim().Trim('[', ']').ToLowerInvariant();
         var colonIndex = host.LastIndexOf(':');
         if (colonIndex > -1 && host.Count(ch => ch == ':') == 1)
             host = host[..colonIndex];
+
+        return host;
+    }
+
+    private static bool IsTrustedLocalHost(string? rawHost)
+    {
+        if (string.IsNullOrWhiteSpace(rawHost))
+            return true;
+
+        var host = NormalizeHost(rawHost);
+        if (string.IsNullOrEmpty(host))
+            return true;
 
         if (host is "localhost" or "0.0.0.0" or "::" or "::1")
             return true;

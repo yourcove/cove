@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Core.Events;
@@ -286,7 +287,7 @@ public class ScanService(
             {
                 var beforeDedup = files.Count;
                 files = files
-                    .GroupBy(file => file.StoredPath, StringComparer.OrdinalIgnoreCase)
+                    .GroupBy(file => file.StoredPath, FilesystemPaths.PathComparer)
                     .Select(group => group.First())
                     .ToList();
                 if (files.Count != beforeDedup)
@@ -794,7 +795,7 @@ public class ScanService(
             return;
 
         var stopwatch = Stopwatch.StartNew();
-        logger.LogInformation("Scan existing-file index: loading {Count} base file paths", storedPaths.Length);
+        logger.LogDebug("Scan existing-file index: loading {Count} base file paths", storedPaths.Length);
 
         var chunkIndex = 0;
         foreach (var chunk in storedPaths.Chunk(1000))
@@ -830,7 +831,7 @@ public class ScanService(
             }
         }
 
-        logger.LogInformation(
+        logger.LogDebug(
             "Scan existing-file index: loaded base file paths in {ElapsedMs} ms using {ChunkCount} chunks",
             stopwatch.ElapsedMilliseconds,
             chunkIndex);
@@ -857,7 +858,7 @@ public class ScanService(
             return;
 
         var stopwatch = Stopwatch.StartNew();
-        logger.LogInformation("Scan existing-file index: loading {Count} {MediaType} paths", storedPaths.Length, mediaType);
+        logger.LogDebug("Scan existing-file index: loading {Count} {MediaType} paths", storedPaths.Length, mediaType);
 
         var chunkIndex = 0;
         foreach (var chunk in storedPaths.Chunk(1000))
@@ -871,7 +872,7 @@ public class ScanService(
             await addExistingFiles(db, index, chunk, ct);
         }
 
-        logger.LogInformation(
+        logger.LogDebug(
             "Scan existing-file index: loaded {MediaType} paths in {ElapsedMs} ms using {ChunkCount} chunks",
             mediaType,
             stopwatch.ElapsedMilliseconds,
@@ -1405,11 +1406,14 @@ public class ScanService(
         IReadOnlyCollection<(DiscoveredFile File, bool IsKnownFile)> filesToProcess,
         CancellationToken ct)
     {
-        var folderIdsByPath = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        // Use the host filesystem's case sensitivity so two folders differing only by case (distinct on
+        // Linux, e.g. .../Weibtm and .../weibtm) get separate folder ids instead of being collapsed —
+        // which would make their identically-named files collide on the unique (ParentFolderId, Basename) index.
+        var folderIdsByPath = new ConcurrentDictionary<string, int>(FilesystemPaths.PathComparer);
 
         var directories = filesToProcess
             .Select(item => NormalizeStoredFolderPath(Path.GetDirectoryName(item.File.Path) ?? item.File.Path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(FilesystemPaths.PathComparer)
             .ToList();
 
         if (directories.Count == 0)

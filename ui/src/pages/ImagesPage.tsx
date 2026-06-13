@@ -30,6 +30,7 @@ import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { useAppConfig } from "../state/AppConfigContext";
+import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 
 const Lightbox = lazy(() => import("../components/Lightbox").then((module) => ({ default: module.Lightbox })));
 const ImageCreateModal = lazy(() => import("./ImageEditModal").then((module) => ({ default: module.ImageCreateModal })));
@@ -42,21 +43,6 @@ const SEARCH_MODE_OPTIONS = [
 ];
 
 const VISUAL_MATCH_SORT_OPTION = { value: "visual_match", label: "Visual Match" };
-const SORT_OPTIONS = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "date", label: "Date" },
-  { value: "file_mod_time", label: "File Modification Time" },
-  { value: "file_size", label: "File Size" },
-  { value: "resolution", label: "Resolution" },
-  { value: "path", label: "Path" },
-  { value: "title", label: "Title" },
-  { value: "rating", label: "Rating" },
-  { value: "like_counter", label: "Likes" },
-  { value: "performer_count", label: "Performer Count" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "random", label: "Random" },
-];
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -108,7 +94,7 @@ export function ImagesPage({ onNavigate }: Props) {
   const infiniteChunkSize = displayMode === "feed" ? 8 : defaultInfiniteChunkSize;
   const searchModeOptions = useMemo(() => visualSimilarityAvailable ? SEARCH_MODE_OPTIONS : SEARCH_MODE_OPTIONS.filter((mode) => mode.value === "text"), [visualSimilarityAvailable]);
   const sortOptions = useMemo(
-    () => visualSimilarityAvailable && searchMode === "visual" ? [VISUAL_MATCH_SORT_OPTION, ...SORT_OPTIONS] : SORT_OPTIONS,
+    () => visualSimilarityAvailable && searchMode === "visual" ? [VISUAL_MATCH_SORT_OPTION, ...IMAGE_SORT_OPTIONS] : IMAGE_SORT_OPTIONS,
     [visualSimilarityAvailable, searchMode],
   );
 

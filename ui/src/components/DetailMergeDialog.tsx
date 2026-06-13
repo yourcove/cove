@@ -33,11 +33,15 @@ export function DetailMergeDialog({
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  // "intoCurrent": merge other entries into this one (this one is kept).
+  // "intoOther":   merge this entry into another one (the other one is kept, this is removed).
+  const [direction, setDirection] = useState<"intoCurrent" | "intoOther">("intoCurrent");
 
   useEffect(() => {
     if (!open) {
       setSearchTerm("");
       setSelectedIds([]);
+      setDirection("intoCurrent");
     }
   }, [open]);
 
@@ -53,7 +57,11 @@ export function DetailMergeDialog({
   );
 
   const mergeMut = useMutation({
-    mutationFn: () => onMerge(targetItem.id, selectedIds),
+    // intoCurrent: keep this entry, fold the selected entries into it.
+    // intoOther:   keep the single selected entry, fold this entry into it.
+    mutationFn: () => direction === "intoCurrent"
+      ? onMerge(targetItem.id, selectedIds)
+      : onMerge(selectedIds[0], [targetItem.id]),
     onSuccess: async () => {
       for (const key of invalidateQueryKeys) {
         await queryClient.invalidateQueries({ queryKey: typeof key === "string" ? [key] : key });
@@ -65,8 +73,13 @@ export function DetailMergeDialog({
 
   if (!open) return null;
 
+  const intoOther = direction === "intoOther";
   const toggleSelection = (id: number) => {
-    setSelectedIds((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.filter((item) => item !== id);
+      // Merging into another entry has exactly one destination, so it's single-select.
+      return intoOther ? [id] : [...prev, id];
+    });
   };
 
   return (
@@ -78,7 +91,9 @@ export function DetailMergeDialog({
             <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
               <GitMerge className="h-5 w-5" /> Merge {entityType.charAt(0).toUpperCase() + entityType.slice(1)}s
             </h2>
-            <p className="mt-1 text-sm text-secondary">Keep the current {entityType} and merge other matching entries into it.</p>
+            <p className="mt-1 text-sm text-secondary">{intoOther
+              ? `Merge this ${entityType} into another one. This ${entityType} is removed; the selected one is kept.`
+              : `Keep the current ${entityType} and merge other matching entries into it.`}</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-secondary hover:bg-surface hover:text-foreground">
             <X className="h-5 w-5" />
@@ -86,8 +101,27 @@ export function DetailMergeDialog({
         </div>
 
         <div className="space-y-4 overflow-y-auto px-5 py-4">
-          <div className="rounded-lg border border-green-600/30 bg-green-600/10 p-3">
-            <div className="text-xs uppercase tracking-wide text-green-300">Merge target</div>
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => { setDirection("intoCurrent"); setSelectedIds([]); }}
+              className={`rounded-md px-3 py-1.5 transition-colors ${!intoOther ? "bg-accent text-white" : "text-secondary hover:text-foreground"}`}
+            >
+              Merge others into this
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDirection("intoOther"); setSelectedIds([]); }}
+              className={`rounded-md px-3 py-1.5 transition-colors ${intoOther ? "bg-accent text-white" : "text-secondary hover:text-foreground"}`}
+            >
+              Merge this into another
+            </button>
+          </div>
+
+          <div className={`rounded-lg border p-3 ${intoOther ? "border-red-600/30 bg-red-600/10" : "border-green-600/30 bg-green-600/10"}`}>
+            <div className={`text-xs uppercase tracking-wide ${intoOther ? "text-red-300" : "text-green-300"}`}>
+              {intoOther ? `This ${entityType} (will be merged away)` : "Merge target (kept)"}
+            </div>
             <div className="mt-1 text-sm font-medium text-foreground">{targetItem.name}</div>
             {targetItem.subtitle && <div className="mt-0.5 text-xs text-muted">{targetItem.subtitle}</div>}
           </div>
@@ -98,7 +132,7 @@ export function DetailMergeDialog({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={`Search ${entityType}s to merge...`}
+              placeholder={intoOther ? `Search a ${entityType} to merge into...` : `Search ${entityType}s to merge...`}
               className="w-full rounded-lg border border-border bg-input py-2 pl-9 pr-3 text-sm text-foreground focus:border-accent focus:outline-none"
             />
           </div>
@@ -147,7 +181,11 @@ export function DetailMergeDialog({
         </div>
 
         <div className="flex items-center justify-between border-t border-border px-5 py-4">
-          <div className="text-sm text-secondary">{selectedIds.length} selected for merge</div>
+          <div className="text-sm text-secondary">
+            {intoOther
+              ? (selectedIds.length === 0 ? "Select a destination" : "1 destination selected")
+              : `${selectedIds.length} selected for merge`}
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm text-secondary hover:text-foreground">
               Cancel
@@ -158,7 +196,7 @@ export function DetailMergeDialog({
               className="inline-flex items-center gap-2 rounded bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {mergeMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitMerge className="h-4 w-4" />}
-              Merge into current {entityType}
+              {intoOther ? `Merge this ${entityType} into selected` : `Merge into current ${entityType}`}
             </button>
           </div>
         </div>

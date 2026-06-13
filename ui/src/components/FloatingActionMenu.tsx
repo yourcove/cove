@@ -73,6 +73,11 @@ export function FloatingActionMenu({
           className={["absolute z-[60] overflow-hidden rounded-lg border border-border bg-surface shadow-xl", className].filter(Boolean).join(" ")}
           style={position}
           role={role}
+          // Stop pointerdown/mousedown from reaching document-level "click outside" handlers on the
+          // host page. Some pages close their ops menu on `pointerdown`; since this menu is portaled
+          // outside their ref, an un-stopped pointerdown would close (unmount) the menu before the
+          // item's onClick fires — making the item appear to do nothing.
+          onPointerDown={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >

@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { entityImages, faces, images, playback, fileOps, galleries } from "../api/client";
 import { formatDate, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
-import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, ImageOff, Layers, Link as LinkIcon, Maximize, MoreVertical, RefreshCw, Search, Sparkles, ThumbsUp, Trash2, UserRound } from "lucide-react";
+import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, ImageOff, Layers, Link as LinkIcon, Loader2, Maximize, MoreVertical, RefreshCw, Search, Sparkles, ThumbsUp, Trash2, UserRound, UserX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -70,6 +70,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const canGenerateImage = hasPermission("jobs.run") && canWriteImage;
   const canEngageImage = canReadEntity("image", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canReadFaces = canReadEntity("face", hasPermission);
+  const canWriteFaces = canWriteEntity("face", hasPermission);
   const canReadFiles = hasPermission("files.read");
   const canReadStudios = canReadEntity("studio", hasPermission);
   const canReadPerformers = canReadEntity("performer", hasPermission);
@@ -98,7 +99,16 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     queryKey: ["image", id, "faces"],
     queryFn: () => faces.imageFaces(id),
     enabled: canReadFaces,
-  });  const deleteMut = useMutation({
+  });
+  // Splits the wrong-person occurrences off a face that isn't really in this image (AI.Faces extension).
+  const markFaceNotPresentMut = useMutation({
+    mutationFn: (faceId: number) => faces.markNotPresent(faceId, { hostType: "image", hostId: Number(id) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["image", id, "faces"] });
+      queryClient.invalidateQueries({ queryKey: ["face"] });
+    },
+  });
+  const deleteMut = useMutation({
     mutationFn: () => images.delete(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["images"] }); goBack(); },
   });
@@ -487,25 +497,43 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             {imageFaces.map((face) => {
               const title = face.performerName?.trim() || face.label?.trim() || `Face #${face.id}`;
               const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "face", id: face.id }, () => onNavigate({ page: "face", id: face.id }));
+              const isMarking = markFaceNotPresentMut.isPending && markFaceNotPresentMut.variables === face.id;
 
               return (
-                <a
-                  key={face.id}
-                  {...linkProps}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-surface/35 px-2 py-2 transition-colors hover:border-accent"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface text-[10px] text-muted">
-                    {face.coverImageUrl ? (
-                      <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      title.slice(0, 2).toUpperCase()
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-foreground">{title}</div>
-                    <div className="text-[11px] text-secondary">{formatImageFaceSummary(face)}</div>
-                  </div>
-                </a>
+                <div key={face.id} className="group relative flex items-stretch">
+                  <a
+                    {...linkProps}
+                    className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface/35 px-2 py-2 transition-colors hover:border-accent"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface text-[10px] text-muted">
+                      {face.coverImageUrl ? (
+                        <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        title.slice(0, 2).toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-foreground">{title}</div>
+                      <div className="text-[11px] text-secondary">{formatImageFaceSummary(face)}</div>
+                    </div>
+                  </a>
+                  {canWriteFaces ? (
+                    <button
+                      type="button"
+                      title="This face is not actually present in this image"
+                      aria-label="Mark face not present in this image"
+                      disabled={isMarking}
+                      onClick={() => {
+                        if (window.confirm(`Mark "${title}" as NOT present in this image?\n\nIts occurrence here (and other media that matches it) will be split off into the correct face.`)) {
+                          markFaceNotPresentMut.mutate(face.id);
+                        }
+                      }}
+                      className="absolute right-1 top-1 rounded-md bg-surface/80 p-1 text-muted opacity-0 transition-opacity hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-100 group-hover:opacity-100"
+                    >
+                      {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>

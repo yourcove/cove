@@ -1,10 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { tags } from "../api/client";
-import type { MetadataServerTagImportRequest, MetadataServerTagMatch, Tag } from "../api/types";
+import type { MetadataServer, MetadataServerTagImportRequest, MetadataServerTagMatch, Tag } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
-import { DEFAULT_TAGGER_BLACKLIST, TaggerSettingsPanel, TaggerToolbar, cleanTaggerQueryString } from "./TaggerShared";
-import { AlertCircle, Check, CloudDownload, Eye, EyeOff, Loader2, Search, Tag as TagIcon, X } from "lucide-react";
+import { DEFAULT_TAGGER_BLACKLIST, RemoteRefreshButtons, TaggerSettingsPanel, TaggerToolbar, cleanTaggerQueryString } from "./TaggerShared";
+import { AlertCircle, Check, CloudDownload, CloudUpload, Eye, EyeOff, Loader2, Search, Tag as TagIcon, X } from "lucide-react";
 
 interface TagTaggerProps {
   tags: Tag[];
@@ -97,7 +97,9 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
     );
   }
 
-  const visibleTags = taggerConfig.showTagged
+  // Detail mode was opened for this specific tag, so always show it (the bulk "hide tagged"
+  // convenience filter would otherwise leave the dialog empty).
+  const visibleTags = mode === "detail" || taggerConfig.showTagged
     ? tagList
     : tagList.filter((tag) => !searchStates[tag.id]?.saved);
 
@@ -143,6 +145,8 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
             onSearch={() => searchTag(tag)}
             onUpdateState={(update) => updateSearchState(tag.id, update)}
             endpoint={taggerConfig.selectedEndpoint}
+            metadataServers={metadataServers}
+            detailMode={mode === "detail"}
             selected={selectedIds?.has(tag.id) ?? false}
             selecting={selecting}
             onSelect={onSelect}
@@ -153,7 +157,7 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
   );
 }
 
-function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateState, endpoint, selected, selecting, onSelect }: {
+function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateState, endpoint, metadataServers, detailMode = false, selected, selecting, onSelect }: {
   tag: Tag;
   state?: TagSearchState;
   query: string;
@@ -161,10 +165,32 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
   onSearch: () => void;
   onUpdateState: (update: Partial<TagSearchState>) => void;
   endpoint: string;
+  metadataServers: MetadataServer[];
+  detailMode?: boolean;
   selected: boolean;
   selecting: boolean;
   onSelect?: (tagId: number) => void;
 }) {
+  const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
+
+  const refreshFromRemote = useCallback(async (refreshEndpoint: string, remoteId: string) => {
+    setRefreshBusyEndpoint(refreshEndpoint);
+    onUpdateState({ loading: true, error: undefined, results: undefined, saved: false });
+    try {
+      const results = await tags.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
+      onUpdateState({
+        loading: false,
+        results,
+        selectedIndex: results.length > 0 ? 0 : undefined,
+        error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
+      });
+    } catch (err) {
+      onUpdateState({ loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
+    } finally {
+      setRefreshBusyEndpoint(null);
+    }
+  }, [onUpdateState]);
+
   const importMut = useMutation({
     mutationFn: () => {
       const selectedResult = state?.results?.[state.selectedIndex ?? 0];
@@ -173,6 +199,13 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
       return tags.importFromMetadataServer(tag.id, request);
     },
     onSuccess: () => onUpdateState({ saved: true }),
+  });
+
+  const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
+    mutationFn: () => {
+      if (!endpoint) throw new Error("Select a metadata-server source first.");
+      return tags.submitMetadataServerDraft(tag.id, endpoint);
+    },
   });
 
   return (
@@ -197,6 +230,14 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
           {tag.tagGroupName && <p className="text-[10px] text-muted truncate">{tag.tagGroupName}</p>}
         </div>
         <div className="flex-1 min-w-0">
+          {detailMode && (
+            <RemoteRefreshButtons
+              remoteIds={(tag as { remoteIds?: { endpoint: string; remoteId: string }[] }).remoteIds}
+              servers={metadataServers}
+              busyEndpoint={refreshBusyEndpoint}
+              onRefresh={refreshFromRemote}
+            />
+          )}
           <div className="flex gap-2 mb-2">
             <input
               type="text"
@@ -210,7 +251,18 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
               {state?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Search
             </button>
+            <button
+              onClick={() => submitDraftMut.mutate()}
+              disabled={submitDraftMut.isPending}
+              className="flex items-center gap-1 px-2 py-1.5 rounded text-xs bg-surface border border-border text-muted hover:text-foreground disabled:opacity-60"
+              title="Submit this tag as a draft entry to the metadata server"
+            >
+              {submitDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+            </button>
           </div>
+
+          {submitDraftMut.isError && <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitDraftMut.error.message}</p>}
+          {submitDraftMut.isSuccess && <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Tag draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>}
 
           {state?.error && <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{state.error}</p>}
           {state?.results && state.results.length === 0 && <p className="text-xs text-muted">No matches found.</p>}

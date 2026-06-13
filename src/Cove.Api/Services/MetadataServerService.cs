@@ -332,7 +332,7 @@ query Me {
         }
 
         ApplyRemotePerformer(performer, box.Endpoint, remote, importConfig);
-        await DownloadPerformerImageAsync(performer, remote, ct);
+        await DownloadPerformerImageAsync(performer, remote, GetMetadataFieldStrategy(importConfig?.FieldStrategies, "image", MetadataFieldStrategy.Merge), ct);
         var fieldProvenance = BuildPerformerMetadataFieldProvenance(remote, importConfig, box.Endpoint);
         if (fieldProvenance.Count > 0 && _fieldProvenanceService != null)
             await _fieldProvenanceService.RecordManyAsync(AffinityHostType.Performer, performer.Id, fieldProvenance, BuildMetadataSourceKey(box.Endpoint), sourceRunId: box.Endpoint, cancellationToken: ct);
@@ -420,8 +420,10 @@ query Me {
             MergeUrls(studio, remoteUrls);
 
         UpsertRemoteId(studio.RemoteIds, box.Endpoint, remote.Id, id => id.Endpoint, id => id.RemoteId, (id, value) => id.RemoteId = value, value => new StudioRemoteId { Endpoint = box.Endpoint, RemoteId = value });
-        if (!IsIgnoredImportStrategy(GetImportStrategy(fieldStrategies, "image", defaultStrategy: "overwrite")))
-            await DownloadStudioImageAsync(studio, remote, ct);
+        // Default keeps an existing cover and only fills when missing; "replace"/"overwrite" replaces it.
+        var studioImageMode = GetImportStrategy(fieldStrategies, "image", defaultStrategy: "merge");
+        if (!IsIgnoredImportStrategy(studioImageMode))
+            await DownloadStudioImageAsync(studio, remote, ct, overwrite: IsReplaceImportStrategy(studioImageMode));
 
         // Resolve parent studio
         if (createParentStudios && !IsIgnoredImportStrategy(parentMode) && (remote.Parent != null || IsReplaceImportStrategy(parentMode)))
@@ -1255,8 +1257,10 @@ query Me {
                 fieldProvenance["performers"] = appliedPerformerNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        // Download video cover image
-        if (setCoverImage && remote.Images.Count > 0)
+        // Download video cover image. An auto-generated frame cover (ImageBlobId == null) is always
+        // replaceable; an explicitly set cover is preserved unless the caller opted to overwrite it.
+        var hasExplicitCover = !string.IsNullOrWhiteSpace(video.ImageBlobId);
+        if (setCoverImage && remote.Images.Count > 0 && (!hasExplicitCover || importConfig?.OverwriteExplicitCover == true))
         {
             await _videoCoverService.TryApplyRemoteCoverAsync(video, remote.Images[0].Url, ct);
             fieldProvenance["image_url"] = remote.Images[0].Url;
@@ -1778,7 +1782,10 @@ query Me {
             ApplyString("piercings", FormatBodyModifications(remote.Piercings), value => performer.Piercings = value, performer.Piercings);
         }
 
-        var remoteId = performer.RemoteIds.FirstOrDefault(id => string.Equals(id.Endpoint, endpoint, StringComparison.OrdinalIgnoreCase));
+        // Match on the registrable domain so a remote id already recorded under the pack's source endpoint
+        // (e.g. "https://api.theporndb.net/") is refreshed in place rather than duplicated under the
+        // configured server endpoint ("https://theporndb.net/graphql").
+        var remoteId = performer.RemoteIds.FirstOrDefault(id => EndpointsMatch(id.Endpoint, endpoint));
         if (remoteId == null)
         {
             performer.RemoteIds.Add(new PerformerRemoteId
@@ -1793,21 +1800,29 @@ query Me {
         }
     }
 
-    private async Task DownloadPerformerImageAsync(Performer performer, MetadataServerRemotePerformer remote, CancellationToken ct)
+    // imageStrategy gates the cover: Ignore skips entirely; Merge keeps an existing cover and only fills
+    // when missing (the default, and what the auto face-import relies on); Overwrite replaces any existing
+    // cover with the remote one (the user picked "Replace" in the tagger).
+    private async Task DownloadPerformerImageAsync(Performer performer, MetadataServerRemotePerformer remote, MetadataFieldStrategy imageStrategy, CancellationToken ct)
     {
-        if (remote.Images.Count == 0)
+        if (imageStrategy == MetadataFieldStrategy.Ignore || remote.Images.Count == 0)
             return;
 
-        // If blob exists on disk already, skip download
         if (performer.ImageBlobId != null)
         {
             var existing = await _blobService.GetBlobAsync(performer.ImageBlobId, ct);
             if (existing.HasValue)
             {
                 existing.Value.Stream.Dispose();
-                return;
+                // Keep the current cover unless the caller explicitly asked to replace it.
+                if (imageStrategy != MetadataFieldStrategy.Overwrite)
+                    return;
+                await _blobService.DeleteBlobAsync(performer.ImageBlobId, ct);
             }
-            _logger.LogWarning("Performer {Name} has ImageBlobId {BlobId} but file is missing â€” re-downloading", performer.Name, performer.ImageBlobId);
+            else
+            {
+                _logger.LogWarning("Performer {Name} has ImageBlobId {BlobId} but file is missing â€” re-downloading", performer.Name, performer.ImageBlobId);
+            }
             performer.ImageBlobId = null;
         }
 
@@ -1827,22 +1842,27 @@ query Me {
         }
     }
 
-    private async Task DownloadStudioImageAsync(Studio studio, MetadataServerRemoteStudio remote, CancellationToken ct)
+    private async Task DownloadStudioImageAsync(Studio studio, MetadataServerRemoteStudio remote, CancellationToken ct, bool overwrite = false)
     {
         if (remote.Images.Count == 0)
             return;
 
-        // If blob exists on disk already, skip download
         if (studio.ImageBlobId != null)
         {
             var existing = await _blobService.GetBlobAsync(studio.ImageBlobId, ct);
             if (existing.HasValue)
             {
                 existing.Value.Stream.Dispose();
-                return;
+                // Keep the current cover unless the caller explicitly asked to replace it.
+                if (!overwrite)
+                    return;
+                await _blobService.DeleteBlobAsync(studio.ImageBlobId, ct);
             }
-            // Blob ID set but file missing on disk â€” clear it and re-download
-            _logger.LogWarning("Studio {Name} has ImageBlobId {BlobId} but file is missing â€” re-downloading", studio.Name, studio.ImageBlobId);
+            else
+            {
+                // Blob ID set but file missing on disk â€” clear it and re-download
+                _logger.LogWarning("Studio {Name} has ImageBlobId {BlobId} but file is missing â€” re-downloading", studio.Name, studio.ImageBlobId);
+            }
             studio.ImageBlobId = null;
         }
 
@@ -1994,7 +2014,7 @@ query Me {
         }
 
         ApplyRemotePerformer(performer, endpoint, remote);
-        await DownloadPerformerImageAsync(performer, remote, ct);
+        await DownloadPerformerImageAsync(performer, remote, MetadataFieldStrategy.Merge, ct);
         return performer;
     }
 
@@ -2163,7 +2183,37 @@ query Me {
         => endpoint?.Trim().TrimEnd('/') ?? string.Empty;
 
     private static bool EndpointsMatch(string? a, string? b)
-        => string.Equals(NormalizeEndpoint(a), NormalizeEndpoint(b), StringComparison.OrdinalIgnoreCase);
+    {
+        if (string.Equals(NormalizeEndpoint(a), NormalizeEndpoint(b), StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Fall back to comparing the registrable (base) domain so a reference pack's source endpoint
+        // matches a configured server on the same site even when the host or path differs — e.g. a pack
+        // sourced from "https://api.theporndb.net/" matches the configured "https://theporndb.net/graphql".
+        var domainA = GetRegistrableDomain(a);
+        return domainA.Length > 0 && string.Equals(domainA, GetRegistrableDomain(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Reduces an endpoint to its registrable domain: the last two DNS labels of the host, with any
+    // leading "www." dropped (api.theporndb.net -> theporndb.net, www.fansdb.cc -> fansdb.cc). This is a
+    // deliberate simplification that treats multi-label public suffixes (e.g. ".co.uk") as two labels,
+    // which is sufficient for the single-site metadata servers in use here.
+    private static string GetRegistrableDomain(string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return string.Empty;
+
+        var trimmed = endpoint.Trim();
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.Host))
+            Uri.TryCreate("https://" + trimmed, UriKind.Absolute, out uri);
+
+        var host = uri?.Host;
+        if (string.IsNullOrEmpty(host))
+            return string.Empty;
+
+        var labels = host.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return labels.Length <= 2 ? host : $"{labels[^2]}.{labels[^1]}";
+    }
 
     private async Task<T> SendQueryAsync<T>(MetadataServerInstance box, string query, object? variables, CancellationToken ct)
     {

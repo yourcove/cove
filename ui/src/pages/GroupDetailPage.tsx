@@ -2129,7 +2129,7 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
                         })}
                         className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
                       >
-                        Open span
+                        Open segment
                       </button>
                     ) : null}
                     {canWriteGroup ? (

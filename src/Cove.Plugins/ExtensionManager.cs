@@ -206,12 +206,11 @@ public class ExtensionManager
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Failed to load extension DLL {sourceDll}: {ex}");
-                        Console.Error.WriteLine($"[EXT-LOAD] Failed to load {sourceDll}: {ex.GetType().Name}: {ex.Message}");
+                        _logger?.LogError(ex, "Failed to load extension DLL {Dll}", sourceDll);
                         if (ex is System.Reflection.ReflectionTypeLoadException rtle)
                         {
                             foreach (var le in rtle.LoaderExceptions ?? [])
-                                Console.Error.WriteLine($"  Loader exception: {le?.Message}");
+                                _logger?.LogError(le, "Loader exception while loading extension DLL {Dll}", sourceDll);
                         }
                         if (manifestFile != null)
                             DisableExtensionForStartupFailure(manifestFile.Id, ex, "discover");
@@ -220,7 +219,7 @@ public class ExtensionManager
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[EXT-LOAD] Failed to process extension directory {dir}: {ex.Message}");
+                _logger?.LogError(ex, "Failed to process extension directory {Dir}", dir);
             }
         }
     }

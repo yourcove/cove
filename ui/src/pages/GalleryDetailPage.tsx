@@ -31,6 +31,8 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
+import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
+import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 
 interface Props {
   id: number;
@@ -447,12 +449,7 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
       filter={filter}
       onFilterChange={setFilter}
       totalCount={data?.totalCount ?? 0}
-      sortOptions={[
-        { value: "title", label: "Title" },
-        { value: "date", label: "Date" },
-        { value: "rating", label: "Rating" },
-        { value: "created_at", label: "Created At" },
-      ]}
+      sortOptions={VIDEO_SORT_OPTIONS}
       zoomLevel={zoomLevel}
       onZoomChange={setZoomLevel}
       cardSizeEntityType="videos"
@@ -488,12 +485,6 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
   );
 }
 
-const IMAGE_SORT = [
-  { label: "Title", value: "title" },
-  { label: "Rating", value: "rating" },
-  { label: "Created At", value: "created_at" },
-];
-
 function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObjectFilter, onNavigate, galleryImages, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore, onShowAddImages, onLightbox, imageZoom, setImageZoom, canWriteGallery }: {
   galleryId: number;
   filter: FindFilter;
@@ -523,7 +514,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       filter={filter}
       onFilterChange={setFilter}
       totalCount={galleryImages?.totalCount ?? 0}
-      sortOptions={IMAGE_SORT}
+      sortOptions={IMAGE_SORT_OPTIONS}
       zoomLevel={imageZoom}
       onZoomChange={setImageZoom}
       cardSizeEntityType="images"

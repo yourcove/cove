@@ -26,6 +26,11 @@ public sealed class EmbeddingFilter
 public interface IEmbeddingRepository
 {
     Task<IReadOnlyList<Embedding>> FindAsync(EmbeddingFilter filter, CancellationToken ct = default);
+
+    /// <summary>Cheap existence check for the given filter — does not materialize vectors. Used to decide
+    /// UI affordances (e.g. whether to show a visual-similarity tab) without running a full search.</summary>
+    Task<bool> ExistsAsync(EmbeddingFilter filter, CancellationToken ct = default);
+
     void Add(Embedding embedding);
     void RemoveRange(IEnumerable<Embedding> embeddings);
 
@@ -33,6 +38,11 @@ public interface IEmbeddingRepository
     /// where HostType and SourceKey match. Useful for deduplication and merge scenarios.</summary>
     Task UpdateHostIdAsync(EmbeddingHostType hostType, string sourceKey,
         IReadOnlyList<int> oldHostIds, int newHostId, CancellationToken ct = default);
+
+    /// <summary>Re-points the embeddings hosted on <paramref name="oldHostId"/> that came from the given
+    /// runs to <paramref name="newHostId"/>, for the given host type and source.</summary>
+    Task ReassignHostByRunAsync(EmbeddingHostType hostType, string sourceKey, int oldHostId,
+        IReadOnlyCollection<string> runIds, int newHostId, CancellationToken ct = default);
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

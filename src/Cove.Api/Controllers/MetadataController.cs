@@ -707,7 +707,7 @@ public class MetadataController(
                     }
                     else
                     {
-                        logger.LogInformation("[Dry Run] Would remove: {Path}", filePath);
+                        logger.LogDebug("Dry run: would remove missing file {Path}", filePath);
                         cleaned++;
                     }
                 }

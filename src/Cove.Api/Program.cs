@@ -77,6 +77,34 @@ static string GetApplicationLogFilePath()
     return Path.Combine(logDir, "cove-.log");
 }
 
+// Verify the config/data directory is writeable BEFORE the logging pipeline is
+// built. The very first thing startup does is create a log file inside this
+// directory, so if it is read-only (a common Docker bind-mount uid mismatch)
+// the process would otherwise die during logger construction with no log output
+// at all. Emit a clear, actionable error to stderr and exit cleanly instead.
+static void EnsureDataRootWriteable()
+{
+    var dataRoot = CoveDefaultPaths.GetDataRoot();
+    try
+    {
+        Directory.CreateDirectory(dataRoot);
+        var probePath = Path.Combine(dataRoot, ".cove-write-probe-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(probePath, string.Empty);
+        File.Delete(probePath);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"FATAL: Cove cannot write to its config/data directory '{dataRoot}' (set via COVE_HOME).");
+        Console.Error.WriteLine(
+            "In Docker this usually means the mounted volume is owned by a different user than the one Cove runs as ('cove', uid 1000).");
+        Console.Error.WriteLine(
+            "Fix the host directory permissions, e.g. 'chown -R 1000:1000 ./cove-data', or run the container with a matching --user/PUID.");
+        Console.Error.WriteLine($"Underlying error: {ex.GetType().Name}: {ex.Message}");
+        Environment.Exit(1);
+    }
+}
+
 static async Task<bool> HasPostgresApplicationTablesAsync(CoveContext db)
 {
     var conn = db.Database.GetDbConnection();
@@ -193,6 +221,8 @@ try
     }
     else
     {
+        EnsureDataRootWriteable();
+
         Log.Logger = new LoggerConfiguration()
             .WriteTo.Console()
             .WriteTo.File(GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
@@ -618,6 +648,9 @@ try
     // Initialize SignalR log sink with hub context
     SignalRLogSink.SetHubContext(app.Services.GetRequiredService<IHubContext<LogHub>>());
 
+    // FfmpegInProcess is a static class with no injected logger — give it one for init diagnostics.
+    FfmpegInProcess.Logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Cove.Api.Services.FfmpegInProcess");
+
     if (isIntegrationTest)
     {
         app.Run();
@@ -778,7 +811,13 @@ try
 
     }
 
-    Log.Information("Cove starting on port {Port}", port);
+    Log.Information(
+        "Cove starting on port {Port} — dataRoot={DataRoot}, managedPostgres={ManagedPostgres}, authEnabled={AuthEnabled}, logLevel={LogLevel}",
+        port,
+        CoveDefaultPaths.GetDataRoot(),
+        coveCfgInstance.Postgres.Managed,
+        coveCfgInstance.Auth.Enabled,
+        runtimeLogLevelSwitch.MinimumLevel);
     await app.WaitForShutdownAsync();
 
     // Graceful shutdown for extensions
@@ -787,6 +826,10 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
+    // Log.Logger may still be the silent bootstrap default if the crash happened
+    // before the logging pipeline was built, so also write to stderr to guarantee
+    // some diagnostic output for very-early startup failures.
+    Console.Error.WriteLine($"FATAL: Application terminated unexpectedly: {ex}");
 
     if (string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "IntegrationTest", StringComparison.Ordinal))
         throw;

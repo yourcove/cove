@@ -1,6 +1,59 @@
 import { useState, type ReactNode } from "react";
-import { Check, CloudDownload, Eye, EyeOff, Settings2, X } from "lucide-react";
+import { Check, CloudDownload, Eye, EyeOff, Loader2, RefreshCw, Settings2, X } from "lucide-react";
 import type { CollectionMode } from "./videoScrapeUtils";
+
+// Reduce an endpoint to its registrable domain (last two labels, "www." dropped) so a remote id stored
+// under a pack/source endpoint (e.g. api.theporndb.net) matches a configured server (theporndb.net).
+// Mirrors the host-side EndpointsMatch behavior.
+function registrableDomain(endpoint?: string | null): string {
+  if (!endpoint) return "";
+  let host = endpoint.trim();
+  try {
+    host = new URL(host.includes("://") ? host : `https://${host}`).host;
+  } catch {
+    host = host.replace(/^.*:\/\//, "").split("/")[0];
+  }
+  host = host.toLowerCase().replace(/^www\./, "");
+  const labels = host.split(".").filter(Boolean);
+  return labels.length <= 2 ? host : labels.slice(-2).join(".");
+}
+
+// "Refresh from <server>" buttons: one per remote id whose endpoint maps (by registrable domain) to a
+// configured metadata server, so the tagger can rescrape from a known remote entry without a name search.
+export function RemoteRefreshButtons({
+  remoteIds,
+  servers,
+  busyEndpoint,
+  onRefresh,
+}: {
+  remoteIds?: { endpoint: string; remoteId: string }[];
+  servers: { endpoint: string; name?: string }[];
+  busyEndpoint?: string | null;
+  onRefresh: (endpoint: string, remoteId: string) => void;
+}) {
+  const serverByDomain = new Map(servers.map((server) => [registrableDomain(server.endpoint), server]));
+  const matches = (remoteIds ?? [])
+    .map((remote) => ({ remote, server: serverByDomain.get(registrableDomain(remote.endpoint)) }))
+    .filter((entry): entry is { remote: { endpoint: string; remoteId: string }; server: { endpoint: string; name?: string } } => !!entry.server);
+  if (matches.length === 0) return null;
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {matches.map(({ remote, server }) => (
+        <button
+          key={`${remote.endpoint}-${remote.remoteId}`}
+          onClick={() => onRefresh(remote.endpoint, remote.remoteId)}
+          disabled={busyEndpoint === remote.endpoint}
+          className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-xs text-secondary transition-colors hover:border-accent hover:text-foreground disabled:opacity-60"
+          title={`Fetch the existing ${server.name || server.endpoint} entry (${remote.remoteId}) for this item`}
+        >
+          {busyEndpoint === remote.endpoint ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Refresh from {server.name || server.endpoint}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export type TaggerQueryMode = "auto" | "filename" | "dir" | "path" | "metadata";
 
@@ -299,6 +352,42 @@ export function CompactCollectionDecision({
       </div>
     </div>
   );
+}
+
+// Cover-image equivalent of CompactScalarDecision: current cover thumbnail vs the scraped/match cover,
+// with a Keep / Replace choice. Render only when a scraped cover exists. `replacing` should default to
+// true when the entity has no current cover (replace-if-empty) and false when it already has one.
+export function CompactImageDecision({
+  label = "Cover",
+  currentImageUrl,
+  scrapedImageUrl,
+  replacing,
+  onChange,
+}: {
+  label?: string;
+  currentImageUrl?: string | null;
+  scrapedImageUrl?: string | null;
+  replacing: boolean;
+  onChange: (shouldReplace: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <CompactFieldLabel>{label}</CompactFieldLabel>
+      <div className="grid min-w-0 flex-1 gap-1.5 md:grid-cols-2">
+        <CompactDecisionPane label="Current" selected={!replacing} tone="current" onClick={() => onChange(false)}>
+          <CompactImageValue url={currentImageUrl} />
+        </CompactDecisionPane>
+        <CompactDecisionPane label="Scraped" selected={replacing} tone="scraped" onClick={() => onChange(true)}>
+          <CompactImageValue url={scrapedImageUrl} />
+        </CompactDecisionPane>
+      </div>
+    </div>
+  );
+}
+
+function CompactImageValue({ url }: { url?: string | null }) {
+  if (!url) return <span className="text-xs text-muted">No image</span>;
+  return <img src={url} alt="" className="h-24 w-auto max-w-full rounded object-cover object-top" loading="lazy" />;
 }
 
 function CompactFieldLabel({ children }: { children: ReactNode }) {

@@ -19,7 +19,10 @@ namespace Cove.Api.Services;
 
 // Stash calls them "scenes"; Cove's domain (and the UI/API contract) calls them "videos".
 // The property is named Videos so it serializes to `videos`, matching the frontend's StashPreviewResult/StashImportResult.
-public record StashPreviewResult(bool IsValid, string? Error, int Videos, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
+// GeneratedContentFound/GeneratedPath report whether Stash's "generated" folder (sprites, previews,
+// screenshots, vtt) was located via config.yml so the preview can tell the user up front that generated
+// content will be migratable. GeneratedPath is the resolved path when known (even if the folder is missing).
+public record StashPreviewResult(bool IsValid, string? Error, int Videos, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries, bool GeneratedContentFound = false, string? GeneratedPath = null);
 public record StashImportResult(int Videos, int Performers, int Tags, int Studios, int Groups, int Images, int Galleries);
 public record StashPathMapping(string Source, string Target);
 public record StashImportOptions(string? CoveGeneratedPath, bool MigrateGeneratedContent = true, IReadOnlyList<StashPathMapping>? PathMappings = null);
@@ -281,6 +284,11 @@ public partial class StashMigrationService
             var cs = OpenReadOnly(stashDbPath);
             await using var conn = new SqliteConnection(cs);
             await conn.OpenAsync(ct);
+
+            // Surface whether Stash's generated folder is reachable so the user knows, before committing to
+            // the import, that generated content (sprites/previews/screenshots/vtt) will be migratable.
+            var (generatedFound, generatedPath) = DetectStashGeneratedFolder(stashDbPath);
+
             return new StashPreviewResult(true, null,
                 await CountAsync(conn, "scenes", ct),
                 await CountAsync(conn, "performers", ct),
@@ -288,12 +296,34 @@ public partial class StashMigrationService
                 await CountAsync(conn, "studios", ct),
                 await CountAsync(conn, "groups", ct),
                 await CountAsync(conn, "images", ct),
-                await CountAsync(conn, "galleries", ct));
+                await CountAsync(conn, "galleries", ct),
+                generatedFound,
+                generatedPath);
         }
         catch (Exception ex)
         {
             return new StashPreviewResult(false, ex.Message, 0, 0, 0, 0, 0, 0, 0);
         }
+    }
+
+    // Locates Stash's "generated" folder the same way the import does: read config.yml sitting next to the
+    // database, resolve its "generated:" path, and check that the directory exists on disk. Returns the
+    // resolved path (when known, even if missing) plus whether it was actually found.
+    private static (bool Found, string? Path) DetectStashGeneratedFolder(string stashDbPath)
+    {
+        var configDir = Path.GetDirectoryName(stashDbPath);
+        if (string.IsNullOrEmpty(configDir))
+            return (false, null);
+
+        var configPath = Path.Combine(configDir, "config.yml");
+        if (!File.Exists(configPath))
+            return (false, null);
+
+        var generatedPath = ParseStashConfig(configPath).GeneratedPath;
+        if (string.IsNullOrWhiteSpace(generatedPath))
+            return (false, null);
+
+        return (Directory.Exists(generatedPath), generatedPath);
     }
 
     public Task<StashImportResult> ImportAsync(string stashDbPath, StashImportOptions? options = null, CancellationToken ct = default)
@@ -529,14 +559,14 @@ public partial class StashMigrationService
     {
         var phaseStopwatch = Stopwatch.StartNew();
         var phaseStart = totalStopwatch.Elapsed;
-        _logger.LogInformation("[Stash] Starting {Phase} at +{Elapsed}", phaseName, phaseStart);
+        _logger.LogInformation("Stash migration: starting phase {Phase} at +{Elapsed}", phaseName, phaseStart);
         _logger.LogDebug("[StashTiming] phase={Phase} event=start totalMs={TotalMilliseconds:F0}", phaseName, phaseStart.TotalMilliseconds);
 
         try
         {
             var result = await action();
             phaseStopwatch.Stop();
-            _logger.LogInformation("[Stash] Finished {Phase} in {PhaseElapsed} (total {TotalElapsed})", phaseName, phaseStopwatch.Elapsed, totalStopwatch.Elapsed);
+            _logger.LogInformation("Stash migration: finished phase {Phase} in {PhaseElapsed} (total {TotalElapsed})", phaseName, phaseStopwatch.Elapsed, totalStopwatch.Elapsed);
             _logger.LogDebug(
                 "[StashTiming] phase={Phase} event=finish phaseMs={PhaseMilliseconds:F0} totalMs={TotalMilliseconds:F0}",
                 phaseName,

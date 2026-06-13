@@ -28,5 +28,10 @@ public interface IDetectionRepository
     Task UpdateRefIdAsync(string sourceKey, string refKind,
         IReadOnlyList<long> oldRefIds, long newRefId, CancellationToken ct = default);
 
+    /// <summary>Re-points the <paramref name="refKind"/> detections of <paramref name="oldRefId"/> that
+    /// came from the given runs to <paramref name="newRefId"/>.</summary>
+    Task ReassignRefByRunAsync(string sourceKey, string refKind, long oldRefId,
+        IReadOnlyCollection<string> runIds, long newRefId, CancellationToken ct = default);
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

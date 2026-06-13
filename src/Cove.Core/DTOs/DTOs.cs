@@ -982,7 +982,13 @@ public record FaceSuggestionDecisionDto(
     bool SetPerformerImage = false,
     // The other competing matches when Decision is "merge". Each id mirrors PerformerId (a real performer
     // id or a provider-encoded reference id). Null/empty for accept and reject.
-    IReadOnlyList<int>? SecondaryPerformerIds = null);
+    IReadOnlyList<int>? SecondaryPerformerIds = null,
+    // Set when accepting a reference (metadata-server) match that resolved to an existing local performer
+    // (PerformerId is the positive local id). The host records this server's remote id on that performer
+    // and, when ReferenceUpdateMetadata is true, scrapes the server to refresh it.
+    string? ReferenceEndpoint = null,
+    string? ReferenceExternalId = null,
+    bool ReferenceUpdateMetadata = false);
 
 public record FaceSuggestionEvidenceDto(
     int FaceId,
@@ -1003,7 +1009,18 @@ public record FaceSuggestionDto(
     // Set when 2+ reference matches from different sources compete for the same face. All competing
     // suggestions for a face share the same id, so the UI can group them into a single "possible
     // duplicate" choice (use one, use the other, or merge them).
-    string? ConflictGroupId = null);
+    string? ConflictGroupId = null,
+    // True when this is a reference (metadata-server) match and linking it will scrape/refresh the
+    // performer from that server (the "Update existing performers from metadata servers" setting is on).
+    // The compare UI hides the "use face image for this local performer" option in that case, since the
+    // performer's image will come from the metadata server instead.
+    bool ReferenceWillRefreshFromMetadata = false,
+    // For a reference (metadata-server) match, the originating server's GraphQL endpoint and that
+    // server's id for this performer. Carried back on accept so the host can record the remote id on the
+    // (possibly already-existing) local performer and, when enabled, scrape it. Null for non-reference
+    // suggestions.
+    string? ReferenceEndpoint = null,
+    string? ReferenceExternalId = null);
 
 public record FaceSimilarDto(
     int Id,
@@ -1387,6 +1404,7 @@ public record SecurityConfigDto
     public bool AllowAnonymousShareLinks { get; init; } = true;
     public bool EnforceDefaultDeny { get; init; } = true;
     public List<string>? KnownProxies { get; init; } = [];
+    public List<string>? TrustedHosts { get; init; } = [];
     public string? NewPassword { get; init; }
 }
 
@@ -1588,6 +1606,10 @@ public record MetadataServerVideoImportRequestDto
     public string Endpoint { get; init; } = string.Empty;
     public string VideoId { get; init; } = string.Empty;
     public bool SetCoverImage { get; init; } = true;
+    // When false (default), the remote cover only replaces an auto-generated frame cover; an explicitly
+    // set cover (upload or chosen frame, i.e. ImageBlobId != null) is preserved. The tagger sets this true
+    // when the user explicitly chose to replace. Identify leaves it false so it never clobbers a user cover.
+    public bool OverwriteExplicitCover { get; init; }
     public bool SetTags { get; init; } = true;
     public bool SetPerformers { get; init; } = true;
     public bool SetStudio { get; init; } = true;
@@ -2398,7 +2420,4 @@ public record PluginSettingsDto(Dictionary<string, bool> EnabledMap);
 
 // ===== DIRECTORY LISTING =====
 public record DirectoryEntryDto(string Path, bool IsDirectory);
-
-// ===== SAVED FILTER ADVANCED =====
-public record SetDefaultFilterDto(string Mode, int? FilterId);
 

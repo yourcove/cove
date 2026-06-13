@@ -146,7 +146,9 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     : null;
   const playback = normalizePlaybackPreferences(preferences?.playback);
   const keybindingOverrides = normalizeKeybindingOverrides(preferences?.keybindingOverrides);
-  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides) {
+  const homePageContent = preferences?.homePageContent?.trim() ? preferences.homePageContent : null;
+  const defaultFilters = normalizeDefaultFilters(preferences?.defaultFilters);
+  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides && !homePageContent && !defaultFilters) {
     return null;
   }
 
@@ -157,7 +159,23 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     videos,
     playback,
     keybindingOverrides,
+    homePageContent,
+    defaultFilters,
   };
+}
+
+function normalizeDefaultFilters(defaultFilters: Record<string, string> | null | undefined): Record<string, string> | null {
+  if (!defaultFilters) {
+    return null;
+  }
+
+  const normalized = Object.fromEntries(
+    Object.entries(defaultFilters)
+      .map(([key, value]) => [key.trim().toLowerCase(), typeof value === "string" ? value.trim() : ""] as const)
+      .filter(([key, value]) => key.length > 0 && value.length > 0),
+  );
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
 export function supportsServerBackedUiPreferences(user: AuthUser | null | undefined): user is AuthUser & { kind: "user" | "system" } {
@@ -180,6 +198,27 @@ export function readAuthenticatedUserRatingOptions(): RatingSystemOptions | null
   }
 
   return normalizeRatingSystemOptions(user.uiPreferences?.ratingSystemOptions);
+}
+
+/** The user's server-stored home page content JSON, or null when not signed in / unset. */
+export function readAuthenticatedUserHomePageContent(): string | null {
+  const user = authStore.getUser();
+  if (!supportsServerBackedUiPreferences(user)) {
+    return null;
+  }
+
+  return user.uiPreferences?.homePageContent?.trim() ? user.uiPreferences.homePageContent : null;
+}
+
+/** The user's server-stored default saved filter (opaque JSON) for a list mode, or null. */
+export function readAuthenticatedUserDefaultFilter(mode: string): string | null {
+  const user = authStore.getUser();
+  if (!supportsServerBackedUiPreferences(user)) {
+    return null;
+  }
+
+  const value = user.uiPreferences?.defaultFilters?.[mode.trim().toLowerCase()];
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 export function updateAuthenticatedUserUiPreferences(

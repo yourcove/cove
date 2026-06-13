@@ -159,6 +159,11 @@ export default function App() {
       // so the location change handler can recover it without URL round-tripping.
       navigateToUrl(nextUrl, { state: r });
       setRoute(r);
+      // Forward navigation to a different page should start at the top. Without this the
+      // window keeps the previous page's scroll offset (e.g. a deep scroll position in the
+      // faces list), so a shorter detail page opens scrolled to its bottom. Back/forward
+      // navigation goes through popstate instead and keeps the browser's restored position.
+      window.scrollTo(0, 0);
     }
   }, []);
 

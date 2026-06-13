@@ -36,7 +36,11 @@ public record JobInfo(
     int? UnitsSucceeded = null,
     int? UnitsFailed = null,
     int? UnitsSkipped = null,
-    string? Summary = null);
+    string? Summary = null,
+    // Server-computed estimate of seconds remaining (null when not yet known / stalled / not running),
+    // and the UTC timestamp it was computed at so clients can count it down smoothly between updates.
+    double? EtaSeconds = null,
+    DateTime? UpdatedAt = null);
 
 public record JobBatchResult(
     int TotalUnits,

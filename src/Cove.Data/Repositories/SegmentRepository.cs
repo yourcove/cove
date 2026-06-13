@@ -31,9 +31,25 @@ public class SegmentRepository : ISegmentRepository
 
     public async Task UpdateRefIdAsync(string sourceKey, IReadOnlyList<long> oldRefIds, long newRefId, CancellationToken ct = default)
     {
-        await _db.Segments
+        // Tracked update (not ExecuteUpdate) so it works on any provider and commits with the
+        // caller's SaveChangesAsync alongside the rest of a face merge.
+        var segments = await _db.Segments
             .Where(s => s.SourceKey == sourceKey && s.RefId.HasValue && oldRefIds.Contains(s.RefId!.Value))
-            .ExecuteUpdateAsync(s => s.SetProperty(seg => seg.RefId, newRefId), ct);
+            .ToListAsync(ct);
+        foreach (var segment in segments)
+            segment.RefId = newRefId;
+    }
+
+    public async Task ReassignRefByRunAsync(string sourceKey, long oldRefId, IReadOnlyCollection<string> runIds, long newRefId, CancellationToken ct = default)
+    {
+        if (runIds.Count == 0)
+            return;
+
+        var segments = await _db.Segments
+            .Where(s => s.SourceKey == sourceKey && s.RefId == oldRefId && s.SourceRunId != null && runIds.Contains(s.SourceRunId))
+            .ToListAsync(ct);
+        foreach (var segment in segments)
+            segment.RefId = newRefId;
     }
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)

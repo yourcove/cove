@@ -12,25 +12,29 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SavedFiltersRead)]
-public class SavedFiltersController(ISavedFilterRepository filterRepo) : ControllerBase
+public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentPrincipalAccessor principals) : ControllerBase
 {
+    // Saved filters are per-user: every operation is scoped to the calling user's id (null when there
+    // is no signed-in user, e.g. auth disabled with no owner — those callers share the unowned rows).
+    private int? CurrentUserId => principals.Current?.UserId;
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<SavedFilterDto>>> GetAll([FromQuery] string? mode, CancellationToken ct)
     {
         IReadOnlyList<SavedFilter> filters;
         if (mode != null && Enum.TryParse<FilterMode>(mode, true, out var filterMode))
-            filters = await filterRepo.GetByModeAsync(filterMode, ct);
+            filters = await filterRepo.GetByModeForUserAsync(filterMode, CurrentUserId, ct);
         else
-            filters = await filterRepo.GetAllAsync(ct);
+            filters = await filterRepo.GetAllForUserAsync(CurrentUserId, ct);
 
-        return Ok(filters.Select(MapToDto).ToList());
+        return Ok(filters.Where(IsVisibleToCurrentUser).Select(MapToDto).ToList());
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<SavedFilterDto>> GetById(int id, CancellationToken ct)
     {
         var filter = await filterRepo.GetByIdAsync(id, ct);
-        if (filter == null) return NotFound();
+        if (filter == null || !IsVisibleToCurrentUser(filter)) return NotFound();
         return Ok(MapToDto(filter));
     }
 
@@ -43,7 +47,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo) : Control
 
         var filter = new SavedFilter
         {
-            Name = dto.Name, Mode = filterMode,
+            Name = dto.Name, Mode = filterMode, UserId = CurrentUserId,
             FindFilter = StripRandomSeed(dto.FindFilter), ObjectFilter = dto.ObjectFilter, UIOptions = dto.UIOptions
         };
 
@@ -56,7 +60,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo) : Control
     public async Task<ActionResult<SavedFilterDto>> Update(int id, [FromBody] SavedFilterUpdateDto dto, CancellationToken ct)
     {
         var filter = await filterRepo.GetByIdAsync(id, ct);
-        if (filter == null) return NotFound();
+        if (filter == null || !IsVisibleToCurrentUser(filter)) return NotFound();
 
         if (dto.Name != null) filter.Name = dto.Name;
         if (dto.Mode != null && Enum.TryParse<FilterMode>(dto.Mode, true, out var mode)) filter.Mode = mode;
@@ -73,64 +77,14 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo) : Control
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
         var f = await filterRepo.GetByIdAsync(id, ct);
-        if (f == null) return NotFound();
+        if (f == null || !IsVisibleToCurrentUser(f)) return NotFound();
         await filterRepo.DeleteAsync(id, ct);
         return NoContent();
     }
 
-    // ===== Default Filters =====
-
-    [HttpGet("default/{mode}")]
-    public async Task<ActionResult<SavedFilterDto?>> GetDefault(string mode, CancellationToken ct)
-    {
-        if (!Enum.TryParse<FilterMode>(mode, true, out var filterMode))
-            return BadRequest(new { message = $"Invalid filter mode: {mode}" });
-
-        var filters = await filterRepo.GetByModeAsync(filterMode, ct);
-        var defaultFilter = filters.FirstOrDefault(f => f.Name == $"__default_{mode}");
-        return defaultFilter != null ? Ok(MapToDto(defaultFilter)) : Ok((SavedFilterDto?)null);
-    }
-
-    [HttpPut("default/{mode}")]
-    [RequiresPermission(Permissions.SavedFiltersWrite)]
-    public async Task<ActionResult<SavedFilterDto>> SetDefault(string mode, [FromBody] SetDefaultFilterDto dto, CancellationToken ct)
-    {
-        if (!Enum.TryParse<FilterMode>(mode, true, out var filterMode))
-            return BadRequest(new { message = $"Invalid filter mode: {mode}" });
-
-        var name = $"__default_{mode}";
-        var filters = await filterRepo.GetByModeAsync(filterMode, ct);
-        var existing = filters.FirstOrDefault(f => f.Name == name);
-
-        if (dto.FilterId.HasValue)
-        {
-            var source = await filterRepo.GetByIdAsync(dto.FilterId.Value, ct);
-            if (source == null) return NotFound("Source filter not found");
-
-            if (existing != null)
-            {
-                existing.FindFilter = source.FindFilter;
-                existing.ObjectFilter = source.ObjectFilter;
-                existing.UIOptions = source.UIOptions;
-                await filterRepo.UpdateAsync(existing, ct);
-                return Ok(MapToDto(existing));
-            }
-
-            var newDefault = new SavedFilter
-            {
-                Name = name, Mode = filterMode,
-                FindFilter = source.FindFilter, ObjectFilter = source.ObjectFilter, UIOptions = source.UIOptions
-            };
-            newDefault = await filterRepo.AddAsync(newDefault, ct);
-            return Ok(MapToDto(newDefault));
-        }
-
-        // Clear default
-        if (existing != null)
-            await filterRepo.DeleteAsync(existing.Id, ct);
-
-        return Ok((SavedFilterDto?)null);
-    }
+    // Defense-in-depth: the repository already scopes by user, but guard cross-user access on by-id
+    // lookups too. A null-owned (legacy/unowned) row is only visible when the caller is also unowned.
+    private bool IsVisibleToCurrentUser(SavedFilter filter) => filter.UserId == CurrentUserId;
 
     // When a filter using random sort is persisted, drop the random seed so the saved/default
     // filter re-shuffles on every load instead of reproducing the same "random" order forever.

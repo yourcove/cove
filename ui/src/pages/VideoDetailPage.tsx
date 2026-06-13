@@ -1,11 +1,12 @@
 import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { faces, videos, segmentDisplayProfiles, tagApplications, entityImages, metadata, fileOps, galleries } from "../api/client";
+import { faces, videos, segmentDisplayProfiles, tagApplications, tags, entityImages, metadata, fileOps, galleries } from "../api/client";
 import { formatDuration, formatFileSize, formatDate, TagBadge, getResolutionLabel, CustomFieldsDisplay, CustomFieldsEditor, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { 
-  Pencil, Plus, Trash2, Search, Eye, EyeOff, ArrowLeft, ThumbsUp,
+  Plus, Trash2, Search, Eye, EyeOff, ArrowLeft, ThumbsUp,
   Check, ChevronLeft, ChevronRight, ChevronDown, MoreVertical,
   Gauge, Clapperboard, FolderOpen, Layers, Clock, List,
-  RefreshCw, Camera, Image, Merge, ExternalLink, Download, X, Sparkles, Volume2,
+  RefreshCw, Camera, Image, Merge, ExternalLink, Download, X, Sparkles, Volume2, Filter,
+  UserX, Loader2,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -13,7 +14,14 @@ import type { Detection, Face, PerformerSummary, ResolvedSpan, Video, VideoUpdat
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
-import { ResolvedSpansPanel } from "../components/ResolvedSpansPanel";
+import { VideoSegmentsPanel } from "../components/VideoSegmentsPanel";
+import {
+  type SegmentFilterState,
+  type SegmentFilterContext,
+  EMPTY_SEGMENT_FILTER,
+  matchesSegmentFilter,
+  isSegmentFilterActive,
+} from "../components/segmentFilter";
 import { useVideoQueue, type VideoQueueItem } from "../state/VideoQueueContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
@@ -167,6 +175,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("details");
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
+  const [segmentFilter, setSegmentFilter] = useState<SegmentFilterState>(EMPTY_SEGMENT_FILTER);
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "videos" }, onNavigate);
   const canWriteVideo = canWriteEntity("video", hasPermission);
@@ -175,6 +184,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const canReadGroups = canReadEntity("group", hasPermission);
   const canReadGalleries = canReadEntity("gallery", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
+  const canWriteFaces = canWriteEntity("face", hasPermission);
   const canReadSegments = canReadEntity("segment", hasPermission);
   const canWriteSegments = hasPermission("segments.write");
   const canReadFiles = hasPermission("files.read");
@@ -362,9 +372,48 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
     mutationFn: () => videos.rescan(id),
   });
 
+  // Marking a face not-present re-homes the wrong-person occurrences off this face (see the AI.Faces
+  // extension). Refresh this video's faces/detections/segments and any cached face data afterward.
+  const markFaceNotPresentMut = useMutation({
+    mutationFn: (faceId: number) => faces.markNotPresent(faceId, { hostType: "video", hostId: Number(id) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["video", id, "detections"] });
+      queryClient.invalidateQueries({ queryKey: ["video", id, "segments"] });
+      queryClient.invalidateQueries({ queryKey: ["video", id] });
+      queryClient.invalidateQueries({ queryKey: ["face"] });
+    },
+  });
+
   const resolvedSpans = resolvedSpansResponse?.spans ?? [];
   const activeProfileId = selectedProfileId ?? resolvedSpansResponse?.profileId;
   const activeProfileName = displayProfiles.find((profile) => profile.id === activeProfileId)?.name ?? "Resolved";
+
+  // Shared segment filter context — drives both the segments sidebar and the player swimlanes.
+  const segmentRawById = useMemo(() => new Map(segments.map((segment) => [segment.id, segment])), [segments]);
+  // When a tag-group filter is active, fetch that group's member tags so segments tagged within
+  // the group resolve to it (segments carry a tag id, not a group id).
+  const selectedTagGroupIds = segmentFilter.tagGroupIds;
+  const { data: tagGroupMemberTags } = useQuery({
+    queryKey: ["segment-filter-group-tags", selectedTagGroupIds],
+    queryFn: () => tags.findFiltered({
+      findFilter: { page: 1, perPage: 1000, sort: "name", direction: "asc" },
+      objectFilter: { tagGroupsCriterion: { value: selectedTagGroupIds, modifier: "INCLUDES" } },
+    }),
+    enabled: selectedTagGroupIds.length > 0,
+  });
+  const tagIdToGroupId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const tag of video?.tags ?? []) {
+      if (tag.tagGroupId != null) map.set(tag.id, tag.tagGroupId);
+    }
+    for (const tag of tagGroupMemberTags?.items ?? []) {
+      if (tag.tagGroupId != null) map.set(tag.id, tag.tagGroupId);
+    }
+    return map;
+  }, [video?.tags, tagGroupMemberTags]);
+  const segmentFilterContext = useMemo<SegmentFilterContext>(() => ({ rawSegmentsById: segmentRawById, tagIdToGroupId }), [segmentRawById, tagIdToGroupId]);
+
+  useEffect(() => { setSegmentFilter(EMPTY_SEGMENT_FILTER); }, [id]);
   const hasVisualSimilarity = useVideoVisualSimilarityAvailable(id);
   const hasAudioSimilarity = useVideoAudioSimilarityAvailable(id);
   const videoExtTabs = useMemo(() => getTabsForPage("video"), [getTabsForPage]);
@@ -571,28 +620,30 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   );
 
   const activeTabContent = activeTab === "details" ? (
-    <DetailsTab video={video} onNavigate={onNavigate} videoFaces={videoFaces} />
+    <DetailsTab
+      video={video}
+      onNavigate={onNavigate}
+      videoFaces={videoFaces}
+      onMarkFaceNotPresent={canWriteFaces ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
+      markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
+    />
   ) : activeTab === "segments" ? (
-    <div className="space-y-4">
-      <ResolvedSpansPanel
-        videoId={video.id}
-        spans={resolvedSpans}
-        loading={resolvedSpansLoading}
-        profiles={displayProfiles}
-        currentProfileId={activeProfileId}
-        onProfileChange={setSelectedProfileId}
-        onSeek={(time) => seekRef.current?.(time)}
-        onNavigate={onNavigate}
-      />
-      <SegmentsPanel
-        videoId={video.id}
-        segments={segments}
-        loading={segmentsLoading}
-        canEdit={canWriteSegments}
-        onSeek={(time) => seekRef.current?.(time)}
-        currentTime={videoTime}
-      />
-    </div>
+    <VideoSegmentsPanel
+      videoId={video.id}
+      spans={resolvedSpans}
+      rawSegments={segments}
+      loading={resolvedSpansLoading || segmentsLoading}
+      profiles={displayProfiles}
+      currentProfileId={activeProfileId}
+      onProfileChange={setSelectedProfileId}
+      filter={segmentFilter}
+      onFilterChange={setSegmentFilter}
+      tagIdToGroupId={tagIdToGroupId}
+      canEdit={canWriteSegments}
+      onSeek={(time) => seekRef.current?.(time)}
+      currentTime={videoTime}
+      onNavigate={onNavigate}
+    />
   ) : activeTab === "similar" ? (
     <VideoVisualSimilarityPanel videoId={video.id} onNavigate={onNavigate} />
   ) : activeTab === "audio-similar" ? (
@@ -663,6 +714,9 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
           onSeek={(time) => seekRef.current?.(time)}
           currentTime={videoTime}
           profileName={activeProfileName}
+          filter={segmentFilter}
+          filterContext={segmentFilterContext}
+          onClearFilter={() => setSegmentFilter(EMPTY_SEGMENT_FILTER)}
         />
       ) : null}
       {showQueuePanel && queueLength > 0 ? (
@@ -880,7 +934,7 @@ async function syncVideoEditPerformerContextTags(videoId: number, existingApplic
 }
 
 // Details Tab Content
-export function DetailsTab({ video, onNavigate, videoFaces = [] }: { video: Video; onNavigate: (r: any) => void; videoFaces?: Array<{ face: Face; detectionCount: number }> }) {
+export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPresent, markingFaceId }: { video: Video; onNavigate: (r: any) => void; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number }) {
   return (
     <div className="space-y-4">
       {/* Created/Updated + Code/Director at top like original */}
@@ -1008,29 +1062,50 @@ export function DetailsTab({ video, onNavigate, videoFaces = [] }: { video: Vide
           <div className="flex flex-wrap gap-2">
             {videoFaces.map(({ face, detectionCount }) => {
               const title = face.label?.trim() || face.performerName || `Face #${face.id}`;
+              const isMarking = markingFaceId === face.id;
               return (
-                <button
+                <div
                   key={face.id}
-                  type="button"
-                  onClick={() => onNavigate({ page: "face", id: face.id })}
-                  className="flex min-w-[180px] flex-1 items-center gap-3 rounded-xl border border-border bg-card/70 px-3 py-2 text-left transition-colors hover:border-accent sm:flex-none sm:basis-[calc(50%-0.25rem)]"
+                  className="group relative flex min-w-[180px] flex-1 items-stretch sm:flex-none sm:basis-[calc(50%-0.25rem)]"
                 >
-                  <div className="h-14 w-14 overflow-hidden rounded-lg bg-surface/80">
-                    {face.coverImageUrl ? (
-                      <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-muted">
-                        <Image className="h-5 w-5" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-foreground">{title}</div>
-                    <div className="mt-1 text-xs text-secondary">
-                      {detectionCount} detection{detectionCount === 1 ? "" : "s"}
+                  <button
+                    type="button"
+                    onClick={() => onNavigate({ page: "face", id: face.id })}
+                    className="flex w-full items-center gap-3 rounded-xl border border-border bg-card/70 px-3 py-2 text-left transition-colors hover:border-accent"
+                  >
+                    <div className="h-14 w-14 overflow-hidden rounded-lg bg-surface/80">
+                      {face.coverImageUrl ? (
+                        <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-muted">
+                          <Image className="h-5 w-5" />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-foreground">{title}</div>
+                      <div className="mt-1 text-xs text-secondary">
+                        {detectionCount} detection{detectionCount === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                  </button>
+                  {onMarkFaceNotPresent ? (
+                    <button
+                      type="button"
+                      title="This face is not actually present in this video"
+                      aria-label="Mark face not present in this video"
+                      disabled={isMarking}
+                      onClick={() => {
+                        if (window.confirm(`Mark "${title}" as NOT present in this video?\n\nIts occurrences here (and other videos that match them) will be split off into the correct face.`)) {
+                          onMarkFaceNotPresent(face.id);
+                        }
+                      }}
+                      className="absolute right-1 top-1 rounded-md bg-surface/80 p-1 text-muted opacity-0 transition-opacity hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-100 group-hover:opacity-100"
+                    >
+                      {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -1429,10 +1504,13 @@ function VideoScrubber({
   onSeek,
   currentTime,
   profileName,
-}: { 
-  videoId: number; 
-  duration: number; 
-  spans: Pick<ResolvedSpan, "spanKey" | "startSec" | "endSec" | "tagName" | "kind" | "colorHint" | "sourceKey" | "lane" | "segmentIds">[];
+  filter,
+  filterContext,
+  onClearFilter,
+}: {
+  videoId: number;
+  duration: number;
+  spans: Pick<ResolvedSpan, "spanKey" | "startSec" | "endSec" | "tagId" | "tagName" | "kind" | "colorHint" | "sourceKey" | "lane" | "segmentIds">[];
   rawSegments: Pick<Segment, "id" | "startSec" | "endSec" | "title" | "kind" | "sourceKey" | "refId">[];
   detections: Pick<Detection, "id" | "observedAtSec" | "class" | "score" | "refKind" | "refId">[];
   faces?: Pick<Face, "id" | "label" | "performerName" | "performerId">[];
@@ -1440,6 +1518,9 @@ function VideoScrubber({
   onSeek?: (time: number) => void;
   currentTime?: number;
   profileName?: string;
+  filter: SegmentFilterState;
+  filterContext: SegmentFilterContext;
+  onClearFilter: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1516,7 +1597,32 @@ function VideoScrubber({
   const thumbHeight = spriteData?.entries[0] ? Math.round(thumbWidth * (spriteData.entries[0].h / spriteData.entries[0].w)) : 0;
   const rawSegmentsById = useMemo(() => new Map(rawSegments.map((segment) => [segment.id, segment])), [rawSegments]);
   const performersById = useMemo(() => new Map((performers ?? []).map((performer) => [performer.id, performer])), [performers]);
-  const nonFaceSpans = useMemo(() => spans.filter((span) => !isFaceResolvedSpan(span, rawSegmentsById)), [rawSegmentsById, spans]);
+  const filterActive = isSegmentFilterActive(filter);
+  const nonFaceSpans = useMemo(
+    () => spans.filter((span) => !isFaceResolvedSpan(span, rawSegmentsById) && matchesSegmentFilter(span, filter, filterContext)),
+    [rawSegmentsById, spans, filter, filterContext],
+  );
+  // Faces carry no tags, so a tag/tag-group filter hides them; otherwise they pass when the
+  // filter targets faces (kind "face", or a specific face/performer).
+  const faceFilterPredicate = useMemo(() => {
+    if (!filterActive) return () => true;
+    const hasTagFilter = filter.tagIds.length > 0 || filter.tagGroupIds.length > 0;
+    const kinds = filter.kinds.map((kind) => kind.toLowerCase());
+    const faceIds = new Set(filter.faceIds);
+    const performerIds = new Set(filter.performerIds);
+    return (faceId: number, performerId?: number | null) => {
+      if (hasTagFilter) return false;
+      if (kinds.length > 0 && !kinds.includes("face")) return false;
+      if (faceIds.size > 0 && !faceIds.has(faceId)) return false;
+      if (performerIds.size > 0 && !(performerId != null && performerIds.has(performerId))) return false;
+      return true;
+    };
+  }, [filterActive, filter.tagIds, filter.tagGroupIds, filter.kinds, filter.faceIds, filter.performerIds]);
+  // A face-targeting filter auto-reveals the faces lane even when the manual toggle is off.
+  const faceFilterTargetsFaces = filterActive
+    && filter.tagIds.length === 0 && filter.tagGroupIds.length === 0
+    && (filter.kinds.map((kind) => kind.toLowerCase()).includes("face") || filter.faceIds.length > 0 || filter.performerIds.length > 0);
+  const effectiveFacesEnabled = facesEnabled || faceFilterTargetsFaces;
   const segmentLanes = useMemo(() => buildTimelineLanes<TimelineOverlayItem>(
     nonFaceSpans.map((span) => ({
       key: span.spanKey,
@@ -1528,7 +1634,7 @@ function VideoScrubber({
     })),
   ), [nonFaceSpans, performersById, rawSegmentsById]);
   const faceLanes = useMemo(() => {
-    if (!facesEnabled) return [] as ReturnType<typeof buildTimelineLanes<TimelineOverlayItem>>;
+    if (!effectiveFacesEnabled) return [] as ReturnType<typeof buildTimelineLanes<TimelineOverlayItem>>;
     const facesById = new Map<number, Pick<Face, "id" | "label" | "performerName" | "performerId">>();
     for (const face of faces ?? []) facesById.set(face.id, face);
 
@@ -1538,8 +1644,9 @@ function VideoScrubber({
     for (const segment of rawSegments) {
       if (!isFaceTimelineSegment(segment)) continue;
       const faceId = segment.refId != null ? Number(segment.refId) : -Math.abs(segment.id);
-      if (faceId > 0) segmentFaceIds.add(faceId);
       const face = facesById.get(faceId);
+      if (!faceFilterPredicate(faceId, face?.performerId)) continue;
+      if (faceId > 0) segmentFaceIds.add(faceId);
       const label = face?.performerName?.trim() || face?.label?.trim() || segment.title?.trim() || (faceId > 0 ? `Face #${faceId}` : "Face");
       items.push({
         key: `face-segment-${segment.id}`,
@@ -1554,6 +1661,7 @@ function VideoScrubber({
     for (const det of detections) {
       if (det.refId == null || det.refKind?.toLowerCase() !== "face" || segmentFaceIds.has(det.refId)) continue;
       if (det.observedAtSec == null) continue;
+      if (!faceFilterPredicate(det.refId, facesById.get(det.refId)?.performerId)) continue;
       const arr = buckets.get(det.refId) ?? [];
       arr.push(det.observedAtSec);
       buckets.set(det.refId, arr);
@@ -1590,7 +1698,14 @@ function VideoScrubber({
     }
 
     return buildTimelineLanes(items);
-  }, [detections, rawSegments, faces, facesEnabled]);
+  }, [detections, rawSegments, faces, effectiveFacesEnabled, faceFilterPredicate]);
+  // Detection dots respect the face/performer filter; when a non-face filter is active they are hidden.
+  const visibleDetections = useMemo(
+    () => detections.filter((det) => det.refId == null || det.refKind?.toLowerCase() !== "face"
+      ? !filterActive
+      : faceFilterPredicate(det.refId, null)),
+    [detections, filterActive, faceFilterPredicate],
+  );
   const visibleResolvedLanes = showAllResolvedLanes ? segmentLanes : segmentLanes.slice(0, 4);
   const visibleFaceLanes = showAllFaceLanes ? faceLanes : faceLanes.slice(0, 2);
   const hiddenResolvedLaneCount = Math.max(0, segmentLanes.length - visibleResolvedLanes.length);
@@ -1638,7 +1753,17 @@ function VideoScrubber({
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="font-semibold uppercase tracking-[0.16em] text-white/70">Timeline overlays</span>
               {nonFaceSpans.length > 0 ? <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5">{nonFaceSpans.length} segment{nonFaceSpans.length === 1 ? "" : "s"}</span> : null}
-              {hasFaceDetections ? <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5">face detections</span> : null}
+              {filterActive ? (
+                <button
+                  type="button"
+                  onClick={onClearFilter}
+                  className="inline-flex items-center gap-1 rounded border border-accent/50 bg-accent/15 px-1.5 py-0.5 text-accent transition-colors hover:bg-accent/25"
+                  title="Filtered by the segments panel — click to clear"
+                >
+                  <Filter className="h-3 w-3" /> Filtered
+                  <X className="h-3 w-3" />
+                </button>
+              ) : null}
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1">
               <button
@@ -1659,7 +1784,7 @@ function VideoScrubber({
                   {showAllResolvedLanes ? "Fewer segments" : `All ${segmentLanes.length} segment lanes`}
                 </button>
               ) : null}
-              {!overlaysCollapsed && hasFaceDetections ? (
+              {!overlaysCollapsed && hasFaceDetections && !faceFilterTargetsFaces ? (
                 <button
                   type="button"
                   onClick={() => setFacesEnabled((value) => !value)}
@@ -1670,7 +1795,7 @@ function VideoScrubber({
                   {facesEnabled ? "Hide faces" : "Show faces"}
                 </button>
               ) : null}
-              {!overlaysCollapsed && facesEnabled && faceLanes.length > 2 ? (
+              {!overlaysCollapsed && effectiveFacesEnabled && faceLanes.length > 2 ? (
                 <button
                   type="button"
                   onClick={() => setShowAllFaceLanes((value) => !value)}
@@ -1716,7 +1841,7 @@ function VideoScrubber({
                 </div>
               </div>
             ) : null}
-            {hasFaceDetections && facesEnabled ? (
+            {hasFaceDetections && effectiveFacesEnabled && faceLanes.length > 0 ? (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
                   <span>Faces</span>
@@ -1753,9 +1878,9 @@ function VideoScrubber({
           </div> : null}
         </div>
       )}
-      {detections.length > 0 && (
+      {visibleDetections.length > 0 && (
         <div className="relative h-5 border-b border-black/20 bg-[#1f2c35]">
-          {detections.map((detection) => {
+          {visibleDetections.map((detection) => {
             const time = detection.observedAtSec ?? 0;
             return (
               <button
@@ -1877,344 +2002,6 @@ function formatTimelineTime(seconds: number) {
   }
 
   return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-function parseSegmentTimeInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const parts = trimmed.split(":").map((part) => part.trim());
-  if (parts.length > 3 || parts.some((part) => part === "" || Number.isNaN(Number(part)))) return null;
-
-  const numbers = parts.map(Number);
-  if (numbers.some((part) => part < 0 || !Number.isFinite(part))) return null;
-
-  if (numbers.length === 1) return numbers[0];
-  if (numbers.length === 2) return numbers[0] * 60 + numbers[1];
-  return numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
-}
-
-function formatSegmentTimeInput(seconds: number) {
-  const safeSeconds = Math.max(0, seconds || 0);
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const wholeSeconds = Math.floor(safeSeconds % 60);
-  const tenths = Math.round((safeSeconds - Math.floor(safeSeconds)) * 10);
-  const normalizedWholeSeconds = tenths === 10 ? wholeSeconds + 1 : wholeSeconds;
-  const normalizedTenths = tenths === 10 ? 0 : tenths;
-  const secondText = normalizedTenths > 0
-    ? `${normalizedWholeSeconds.toString().padStart(2, "0")}.${normalizedTenths}`
-    : normalizedWholeSeconds.toString().padStart(2, "0");
-
-  return hours > 0 ? `${hours}:${minutes.toString().padStart(2, "0")}:${secondText}` : `${minutes}:${secondText}`;
-}
-
-function SegmentsPanel({
-  videoId,
-  segments,
-  loading,
-  canEdit,
-  onSeek,
-  currentTime = 0,
-}: {
-  videoId: number;
-  segments: Segment[];
-  loading: boolean;
-  canEdit: boolean;
-  onSeek?: (time: number) => void;
-  currentTime?: number;
-}) {
-  const queryClient = useQueryClient();
-  const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [title, setTitle] = useState("");
-  const [kind, setKind] = useState<"tag" | "performer">("tag");
-  const [startSec, setStartSec] = useState(0);
-  const [endSec, setEndSec] = useState<number | "">("");
-  const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
-  const [selectedPerformerId, setSelectedPerformerId] = useState<number | null>(null);
-  const [startText, setStartText] = useState("0:00");
-  const [endText, setEndText] = useState("");
-  const parsedStart = parseSegmentTimeInput(startText);
-  const parsedEnd = endText.trim() === "" ? null : parseSegmentTimeInput(endText);
-  const hasSelectedEntity = kind === "performer" ? selectedPerformerId != null : selectedTagId != null;
-  const canSaveSegment = parsedStart != null && parsedStart >= 0 && (parsedEnd == null || parsedEnd >= parsedStart) && hasSelectedEntity;
-  const kindOptions = ["tag", "performer"] as const;
-
-  const createMutation = useMutation({
-    mutationFn: (data: { title?: string; kind?: string; startSec: number; endSec?: number; tagId?: number; refId?: number }) =>
-      videos.segments.create(videoId, {
-        startSec: data.startSec,
-        endSec: data.endSec,
-        tagId: data.tagId,
-        refId: data.refId,
-        kind: data.kind,
-        title: data.title,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] });
-      resetForm();
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: (data: { segment: Segment; startSec: number; endSec?: number; tagId?: number; refId?: number; kind?: string; title?: string }) =>
-      videos.segments.update(videoId, data.segment.id, {
-        startSec: data.startSec,
-        endSec: data.endSec,
-        tagId: data.tagId,
-        kind: data.kind,
-        refId: data.refId ?? (data.kind === data.segment.kind ? data.segment.refId : undefined),
-        payload: data.segment.payload,
-        sourceKey: data.segment.sourceKey || "user",
-        sourceRunId: data.segment.sourceRunId,
-        confidence: data.segment.confidence,
-        title: data.title,
-        colorHint: data.segment.colorHint,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] });
-      resetForm();
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (segmentId: number) => videos.segments.delete(videoId, segmentId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] });
-    },
-  });
-
-  const resetForm = () => {
-    setAdding(false);
-    setEditingId(null);
-    setTitle("");
-    setKind("tag");
-    setStartTimeFromSeconds(0);
-    setEndSec("");
-    setEndText("");
-    setSelectedTagId(null);
-    setSelectedPerformerId(null);
-  };
-
-  const setStartTimeFromSeconds = (seconds: number) => {
-    const normalized = Math.max(0, seconds);
-    setStartSec(normalized);
-    setStartText(formatSegmentTimeInput(normalized));
-  };
-
-  const setEndTimeFromSeconds = (seconds: number | "") => {
-    if (seconds === "") {
-      setEndSec("");
-      setEndText("");
-      return;
-    }
-
-    const normalized = Math.max(0, seconds);
-    setEndSec(normalized);
-    setEndText(formatSegmentTimeInput(normalized));
-  };
-
-  const startEdit = (segment: Segment) => {
-    setAdding(true);
-    setEditingId(segment.id);
-    setTitle(segment.title || "");
-    setKind(segment.kind?.toLowerCase() === "performer" ? "performer" : "tag");
-    setStartTimeFromSeconds(segment.startSec);
-    setEndTimeFromSeconds(segment.endSec ?? "");
-    setSelectedTagId(segment.kind?.toLowerCase() === "performer" ? null : segment.tagId ?? null);
-    setSelectedPerformerId(segment.kind?.toLowerCase() === "performer" && segment.refId != null ? Number(segment.refId) : null);
-  };
-
-  const editingSegment = editingId != null ? segments.find((segment) => segment.id === editingId) ?? null : null;
-
-  const saveSegment = () => {
-    if (!canSaveSegment || parsedStart == null) {
-      return;
-    }
-
-    const nextEndSec = parsedEnd == null ? undefined : parsedEnd;
-    const nextKind = kind;
-    const nextTagId = kind === "tag" ? selectedTagId ?? undefined : undefined;
-    const nextRefId = kind === "performer" ? selectedPerformerId ?? undefined : undefined;
-
-    if (editingSegment) {
-      updateMutation.mutate({
-        segment: editingSegment,
-        startSec: parsedStart,
-        endSec: nextEndSec,
-        tagId: nextTagId,
-        refId: nextRefId,
-        kind: nextKind,
-        title: title || undefined,
-      });
-      return;
-    }
-
-    createMutation.mutate({
-      title: title || undefined,
-      startSec: parsedStart,
-      endSec: nextEndSec,
-      tagId: nextTagId,
-      refId: nextRefId,
-      kind: nextKind,
-    });
-  };
-
-  return (
-    <div>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm text-secondary">
-          {loading ? "Loading segments..." : `${segments.length} segment${segments.length !== 1 ? "s" : ""}`}
-        </span>
-        {canEdit && (
-          <button onClick={() => adding ? resetForm() : setAdding(true)} className="flex items-center gap-1 text-sm text-accent hover:underline">
-            <Plus className="h-3.5 w-3.5" /> {adding ? "Cancel" : "Add"}
-          </button>
-        )}
-      </div>
-
-      {adding && canEdit && (
-        <div className="mb-3 space-y-2 rounded border border-border bg-card p-3">
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
-            <input
-              type="text"
-              placeholder="Segment title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground"
-            />
-            <select
-              value={kind}
-              onChange={(event) => {
-                const nextKind = event.target.value === "performer" ? "performer" : "tag";
-                setKind(nextKind);
-                if (nextKind === "performer") {
-                  setSelectedTagId(null);
-                } else {
-                  setSelectedPerformerId(null);
-                }
-              }}
-              className="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground"
-            >
-              {kindOptions.map((option) => (
-                <option key={option} value={option}>{option === "tag" ? "Tag" : "Performer"}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(10rem,1.8fr)]">
-            <label className="space-y-1">
-              <span className="text-xs text-secondary">Start</span>
-              <div className="flex gap-1">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="0:00"
-                  value={startText}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setStartText(next);
-                    const parsed = parseSegmentTimeInput(next);
-                    if (parsed != null) setStartSec(parsed);
-                  }}
-                  onBlur={() => setStartText(formatSegmentTimeInput(startSec))}
-                  className="min-w-0 flex-1 rounded border border-border bg-input px-3 py-1.5 font-mono text-sm text-foreground"
-                />
-                <button type="button" onClick={() => setStartTimeFromSeconds(currentTime)} className="inline-flex items-center justify-center rounded border border-border px-2 text-secondary hover:text-foreground" title="Use current time" aria-label="Use current time for segment start"><Clock className="h-3.5 w-3.5" /></button>
-              </div>
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs text-secondary">End</span>
-              <div className="flex gap-1">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="Optional"
-                  value={endText}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setEndText(next);
-                    if (next.trim() === "") {
-                      setEndSec("");
-                      return;
-                    }
-                    const parsed = parseSegmentTimeInput(next);
-                    if (parsed != null) setEndSec(parsed);
-                  }}
-                  onBlur={() => setEndText(endSec === "" ? "" : formatSegmentTimeInput(endSec))}
-                  className="min-w-0 flex-1 rounded border border-border bg-input px-3 py-1.5 font-mono text-sm text-foreground"
-                />
-                <button type="button" onClick={() => setEndTimeFromSeconds(currentTime)} className="inline-flex items-center justify-center rounded border border-border px-2 text-secondary hover:text-foreground" title="Use current time" aria-label="Use current time for segment end"><Clock className="h-3.5 w-3.5" /></button>
-              </div>
-            </label>
-            {kind === "tag" ? (
-              <label className="min-w-0 space-y-1 sm:col-span-2 xl:col-span-1">
-                <span className="text-xs text-secondary">Tag</span>
-                <EntityReferenceSelector
-                  entityType="tag"
-                  value={selectedTagId ?? undefined}
-                  onChange={(tagId) => setSelectedTagId(tagId ?? null)}
-                  placeholder="Search tags..."
-                  inputClassName="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground"
-                />
-              </label>
-            ) : (
-              <label className="min-w-0 space-y-1 sm:col-span-2 xl:col-span-1">
-                <span className="text-xs text-secondary">Performer</span>
-                <EntityReferenceSelector
-                  entityType="performer"
-                  value={selectedPerformerId ?? undefined}
-                  onChange={(performerId) => setSelectedPerformerId(performerId ?? null)}
-                  placeholder="Search performers..."
-                  inputClassName="w-full rounded border border-border bg-input px-3 py-1.5 text-sm text-foreground"
-                />
-              </label>
-            )}
-          </div>
-          {!canSaveSegment ? <div className="text-xs text-red-300">Use valid times and choose a {kind}.</div> : null}
-          <div className="flex justify-end gap-2">
-            <button onClick={resetForm} className="px-3 py-1 text-sm text-secondary hover:text-foreground">Cancel</button>
-            <button
-              onClick={saveSegment}
-              disabled={!canSaveSegment || createMutation.isPending || updateMutation.isPending}
-              className="rounded bg-accent px-3 py-1 text-sm text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              {editingId ? "Update" : "Save"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!loading && segments.length === 0 && !adding && (
-        <p className="text-sm text-muted">No segments yet.</p>
-      )}
-
-      <div className="space-y-1">
-        {segments.map((segment) => (
-          <div key={segment.id} className="group flex items-center justify-between rounded border border-border bg-card px-3 py-2 text-sm">
-            <button className="flex min-w-0 items-center gap-3 text-left hover:text-accent" onClick={() => onSeek?.(segment.startSec)}>
-              <span className="w-24 font-mono text-xs text-accent">
-                {formatTimelineTime(segment.startSec)}{segment.endSec != null ? ` - ${formatTimelineTime(segment.endSec)}` : ""}
-              </span>
-              <span className="truncate text-foreground group-hover:text-accent">{segment.title || segment.kind || segment.tagName || "Untitled segment"}</span>
-              {segment.tagName && <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{segment.tagName}</span>}
-              {segment.kind && <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{segment.kind}</span>}
-            </button>
-            {canEdit && (
-              <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                <button onClick={() => startEdit(segment)} className="text-muted hover:text-accent" title="Edit segment">
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => deleteMutation.mutate(segment.id)} className="text-muted hover:text-red-400" title="Delete segment">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function DetectionsPanel({

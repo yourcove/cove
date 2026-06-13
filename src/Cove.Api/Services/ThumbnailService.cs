@@ -250,7 +250,7 @@ public class ThumbnailService(
 
                 if (source.Value.stream.CanSeek)
                     source.Value.stream.Position = 0;
-                logger.LogInformation("Skipping thumbnail generation for unsupported image format {ImageId}", imageId);
+                logger.LogDebug("Skipping thumbnail generation for unsupported image format {ImageId}", imageId);
                 return (source.Value.stream, sourceContentType, source.Value.supportsRangeRequests);
             }
 
@@ -311,7 +311,7 @@ public class ThumbnailService(
 
             if (source.Value.Stream.CanSeek)
                 source.Value.Stream.Position = 0;
-            logger.LogInformation("Skipping cached blob thumbnail generation for unsupported image format {BlobId}", blobId);
+            logger.LogDebug("Skipping cached blob thumbnail generation for unsupported image format {BlobId}", blobId);
             return (source.Value.Stream, sourceContentType, source.Value.Stream.CanSeek);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -347,7 +347,7 @@ public class ThumbnailService(
         await using (source.Value.stream)
         {
             if (!await TryGenerateImageThumbnailFileAsync(source.Value.stream, TryGetDirectImageSourcePath(imageFile), effectiveContentType ?? source.Value.contentType, thumbnailPath, imageFile.ModTime, maxDimension, thumbnailOutput, ct))
-                logger.LogInformation("Skipping generated thumbnail for unsupported image format {ImageId}", imageId);
+                logger.LogDebug("Skipping generated thumbnail for unsupported image format {ImageId}", imageId);
             else
                 DeleteAlternateImageThumbnailVariants(thumbnailBasePath, thumbnailPath);
         }
@@ -978,7 +978,7 @@ public class ThumbnailService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogInformation(ex, "Falling back to ffmpeg CLI thumbnail generation for {FilePath}", filePath);
+            logger.LogWarning(ex, "In-process thumbnail generation failed for {FilePath}; falling back to ffmpeg CLI", filePath);
             return false;
         }
         finally
@@ -1257,7 +1257,7 @@ public class ThumbnailService(
             if (await TryGenerateVideoSpriteViaInProcessAsync(ffmpegPath, filePath, spritePath, vttPath, frameCount, cols, rows, interval, duration, ct))
                 return;
 
-            logger.LogInformation("Falling back to ffmpeg CLI sprite generation for video {VideoId}", videoId);
+            logger.LogDebug("Falling back to ffmpeg CLI sprite generation for video {VideoId}", videoId);
 
             if (await TryGenerateVideoSpriteViaFfmpegAsync(ffmpegPath, filePath, spritePath, frameCount, cols, rows, duration, ct))
             {
@@ -1265,7 +1265,7 @@ public class ThumbnailService(
                 return;
             }
 
-            logger.LogInformation("Falling back to ffmpeg process frame extraction for sprite generation of video {VideoId}", videoId);
+            logger.LogDebug("Falling back to ffmpeg process frame extraction for sprite generation of video {VideoId}", videoId);
 
             // Build timestamps for seek-based extraction (center of each interval)
             var timestamps = new double[frameCount];
@@ -1360,7 +1360,7 @@ public class ThumbnailService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogInformation(ex, "Falling back to ffmpeg CLI sprite generation for {FilePath}", filePath);
+            logger.LogWarning(ex, "In-process sprite generation failed for {FilePath}; falling back to ffmpeg CLI", filePath);
             return false;
         }
         finally
@@ -1665,7 +1665,7 @@ public class ThumbnailService(
                 if (!listed.Contains(enc, StringComparer.OrdinalIgnoreCase)) continue;
                 if (!ProbeEncoder(ffmpegPath, enc, out var probeError))
                 {
-                    logger.LogInformation("Skipping {Encoder}: probe failed ({Error})", enc, probeError);
+                    logger.LogDebug("Skipping {Encoder}: probe failed ({Error})", enc, probeError);
                     continue;
                 }
 

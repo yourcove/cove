@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Cove.Core.Auth;
@@ -35,6 +36,14 @@ public static class DataServiceExtensions
                 npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 npgsqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(2), null);
             });
+            // Loaded data extensions contribute their own entities/tables to the model at runtime
+            // (CoveContext.OnModelCreating calls ext.ConfigureModel), but those are intentionally not
+            // part of the core migration snapshot — extensions own their schema. Without this, EF's
+            // MigrateAsync validation treats that extension model config as "pending changes" and
+            // refuses to apply core migrations. Design-time tooling (migrations add /
+            // has-pending-model-changes) still catches missing core migrations, since it builds the
+            // model without extensions.
+            options.ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
             // Disable thread safety checks in production for ~5% faster context operations
             options.EnableThreadSafetyChecks(false);
             // Disable detailed errors (only useful for debugging)

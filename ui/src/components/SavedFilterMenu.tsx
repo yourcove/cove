@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { savedFilters } from "../api/client";
 import type { FindFilter } from "../api/types";
 import { Bookmark, ChevronDown, Save, Trash2, Loader2, Star } from "lucide-react";
+import { readAuthenticatedUserDefaultFilter, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 
 const DEFAULT_SORT_BY_MODE: Record<string, string> = {
   videos: "date",
@@ -37,10 +38,13 @@ function normalizeSavedFindFilter(mode: string, findFilter: FindFilter | undefin
   };
 }
 
-/** Get the default filter for a mode from localStorage */
+/**
+ * Get the default filter for a mode. Prefers the user's account-stored default (follows them across
+ * browsers); falls back to the browser-local value for signed-out use and migration.
+ */
 export function getDefaultFilter(mode: string): { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; uiOptions?: Record<string, unknown> } | null {
   try {
-    const raw = localStorage.getItem(`cove-default-filter-${mode}`);
+    const raw = readAuthenticatedUserDefaultFilter(mode) ?? localStorage.getItem(`cove-default-filter-${mode}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; uiOptions?: Record<string, unknown> };
     return { ...parsed, findFilter: normalizeSavedFindFilter(mode, parsed.findFilter) };
@@ -67,14 +71,27 @@ export function useDefaultSavedFilterOnMount(
   }, []);
 }
 
-/** Set the default filter for a mode in localStorage */
+/** Set the default filter for a mode (account-backed when signed in, plus a browser-local fallback). */
 function setDefaultFilter(mode: string, findFilter: FindFilter, objectFilter?: Record<string, unknown>, uiOptions?: Record<string, unknown>) {
-  localStorage.setItem(`cove-default-filter-${mode}`, JSON.stringify({ findFilter: stripRandomSeed(findFilter), objectFilter, uiOptions }));
+  const json = JSON.stringify({ findFilter: stripRandomSeed(findFilter), objectFilter, uiOptions });
+  const key = mode.trim().toLowerCase();
+  localStorage.setItem(`cove-default-filter-${mode}`, json);
+  updateAuthenticatedUserUiPreferences((current) => ({
+    ...(current ?? {}),
+    defaultFilters: { ...(current?.defaultFilters ?? {}), [key]: json },
+  }));
 }
 
-/** Clear the default filter for a mode */
+/** Clear the default filter for a mode (both account-backed and browser-local copies). */
 function clearDefaultFilter(mode: string) {
+  const key = mode.trim().toLowerCase();
   localStorage.removeItem(`cove-default-filter-${mode}`);
+  updateAuthenticatedUserUiPreferences((current) => {
+    if (!current?.defaultFilters || !(key in current.defaultFilters)) return current;
+    const next = { ...current.defaultFilters };
+    delete next[key];
+    return { ...current, defaultFilters: Object.keys(next).length > 0 ? next : null };
+  });
 }
 
 interface SavedFilterMenuProps {

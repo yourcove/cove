@@ -10,6 +10,12 @@ public class EmbeddingRepository : IEmbeddingRepository
     public EmbeddingRepository(CoveContext db) => _db = db;
 
     public async Task<IReadOnlyList<Embedding>> FindAsync(EmbeddingFilter filter, CancellationToken ct = default)
+        => await BuildQuery(filter).AsNoTracking().ToListAsync(ct);
+
+    public async Task<bool> ExistsAsync(EmbeddingFilter filter, CancellationToken ct = default)
+        => await BuildQuery(filter).AnyAsync(ct);
+
+    private IQueryable<Embedding> BuildQuery(EmbeddingFilter filter)
     {
         var query = _db.Embeddings.AsQueryable();
 
@@ -32,7 +38,7 @@ public class EmbeddingRepository : IEmbeddingRepository
         if (filter.SectionIndexGreaterThan.HasValue)
             query = query.Where(e => e.SectionIndex > filter.SectionIndexGreaterThan.Value);
 
-        return await query.AsNoTracking().ToListAsync(ct);
+        return query;
     }
 
     public void Add(Embedding embedding) => _db.Embeddings.Add(embedding);
@@ -42,9 +48,26 @@ public class EmbeddingRepository : IEmbeddingRepository
     public async Task UpdateHostIdAsync(EmbeddingHostType hostType, string sourceKey,
         IReadOnlyList<int> oldHostIds, int newHostId, CancellationToken ct = default)
     {
-        await _db.Embeddings
+        // Tracked update (not ExecuteUpdate) so it works on any provider and commits with the
+        // caller's SaveChangesAsync alongside the rest of a face merge.
+        var embeddings = await _db.Embeddings
             .Where(e => e.HostType == hostType && e.SourceKey == sourceKey && oldHostIds.Contains(e.HostId))
-            .ExecuteUpdateAsync(s => s.SetProperty(e => e.HostId, newHostId), ct);
+            .ToListAsync(ct);
+        foreach (var embedding in embeddings)
+            embedding.HostId = newHostId;
+    }
+
+    public async Task ReassignHostByRunAsync(EmbeddingHostType hostType, string sourceKey, int oldHostId,
+        IReadOnlyCollection<string> runIds, int newHostId, CancellationToken ct = default)
+    {
+        if (runIds.Count == 0)
+            return;
+
+        var embeddings = await _db.Embeddings
+            .Where(e => e.HostType == hostType && e.SourceKey == sourceKey && e.HostId == oldHostId && e.SourceRunId != null && runIds.Contains(e.SourceRunId))
+            .ToListAsync(ct);
+        foreach (var embedding in embeddings)
+            embedding.HostId = newHostId;
     }
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)

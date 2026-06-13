@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -117,14 +118,17 @@ public partial class StashMigrationService
 
         var allPaths = folderData.Values
             .SelectMany(fd => GetImportedPathLookupCandidates(ApplyStashPathMappings(fd.Path, pathMappings) ?? fd.Path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(FilesystemPaths.PathComparer)
             .ToList();
+        // Group folders using the host filesystem's case sensitivity so that two folders differing only
+        // by case (distinct on Linux, e.g. .../Weibtm and .../weibtm) are NOT collapsed into one cove
+        // folder — which would make their identically-named files collide on (ParentFolderId, Basename).
         var existingFoldersByPath = _db.Folders
             .AsNoTracking()
             .Where(f => allPaths.Contains(f.Path))
             .AsEnumerable()
-            .GroupBy(f => NormalizeImportedPath(f.Path), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.OrderBy(f => f.Id).First().Id, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(f => NormalizeImportedPath(f.Path), FilesystemPaths.PathComparer)
+            .ToDictionary(group => group.Key, group => group.OrderBy(f => f.Id).First().Id, FilesystemPaths.PathComparer);
 
         progress.Report(startProgress, "Importing folders...");
         _logger.LogDebug(
@@ -137,7 +141,7 @@ public partial class StashMigrationService
         const int FolderBatchSize = 1000;
         var pendingFolders = new List<(int StashId, string NormalizedPath, Folder Entity)>(FolderBatchSize);
         var createdFoldersByStashId = new Dictionary<int, Folder>();
-        var createdFoldersByPath = new Dictionary<string, Folder>(StringComparer.OrdinalIgnoreCase);
+        var createdFoldersByPath = new Dictionary<string, Folder>(FilesystemPaths.PathComparer);
 
         async Task FlushFolderBatchAsync()
         {
@@ -957,13 +961,27 @@ WHERE files.zip_file_id IS NOT NULL";
 
         var configDirectory = Path.GetDirectoryName(configPath) ?? string.Empty;
 
+        var resolvedBlobFilesPath = ResolveStashConfigPath(configDirectory, blobFilesPath);
+        // When the user runs Stash's "Migrate blobs to filesystem" action without a
+        // custom path, Stash stores blobs under "<config_dir>/blobs" and usually does
+        // not persist a "blobs_path:" key in config.yml. Fall back to that default
+        // location so filesystem-stored blobs (performer/scene images) still import.
+        // Only adopt it when the directory actually exists to avoid a spurious
+        // "blob files path does not exist" warning for inline-blob libraries.
+        if (string.IsNullOrWhiteSpace(resolvedBlobFilesPath) && !string.IsNullOrEmpty(configDirectory))
+        {
+            var defaultBlobsPath = Path.Combine(configDirectory, "blobs");
+            if (Directory.Exists(defaultBlobsPath))
+                resolvedBlobFilesPath = defaultBlobsPath;
+        }
+
         return new StashConfigData(
             paths
                 .Select(path => (ResolveStashConfigPath(configDirectory, path.Path) ?? path.Path, path.ExcludeImage, path.ExcludeVideo))
                 .ToList(),
             ResolveStashConfigPath(configDirectory, generatedPath),
             videoFileNamingAlgorithm ?? (calculateMd5 == true ? "MD5" : "OSHASH"),
-            ResolveStashConfigPath(configDirectory, blobFilesPath),
+            resolvedBlobFilesPath,
             ResolveStashConfigPath(configDirectory, customPerformerImageLocation),
             metadataServers);
 

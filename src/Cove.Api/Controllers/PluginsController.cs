@@ -379,7 +379,7 @@ public class PluginsController(
         if (process.ExitCode != 0)
             logger.LogWarning("Python plugin {Script} exited with code {Code}: {Error}", scriptPath, process.ExitCode, error);
         else if (!string.IsNullOrEmpty(output))
-            logger.LogInformation("Python plugin output: {Output}", output.TrimEnd());
+            logger.LogDebug("Python plugin {Script} output: {Output}", scriptPath, output.TrimEnd());
     }
 
     private static string? FindPython()

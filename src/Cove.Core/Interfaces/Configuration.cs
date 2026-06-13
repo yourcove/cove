@@ -86,6 +86,15 @@ public class AuthConfig
     public bool AllowAnonymousShareLinks { get; set; } = true;
     public List<string> KnownProxies { get; set; } = [];
     /// <summary>
+    /// Hostnames that are considered trusted even when auth is disabled. When the
+    /// request's Host (or X-Forwarded-Host) matches one of these, the auth-disabled
+    /// failsafe is not tripped, regardless of the client IP. This lets an operator
+    /// intentionally run Cove with authentication disabled behind a trusted reverse
+    /// proxy on a custom public hostname. Supports exact hostnames, a leading
+    /// wildcard ("*.example.com" matches subdomains), or "*" to trust any host.
+    /// </summary>
+    public List<string> TrustedHosts { get; set; } = [];
+    /// <summary>
     /// When true, every controller action MUST declare a permission policy via
     /// [RequiresPermission], [AllowWithoutPermission], or [AllowAnonymous]; actions
     /// without any are rejected with 403.

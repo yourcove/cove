@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen.Abstractions;
 using FFmpeg.AutoGen.Bindings.DynamicallyLoaded;
+using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -20,6 +21,12 @@ public static unsafe class FfmpegInProcess
     private static readonly object InitLock = new();
     private static readonly AVIOInterruptCB_callback InterruptCallback = OnInterrupt;
     private static string? _lastAttemptedFfmpegPath;
+
+    /// <summary>
+    /// Optional logger for initialization diagnostics. Set once from startup
+    /// (this is a static class, so there is no injected logger). Null-safe.
+    /// </summary>
+    public static ILogger? Logger { get; set; }
 
     /// <summary>
     /// True if in-process FFmpeg bindings initialized and verified successfully.
@@ -72,26 +79,29 @@ public static unsafe class FfmpegInProcess
                 try
                 {
                     DynamicallyLoadedBindings.LibrariesPath = libraryPath ?? string.Empty;
-                    Console.WriteLine(string.IsNullOrEmpty(libraryPath)
-                        ? "[FfmpegInProcess] Trying shared libraries from the default runtime loader paths"
-                        : $"[FfmpegInProcess] Trying shared libraries from: {libraryPath}");
+                    Logger?.LogDebug(
+                        string.IsNullOrEmpty(libraryPath)
+                            ? "In-process FFmpeg: trying shared libraries from the default runtime loader paths"
+                            : "In-process FFmpeg: trying shared libraries from {LibraryPath}",
+                        libraryPath);
 
-                    Console.WriteLine("[FfmpegInProcess] Calling DynamicallyLoadedBindings.Initialize()...");
                     DynamicallyLoadedBindings.Initialize();
-                    Console.WriteLine("[FfmpegInProcess] Bindings initialized successfully.");
 
                     var majorVer = (int)(ffmpeg.avformat_version() >> 16);
 
                     if (enableHwAccel)
                     {
-                        Console.WriteLine("[FfmpegInProcess] Probing hwaccels...");
                         _availableHwAccels = ProbeHwAccels();
-                        Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer}, hwAccels={string.Join(",", _availableHwAccels)})");
+                        Logger?.LogInformation(
+                            "In-process FFmpeg ready (libavformat major={Version}, hardware acceleration: {HwAccels})",
+                            majorVer, _availableHwAccels.Length > 0 ? string.Join(",", _availableHwAccels) : "none available");
                     }
                     else
                     {
                         _availableHwAccels = [];
-                        Console.WriteLine($"[FfmpegInProcess] In-process FFmpeg ready (libavformat major={majorVer}, Hardware Acceleration: Disabled)");
+                        Logger?.LogInformation(
+                            "In-process FFmpeg ready (libavformat major={Version}, hardware acceleration: disabled)",
+                            majorVer);
                     }
 
                     IsAvailable = true;
@@ -102,18 +112,15 @@ public static unsafe class FfmpegInProcess
                 {
                     lastError = ex;
                     IsAvailable = false;
-                    Console.WriteLine("[FfmpegInProcess] In-process FFmpeg initialization attempt failed.");
-                    Console.WriteLine($"[FfmpegInProcess] Exception: {ex.GetType().Name}: {ex.Message}");
-                    if (ex.InnerException != null)
-                        Console.WriteLine($"[FfmpegInProcess] Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                    Logger?.LogDebug(ex, "In-process FFmpeg initialization attempt failed for candidate path {LibraryPath}", libraryPath);
                 }
             }
 
             _initialized = true;
             if (lastError != null)
             {
-                Console.WriteLine("[FfmpegInProcess] In-process FFmpeg initialization failed for all candidate library paths.");
-                Console.WriteLine($"[FfmpegInProcess] StackTrace: {lastError.StackTrace}");
+                Logger?.LogWarning(lastError,
+                    "In-process FFmpeg initialization failed for all candidate library paths; falling back to spawning the ffmpeg process");
             }
         }
     }

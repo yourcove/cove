@@ -17,7 +17,8 @@ import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthP
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { trackInteraction } from "../utils/interactionTracking";
-import { LIST_PER_PAGE_OPTIONS, toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
+import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
+import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 
@@ -75,8 +76,6 @@ interface ListPageProps {
   showClearAllObjectFilters?: boolean;
   showCustomFilterDivider?: boolean;
 }
-
-const PER_PAGE_OPTIONS = LIST_PER_PAGE_OPTIONS;
 const DEFAULT_ZOOM_LEVEL = 1;
 const LIST_SEARCH_DEBOUNCE_MS = 350;
 
@@ -823,17 +822,6 @@ export function ListPage({
   }, [tagEntities, performerEntities, studioEntities, groupEntities, tagGroupEntities]);
   const perPage = filter.perPage ?? 25;
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
-  const perPageOptions = useMemo(() => {
-    if (infinitePageSizeOnly) {
-      return [];
-    }
-
-    if (infinitePageSize || PER_PAGE_OPTIONS.includes(perPage)) {
-      return PER_PAGE_OPTIONS;
-    }
-
-    return [...PER_PAGE_OPTIONS, perPage].sort((left, right) => left - right);
-  }, [infinitePageSize, infinitePageSizeOnly, perPage]);
   const page = filter.page ?? 1;
   const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
   const totalPages = Math.max(1, Math.ceil(totalCount / effectivePerPage));
@@ -1256,18 +1244,13 @@ export function ListPage({
 
         {/* Per page */}
         <div className={toolbarSegmentClass}>
-          <select
-            value={infinitePageSize ? "infinite" : String(perPage)}
-            onChange={(e) => onFilterChange({ ...filter, perPage: e.target.value === "infinite" ? 0 : Number(e.target.value), page: 1 })}
-            className={`${toolbarSelectClass} min-w-[4.75rem]`}
-            title="Items per page"
-            disabled={infinitePageSizeOnly}
-          >
-            {allowInfinitePageSize ? <option value="infinite">Infinite</option> : null}
-            {perPageOptions.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+          <PageSizeSelect
+            perPage={perPage}
+            allowInfinite={allowInfinitePageSize}
+            infinitePageSize={infinitePageSize}
+            infinitePageSizeOnly={infinitePageSizeOnly}
+            onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: nextPerPage, page: 1 })}
+          />
 
           {/* Zoom slider (standard card size slider) */}
           {(displayMode === "grid" || displayMode === "list") && (

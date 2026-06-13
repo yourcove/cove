@@ -1023,6 +1023,8 @@ public class SavedFilterConfiguration : IEntityTypeConfiguration<SavedFilter>
         builder.Property(f => f.FindFilter).HasColumnType("jsonb");
         builder.Property(f => f.ObjectFilter).HasColumnType("jsonb");
         builder.Property(f => f.UIOptions).HasColumnType("jsonb");
+        builder.HasOne(f => f.User).WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasIndex(f => new { f.UserId, f.Mode });
     }
 }
 

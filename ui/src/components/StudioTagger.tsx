@@ -1,20 +1,22 @@
 import { useCallback, useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { studios } from "../api/client";
-import type { Studio, MetadataServerStudioMatch, MetadataServerStudioImportRequest } from "../api/types";
+import type { Studio, MetadataServer, MetadataServerStudioMatch, MetadataServerStudioImportRequest } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { DEFAULT_COLLECTION_MODES, type CollectionMode } from "./videoScrapeUtils";
 import {
   CompactCollectionDecision,
+  CompactImageDecision,
   CompactListValue,
   CompactScalarDecision,
   DEFAULT_TAGGER_BLACKLIST,
+  RemoteRefreshButtons,
   TaggerSettingsPanel,
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
 import {
-  Search, Loader2, Check, AlertCircle, Fingerprint,
+  Search, Loader2, Check, AlertCircle, Fingerprint, CloudUpload,
 } from "lucide-react";
 
 interface StudioTaggerProps {
@@ -56,10 +58,10 @@ async function runWithConcurrency<T>(items: T[], fn: (item: T) => Promise<void>,
   await Promise.all(workers);
 }
 
+// Cover image is handled separately as a thumbnail comparison (CompactImageDecision), not a text scalar.
 const studioScalarFields = [
   { key: "name", label: "Name" },
   { key: "parent", label: "Parent" },
-  { key: "image", label: "Image" },
 ];
 
 function normalizeDecisionValue(value?: string | number | null) {
@@ -91,6 +93,10 @@ function buildDefaultStudioFieldStrategies(studio: Studio, result: MetadataServe
     if (scraped === undefined || scraped === null || scraped === "") continue;
     const current = getStudioCurrentValue(studio, field.key);
     strategies[field.key] = normalizeDecisionValue(current) === normalizeDecisionValue(scraped) ? "ignore" : "overwrite";
+  }
+  // Cover logo: replace-if-empty, keep-if-exists. "overwrite" replaces the logo; "ignore" keeps it.
+  if (result.imageUrl) {
+    strategies.image = studio.imagePath ? "ignore" : "overwrite";
   }
   return strategies;
 }
@@ -199,7 +205,9 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
     );
   }
 
-  const visibleStudios = taggerConfig.showTagged
+  // Detail mode was opened for this specific studio, so always show it (the bulk "hide tagged"
+  // convenience filter would otherwise leave the dialog empty for an already-tagged studio).
+  const visibleStudios = mode === "detail" || taggerConfig.showTagged
     ? studioList
     : studioList.filter((s) => !s.remoteIds || s.remoteIds.length === 0);
 
@@ -250,6 +258,8 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
             onSearch={() => searchStudio(studio)}
             onUpdateState={(update) => updateSearchState(studio.id, update)}
             endpoint={taggerConfig.selectedEndpoint}
+            metadataServers={metadataServers}
+            detailMode={mode === "detail"}
             selected={selectedIds?.has(studio.id) ?? false}
             selecting={selecting}
             onSelect={onSelect}
@@ -268,6 +278,8 @@ function StudioTaggerRow({
   onSearch,
   onUpdateState,
   endpoint,
+  metadataServers,
+  detailMode = false,
   selected,
   selecting,
   onSelect,
@@ -279,11 +291,32 @@ function StudioTaggerRow({
   onSearch: () => void;
   onUpdateState: (update: Partial<StudioSearchState>) => void;
   endpoint: string;
+  metadataServers: MetadataServer[];
+  detailMode?: boolean;
   selected: boolean;
   selecting: boolean;
   onSelect?: (studioId: number) => void;
 }) {
   const imageUrl = studio.imagePath;
+  const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
+
+  const refreshFromRemote = useCallback(async (refreshEndpoint: string, remoteId: string) => {
+    setRefreshBusyEndpoint(refreshEndpoint);
+    onUpdateState({ loading: true, error: undefined, results: undefined, saved: false });
+    try {
+      const results = await studios.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
+      onUpdateState({
+        loading: false,
+        results,
+        selectedIndex: results.length > 0 ? 0 : undefined,
+        error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
+      });
+    } catch (err) {
+      onUpdateState({ loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
+    } finally {
+      setRefreshBusyEndpoint(null);
+    }
+  }, [onUpdateState]);
 
   const importMut = useMutation({
     mutationFn: () => {
@@ -298,6 +331,13 @@ function StudioTaggerRow({
     },
     onSuccess: () => {
       onUpdateState({ saved: true });
+    },
+  });
+
+  const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
+    mutationFn: () => {
+      if (!endpoint) throw new Error("Select a metadata-server source first.");
+      return studios.submitMetadataServerDraft(studio.id, endpoint);
     },
   });
 
@@ -339,6 +379,14 @@ function StudioTaggerRow({
 
         {/* Search + Results */}
         <div className="flex-1 min-w-0">
+          {detailMode && (
+            <RemoteRefreshButtons
+              remoteIds={studio.remoteIds}
+              servers={metadataServers}
+              busyEndpoint={refreshBusyEndpoint}
+              onRefresh={refreshFromRemote}
+            />
+          )}
           <div className="flex gap-2 mb-2">
             <input
               type="text"
@@ -356,7 +404,22 @@ function StudioTaggerRow({
               {state?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Search
             </button>
+            <button
+              onClick={() => submitDraftMut.mutate()}
+              disabled={submitDraftMut.isPending}
+              className="flex items-center gap-1 px-2 py-1.5 rounded text-xs bg-surface border border-border text-muted hover:text-foreground disabled:opacity-60"
+              title="Submit this studio as a draft entry to the metadata server"
+            >
+              {submitDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+            </button>
           </div>
+
+          {submitDraftMut.isError && (
+            <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitDraftMut.error.message}</p>
+          )}
+          {submitDraftMut.isSuccess && (
+            <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Studio draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>
+          )}
 
           {state?.error && (
             <p className="text-xs text-red-400 mb-2">
@@ -465,6 +528,16 @@ function StudioResultRow({
               onChange={(shouldReplace) => onFieldStrategyChange(row.key, shouldReplace ? "overwrite" : "ignore")}
             />
           ))}
+
+          {result.imageUrl && (
+            <CompactImageDecision
+              label="Logo"
+              currentImageUrl={studio.imagePath}
+              scrapedImageUrl={result.imageUrl}
+              replacing={fieldStrategies.image === "overwrite"}
+              onChange={(shouldReplace) => onFieldStrategyChange("image", shouldReplace ? "overwrite" : "ignore")}
+            />
+          )}
 
           {result.urls.length > 0 && (
             <CompactCollectionDecision

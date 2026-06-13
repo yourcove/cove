@@ -7,6 +7,7 @@ import { RatingBanner } from "../components/Rating";
 import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers } from "lucide-react";
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { readAuthenticatedUserHomePageContent, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,9 @@ const CONTINUE_WATCHING_MIGRATION_KEY = "cove-front-page-continue-watching-migra
 
 function loadContent(): FrontPageContent[] {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    // Prefer the user's account-stored layout (follows them across browsers); fall back to the
+    // browser-local value for signed-out use and as a one-time migration source.
+    const stored = readAuthenticatedUserHomePageContent() ?? localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const content = JSON.parse(stored) as FrontPageContent[];
       // Migrate layouts saved before Continue Watching became a customizable row: it used to be
@@ -115,7 +118,10 @@ function loadContent(): FrontPageContent[] {
 }
 
 function saveContent(content: FrontPageContent[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(content));
+  const json = JSON.stringify(content);
+  // Browser-local copy (fallback / signed-out), plus the account-backed copy when signed in.
+  localStorage.setItem(STORAGE_KEY, json);
+  updateAuthenticatedUserUiPreferences((current) => ({ ...(current ?? {}), homePageContent: json }));
 }
 
 // ─── Home Page Component ─────────────────────────────────────────────────────

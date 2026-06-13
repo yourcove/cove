@@ -274,7 +274,7 @@ function ResolvedSpanPlayerCard({
     <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
       {currentVideoLoading ? (
         <div className="flex flex-1 items-center justify-center bg-black text-sm text-secondary">
-          Loading resolved span playback...
+          Loading segment playback...
         </div>
       ) : currentFile ? (
         <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
@@ -313,7 +313,7 @@ function ResolvedSpanPlayerCard({
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center bg-black text-sm text-secondary">
-          No playable video file is available for this resolved span.
+          No playable video file is available for this segment.
         </div>
       )}
     </div>
@@ -442,10 +442,10 @@ function ResolvedSpanPlayerCard({
           <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">Loading timeline context...</div>
         ) : (
           <>
-            <ResolvedSpanContextSection title="Previous Segments" items={spanContext.previous} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="This is the first span in the video." />
-            <ResolvedSpanContextSection title="Next Segments" items={spanContext.next} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="This is the last span in the video." />
-            <ResolvedSpanContextSection title="Intersecting Segments" items={spanContext.intersecting} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="No other spans overlap this time range." />
-            <ResolvedSpanContextSection title="Next With Same Tag" items={spanContext.nextSameTag ? [spanContext.nextSameTag] : []} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage={contextFollowTagName ? `No later ${contextFollowTagName} span is in this video.` : "This span does not have a tag to follow."} compact />
+            <ResolvedSpanContextSection title="Previous Segments" items={spanContext.previous} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="This is the first segment in the video." />
+            <ResolvedSpanContextSection title="Next Segments" items={spanContext.next} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="This is the last segment in the video." />
+            <ResolvedSpanContextSection title="Intersecting Segments" items={spanContext.intersecting} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage="No other segments overlap this time range." />
+            <ResolvedSpanContextSection title="Next With Same Tag" items={spanContext.nextSameTag ? [spanContext.nextSameTag] : []} videoId={detail.videoId} profileId={detail.profileId} onNavigate={onNavigate} emptyMessage={contextFollowTagName ? `No later ${contextFollowTagName} segment is in this video.` : "This segment does not have a tag to follow."} compact />
           </>
         )}
       </div>
@@ -585,7 +585,7 @@ function ResolvedSpanSourceDetails({
         detail.span.tagId && detail.span.tagName ? (
           <TagBadge name={detail.span.tagName} provenance={buildSpanTagProvenance(detail, profileName)} onClick={() => onNavigate({ page: "tag", id: detail.span.tagId! })} />
         ) : (
-          <SourceChip>{detail.span.tagName || detail.span.kind || detail.span.sourceKey || "Resolved span"}</SourceChip>
+          <SourceChip>{detail.span.tagName || detail.span.kind || detail.span.sourceKey || "Segment"}</SourceChip>
         )
       )}
     </div>
@@ -691,7 +691,7 @@ function spanMatchesCurrentTag(span: ResolvedSpan, followTagId?: number, followT
 }
 
 function formatResolvedSpanTitle(span: ResolvedSpan) {
-  return span.tagName || span.kind || span.sourceKey || "Resolved span";
+  return span.tagName || span.kind || span.sourceKey || "Segment";
 }
 
 function buildResolvedSpanSummaryMetrics(span: ResolvedSpan, intervalCount: number, profileName: string, derivedOperator?: SegmentSpanOperator) {

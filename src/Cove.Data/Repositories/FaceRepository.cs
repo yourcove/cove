@@ -71,9 +71,26 @@ public class FaceRepository : IFaceRepository
 
     public async Task UpdateAppearanceFaceIdAsync(string sourceKey, IReadOnlyList<int> oldFaceIds, int newFaceId, CancellationToken ct = default)
     {
-        await _db.FaceAppearances
+        // Tracked update (not ExecuteUpdate) so it works on any provider and commits with the
+        // caller's SaveChangesAsync alongside the rest of a face merge.
+        var appearances = await _db.FaceAppearances
             .Where(a => a.SourceKey == sourceKey && oldFaceIds.Contains(a.FaceId))
-            .ExecuteUpdateAsync(s => s.SetProperty(a => a.FaceId, newFaceId), ct);
+            .ToListAsync(ct);
+        foreach (var appearance in appearances)
+            appearance.FaceId = newFaceId;
+    }
+
+    public async Task<int> ReassignAppearancesByRunAsync(string sourceKey, int oldFaceId, IReadOnlyCollection<string> runIds, int newFaceId, CancellationToken ct = default)
+    {
+        if (runIds.Count == 0)
+            return 0;
+
+        var appearances = await _db.FaceAppearances
+            .Where(a => a.SourceKey == sourceKey && a.FaceId == oldFaceId && a.SourceRunId != null && runIds.Contains(a.SourceRunId))
+            .ToListAsync(ct);
+        foreach (var appearance in appearances)
+            appearance.FaceId = newFaceId;
+        return appearances.Count;
     }
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)

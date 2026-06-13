@@ -4,23 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { jobs } from "../api/client";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import type { JobInfo } from "../api/types";
-import { X, Loader2, CheckCircle, XCircle, Ban, Clock, Trash2 } from "lucide-react";
+import { X } from "lucide-react";
+import { JobCard } from "./JobCard";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onNavigate?: (r: any) => void;
 }
-
-const statusIcon = (status: JobInfo["status"]) => {
-  switch (status) {
-    case "running": return <Loader2 className="w-4 h-4 text-accent animate-spin" />;
-    case "completed": return <CheckCircle className="w-4 h-4 text-green-400" />;
-    case "failed": return <XCircle className="w-4 h-4 text-red-400" />;
-    case "cancelled": return <Ban className="w-4 h-4 text-secondary" />;
-    default: return <Clock className="w-4 h-4 text-yellow-400" />;
-  }
-};
 
 export function JobDrawer({ open, onClose }: Props) {
   const queryClient = useQueryClient();
@@ -169,124 +160,6 @@ export function JobDrawer({ open, onClose }: Props) {
       ) : null}
     </>,
     document.body,
-  );
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}h ${mins.toString().padStart(2, "0")}m`;
-}
-
-function JobCard({ job, onCancel }: { job: JobInfo; onCancel?: (id: string) => void }) {
-  const progressPct = Math.round(job.progress * 100);
-  const [now, setNow] = useState(Date.now());
-  const progressHistory = useRef<{ time: number; progress: number }[]>([]);
-  const maxProgress = useRef(0);
-
-  // Tick every second for elapsed/ETA display while running
-  useEffect(() => {
-    if (job.status !== "running") return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [job.status]);
-
-  // Track progress history for rolling window ETA (clamp to never go backwards)
-  useEffect(() => {
-    if (job.status === "running" && job.progress > 0) {
-      const hist = progressHistory.current;
-      const now = Date.now();
-      // Clamp: if progress goes backwards (phase transitions), reset the window
-      if (job.progress < maxProgress.current - 0.01) {
-        hist.length = 0;
-      }
-      maxProgress.current = Math.max(maxProgress.current, job.progress);
-      hist.push({ time: now, progress: maxProgress.current });
-      // Keep last 60 seconds for better averaging on slow jobs
-      const cutoff = now - 60000;
-      while (hist.length > 0 && hist[0].time < cutoff) hist.shift();
-    }
-  }, [job.progress, job.status]);
-
-  const elapsedMs = now - new Date(job.startedAt).getTime();
-
-  // Rolling window ETA: use rate from last 60s of progress updates
-  // Falls back to overall rate (elapsed-based) when rolling window has insufficient data
-  let etaMs: number | null = null;
-  const hist = progressHistory.current;
-  if (job.progress >= 0.01) {
-    if (hist.length >= 2) {
-      const first = hist[0];
-      const last = hist[hist.length - 1];
-      const dt = last.time - first.time;
-      const dp = last.progress - first.progress;
-      if (dt > 1000 && dp > 0) {
-        const rate = dp / dt;
-        etaMs = (1.0 - last.progress) / rate;
-      }
-    }
-    // Fallback: overall elapsed rate when rolling window yields nothing
-    if (etaMs == null && elapsedMs > 2000) {
-      const overallRate = job.progress / elapsedMs;
-      etaMs = (1.0 - job.progress) / overallRate;
-    }
-  }
-
-  return (
-    <div className="job-drawer-card rounded-lg border border-border p-3 text-foreground">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          {statusIcon(job.status)}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{job.description}</p>
-            {job.subTask && (
-              <p className="text-xs text-muted truncate mt-0.5">{job.subTask}</p>
-            )}
-          </div>
-        </div>
-        {(job.status === "running" || job.status === "pending") && onCancel && (
-          <button onClick={() => onCancel(job.id)} className="text-muted hover:text-red-400 flex-shrink-0">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
-
-      {job.status === "running" && (
-        <div className="mt-2">
-          <div className="h-1.5 bg-input rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent rounded-full transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between mt-1">
-            <p className="text-xs text-muted">
-              {progressPct}% · {formatDuration(elapsedMs)} elapsed
-            </p>
-            {etaMs != null && (
-              <p className="text-xs text-muted">
-                ~{formatDuration(etaMs)} remaining
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {job.error && (
-        <p className="text-xs text-red-400 mt-1 truncate">{job.error}</p>
-      )}
-
-      {job.completedAt && (
-        <p className="text-xs text-muted mt-1">
-          Completed in {formatDuration(new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime())} · {new Date(job.completedAt).toLocaleTimeString()}
-        </p>
-      )}
-    </div>
   );
 }
 

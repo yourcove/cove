@@ -84,7 +84,10 @@ export function FaceCompareDialog({
     return localPerformerId != null
       && !!face.coverImageUrl
       && active.localPerformerHasImage === false
-      && active.localPerformerIsLocalOnly === true;
+      && active.localPerformerIsLocalOnly === true
+      // When linking this reference match will refresh the performer from a metadata server, the
+      // performer's image comes from there — setting it from the face crop is irrelevant.
+      && !readReferenceWillRefreshFromMetadata(active);
   }, [face, active]);
 
   const evidence = useMemo(() => active ? readEvidence(active).slice(0, 5) : [], [active]);
@@ -456,6 +459,25 @@ function readWhy(suggestion: ComparableSuggestion) {
 
 function readConflictGroupId(suggestion: ComparableSuggestion | null) {
   return suggestion && "conflictGroupId" in suggestion ? suggestion.conflictGroupId : undefined;
+}
+
+function readReferenceWillRefreshFromMetadata(suggestion: ComparableSuggestion) {
+  return "referenceWillRefreshFromMetadata" in suggestion ? suggestion.referenceWillRefreshFromMetadata === true : false;
+}
+
+// Reference (metadata-server) link info to send back on accept, so the host can record the remote id on
+// the linked performer and scrape it when enabled. Empty for non-reference suggestions (or the cached
+// top-suggestion projection, which does not carry the endpoint).
+export function readReferenceLinkInfo(suggestion: FaceSuggestion | FaceTopSuggestion):
+  { referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean } {
+  if (!("referenceEndpoint" in suggestion) || !suggestion.referenceEndpoint || !suggestion.referenceExternalId) {
+    return {};
+  }
+  return {
+    referenceEndpoint: suggestion.referenceEndpoint,
+    referenceExternalId: suggestion.referenceExternalId,
+    referenceUpdateMetadata: readReferenceWillRefreshFromMetadata(suggestion),
+  };
 }
 
 function readLocalPerformerId(suggestion: ComparableSuggestion) {

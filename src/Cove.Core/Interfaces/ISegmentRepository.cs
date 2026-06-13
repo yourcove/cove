@@ -25,5 +25,9 @@ public interface ISegmentRepository
     /// <summary>Re-points face-ref segments from <paramref name="oldRefIds"/> to <paramref name="newRefId"/>.</summary>
     Task UpdateRefIdAsync(string sourceKey, IReadOnlyList<long> oldRefIds, long newRefId, CancellationToken ct = default);
 
+    /// <summary>Re-points the segments of <paramref name="oldRefId"/> that came from the given runs to
+    /// <paramref name="newRefId"/>.</summary>
+    Task ReassignRefByRunAsync(string sourceKey, long oldRefId, IReadOnlyCollection<string> runIds, long newRefId, CancellationToken ct = default);
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

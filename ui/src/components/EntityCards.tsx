@@ -1783,7 +1783,7 @@ export function TagTile({ tag, engagement, onClick, onNavigate, children, select
       footer={hasFooter ? (
         <>
           {tag.videoCount != null && tag.videoCount > 0 ? <PopoverButton icon={<Film className="w-3 h-3" />} count={tag.videoCount} title="Videos" wide preferBelow><VideosPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
-          {tag.imageCount != null && tag.imageCount > 0 ? <PopoverButton icon={<ImagesIcon className="w-3 h-3" />} count={tag.imageCount} title="Images" wide preferBelow><ImagesPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
+          {tag.imageCount != null && tag.imageCount > 0 ? <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={tag.imageCount} title="Images" wide preferBelow><ImagesPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
           {tag.galleryCount != null && tag.galleryCount > 0 ? <PopoverButton icon={<FolderOpen className="w-3 h-3" />} count={tag.galleryCount} title="Galleries" wide preferBelow><GalleriesPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
           {tag.groupCount != null && tag.groupCount > 0 ? <PopoverButton icon={<Layers className="w-3 h-3" />} count={tag.groupCount} title="Groups" wide preferBelow><GroupsPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
           {tag.segmentCount != null && tag.segmentCount > 0 ? <span className="flex items-center gap-0.5 text-xs text-muted" title="Segments"><Layers className="w-3 h-3" /> {tag.segmentCount}</span> : null}

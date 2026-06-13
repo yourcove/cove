@@ -2,7 +2,7 @@ using System.Linq.Expressions;
 
 namespace Cove.Data.Repositories;
 
-internal static class SeededRandomOrdering
+public static class SeededRandomOrdering
 {
     private const long Modulus = 2147483647L;
     private const long PrimaryModulus = 13L;

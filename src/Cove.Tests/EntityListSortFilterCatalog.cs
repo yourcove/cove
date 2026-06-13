@@ -110,6 +110,7 @@ public static class EntityListSortFilterCatalog
         new("audios", "tag_count", "Tag Count"),
         new("audios", "performer_count", "Performer Count"),
         new("audios", "title", "Title"),
+        new("audios", "random", "Random"),
 
         // Texts
         new("texts", "updatedAt", "Updated At"),
@@ -129,18 +130,26 @@ public static class EntityListSortFilterCatalog
         new("texts", "tag_count", "Tag Count"),
         new("texts", "performer_count", "Performer Count"),
         new("texts", "title", "Title"),
+        new("texts", "random", "Random"),
 
         // Galleries
         new("galleries", "updated_at", "Updated At"),
         new("galleries", "created_at", "Created At"),
         new("galleries", "date", "Date"),
+        new("galleries", "studio", "Studio"),
         new("galleries", "file_mod_time", "File Modification Time"),
+        new("galleries", "file_count", "File Count"),
         new("galleries", "path", "Path"),
         new("galleries", "title", "Title"),
+        new("galleries", "code", "Studio Code"),
+        new("galleries", "photographer", "Photographer"),
+        new("galleries", "organized", "Organized"),
         new("galleries", "rating", "Rating"),
         new("galleries", "image_count", "Image Count"),
+        new("galleries", "video_count", "Video Count"),
         new("galleries", "performer_count", "Performer Count"),
         new("galleries", "tag_count", "Tag Count"),
+        new("galleries", "typical_resolution", "Typical Resolution"),
         new("galleries", "random", "Random"),
 
         // Groups

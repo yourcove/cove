@@ -24,6 +24,8 @@ public class EntityListSortBehaviorHarnessTests
         "sort:videos:organized",
         "sort:images:random",
         "sort:images:visual_match",
+        "sort:audios:random",
+        "sort:texts:random",
         "sort:galleries:random",
         "sort:groups:random",
         "sort:performers:random",
@@ -748,13 +750,20 @@ public class EntityListSortBehaviorHarnessTests
             "updated_at" => Order(fixture.Galleries, gallery => gallery.UpdatedAt, descending),
             "created_at" => Order(fixture.Galleries, gallery => gallery.CreatedAt, descending),
             "date" => Order(fixture.Galleries, gallery => gallery.Date ?? DateOnly.MinValue, descending),
+            "studio" => Order(fixture.Galleries, gallery => gallery.Studio!.Name, descending),
             "file_mod_time" => Order(fixture.Galleries, gallery => gallery.Files.Max(file => file.ModTime), descending),
+            "file_count" => Order(fixture.Galleries, gallery => gallery.Files.Count, descending),
             "path" => Order(fixture.Galleries, gallery => gallery.Folder!.Path, descending),
             "title" => Order(fixture.Galleries, gallery => gallery.Title, descending),
+            "code" => Order(fixture.Galleries, gallery => gallery.Code, descending),
+            "photographer" => Order(fixture.Galleries, gallery => gallery.Photographer, descending),
+            "organized" => OrderWithDirectionalIdTieBreaker(fixture.Galleries, gallery => gallery.Organized, descending),
             "rating" => Order(fixture.Galleries, gallery => fixture.Rating(RatingHostType.Gallery, gallery.Id), descending),
             "image_count" => Order(fixture.Galleries, gallery => gallery.ImageGalleries.Count, descending),
+            "video_count" => Order(fixture.Galleries, gallery => gallery.VideoGalleries.Count, descending),
             "performer_count" => Order(fixture.Galleries, gallery => gallery.GalleryPerformers.Count, descending),
             "tag_count" => Order(fixture.Galleries, gallery => gallery.GalleryTags.Count, descending),
+            "typical_resolution" => Order(fixture.Galleries, gallery => TypicalGalleryResolution(gallery), descending),
             _ => throw new InvalidOperationException($"No gallery sort projection configured for '{sortKey}'."),
         };
 
@@ -917,6 +926,32 @@ public class EntityListSortBehaviorHarnessTests
         => descending
             ? items.OrderByDescending(keySelector).ThenByDescending(nameSelector).ThenByDescending(item => item.Id).Select(item => item.Id).ToArray()
             : items.OrderBy(keySelector).ThenBy(nameSelector).ThenBy(item => item.Id).Select(item => item.Id).ToArray();
+
+    private static int TypicalGalleryResolution(Gallery gallery)
+        => gallery.ImageGalleries
+            .SelectMany(imageGallery => imageGallery.Image!.Files.Select(file => ResolutionBucket(Math.Max(file.Width, file.Height))))
+            .Where(bucket => bucket > 0)
+            .GroupBy(bucket => bucket)
+            .OrderByDescending(group => group.Count())
+            .ThenByDescending(group => group.Key)
+            .Select(group => group.Key)
+            .FirstOrDefault();
+
+    private static int ResolutionBucket(int resolution)
+        => resolution >= 9840 ? 9999 :
+            resolution >= 7424 ? 4320 :
+            resolution >= 6656 ? 4032 :
+            resolution >= 5632 ? 3384 :
+            resolution >= 4480 ? 2880 :
+            resolution >= 3200 ? 2160 :
+            resolution >= 2240 ? 1440 :
+            resolution >= 1600 ? 1080 :
+            resolution >= 1120 ? 720 :
+            resolution >= 907 ? 540 :
+            resolution >= 747 ? 480 :
+            resolution >= 533 ? 360 :
+            resolution >= 341 ? 240 :
+            resolution >= 144 ? 144 : 0;
 
     private static IReadOnlyList<int> OrderMeasurements(IEnumerable<Performer> performers, bool descending)
     {
@@ -1203,9 +1238,9 @@ public class EntityListSortBehaviorHarnessTests
 
             var galleries = new[]
             {
-                new Gallery { Id = 601, Title = "Alpha Gallery", Date = new DateOnly(2019, 1, 2), Folder = folderA, CreatedAt = now.AddDays(-63), UpdatedAt = now.AddHours(-32), ImageCount = 4, PerformerCount = 1, TagCount = 3, Files = [new GalleryFile { Id = 1601, Basename = "alpha.zip", ParentFolder = folderA, ParentFolderId = folderA.Id, Path = "Z:/cove/a/alpha.zip", Size = 600, ModTime = now.AddDays(-12) }] },
-                new Gallery { Id = 602, Title = "Beta Gallery", Date = new DateOnly(2019, 2, 3), Folder = folderB, CreatedAt = now.AddDays(-62), UpdatedAt = now.AddHours(-30), ImageCount = 8, PerformerCount = 3, TagCount = 1, Files = [new GalleryFile { Id = 1602, Basename = "beta.zip", ParentFolder = folderB, ParentFolderId = folderB.Id, Path = "Z:/cove/b/beta.zip", Size = 700, ModTime = now.AddDays(-11) }] },
-                new Gallery { Id = 603, Title = "Gamma Gallery", Date = new DateOnly(2019, 3, 4), Folder = folderC, CreatedAt = now.AddDays(-61), UpdatedAt = now.AddHours(-28), ImageCount = 6, PerformerCount = 2, TagCount = 2, Files = [new GalleryFile { Id = 1603, Basename = "gamma.zip", ParentFolder = folderC, ParentFolderId = folderC.Id, Path = "Z:/cove/c/gamma.zip", Size = 800, ModTime = now.AddDays(-10) }] },
+                new Gallery { Id = 601, Title = "Alpha Gallery", Code = "GA-001", Photographer = "Zoe Lens", Organized = false, Studio = studios[2], Date = new DateOnly(2019, 1, 2), Folder = folderA, CreatedAt = now.AddDays(-63), UpdatedAt = now.AddHours(-32), ImageCount = 4, PerformerCount = 1, TagCount = 3, Files = [new GalleryFile { Id = 1601, Basename = "alpha.zip", ParentFolder = folderA, ParentFolderId = folderA.Id, Path = "Z:/cove/a/alpha.zip", Size = 600, ModTime = now.AddDays(-12) }] },
+                new Gallery { Id = 602, Title = "Beta Gallery", Code = "GB-002", Photographer = "Uma Frame", Organized = true, Studio = studios[0], Date = new DateOnly(2019, 2, 3), Folder = folderB, CreatedAt = now.AddDays(-62), UpdatedAt = now.AddHours(-30), ImageCount = 8, PerformerCount = 3, TagCount = 1, Files = [new GalleryFile { Id = 1602, Basename = "beta.zip", ParentFolder = folderB, ParentFolderId = folderB.Id, Path = "Z:/cove/b/beta.zip", Size = 700, ModTime = now.AddDays(-11) }, new GalleryFile { Id = 1604, Basename = "beta-extra.zip", ParentFolder = folderB, ParentFolderId = folderB.Id, Path = "Z:/cove/b/beta-extra.zip", Size = 710, ModTime = now.AddDays(-20) }] },
+                new Gallery { Id = 603, Title = "Gamma Gallery", Code = "GC-003", Photographer = "Vic Shutter", Organized = true, Studio = studios[1], Date = new DateOnly(2019, 3, 4), Folder = folderC, CreatedAt = now.AddDays(-61), UpdatedAt = now.AddHours(-28), ImageCount = 6, PerformerCount = 2, TagCount = 2, Files = [new GalleryFile { Id = 1603, Basename = "gamma.zip", ParentFolder = folderC, ParentFolderId = folderC.Id, Path = "Z:/cove/c/gamma.zip", Size = 800, ModTime = now.AddDays(-10) }, new GalleryFile { Id = 1605, Basename = "gamma-b.zip", ParentFolder = folderC, ParentFolderId = folderC.Id, Path = "Z:/cove/c/gamma-b.zip", Size = 810, ModTime = now.AddDays(-21) }, new GalleryFile { Id = 1606, Basename = "gamma-c.zip", ParentFolder = folderC, ParentFolderId = folderC.Id, Path = "Z:/cove/c/gamma-c.zip", Size = 820, ModTime = now.AddDays(-22) }] },
             };
 
             var groups = new[]
@@ -1218,6 +1253,9 @@ public class EntityListSortBehaviorHarnessTests
             LinkGalleryImage(galleries[0], images[0]);
             LinkGalleryImage(galleries[1], images[0], images[1]);
             LinkGalleryImage(galleries[2], images[0], images[1], images[2]);
+            LinkGalleryVideo(galleries[0], videos[0]);
+            LinkGalleryVideo(galleries[1], videos[0], videos[1]);
+            LinkGalleryVideo(galleries[2], videos[0], videos[1], videos[2]);
             LinkGalleryPerformer(galleries[0], performers[0]);
             LinkGalleryPerformer(galleries[1], performers[0], performers[1]);
             LinkGalleryPerformer(galleries[2], performers[0], performers[1], performers[2]);
@@ -1512,6 +1550,16 @@ public class EntityListSortBehaviorHarnessTests
                 var imageGallery = new ImageGallery { Gallery = gallery, GalleryId = gallery.Id, Image = image, ImageId = image.Id };
                 gallery.ImageGalleries.Add(imageGallery);
                 image.ImageGalleries.Add(imageGallery);
+            }
+        }
+
+        private static void LinkGalleryVideo(Gallery gallery, params Video[] videos)
+        {
+            foreach (var video in videos)
+            {
+                var videoGallery = new VideoGallery { Gallery = gallery, GalleryId = gallery.Id, Video = video, VideoId = video.Id };
+                gallery.VideoGalleries.Add(videoGallery);
+                video.VideoGalleries.Add(videoGallery);
             }
         }
 

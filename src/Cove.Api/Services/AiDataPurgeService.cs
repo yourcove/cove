@@ -113,6 +113,22 @@ public sealed class AiDataPurgeService(
         if (faceIds.Count > 0)
             MergeRemovedCounts(removed, await PurgeFacesByIdsAsync(faceIds, dryRun, cancellationToken));
 
+        // Let face providers clean up derived state not represented by a Face row (e.g. an extension's
+        // provisional identity graph). Fires even when no Cove faces matched, so an "entire source" clear
+        // still drops provisional identities. The per-face OnDeletingAsync path above handles promoted
+        // identities tied to a Face.
+        if (!dryRun && selector.IncludesKind("face") && _faceLifecycleParticipants.Count > 0)
+        {
+            var purgeScope = new FacePurgeScope(
+                selector.SourceKey,
+                selector.HostType,
+                selector.HostId,
+                selector.HostId is null && string.IsNullOrWhiteSpace(selector.SourceRunId),
+                faceIds);
+            foreach (var participant in _faceLifecycleParticipants)
+                await participant.OnFacesPurgedAsync(purgeScope, cancellationToken);
+        }
+
         if (selector.IncludesKind("embedding"))
             AddRemovedCount(removed, "embedding", await PurgeEmbeddingsCoreAsync(selector, runModels, dryRun, cancellationToken, excludedFaceIds));
 

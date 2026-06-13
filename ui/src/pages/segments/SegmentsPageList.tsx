@@ -59,11 +59,11 @@ export function SegmentsPageList({
           <p>
             {isRawView
               ? rawSegmentIds.length > 0
-                ? "No raw segments matched the selected span contents."
+                ? "No raw segments matched the selected segment contents."
                 : "No raw segments found for this scope."
               : appliedQuery != null
-                ? "No derived spans matched the current query."
-                : "No spans found for this profile and scope."}
+                ? "No segments matched the current query."
+                : "No segments found for this profile and scope."}
           </p>
         </div>
       ) : null}

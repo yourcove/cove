@@ -1,23 +1,25 @@
 import { useCallback, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { performers, system, tags } from "../api/client";
-import type { Performer, MetadataServerPerformerMatch, MetadataServerPerformerImportRequest, ScrapedPerformer, ScraperSummary } from "../api/types";
+import type { Performer, MetadataServer, MetadataServerPerformerMatch, MetadataServerPerformerImportRequest, ScrapedPerformer, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import { DEFAULT_COLLECTION_MODES, pickBestSourceUrl, type CollectionMode } from "./videoScrapeUtils";
 import { buildRelationActionMap, relationKey, ScrapeRelationChoices, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import {
   CompactCollectionDecision,
+  CompactImageDecision,
   CompactListValue,
   CompactScalarDecision,
   DEFAULT_TAGGER_BLACKLIST,
+  RemoteRefreshButtons,
   TaggerSettingsPanel,
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
 import {
   Search, Loader2, Check, X, ChevronDown, ChevronUp, AlertCircle,
-  CloudDownload, Fingerprint, Settings2, EyeOff, Eye,
+  CloudDownload, CloudUpload, Fingerprint, Settings2, EyeOff, Eye,
 } from "lucide-react";
 
 interface PerformerTaggerProps {
@@ -202,6 +204,10 @@ function buildDefaultPerformerFieldStrategies(performer: Performer, result: Unif
     if (scraped === undefined || scraped === null || scraped === "") continue;
     const current = getPerformerCurrentValue(performer, field.key);
     strategies[field.key] = normalizeDecisionValue(current) === normalizeDecisionValue(scraped) ? "ignore" : "overwrite";
+  }
+  // Cover image: replace-if-empty, keep-if-exists. "overwrite" replaces the cover; "ignore" keeps it.
+  if (result.imageUrl) {
+    strategies.image = performer.imagePath ? "ignore" : "overwrite";
   }
   return strategies;
 }
@@ -434,7 +440,10 @@ export function PerformerTagger({ performers: performerList, selectedIds, select
     );
   }
 
-  const visiblePerformers = taggerConfig.showTagged
+  // The "hide already tagged" filter is a bulk-mode convenience for skipping done performers in a
+  // batch. In detail mode the dialog was opened for this specific performer (and the toggle is
+  // hidden), so always show it — otherwise an already-tagged performer yields an empty dialog.
+  const visiblePerformers = mode === "detail" || taggerConfig.showTagged
     ? performerList
     : performerList.filter((p) => !p.remoteIds || p.remoteIds.length === 0);
 
@@ -492,6 +501,7 @@ export function PerformerTagger({ performers: performerList, selectedIds, select
             selecting={selecting}
             onSelect={onSelect}
             onNavigate={onNavigate}
+            metadataServers={metadataServers}
             taggerConfig={taggerConfig}
             existingTagNames={existingTagNames}
             detailMode={mode === "detail"}
@@ -516,6 +526,7 @@ function PerformerTaggerRow({
   selecting,
   onSelect,
   onNavigate,
+  metadataServers,
   taggerConfig,
   existingTagNames,
   detailMode = false,
@@ -533,12 +544,32 @@ function PerformerTaggerRow({
   selecting: boolean;
   onSelect?: (performerId: number) => void;
   onNavigate?: (performerId: number) => void;
+  metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
   existingTagNames: string[];
   detailMode?: boolean;
 }) {
   const imageUrl = performer.imagePath;
   const queryClient = useQueryClient();
+  const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
+
+  const refreshFromRemote = useCallback(async (endpoint: string, remoteId: string) => {
+    setRefreshBusyEndpoint(endpoint);
+    onUpdateState({ loading: true, error: undefined, results: undefined, saved: false });
+    try {
+      const matches = await performers.findMetadataServerByIds({ endpoint, ids: [remoteId] });
+      onUpdateState({
+        loading: false,
+        results: matches.map((match) => ({ ...match, sourceKind: "metadata-server" as const })),
+        selectedIndex: matches.length > 0 ? 0 : undefined,
+        error: matches.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
+      });
+    } catch (err) {
+      onUpdateState({ loading: false, error: getPerformerSearchErrorMessage(err) });
+    } finally {
+      setRefreshBusyEndpoint(null);
+    }
+  }, [onUpdateState]);
   const performerLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () => onNavigate?.(performer.id));
   const isScraperSource = source?.kind === "scraper";
   const performerUrls = (performer.urls ?? []).filter((url) => url.trim());
@@ -558,10 +589,11 @@ function PerformerTaggerRow({
         return performers.applyScraped(performer.id, {
           scraped: buildFilteredScrapedPerformer(performer, selectedResult, state, taggerConfig.createMissingTags),
           createMissingTags: taggerConfig.createMissingTags || forceCreateTags,
-          replaceFields: [
-            ...Object.entries(getPerformerFieldStrategies(performer, selectedResult, state)).filter(([, strategy]) => strategy === "overwrite").map(([field]) => field),
-            ...(selectedResult.imageUrl ? ["image"] : []),
-          ],
+          // "image" is included only when its decision is "overwrite" (it lives in fieldStrategies now),
+          // so the cover is replaced only when the user chose Replace.
+          replaceFields: Object.entries(getPerformerFieldStrategies(performer, selectedResult, state))
+            .filter(([, strategy]) => strategy === "overwrite")
+            .map(([field]) => field),
           collectionModes: getPerformerCollectionModes(selectedResult, state),
         });
       }
@@ -576,6 +608,13 @@ function PerformerTaggerRow({
       onUpdateState({ saved: true });
       queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });
       queryClient.invalidateQueries({ queryKey: ["performers"] });
+    },
+  });
+
+  const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
+    mutationFn: () => {
+      if (source?.kind !== "metadata-server") throw new Error("Select a metadata-server source first.");
+      return performers.submitMetadataServerDraft(performer.id, source.endpoint);
     },
   });
 
@@ -651,6 +690,14 @@ function PerformerTaggerRow({
               ) : null}
             </div>
           )}
+          {detailMode && (
+            <RemoteRefreshButtons
+              remoteIds={performer.remoteIds}
+              servers={metadataServers}
+              busyEndpoint={refreshBusyEndpoint}
+              onRefresh={refreshFromRemote}
+            />
+          )}
           <div className="flex gap-2 mb-2">
             <input
               type="text"
@@ -668,7 +715,24 @@ function PerformerTaggerRow({
               {state?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Search
             </button>
+            {source?.kind === "metadata-server" && (
+              <button
+                onClick={() => submitDraftMut.mutate()}
+                disabled={submitDraftMut.isPending}
+                className="flex items-center gap-1 px-2 py-1.5 rounded text-xs bg-surface border border-border text-muted hover:text-foreground disabled:opacity-60"
+                title="Submit this performer as a draft entry to the metadata server"
+              >
+                {submitDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
+
+          {submitDraftMut.isError && (
+            <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitDraftMut.error.message}</p>
+          )}
+          {submitDraftMut.isSuccess && (
+            <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Performer draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>
+          )}
 
           {state?.error && (
             <p className="text-xs text-red-400 mb-2">
@@ -797,6 +861,15 @@ function PerformerResultRow({
               onChange={(shouldReplace) => onFieldStrategyChange(row.key, shouldReplace ? "overwrite" : "ignore")}
             />
           ))}
+
+          {result.imageUrl && (
+            <CompactImageDecision
+              currentImageUrl={performer.imagePath}
+              scrapedImageUrl={result.imageUrl}
+              replacing={fieldStrategies.image === "overwrite"}
+              onChange={(shouldReplace) => onFieldStrategyChange("image", shouldReplace ? "overwrite" : "ignore")}
+            />
+          )}
 
           {result.urls.length > 0 && (
             <CompactCollectionDecision

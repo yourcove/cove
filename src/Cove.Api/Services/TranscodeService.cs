@@ -93,7 +93,7 @@ public class TranscodeService : ITranscodeService
             {
                 var stderr = await process.StandardError.ReadToEndAsync(ct);
                 if (!string.IsNullOrWhiteSpace(stderr))
-                    _logger.LogDebug("[Transcode] {Stderr}", stderr[..Math.Min(stderr.Length, 500)]);
+                    _logger.LogDebug("Transcode ffmpeg stderr: {Stderr}", stderr[..Math.Min(stderr.Length, 500)]);
             }, ct);
 
             ct.Register(() => { try { process.Kill(); } catch { } });

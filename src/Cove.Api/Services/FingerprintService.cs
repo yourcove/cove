@@ -260,26 +260,26 @@ public class FingerprintService(
     {
         if (!File.Exists(path))
         {
-            logger.LogWarning("[phash] Skipping {Path} — file does not exist", path);
+            logger.LogWarning("Skipping pHash for {Path} — file does not exist", path);
             return null;
         }
 
         if (duration <= 0)
         {
-            logger.LogWarning("[phash] Skipping {Path} — duration is {Duration}s (invalid)", path, duration);
+            logger.LogWarning("Skipping pHash for {Path} — duration is {Duration}s (invalid)", path, duration);
             return null;
         }
 
         var ffmpegPath = FindFfmpeg();
         if (ffmpegPath == null)
         {
-            logger.LogError("[phash] FFmpeg not found in PATH or configured path. Cannot compute phash for {Path}", path);
+            logger.LogError("FFmpeg not found in PATH or configured path; cannot compute pHash for {Path}", path);
             return null;
         }
 
         // Initialize FFmpeg.AutoGen bindings (idempotent) and check if in-process is usable.
         FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
-        logger.LogInformation("[phash] FFmpeg setup: path={FfmpegPath}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
+        logger.LogDebug("pHash FFmpeg setup: path={FfmpegPath}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
             ffmpegPath, FfmpegInProcess.IsAvailable, duration, path);
 
         var chunkCount = SpriteColumns * SpriteRows; // 25
@@ -292,13 +292,13 @@ public class FingerprintService(
         if (FfmpegInProcess.IsAvailable)
         {
             // Fast path: in-process frame extraction (seeks directly, no process spawning).
-            logger.LogInformation("[phash] Attempting in-process extraction for {Path}", path);
+            logger.LogDebug("Attempting in-process pHash extraction for {Path}", path);
             try
             {
                 var frames = FfmpegInProcess.ExtractFrames(path, timestamps, SpriteFrameSize, threadCount: 1, ct);
                 if (frames != null)
                 {
-                    logger.LogDebug("[phash] In-process extraction succeeded for {Path}", path);
+                    logger.LogDebug("In-process pHash extraction succeeded for {Path}", path);
                     try
                     {
                         return BuildSpritePhash(frames);
@@ -309,24 +309,24 @@ public class FingerprintService(
                     }
                 }
 
-                logger.LogWarning("[phash] In-process frame extraction returned null for {Path}, falling back to process spawn", path);
+                logger.LogWarning("In-process pHash frame extraction returned null for {Path}, falling back to process spawn", path);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "[phash] In-process FFmpeg failed for {Path}, falling back to process spawn", path);
+                logger.LogWarning(ex, "In-process FFmpeg failed for {Path}, falling back to process spawn", path);
             }
         }
         else
         {
-            logger.LogInformation("[phash] In-process FFmpeg unavailable — using process-spawn fallback for {Path}", path);
+            logger.LogDebug("In-process FFmpeg unavailable — using process-spawn fallback for {Path}", path);
         }
 
         var spritePhash = await TryComputeVideoPhashViaSpriteAsync(ffmpegPath, path, duration, ct);
         if (!string.IsNullOrWhiteSpace(spritePhash))
             return spritePhash;
 
-        logger.LogInformation("[phash] Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
+        logger.LogDebug("Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
 
         // Final fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
         return await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
@@ -374,7 +374,7 @@ public class FingerprintService(
             var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {offsetText} -t {sampleWindowText} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -f image2 \"{spritePath}\"";
             var timeout = TimeSpan.FromSeconds(Math.Clamp(duration / 2d, 45d, 300d));
 
-            logger.LogInformation("[phash] Attempting single-process sprite extraction for {Path}", videoPath);
+            logger.LogDebug("Attempting single-process sprite extraction for {Path}", videoPath);
             if (!await TryRunFfmpegAsync(ffmpegPath, args, timeout, ct) || !File.Exists(spritePath))
                 return null;
 
@@ -383,7 +383,7 @@ public class FingerprintService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "[phash] Single-process sprite extraction failed for {Path}", videoPath);
+            logger.LogWarning(ex, "Single-process sprite extraction failed for {Path}", videoPath);
             return null;
         }
         finally
@@ -442,8 +442,7 @@ public class FingerprintService(
     {
         return jobService.Enqueue("generate_video_phashes", "Generating video pHashes", async (progress, ct) =>
         {
-            logger.LogInformation("[phash] Video phash generation job started");
-            Console.WriteLine("[phash] Video phash generation job started");
+            logger.LogInformation("Video pHash generation job started");
             List<(int FileId, string Path, double Duration)> workItems;
 
             using (var scope = scopeFactory.CreateScope())
@@ -459,9 +458,8 @@ public class FingerprintService(
                     .Distinct()
                     .ToHashSetAsync(ct);
 
-                logger.LogInformation("[phash] Database check: {Total} video files total, {HasPhash} already have phash entries",
+                logger.LogInformation("Video pHash check: {Total} video files total, {HasPhash} already have a pHash",
                     totalVideos, filesWithPhashIds.Count);
-                Console.WriteLine($"[phash] Database check: {totalVideos} video files total, {filesWithPhashIds.Count} already have phash entries");
 
                 // Only load files that need phash generation
                 var pendingVideoFiles = await db.VideoFiles
@@ -474,32 +472,32 @@ public class FingerprintService(
                 workItems = pendingVideoFiles.Select(file => (file.Id, file.Path, file.Duration)).ToList();
             }
 
-            logger.LogInformation("[phash] Query complete: found {Pending} video files needing phash generation", workItems.Count);
-            Console.WriteLine($"[phash] Query complete: found {workItems.Count} video files needing phash generation");
-
             if (workItems.Count == 0)
             {
                 progress.Report(1.0, "All videos already have pHashes");
-                logger.LogInformation("[phash] All video files already have pHashes — nothing to do");
-                Console.WriteLine("[phash] All video files already have pHashes — nothing to do");
+                logger.LogInformation("Video pHash generation: nothing to do — all video files already have a pHash");
                 return;
             }
 
-            logger.LogInformation("[phash] Starting phash generation for {Count} video files (parallelism={Parallelism})",
-                workItems.Count, ResolveMaxParallelism());
-            Console.WriteLine($"[phash] Starting phash generation for {workItems.Count} video files (parallelism={ResolveMaxParallelism()})");
-            var completed = 0;
+            var parallelism = ResolveMaxParallelism();
+            logger.LogInformation("Generating pHashes for {Count} video files (parallelism={Parallelism})",
+                workItems.Count, parallelism);
 
-            await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = ResolveMaxParallelism(), CancellationToken = ct }, async (item, token) =>
+            var completed = 0;
+            var failed = 0;
+            // Coarse progress milestone (~ every 10%) so the default Info log shows job progress.
+            var milestoneEvery = Math.Max(1, workItems.Count / 10);
+
+            await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (item, token) =>
             {
-                logger.LogInformation("[phash] Processing file {FileId}: {Path} (duration={Duration:F1}s)",
+                logger.LogDebug("Computing pHash for file {FileId}: {Path} (duration={Duration:F1}s)",
                     item.FileId, item.Path, item.Duration);
 
                 var phash = await ComputeVideoPhashAsync(item.Path, item.Duration, token);
 
                 if (!string.IsNullOrWhiteSpace(phash))
                 {
-                    logger.LogInformation("[phash] Computed phash for file {FileId}: {Phash}", item.FileId, phash);
+                    logger.LogDebug("Computed pHash for file {FileId}: {Phash}", item.FileId, phash);
                     using var innerScope = scopeFactory.CreateScope();
                     var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
                     var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
@@ -507,19 +505,23 @@ public class FingerprintService(
                     {
                         innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
                         await innerDb.SaveChangesAsync(token);
-                        logger.LogInformation("[phash] Saved phash for file {FileId}", item.FileId);
+                        logger.LogDebug("Saved pHash for file {FileId}", item.FileId);
                     }
                 }
                 else
                 {
-                    logger.LogWarning("[phash] No phash produced for file {FileId}: {Path}", item.FileId, item.Path);
+                    Interlocked.Increment(ref failed);
+                    logger.LogWarning("No pHash produced for file {FileId}: {Path}", item.FileId, item.Path);
                 }
 
                 var done = Interlocked.Increment(ref completed);
+                if (done % milestoneEvery == 0 || done == workItems.Count)
+                    logger.LogInformation("Video pHash progress: {Done}/{Total} files processed", done, workItems.Count);
                 progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
             });
 
-            logger.LogInformation("Finished generating pHashes for {Count} video files", workItems.Count);
+            logger.LogInformation("Video pHash generation finished: {Total} files processed, {Failed} without a pHash",
+                workItems.Count, failed);
         });
     }
 
@@ -553,10 +555,12 @@ public class FingerprintService(
             if (workItems.Count == 0)
                 return;
 
-            logger.LogInformation("Generating image pHashes for {Count} files with parallelism={Parallelism}", workItems.Count, ResolveMaxParallelism());
+            var parallelism = ResolveMaxParallelism();
+            logger.LogInformation("Generating image pHashes for {Count} files (parallelism={Parallelism})", workItems.Count, parallelism);
             var completed = 0;
+            var milestoneEvery = Math.Max(1, workItems.Count / 10);
 
-            await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = ResolveMaxParallelism(), CancellationToken = ct }, async (item, token) =>
+            await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (item, token) =>
             {
                 var phash = await ComputeImagePhashAsync(item.Path, token);
                 if (!string.IsNullOrWhiteSpace(phash))
@@ -572,6 +576,8 @@ public class FingerprintService(
                 }
 
                 var done = Interlocked.Increment(ref completed);
+                if (done % milestoneEvery == 0 || done == workItems.Count)
+                    logger.LogInformation("Image pHash progress: {Done}/{Total} files processed", done, workItems.Count);
                 progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
             });
 
@@ -726,7 +732,7 @@ public class FingerprintService(
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { }
-            logger.LogWarning("[phash] FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            logger.LogWarning("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
@@ -734,7 +740,7 @@ public class FingerprintService(
             return true;
 
         var stderr = await stderrTask;
-        logger.LogWarning("[phash] FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+        logger.LogWarning("pHash FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
         return false;
     }
 

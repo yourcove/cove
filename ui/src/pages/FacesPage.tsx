@@ -9,12 +9,13 @@ import { ListPage, type DisplayMode } from "../components/ListPage";
 import type { CriterionDefinition, FilterDialogCustomSection } from "../components/FilterDialog";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { createNestedRouteLinkProps } from "../components/cardNavigation";
-import { FaceCompareDialog } from "../components/FaceCompareDialog";
+import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";
 import { buildFaceCarouselSampleImageUrls } from "../components/faceComparisonImages";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FaceTile } from "../components/EntityCards";
 import { useListPageCardSizeContext } from "../components/ListPageCardSizeContext";
 import { formatDate } from "../components/shared";
+import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useMultiSelect } from "../hooks/useMultiSelect";
@@ -364,11 +365,14 @@ export function FacesPage({ onNavigate }: Props) {
   const canReadPerformers = canReadEntity("performer", hasPermission);
   const canWriteFaces = canWriteEntity("face", hasPermission);
   const canDeleteFaces = canDeleteEntity("face", hasPermission);
-  const defaultState = useMemo(() => ({
-    filter: { page: 1, perPage: 36, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter,
-    objectFilter: { linked: "no" },
-    displayMode: "grid" as DisplayMode,
-  }), []);
+  const defaultState = useMemo(() => {
+    const savedFilter = getDefaultFilter("faces");
+    return {
+      filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter,
+      objectFilter: savedFilter?.objectFilter ?? { linked: "no" },
+      displayMode: "grid" as DisplayMode,
+    };
+  }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({
     resetKey: "faces",
     defaultFilter: defaultState.filter,
@@ -451,16 +455,16 @@ export function FacesPage({ onNavigate }: Props) {
     direction: filter.direction,
     customFieldCriteria,
     page: filter.page ?? 1,
-    perPage: filter.perPage ?? 36,
+    perPage: filter.perPage ?? 40,
   }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, hasCoverCriterion?.value, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linked, linkedPerformerIds, mergedIntoFaceIdCriterion?.value, minSuggestionConfidence, primarySourceKeyCriterion?.modifier, primarySourceKeyCriterion?.value, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
   const listData = useInfiniteListData<Face>({
     queryKey: ["faces", query],
     filter,
-    chunkSize: defaultState.filter.perPage ?? 36,
+    chunkSize: defaultState.filter.perPage ?? 40,
     queryPage: (nextFilter) => faces.list({
       ...query,
       page: nextFilter.page ?? 1,
-      perPage: nextFilter.perPage ?? defaultState.filter.perPage ?? 36,
+      perPage: nextFilter.perPage ?? defaultState.filter.perPage ?? 40,
     }),
   });
 
@@ -513,8 +517,8 @@ export function FacesPage({ onNavigate }: Props) {
   }, [queryClient]);
 
   const suggestionDecisionMutation = useMutation({
-    mutationFn: (data: { faceId: number; performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) =>
-      faces.recordSuggestionDecision(data.faceId, { performerId: data.performerId, decision: data.decision, setPerformerImage: data.setPerformerImage, secondaryPerformerIds: data.secondaryPerformerIds }),
+    mutationFn: (data: { faceId: number; performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) =>
+      faces.recordSuggestionDecision(data.faceId, { performerId: data.performerId, decision: data.decision, setPerformerImage: data.setPerformerImage, secondaryPerformerIds: data.secondaryPerformerIds, referenceEndpoint: data.referenceEndpoint, referenceExternalId: data.referenceExternalId, referenceUpdateMetadata: data.referenceUpdateMetadata }),
     onSuccess: (updatedFace, variables) => {
       queryClient.setQueryData(["face", variables.faceId], updatedFace);
       if (variables.decision === "accept") {
@@ -570,7 +574,7 @@ export function FacesPage({ onNavigate }: Props) {
   }, [batchCompareFaceIds.length, batchCompareIndex, finishBatchCompare]);
 
   const handleConfirmSuggestion = useCallback((face: Face, suggestion: FaceTopSuggestion, options?: { setPerformerImage?: boolean }) => {
-    suggestionDecisionMutation.mutate({ faceId: face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage });
+    suggestionDecisionMutation.mutate({ faceId: face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage, ...readReferenceLinkInfo(suggestion) });
     setComparison(null);
   }, [suggestionDecisionMutation]);
 
@@ -826,7 +830,7 @@ export function FacesPage({ onNavigate }: Props) {
         }}
         onConfirm={(suggestion, options) => {
           if (activeComparison) {
-            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage });
+            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage, ...readReferenceLinkInfo(suggestion) });
             if (batchCompareFaceIds.length > 0) {
               advanceBatchCompare();
             } else {

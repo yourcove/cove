@@ -685,12 +685,15 @@ public sealed class UserService : IUserService
         var videos = NormalizeVideosPreferences(preferences.Videos);
         var playback = NormalizePlaybackPreferences(preferences.Playback);
         var keybindingOverrides = NormalizeKeybindingOverrides(preferences.KeybindingOverrides);
-        if (theme is null && ratingSystemOptions is null && tracking is null && videos is null && playback is null && keybindingOverrides is null)
+        var homePageContent = string.IsNullOrWhiteSpace(preferences.HomePageContent) ? null : preferences.HomePageContent;
+        var defaultFilters = NormalizeDefaultFilters(preferences.DefaultFilters);
+        if (theme is null && ratingSystemOptions is null && tracking is null && videos is null && playback is null
+            && keybindingOverrides is null && homePageContent is null && defaultFilters is null)
         {
             return null;
         }
 
-        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback);
+        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters);
     }
 
     private static UserVideosPreferencesDto? NormalizeVideosPreferences(UserVideosPreferencesDto? videos)
@@ -723,6 +726,20 @@ public sealed class UserService : IUserService
         var normalized = overrides
             .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && !string.IsNullOrWhiteSpace(entry.Value))
             .ToDictionary(entry => entry.Key.Trim(), entry => entry.Value.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        return normalized.Count > 0 ? normalized : null;
+    }
+
+    private static Dictionary<string, string>? NormalizeDefaultFilters(Dictionary<string, string>? defaultFilters)
+    {
+        if (defaultFilters is null || defaultFilters.Count == 0)
+        {
+            return null;
+        }
+
+        var normalized = defaultFilters
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && !string.IsNullOrWhiteSpace(entry.Value))
+            .ToDictionary(entry => entry.Key.Trim().ToLowerInvariant(), entry => entry.Value.Trim(), StringComparer.OrdinalIgnoreCase);
 
         return normalized.Count > 0 ? normalized : null;
     }

@@ -498,6 +498,25 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         return Ok(await metadataServerService.SearchVideosAsync(video, term, endpoint, ct));
     }
 
+    // Fetch matches directly by this server's ids (e.g. a video's existing remote ids), so the tagger can
+    // refresh/rescrape from a known remote entry without a name search.
+    [HttpPost("metadata-server/find-by-ids")]
+    public async Task<ActionResult<IReadOnlyList<MetadataServerVideoMatchDto>>> FindMetadataServerVideosByIds([FromBody] MetadataServerFindByIdsRequestDto dto, CancellationToken ct)
+    {
+        if (dto.Ids.Count == 0)
+            return Ok(Array.Empty<MetadataServerVideoMatchDto>());
+
+        var results = new List<MetadataServerVideoMatchDto>();
+        foreach (var videoId in dto.Ids.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var match = await metadataServerService.GetVideoMatchAsync(dto.Endpoint, videoId, ct);
+            if (match != null)
+                results.Add(match);
+        }
+
+        return Ok(results);
+    }
+
     [HttpPost("{id:int}/metadata-server/import")]
     [RequiresPermission(Permissions.VideosWrite)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]

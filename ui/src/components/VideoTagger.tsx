@@ -1,7 +1,7 @@
 import { useCallback, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, scrapeAttempts, system } from "../api/client";
-import type { ApplyVideoScrapeAttemptRequest, Video, MetadataServerVideoMatch, MetadataServerVideoImportRequest, ScrapeAttempt, ScraperSummary, ScrapeCollectionItemSelection } from "../api/types";
+import type { ApplyVideoScrapeAttemptRequest, Video, MetadataServer, MetadataServerVideoMatch, MetadataServerVideoImportRequest, ScrapeAttempt, ScraperSummary, ScrapeCollectionItemSelection } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { formatDuration, getResolutionLabel } from "./shared";
 import { createNestedRouteLinkProps } from "./cardNavigation";
@@ -9,9 +9,11 @@ import { buildFragmentDraft, findDefaultKind, getVideoNameSearchInput, supportsS
 import { buildRelationSelectionPayload, relationKey, ScrapeRelationChoices, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import {
   CompactCollectionDecision,
+  CompactImageDecision,
   CompactListValue,
   CompactScalarDecision,
   DEFAULT_TAGGER_BLACKLIST,
+  RemoteRefreshButtons,
   TaggerSettingsPanel,
   TaggerToolbar,
   cleanTaggerQueryString,
@@ -228,6 +230,20 @@ function getVideoFieldStrategies(video: Video, result: UnifiedVideoMatch, state:
   return { ...buildDefaultVideoFieldStrategies(video, result), ...(state?.fieldStrategies ?? {}) };
 }
 
+// Default cover decision: an auto-generated frame cover (no explicit imagePath) is treated as "not set",
+// so it defaults to Replace; an explicitly set cover defaults to Keep. The global "Set video cover image"
+// toggle, when off, keeps the cover regardless.
+function defaultVideoImageStrategy(video: Video, taggerConfig: TaggerConfig): VideoFieldStrategy {
+  if (!taggerConfig.setCoverImage) return "ignore";
+  return video.imagePath ? "ignore" : "overwrite";
+}
+
+// Whether the scraped cover should replace the video's current cover. The per-result "image" decision
+// (when the user toggled it) wins; otherwise the explicit-cover default applies.
+function getVideoImageReplace(video: Video, result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig) {
+  return (getVideoFieldStrategies(video, result, state).image ?? defaultVideoImageStrategy(video, taggerConfig)) === "overwrite";
+}
+
 function buildDefaultVideoCollectionModes(result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig): Record<string, CollectionMode> {
   return {
     urls: result.urls.length > 0 ? "merge" : "skip",
@@ -303,10 +319,11 @@ function buildScraperVideoApplyRequest(result: UnifiedVideoMatch, video: Video, 
   const fieldStrategies = buildVideoFieldStrategies(video, result, state, taggerConfig);
   const collectionModes = getVideoCollectionModes(result, state, taggerConfig);
   const replaceFields = Object.entries(fieldStrategies)
-    .filter(([field, strategy]) => strategy === "overwrite" && !["urls", "tags", "performers", "studio"].includes(field))
+    .filter(([field, strategy]) => strategy === "overwrite" && !["urls", "tags", "performers", "studio", "image"].includes(field))
     .map(([field]) => field);
   const raw = result.rawResult ?? {};
-  if (taggerConfig.setCoverImage && pickString(raw, "Image", "ImageUrl", "ImageURL")) replaceFields.push("image");
+  // Cover is driven by the per-result image decision (defaulting to the global toggle).
+  if (getVideoImageReplace(video, result, state, taggerConfig) && pickString(raw, "Image", "ImageUrl", "ImageURL")) replaceFields.push("image");
 
   return {
     replaceFields,
@@ -593,6 +610,25 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     [selectedSource, updateSearchState]
   );
 
+  // Refresh/rescrape directly from an existing remote id (no name search needed).
+  const refreshVideoFromRemote = useCallback(
+    async (video: Video, endpoint: string, remoteId: string) => {
+      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      try {
+        const results = (await videos.findMetadataServerByIds({ endpoint, ids: [remoteId] })).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
+        updateSearchState(video.id, {
+          loading: false,
+          results,
+          selectedIndex: results.length > 0 ? 0 : undefined,
+          error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
+        });
+      } catch (err) {
+        updateSearchState(video.id, { loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
+      }
+    },
+    [updateSearchState]
+  );
+
   // Batch scrape all (concurrent)
   const [batchSearching, setBatchSearching] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -623,7 +659,9 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     );
   }
 
-  const visibleVideos = taggerConfig.showUnmatched
+  // Detail mode was opened for this specific video, so always show it (the bulk "hide matched"
+  // convenience filter would otherwise leave the dialog empty).
+  const visibleVideos = mode === "detail" || taggerConfig.showUnmatched
     ? videoList
     : videoList.filter((s) => {
         const state = searchStates[s.id];
@@ -776,8 +814,10 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
             onScraperInputKindChange={(inputKind) => handleScraperInputKindChange(video, selectedSource, inputKind)}
             onSearch={() => searchVideo(video)}
             onSearchFingerprints={() => searchVideoFingerprints(video)}
+            onRefreshFromRemote={(endpoint, remoteId) => refreshVideoFromRemote(video, endpoint, remoteId)}
             onUpdateState={(update) => updateSearchState(video.id, update)}
             source={selectedSource}
+            metadataServers={metadataServers}
             taggerConfig={taggerConfig}
             onNavigate={onNavigate}
             selected={selectedIds?.has(video.id) ?? false}
@@ -802,8 +842,10 @@ interface TaggerVideoRowProps {
   onScraperInputKindChange: (inputKind: InputKind) => void;
   onSearch: () => void;
   onSearchFingerprints: () => void;
+  onRefreshFromRemote: (endpoint: string, remoteId: string) => void | Promise<void>;
   onUpdateState: (update: Partial<VideoSearchState>) => void;
   source?: TaggerSource;
+  metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
   onNavigate?: (videoId: number) => void;
   selected?: boolean;
@@ -821,8 +863,10 @@ function TaggerVideoRow({
   onScraperInputKindChange,
   onSearch,
   onSearchFingerprints,
+  onRefreshFromRemote,
   onUpdateState,
   source,
+  metadataServers,
   taggerConfig,
   onNavigate,
   selected = false,
@@ -832,6 +876,15 @@ function TaggerVideoRow({
 }: TaggerVideoRowProps) {
   const file = video.files[0];
   const screenshotUrl = videos.screenshotUrl(video.id, video.updatedAt);
+  const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
+  const handleRefreshFromRemote = async (endpoint: string, remoteId: string) => {
+    setRefreshBusyEndpoint(endpoint);
+    try {
+      await onRefreshFromRemote(endpoint, remoteId);
+    } finally {
+      setRefreshBusyEndpoint(null);
+    }
+  };
   const selectedResult = state?.results?.[state.selectedIndex ?? 0];
   const queryClient = useQueryClient();
   const videoLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () => onNavigate?.(video.id));
@@ -878,7 +931,9 @@ function TaggerVideoRow({
       const importReq: MetadataServerVideoImportRequest = {
         endpoint: source?.kind === "metadata-server" ? source.endpoint : selectedResult?.endpoint ?? "",
         videoId: selectedResult?.id ?? "",
-        setCoverImage: taggerConfig.setCoverImage,
+        setCoverImage: getVideoImageReplace(video, selectedResult, state, taggerConfig),
+        // When the user explicitly chose Replace, overwrite even an explicitly set cover.
+        overwriteExplicitCover: getVideoImageReplace(video, selectedResult, state, taggerConfig),
         setTags: taggerConfig.setTags && collectionModes.tags !== "skip",
         setPerformers: taggerConfig.setPerformers && collectionModes.performers !== "skip",
         setStudio: taggerConfig.setStudio && collectionModes.studio !== "skip",
@@ -975,6 +1030,14 @@ function TaggerVideoRow({
 
         {/* Search + Results */}
         <div className="flex-1 min-w-0">
+          {detailMode && (
+            <RemoteRefreshButtons
+              remoteIds={video.remoteIds}
+              servers={metadataServers}
+              busyEndpoint={refreshBusyEndpoint}
+              onRefresh={handleRefreshFromRemote}
+            />
+          )}
           {detailMode && isScraperSource && (
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
               <select
@@ -1407,6 +1470,15 @@ function TaggerResultRow({
               onChange={(shouldReplace) => onFieldStrategyChange?.(row.key, shouldReplace ? "overwrite" : "ignore")}
             />
           ))}
+
+          {result.imageUrl && (
+            <CompactImageDecision
+              currentImageUrl={video.imagePath || videos.screenshotUrl(video.id, video.updatedAt)}
+              scrapedImageUrl={result.imageUrl}
+              replacing={(fieldStrategies.image ?? defaultVideoImageStrategy(video, taggerConfig)) === "overwrite"}
+              onChange={(shouldReplace) => onFieldStrategyChange?.("image", shouldReplace ? "overwrite" : "ignore")}
+            />
+          )}
 
           {result.studioName && taggerConfig.setStudio && (
             <CompactScalarDecision

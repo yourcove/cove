@@ -48,5 +48,10 @@ public interface IFaceRepository
     /// <summary>Re-points appearances from <paramref name="oldFaceIds"/> to <paramref name="newFaceId"/>.</summary>
     Task UpdateAppearanceFaceIdAsync(string sourceKey, IReadOnlyList<int> oldFaceIds, int newFaceId, CancellationToken ct = default);
 
+    /// <summary>Re-points the appearances of <paramref name="oldFaceId"/> that came from the given runs
+    /// (host-scoped, since one run is one processed host) to <paramref name="newFaceId"/>. Returns the
+    /// number of appearances moved.</summary>
+    Task<int> ReassignAppearancesByRunAsync(string sourceKey, int oldFaceId, IReadOnlyCollection<string> runIds, int newFaceId, CancellationToken ct = default);
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

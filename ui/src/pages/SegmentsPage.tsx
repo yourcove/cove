@@ -55,9 +55,9 @@ const DERIVED_SPAN_SORT_OPTIONS = [
   { value: "updated_at", label: "Video Updated" },
   { value: "created_at", label: "Video Created" },
   { value: "title", label: "Video Title" },
-  { value: "span_start", label: "Span Start" },
-  { value: "span_end", label: "Span End" },
-  { value: "span_duration", label: "Span Duration" },
+  { value: "span_start", label: "Segment Start" },
+  { value: "span_end", label: "Segment End" },
+  { value: "span_duration", label: "Segment Duration" },
   { value: "segment_confidence", label: "Segment Confidence" },
   { value: "segment_kind", label: "Segment Kind" },
   { value: "segment_source_key", label: "Segment Source" },
@@ -691,7 +691,7 @@ export function SegmentsPage({ onNavigate }: Props) {
                 onClick={() => switchContentView("spans")}
                 className={`rounded-md px-2.5 py-1.5 transition-colors ${!isRawView ? "bg-accent text-white" : "text-muted hover:text-foreground"}`}
               >
-                Resolved spans
+                Segments
               </button>
               <button
                 type="button"

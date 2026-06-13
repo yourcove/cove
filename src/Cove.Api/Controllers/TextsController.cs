@@ -29,6 +29,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null,
         [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
@@ -48,7 +49,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             tagSelectors: [text => text.TextTags.Where(tt => tt.Tag != null).Select(tt => tt.Tag!)],
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
 
-        query = ApplySort(query, sort, descending);
+        query = ApplySort(query, sort, descending, seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
 
@@ -87,7 +88,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
 
         query = ApplyFilter(query, req.ObjectFilter);
-        query = ApplySort(query, findFilter.Sort, descending);
+        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
 
@@ -476,13 +477,14 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return items.OrderBy(text => orderMap.GetValueOrDefault(text.Id, int.MaxValue)).ToList();
     }
 
-    private IQueryable<TextDocument> ApplySort(IQueryable<TextDocument> query, string? sort, bool descending)
+    private IQueryable<TextDocument> ApplySort(IQueryable<TextDocument> query, string? sort, bool descending, int? seed = null)
     {
         if (FilterHelpers.TryParseCustomFieldSort(sort, out _, out _))
             return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Text, sort, descending);
 
         return (sort ?? string.Empty).Trim().ToLowerInvariant() switch
         {
+            "random" => Cove.Data.Repositories.SeededRandomOrdering.OrderBy(query, seed, text => text.Id, descending),
             "title" => descending ? query.OrderByDescending(text => text.Title).ThenByDescending(text => text.Id) : query.OrderBy(text => text.Title).ThenBy(text => text.Id),
             "date" => descending ? query.OrderByDescending(text => text.Date).ThenByDescending(text => text.Id) : query.OrderBy(text => text.Date).ThenBy(text => text.Id),
             "words" => descending ? query.OrderByDescending(text => text.MaxWordCount).ThenByDescending(text => text.Id) : query.OrderBy(text => text.MaxWordCount).ThenBy(text => text.Id),

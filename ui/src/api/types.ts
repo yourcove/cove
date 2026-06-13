@@ -1453,6 +1453,16 @@ export interface FaceDeleteImpact {
   releasedMergedFaceCount: number;
 }
 
+export interface FaceNotPresentResult {
+  faceFound: boolean;
+  hostHadFace: boolean;
+  movedHostCount: number;
+  targetFaceId?: number;
+  createdNewFace: boolean;
+  mergedIntoTarget: boolean;
+  sourceFaceEmptied: boolean;
+}
+
 export interface AiFaceCoverRepairRequest {
   force?: boolean;
   faceIds?: number[];
@@ -1504,6 +1514,14 @@ export interface FaceSuggestion {
   localPerformerIsLocalOnly?: boolean;
   // Shared by all competing matches for the same face when 2+ reference sources disagree.
   conflictGroupId?: string;
+  // True when linking this reference match will refresh the performer from its metadata server
+  // ("Update existing performers from metadata servers" is on). The compare dialog hides the
+  // "use face image for this local performer" option in that case.
+  referenceWillRefreshFromMetadata?: boolean;
+  // The originating metadata server's GraphQL endpoint and its id for this performer. Sent back on
+  // accept so the host records the remote id on the linked performer (and scrapes it when enabled).
+  referenceEndpoint?: string;
+  referenceExternalId?: string;
 }
 
 export type AiDataKind = "embedding" | "detection" | "segment" | "tagApplication" | "face";
@@ -1756,6 +1774,10 @@ export interface UserUiPreferences {
   videos?: UserVideosPreferences | null;
   keybindingOverrides?: Record<string, string> | null;
   playback?: UserPlaybackPreferences | null;
+  /** JSON blob of the user's customized home page rows (opaque to the server). */
+  homePageContent?: string | null;
+  /** Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON. */
+  defaultFilters?: Record<string, string> | null;
 }
 
 export interface UserTrackingPreferences {
@@ -1887,6 +1909,7 @@ export interface SecurityConfig {
   username?: string;
   allowAnonymousShareLinks: boolean;
   knownProxies: string[];
+  trustedHosts: string[];
   newPassword?: string;
 }
 
@@ -2008,6 +2031,10 @@ export interface JobInfo {
   unitsFailed?: number;
   unitsSkipped?: number;
   summary?: string;
+  /** Server-computed estimate of seconds remaining (null when unknown/stalled). */
+  etaSeconds?: number | null;
+  /** UTC timestamp the ETA was computed at, so the client can count it down smoothly. */
+  updatedAt?: string | null;
 }
 
 export interface FindFilter {
@@ -2379,6 +2406,8 @@ export interface MetadataServerVideoImportRequest {
   endpoint: string;
   videoId: string;
   setCoverImage?: boolean;
+  // When true, replace even an explicitly set cover; otherwise only an auto-generated frame is replaced.
+  overwriteExplicitCover?: boolean;
   setTags?: boolean;
   setPerformers?: boolean;
   setStudio?: boolean;
@@ -2815,6 +2844,7 @@ export interface GroupFilterCriteria {
   querySourceKeyCriterion?: StringCriterion;
   allowedHostTypesCriterion?: StringCriterion;
   hasQueryCriterion?: BoolCriterion;
+  isBuiltInCriterion?: BoolCriterion;
   showInVideoListsCriterion?: BoolCriterion;
   lastResolvedAtCriterion?: TimestampCriterion;
   sortOrderCriterion?: IntCriterion;

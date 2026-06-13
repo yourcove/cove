@@ -103,6 +103,8 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
         if (!await VideoExistsAsync(videoId, ct)) return NotFound();
         if (dto.EndSec.HasValue && dto.EndSec.Value < dto.StartSec)
             return BadRequest("Segment end must be greater than or equal to the start.");
+        if (RequiresTagButMissing(dto.Kind, dto.TagId))
+            return BadRequest("A segment with kind 'tag' must reference a tag.");
 
         var segment = new Segment
         {
@@ -137,6 +139,8 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
     {
         if (dto.EndSec.HasValue && dto.EndSec.Value < dto.StartSec)
             return BadRequest("Segment end must be greater than or equal to the start.");
+        if (RequiresTagButMissing(dto.Kind, dto.TagId))
+            return BadRequest("A segment with kind 'tag' must reference a tag.");
 
         var segment = await db.Segments
             .Include(item => item.Tag)
@@ -273,4 +277,9 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
 
     private static string NormalizeSourceKey(string? sourceKey) =>
         string.IsNullOrWhiteSpace(sourceKey) ? "user" : sourceKey;
+
+    // A "tag" segment is the timeline occurrence of a tag, so it must point at a real tag.
+    // (The label-only variants were stale data from an older AI.Tagging extension.)
+    private static bool RequiresTagButMissing(string? kind, int? tagId) =>
+        string.Equals(kind?.Trim(), "tag", StringComparison.OrdinalIgnoreCase) && (tagId is null || tagId <= 0);
 }

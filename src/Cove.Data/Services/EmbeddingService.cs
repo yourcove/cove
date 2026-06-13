@@ -1,23 +1,47 @@
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 
 namespace Cove.Data.Services;
 
-public sealed class EmbeddingService(CoveContext db, IEnumerable<ITextEncoder> encoders) : IEmbeddingService, ITextEncoderRegistry
+public sealed class EmbeddingService(
+    CoveContext db,
+    IEnumerable<ITextEncoder> encoders,
+    IExtensionServiceExchange? serviceExchange = null) : IEmbeddingService, ITextEncoderRegistry
 {
-    private readonly Dictionary<string, ITextEncoder> _encoders = encoders.ToDictionary(
-        encoder => encoder.KindFamily,
-        StringComparer.OrdinalIgnoreCase);
+    // Text encoders arrive from two places: host registrations resolved through DI (the `encoders`
+    // enumerable) and extension-published encoders surfaced through the cross-extension service
+    // exchange. Since the extensions-runtime redesign each extension lives in its own isolated
+    // container, so an encoder registered by one extension (e.g. AI.Core's semantic text encoder) is
+    // NOT visible through the injected enumerable when this registry is resolved inside a *different*
+    // extension's container (e.g. AI.Visual running a semantic search). We therefore resolve live on
+    // each call and merge the exchange-published encoders in — mirroring
+    // FacesController.ActiveSuggesters(). Without the exchange leg, visual semantic search resolves no
+    // encoder for "semantic.v1" and the query is never sent to nsfw_ai_server.
+    private readonly IEnumerable<ITextEncoder> _encoders = encoders;
+    private readonly IExtensionServiceExchange? _serviceExchange = serviceExchange;
 
     public ITextEncoder? Resolve(string kindFamily)
     {
         if (string.IsNullOrWhiteSpace(kindFamily))
             return null;
 
-        return _encoders.GetValueOrDefault(kindFamily);
+        foreach (var encoder in _encoders)
+        {
+            if (string.Equals(encoder.KindFamily, kindFamily, StringComparison.OrdinalIgnoreCase))
+                return encoder;
+        }
+
+        foreach (var encoder in _serviceExchange?.GetAll<ITextEncoder>() ?? [])
+        {
+            if (string.Equals(encoder.KindFamily, kindFamily, StringComparison.OrdinalIgnoreCase))
+                return encoder;
+        }
+
+        return null;
     }
 
     public async Task<IReadOnlyList<EmbeddingSearchResult>> KnnAsync(

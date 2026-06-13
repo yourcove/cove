@@ -72,6 +72,7 @@ import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router
 import { DisplayProfilesSettingsPanel } from "./settings/DisplayProfilesSettingsPanel";
 import { AiDataSettingsPanel } from "./settings/AiDataSettingsPanel";
 import { SortableList } from "../components/SortableList";
+import { JobCard } from "../components/JobCard";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PaginationControls } from "../components/ListPage";
 import { CheckboxLabel, CollapsibleSection, InfoPair, NumberField, SectionCard, SelectField, TaskCard, TextAreaField, TextField } from "../components/SettingsPrimitives";
@@ -447,6 +448,7 @@ function resolveExtensionSettingsTabIcon(iconName?: string): typeof FolderOpen {
 }
 
 const SETTINGS_TAB_QUERY_KEY = "tab";
+const SETTINGS_NAV_GROUPS_STORAGE_KEY = "cove-settings-nav-groups";
 const TASK_SCAN_OPTIONS_KEY = "cove-settings-scan-options";
 const TASK_GENERATE_OPTIONS_KEY = "cove-settings-generate-options";
 const TASK_DOWNLOAD_IMPORT_OPTIONS_KEY = "cove-settings-download-import-options";
@@ -514,10 +516,33 @@ export function readSettingsTabFromUrl(extraAliases: Partial<Record<string, Sett
   return "library-paths-storage";
 }
 
+function readStoredSettingsGroupOpenState(): Partial<Record<SettingsTabGroupKey, boolean>> {
+  try {
+    const raw = localStorage.getItem(SETTINGS_NAV_GROUPS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return parsed as Partial<Record<SettingsTabGroupKey, boolean>>;
+      }
+    }
+  } catch {
+    // Ignore invalid persisted state and fall back to defaults.
+  }
+  return {};
+}
+
 function createDefaultSettingsGroupOpenState(activeTab: SettingsTab): Record<SettingsTabGroupKey, boolean> {
   const activeGroup = settingsGroupKeyByTab.get(activeTab as BuiltInSettingsTab);
+  const stored = readStoredSettingsGroupOpenState();
   return Object.fromEntries(
-    settingsTabGroups.map((group) => [group.key, group.key === activeGroup || group.key === "my-settings" || group.key === "system-info"]),
+    settingsTabGroups.map((group) => {
+      // Always reveal the group that contains the active tab; otherwise honor
+      // the user's last-remembered open/closed state, falling back to the
+      // first-run defaults for groups they have never toggled.
+      const remembered = stored[group.key];
+      const fallback = group.key === "my-settings" || group.key === "system-info";
+      return [group.key, group.key === activeGroup || (remembered ?? fallback)];
+    }),
   ) as Record<SettingsTabGroupKey, boolean>;
 }
 
@@ -1484,6 +1509,15 @@ export function SettingsPage() {
     }
   }, [activeTab, resolvedSettingsGroupKeyByTab]);
 
+  // Remember the user's last open/closed state for the settings nav groups.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_NAV_GROUPS_STORAGE_KEY, JSON.stringify(openSettingsGroups));
+    } catch {
+      // Ignore storage failures (e.g. private mode / quota).
+    }
+  }, [openSettingsGroups]);
+
   useEffect(() => {
     if (!extensionsLoaded && !tabByKey.has(activeTab as BuiltInSettingsTab)) {
       return;
@@ -1892,18 +1926,21 @@ export function SettingsPage() {
           </div>
         </section>
 
-        {["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-extension-tasks", "data-sources-auto-tagging"].includes(resolvedActiveTab) && <TasksPanel activeTab={resolvedActiveTab} />}
-
-        {resolvedActiveTab === "operations-jobs" && canWriteSystemSettings && (
-          <SectionCard title="Job Limits" description="Control how many background jobs Cove can run at the same time.">
-            <NumberField
-              label="Max parallel tasks (-1 = all CPU threads)"
-              value={draft.maxParallelTasks}
-              min={-1}
-              max={128}
-              onChange={(value) => updateDraft((current) => ({ ...current, maxParallelTasks: value ?? current.maxParallelTasks }))}
-            />
-          </SectionCard>
+        {["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-extension-tasks", "data-sources-auto-tagging"].includes(resolvedActiveTab) && (
+          <TasksPanel
+            activeTab={resolvedActiveTab}
+            midSlot={resolvedActiveTab === "operations-jobs" && canWriteSystemSettings ? (
+              <SectionCard title="Job Limits" description="Control how many background jobs Cove can run at the same time.">
+                <NumberField
+                  label="Max parallel tasks (-1 = all CPU threads)"
+                  value={draft.maxParallelTasks}
+                  min={-1}
+                  max={128}
+                  onChange={(value) => updateDraft((current) => ({ ...current, maxParallelTasks: value ?? current.maxParallelTasks }))}
+                />
+              </SectionCard>
+            ) : null}
+          />
         )}
 
         {(["library-paths-storage", "library-scanning", "data-sources-downloader-paths"] as SettingsTab[]).includes(resolvedActiveTab) && (
@@ -2906,9 +2943,79 @@ export function SettingsPage() {
                 />
                 {!draft.security.enabled ? (
                   <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-                    Anyone with network access to this Cove can use it. The outside-IP failsafe is still active.
+                    Anyone with network access to this Cove can use it. The outside-IP failsafe is still active: if a
+                    request arrives from a public/untrusted address while authentication is disabled, Cove
+                    automatically re-enables authentication to protect your data. To intentionally run with
+                    authentication off behind a trusted reverse proxy, add your hostname under Trusted hosts below
+                    <strong> before</strong> disabling authentication.
                   </div>
                 ) : null}
+                <div className="rounded-lg border border-border bg-background px-3 py-3">
+                  <div className="font-medium text-foreground">Trusted hosts</div>
+                  <div className="mt-1 text-sm text-secondary">
+                    Hostnames listed here are treated as trusted even when authentication is disabled, so the
+                    outside-IP failsafe will not re-enable authentication for requests to them. Use this only if you
+                    intentionally run Cove with authentication disabled behind a trusted reverse proxy (e.g. an nginx
+                    ingress) on a custom domain. Configure this <strong>before</strong> turning authentication off. Use
+                    an exact hostname (<code>cove.example.com</code>), a wildcard (<code>*.example.com</code>), or
+                    <code>*</code> to trust any host. Leave empty unless you know you need this.
+                  </div>
+                  <div className="mt-3 space-y-2">
+                        {(draft.security.trustedHosts ?? []).map((host, index) => (
+                          <div key={index} className="flex flex-col gap-2 md:flex-row md:items-center">
+                            <input
+                              type="text"
+                              value={host}
+                              placeholder="cove.example.com"
+                              onChange={(event) =>
+                                updateDraft((current) => ({
+                                  ...current,
+                                  security: {
+                                    ...current.security,
+                                    trustedHosts: (current.security.trustedHosts ?? []).map((item, itemIndex) =>
+                                      itemIndex === index ? event.target.value : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateDraft((current) => ({
+                                  ...current,
+                                  security: {
+                                    ...current.security,
+                                    trustedHosts: (current.security.trustedHosts ?? []).filter(
+                                      (_, itemIndex) => itemIndex !== index,
+                                    ),
+                                  },
+                                }))
+                              }
+                              className="inline-flex justify-center rounded-lg border border-red-500/50 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/10"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateDraft((current) => ({
+                              ...current,
+                              security: {
+                                ...current.security,
+                                trustedHosts: [...(current.security.trustedHosts ?? []), ""],
+                              },
+                            }))
+                          }
+                          className="inline-flex justify-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent"
+                        >
+                          Add trusted host
+                        </button>
+                      </div>
+                    </div>
                 <CheckboxLabel
                   label="Allow anonymous share links"
                   checked={draft.security.allowAnonymousShareLinks}
@@ -4038,7 +4145,7 @@ function normalizeLogLevel(level: string) {
   }
 }
 
-function TasksPanel({ activeTab }: { activeTab: SettingsTab }) {
+function TasksPanel({ activeTab, midSlot }: { activeTab: SettingsTab; midSlot?: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data: activeJobs, refetch: refetchJobs } = useQuery({
     queryKey: ["jobs"],
@@ -4070,10 +4177,11 @@ function TasksPanel({ activeTab }: { activeTab: SettingsTab }) {
         {activeJobs.map((job) => {
           const pendingIndex = pendingJobs.findIndex((item) => item.id === job.id);
           return (
-            <JobQueueCard
+            <JobCard
               key={job.id}
               job={job}
-              onCancel={() => jobs.cancel(job.id).then(() => refetchJobs())}
+              variant="panel"
+              onCancel={(id) => jobs.cancel(id).then(() => refetchJobs())}
               onMoveUp={job.status === "pending" && pendingIndex > 0 ? () => moveQueuedJob(job, "up") : undefined}
               onMoveDown={job.status === "pending" && pendingIndex >= 0 && pendingIndex < pendingJobs.length - 1 ? () => moveQueuedJob(job, "down") : undefined}
             />
@@ -4084,10 +4192,10 @@ function TasksPanel({ activeTab }: { activeTab: SettingsTab }) {
   ) : null;
 
   const jobHistory = recentJobs && recentJobs.length > 0 ? (
-    <SectionCard title="Recent Jobs" description="Recently completed, failed, or cancelled jobs.">
-      <div className="space-y-2">
-        {recentJobs.slice(0, 8).map((job) => (
-          <JobQueueCard key={job.id} job={job} />
+    <SectionCard title="Recent Jobs" description={`Recently completed, failed, or cancelled jobs (${recentJobs.length}).`}>
+      <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1">
+        {recentJobs.map((job) => (
+          <JobCard key={job.id} job={job} variant="panel" />
         ))}
       </div>
     </SectionCard>
@@ -4096,6 +4204,7 @@ function TasksPanel({ activeTab }: { activeTab: SettingsTab }) {
   return (
     <>
       {activeTab === "operations-jobs" && jobQueue}
+      {activeTab === "operations-jobs" && midSlot}
       {activeTab === "operations-jobs" && jobHistory}
       {activeTab === "operations-jobs" && !jobQueue && !jobHistory ? (
         <SectionCard title="Jobs" description="Currently running, queued, and recent jobs.">
@@ -4113,126 +4222,6 @@ function TasksPanel({ activeTab }: { activeTab: SettingsTab }) {
   );
 }
 
-function formatJobDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}h ${mins.toString().padStart(2, "0")}m`;
-}
-
-function JobQueueCard({ job, onCancel, onMoveUp, onMoveDown }: { job: JobInfo; onCancel?: () => void; onMoveUp?: () => void; onMoveDown?: () => void }) {
-  const [now, setNow] = useState(Date.now());
-  const progressHistory = useRef<{ time: number; progress: number }[]>([]);
-
-  useEffect(() => {
-    if (job.status !== "running") return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [job.status]);
-
-  // Track progress history for rolling window ETA
-  useEffect(() => {
-    if (job.status === "running" && job.progress > 0) {
-      const hist = progressHistory.current;
-      const now = Date.now();
-      hist.push({ time: now, progress: job.progress });
-      // Keep last 30 seconds
-      const cutoff = now - 30000;
-      while (hist.length > 0 && hist[0].time < cutoff) hist.shift();
-    }
-  }, [job.progress, job.status]);
-
-  const progressPct = Math.round((job.progress ?? 0) * 100);
-  const elapsedMs = now - new Date(job.startedAt).getTime();
-
-  // Rolling window ETA: use rate from last 30s of progress updates
-  let etaMs: number | null = null;
-  const hist = progressHistory.current;
-  if (hist.length >= 2 && job.progress >= 0.01) {
-    const first = hist[0];
-    const last = hist[hist.length - 1];
-    const dt = last.time - first.time;
-    const dp = last.progress - first.progress;
-    if (dt > 1000 && dp > 0) {
-      const rate = dp / dt; // progress per ms
-      etaMs = (1.0 - last.progress) / rate;
-    }
-  }
-
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{job.description}</span>
-          <span className={`text-xs px-1.5 py-0.5 rounded ${
-            job.status === "running" ? "bg-green-600/20 text-green-300" :
-            job.status === "pending" ? "bg-yellow-600/20 text-yellow-300" :
-            "bg-card text-muted"
-          }`}>
-            {job.status}
-          </span>
-        </div>
-        {job.subTask && (
-          <p className="text-xs text-muted mt-1 truncate">{job.subTask}</p>
-        )}
-        {job.status === "running" && job.progress != null && job.progress >= 0 && (
-          <>
-            <div className="mt-2 h-2 w-full rounded-full bg-surface overflow-hidden">
-              <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.min(progressPct, 100)}%` }} />
-            </div>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-xs text-muted">
-                {progressPct}% · {formatJobDuration(elapsedMs)} elapsed
-              </span>
-              {etaMs != null && (
-                <span className="text-xs text-muted">
-                  ~{formatJobDuration(etaMs)} remaining
-                </span>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-      <div className="ml-3 flex flex-shrink-0 items-center gap-1">
-        {job.status === "pending" ? (
-          <>
-            <button
-              type="button"
-              onClick={onMoveUp}
-              disabled={!onMoveUp}
-              title="Move queued job up"
-              className="rounded p-1 text-muted hover:bg-card-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onMoveDown}
-              disabled={!onMoveDown}
-              title="Move queued job down"
-              className="rounded p-1 text-muted hover:bg-card-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </button>
-          </>
-        ) : null}
-        {onCancel && (job.status === "running" || job.status === "pending") ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="text-xs text-muted hover:text-red-300"
-          >
-            Cancel
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 // ---- Library Tasks ----
 type LibraryTaskSectionMode = "scan-generate" | "downloads" | "duplicates" | "auto-tagging";

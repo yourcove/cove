@@ -34,9 +34,26 @@ public class DetectionRepository : IDetectionRepository
     public async Task UpdateRefIdAsync(string sourceKey, string refKind,
         IReadOnlyList<long> oldRefIds, long newRefId, CancellationToken ct = default)
     {
-        await _db.Detections
+        // Tracked update (not ExecuteUpdate) so it works on any provider and commits with the
+        // caller's SaveChangesAsync alongside the rest of a face merge.
+        var detections = await _db.Detections
             .Where(d => d.SourceKey == sourceKey && d.RefKind == refKind && d.RefId.HasValue && oldRefIds.Contains(d.RefId!.Value))
-            .ExecuteUpdateAsync(s => s.SetProperty(d => d.RefId, newRefId), ct);
+            .ToListAsync(ct);
+        foreach (var detection in detections)
+            detection.RefId = newRefId;
+    }
+
+    public async Task ReassignRefByRunAsync(string sourceKey, string refKind, long oldRefId,
+        IReadOnlyCollection<string> runIds, long newRefId, CancellationToken ct = default)
+    {
+        if (runIds.Count == 0)
+            return;
+
+        var detections = await _db.Detections
+            .Where(d => d.SourceKey == sourceKey && d.RefKind == refKind && d.RefId == oldRefId && d.SourceRunId != null && runIds.Contains(d.SourceRunId))
+            .ToListAsync(ct);
+        foreach (var detection in detections)
+            detection.RefId = newRefId;
     }
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)

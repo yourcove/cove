@@ -9,7 +9,7 @@ import type { AppliedDerivedQuery, DerivedSpanOperandFilterValue, DerivedSpanQue
 export function createDerivedSpanCustomFilterSection(scopeVideoIds: number[]): FilterDialogCustomSection {
   return {
     id: "derivedSpanQuery",
-    label: "Derived Spans",
+    label: "Derived Segments",
     filterKey: "derivedSpanQuery",
     defaultValue: createDefaultDerivedSpanQueryFilter(),
     isActive: isDerivedSpanQueryFilterActive,
@@ -70,7 +70,7 @@ export function summarizeDerivedSpanQuery(value: unknown) {
   const filter = readDerivedSpanQueryFilter(value);
   const activeOperandCount = filter.operands.filter(isDerivedSpanOperandFilterActive).length;
   if (activeOperandCount === 0) {
-    return "Resolved spans";
+    return "Segments";
   }
 
   return `${formatOperatorLabel(filter.operator)} · ${activeOperandCount} operand${activeOperandCount === 1 ? "" : "s"}`;

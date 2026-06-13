@@ -20,6 +20,8 @@ import {
   Database,
   RefreshCw,
   BookOpen,
+  FolderCheck,
+  AlertTriangle,
 } from "lucide-react";
 
 interface Props {
@@ -792,6 +794,30 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                         </div>
                       ))}
                     </div>
+                    {stashPreview.generatedContentFound ? (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg border border-green-700/50 bg-green-900/20 p-3 text-sm text-green-300">
+                        <FolderCheck className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="font-medium">Generated content folder found</div>
+                          <div className="text-xs text-green-300/80 break-all">
+                            Thumbnails, previews, sprites and other generated content will be migrated.
+                            {stashPreview.generatedPath ? ` (${stashPreview.generatedPath})` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-700/50 bg-amber-900/20 p-3 text-sm text-amber-300">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="font-medium">Generated content folder not found</div>
+                          <div className="text-xs text-amber-300/80 break-all">
+                            {stashPreview.generatedPath
+                              ? `Cove could not access Stash's generated folder at ${stashPreview.generatedPath}. Generated content (thumbnails, previews, sprites) will not be migrated unless this folder is reachable.`
+                              : "Cove could not locate Stash's generated folder from config.yml (expected next to the database). Generated content (thumbnails, previews, sprites) will not be migrated."}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

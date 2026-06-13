@@ -90,6 +90,9 @@ public interface IGroupRepository : IRepository<Group>
 public interface ISavedFilterRepository : IRepository<SavedFilter>
 {
     Task<IReadOnlyList<SavedFilter>> GetByModeAsync(Cove.Core.Enums.FilterMode mode, CancellationToken ct = default);
+    // User-scoped variants: only return the given user's saved filters (userId null => unowned rows).
+    Task<IReadOnlyList<SavedFilter>> GetAllForUserAsync(int? userId, CancellationToken ct = default);
+    Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(Cove.Core.Enums.FilterMode mode, int? userId, CancellationToken ct = default);
 }
 
 // Filter models
@@ -512,6 +515,7 @@ public class GroupFilter
     public StringCriterion? QuerySourceKeyCriterion { get; set; }
     public StringCriterion? AllowedHostTypesCriterion { get; set; }
     public BoolCriterion? HasQueryCriterion { get; set; }
+    public BoolCriterion? IsBuiltInCriterion { get; set; }
     public BoolCriterion? ShowInVideoListsCriterion { get; set; }
     public TimestampCriterion? LastResolvedAtCriterion { get; set; }
     public IntCriterion? SortOrderCriterion { get; set; }

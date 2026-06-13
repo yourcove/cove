@@ -1,8 +1,8 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, faces, galleries, groups, images, metadata, performers, videos, texts, entityImages } from "../api/client";
-import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, MetadataServer, MetadataServerPerformerMatch, TextDocument, TextFilterCriteria } from "../api/types";
+import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Calendar, ChevronDown, CloudDownload, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, Trash2, Users, UserRound, Wand2 } from "lucide-react";
+import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, Trash2, Users, UserRound, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -11,7 +11,6 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { useAppConfig } from "../state/AppConfigContext";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 import { useDefaultSavedFilterOnMount } from "../components/SavedFilterMenu";
 import { useMultiSelect } from "../hooks/useMultiSelect";
@@ -73,9 +72,7 @@ const TEXT_SORT = [
 ];
 
 export function PerformerDetailPage({ id, onNavigate }: Props) {
-  const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
-  const metadataServers = config?.scraping?.metadataServers ?? [];
   const { data: performer, isLoading } = useQuery({
     queryKey: ["performer", id],
     queryFn: () => performers.get(id),
@@ -344,7 +341,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
 
             {performer.details ? <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="details" block><p className="mt-4 max-w-4xl whitespace-pre-wrap text-sm leading-6 text-secondary">{performer.details}</p></FieldProvenanceHover> : null}
             <CustomFieldsDisplay customFields={performer.customFields} entityType="performer" />
-            <PerformerMetadataServerPanel performer={performer} metadataServers={metadataServers} onNavigate={onNavigate} />
           </>
         )}
         actions={(
@@ -767,191 +763,6 @@ function SimilarPerformerFaceCard({ match, onNavigate }: { match: PerformerFaceM
         </button>
       </div>
     </article>
-  );
-}
-
-function PerformerMetadataServerPanel({ performer, metadataServers, onNavigate }: { performer: PerformerModel; metadataServers: MetadataServer[]; onNavigate: (r: any) => void }) {
-  const queryClient = useQueryClient();
-  const [term, setTerm] = useState(performer.name);
-  const [selectedEndpoint, setSelectedEndpoint] = useState("");
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    setTerm(performer.name);
-  }, [performer.id, performer.name]);
-
-  useEffect(() => {
-    if (selectedEndpoint && !metadataServers.some((box) => box.endpoint === selectedEndpoint)) {
-      setSelectedEndpoint("");
-    }
-  }, [selectedEndpoint, metadataServers]);
-
-  const searchMutation = useMutation({
-    mutationFn: (variables: { term?: string; endpoint?: string }) => performers.searchMetadataServer(performer.id, variables.term, variables.endpoint),
-  });
-
-  const importMutation = useMutation({
-    mutationFn: (match: MetadataServerPerformerMatch) =>
-      performers.importFromMetadataServer(performer.id, { endpoint: match.endpoint, performerId: match.id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });
-      queryClient.invalidateQueries({ queryKey: ["performers"] });
-    },
-  });
-
-  const draftMutation = useMutation({
-    mutationFn: (endpoint: string) => performers.submitMetadataServerDraft(performer.id, endpoint),
-  });
-
-  const draftEndpoint = selectedEndpoint || metadataServers[0]?.endpoint;
-  return (
-    <div className="mt-6 rounded-xl border border-border bg-card p-4">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between text-left"
-      >
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold text-foreground">MetadataServer</h2>
-        </div>
-        <ChevronDown className={`h-4 w-4 text-muted transition-transform ${expanded ? "rotate-180" : ""}`} />
-      </button>
-
-      {expanded && (
-        <div className="mt-4">
-          {metadataServers.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border p-4 text-sm text-secondary">
-              No MetadataServer endpoints are configured yet. Use Settings and open Metadata Providers to add one.
-              <button
-                onClick={() => onNavigate({ page: "settings" })}
-                className="ml-2 text-accent hover:text-accent-hover"
-              >
-                Open settings
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">Search term</span>
-                  <input
-                    value={term}
-                    onChange={(event) => setTerm(event.target.value)}
-                    placeholder={performer.name}
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">Endpoint</span>
-                  <select
-                    value={selectedEndpoint}
-                    onChange={(event) => setSelectedEndpoint(event.target.value)}
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-                  >
-                    <option value="">All configured endpoints</option>
-                    {metadataServers.map((box) => (
-                      <option key={box.endpoint} value={box.endpoint}>
-                        {box.name || box.endpoint}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="flex flex-wrap items-end gap-2">
-                  <button
-                    onClick={() => searchMutation.mutate({ term: term.trim() || undefined, endpoint: selectedEndpoint || undefined })}
-                    disabled={searchMutation.isPending}
-                    className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
-                  >
-                    {searchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    Search MetadataServer
-                  </button>
-                  <button
-                    onClick={() => draftEndpoint && draftMutation.mutate(draftEndpoint)}
-                    disabled={!draftEndpoint || draftMutation.isPending}
-                    className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
-                  >
-                    {draftMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
-                    Submit Draft
-                  </button>
-                </div>
-              </div>
-
-              {searchMutation.error && (
-                <p className="mt-3 text-sm text-red-300">{searchMutation.error.message}</p>
-              )}
-
-              {draftMutation.error && (
-                <p className="mt-3 text-sm text-red-300">{draftMutation.error.message}</p>
-              )}
-
-              {draftMutation.isSuccess && (
-                <p className="mt-3 text-sm text-emerald-300">
-                  Performer draft submitted to MetadataServer{draftMutation.data.draftId ? ` (${draftMutation.data.draftId})` : ""}.
-                </p>
-              )}
-
-              {importMutation.isSuccess && (
-                <p className="mt-3 text-sm text-emerald-300">Performer metadata imported from MetadataServer.</p>
-              )}
-
-              {searchMutation.data && (
-                <div className="mt-4 space-y-3">
-                  {searchMutation.data.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border p-4 text-sm text-secondary">
-                      No MetadataServer performer matches were found.
-                    </div>
-                  ) : (
-                    searchMutation.data.map((match) => (
-                      <button
-                        key={`${match.endpoint}:${match.id}`}
-                        onClick={() => importMutation.mutate(match)}
-                        disabled={importMutation.isPending}
-                        className="flex w-full flex-col gap-4 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-accent/60 disabled:opacity-60 md:flex-row"
-                      >
-                        <div className="h-28 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-border bg-black/20">
-                          {match.imageUrl ? (
-                            <img src={match.imageUrl} alt={match.name} className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-card to-surface">
-                              <UserRound className="h-10 w-10 text-muted/50" />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-base font-semibold text-foreground">{match.name}</span>
-                            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-secondary">
-                              {match.serverName}
-                            </span>
-                            {match.deleted && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs text-red-300">Deleted</span>}
-                          </div>
-                          {match.disambiguation && <p className="mt-1 text-sm text-secondary">{match.disambiguation}</p>}
-                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                            {match.gender && <span>{match.gender}</span>}
-                            {match.birthDate && <span>Born {match.birthDate}</span>}
-                            {match.country && <span>{match.country}</span>}
-                            <span>ID {match.id}</span>
-                          </div>
-                          {match.aliases.length > 0 && <p className="mt-2 text-xs text-secondary">Aliases: {match.aliases.join(", ")}</p>}
-                          {match.urls.length > 0 && <p className="mt-1 truncate text-xs text-muted">{match.urls[0]}</p>}
-                        </div>
-
-                        <div className="flex items-end">
-                          <span className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white">
-                            {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
-                            Import
-                          </span>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 

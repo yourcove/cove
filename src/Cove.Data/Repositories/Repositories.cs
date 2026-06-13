@@ -1660,13 +1660,20 @@ public class GalleryRepository : IGalleryRepository
             {
             "updated_at" => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
             "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
+            "studio" => ApplyGalleryStudioSort(query, desc),
             "file_mod_time" => ApplyGalleryFileModTimeSort(query, desc),
+            "file_count" => desc ? query.OrderByDescending(g => g.Files.Count) : query.OrderBy(g => g.Files.Count),
             "path" => ApplyGalleryPathSort(query, desc),
             "title" => desc ? query.OrderByDescending(g => g.Title) : query.OrderBy(g => g.Title),
+            "code" => desc ? query.OrderByDescending(g => g.Code) : query.OrderBy(g => g.Code),
+            "photographer" => desc ? query.OrderByDescending(g => g.Photographer) : query.OrderBy(g => g.Photographer),
+            "organized" => desc ? query.OrderByDescending(g => g.Organized).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Organized).ThenBy(g => g.Id),
             "image_count" => desc ? query.OrderByDescending(g => g.ImageCount) : query.OrderBy(g => g.ImageCount),
+            "video_count" => desc ? query.OrderByDescending(g => g.VideoCount) : query.OrderBy(g => g.VideoCount),
             "rating" => ApplyGalleryRatingSort(query, desc),
             "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount) : query.OrderBy(g => g.PerformerCount),
             "tag_count" => desc ? query.OrderByDescending(g => g.TagCount) : query.OrderBy(g => g.TagCount),
+            "typical_resolution" => ApplyGalleryTypicalResolutionSort(query, desc),
             "zip_file_count" => desc
                 ? query.OrderByDescending(g => g.Files.Count(file => file.Basename.EndsWith(".zip")))
                 : query.OrderBy(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))),
@@ -1723,6 +1730,19 @@ public class GalleryRepository : IGalleryRepository
             : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
     }
 
+    private static IQueryable<Gallery> ApplyGalleryStudioSort(IQueryable<Gallery> query, bool desc)
+    {
+        var sortQuery = query.Select(gallery => new
+        {
+            Gallery = gallery,
+            StudioName = gallery.Studio != null ? gallery.Studio.Name : null,
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).Select(item => item.Gallery);
+    }
+
     private static IQueryable<Gallery> ApplyGalleryPathSort(IQueryable<Gallery> query, bool desc)
     {
         // Both folders.Path and files.Path are stored in forward-slash form (normalized
@@ -1759,6 +1779,40 @@ public class GalleryRepository : IGalleryRepository
 
     private IQueryable<Gallery> ApplyGalleryRatingSort(IQueryable<Gallery> query, bool desc)
         => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Gallery, desc);
+
+    private static IQueryable<Gallery> ApplyGalleryTypicalResolutionSort(IQueryable<Gallery> query, bool desc)
+    {
+        var sortQuery = query.Select(gallery => new
+        {
+            Gallery = gallery,
+            TypicalResolution = gallery.ImageGalleries
+                .SelectMany(imageGallery => imageGallery.Image!.Files.Select(file =>
+                    Math.Max(file.Width, file.Height) >= 9840 ? 9999 :
+                    Math.Max(file.Width, file.Height) >= 7424 ? 4320 :
+                    Math.Max(file.Width, file.Height) >= 6656 ? 4032 :
+                    Math.Max(file.Width, file.Height) >= 5632 ? 3384 :
+                    Math.Max(file.Width, file.Height) >= 4480 ? 2880 :
+                    Math.Max(file.Width, file.Height) >= 3200 ? 2160 :
+                    Math.Max(file.Width, file.Height) >= 2240 ? 1440 :
+                    Math.Max(file.Width, file.Height) >= 1600 ? 1080 :
+                    Math.Max(file.Width, file.Height) >= 1120 ? 720 :
+                    Math.Max(file.Width, file.Height) >= 907 ? 540 :
+                    Math.Max(file.Width, file.Height) >= 747 ? 480 :
+                    Math.Max(file.Width, file.Height) >= 533 ? 360 :
+                    Math.Max(file.Width, file.Height) >= 341 ? 240 :
+                    Math.Max(file.Width, file.Height) >= 144 ? 144 : 0))
+                .Where(bucket => bucket > 0)
+                .GroupBy(bucket => bucket)
+                .OrderByDescending(group => group.Count())
+                .ThenByDescending(group => group.Key)
+                .Select(group => (int?)group.Key)
+                .FirstOrDefault(),
+        });
+
+        return desc
+            ? sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenByDescending(item => item.TypicalResolution).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenBy(item => item.TypicalResolution).Select(item => item.Gallery);
+    }
 
     private static IQueryable<Gallery> ApplyGalleryPathCriterion(IQueryable<Gallery> query, StringCriterion? criterion)
     {
@@ -2610,6 +2664,13 @@ public class GroupRepository : IGroupRepository
             query = FilterHelpers.ApplyString(query, filter.QuerySourceKeyCriterion, g => g.QuerySourceKey);
             query = ApplyAllowedHostTypesCriterion(query, filter.AllowedHostTypesCriterion);
             query = FilterHelpers.ApplyBool(query, filter.HasQueryCriterion, g => g.QueryJson != null && g.QueryJson != string.Empty);
+            if (filter.IsBuiltInCriterion != null)
+            {
+                string[] builtInKeys = ["save-for-later", "watch-history", "continue-watching"];
+                query = filter.IsBuiltInCriterion.Value
+                    ? query.Where(g => builtInKeys.Contains(g.QuerySourceKey))
+                    : query.Where(g => !builtInKeys.Contains(g.QuerySourceKey));
+            }
             query = FilterHelpers.ApplyBool(query, filter.ShowInVideoListsCriterion, g => g.ShowInVideoLists);
             query = FilterHelpers.ApplyNullableTimestamp(query, filter.LastResolvedAtCriterion, g => g.LastResolvedAt);
             query = FilterHelpers.ApplyInt(query, filter.SortOrderCriterion, g => g.SortOrder);
@@ -2776,6 +2837,11 @@ public class SavedFilterRepository : ISavedFilterRepository
     public async Task<IReadOnlyList<SavedFilter>> GetAllAsync(CancellationToken ct = default) => await _db.SavedFilters.AsNoTracking().ToListAsync(ct);
     public async Task<IReadOnlyList<SavedFilter>> GetByModeAsync(Core.Enums.FilterMode mode, CancellationToken ct = default)
         => await _db.SavedFilters.Where(f => f.Mode == mode).AsNoTracking().ToListAsync(ct);
+
+    public async Task<IReadOnlyList<SavedFilter>> GetAllForUserAsync(int? userId, CancellationToken ct = default)
+        => await _db.SavedFilters.Where(f => f.UserId == userId).AsNoTracking().ToListAsync(ct);
+    public async Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(Core.Enums.FilterMode mode, int? userId, CancellationToken ct = default)
+        => await _db.SavedFilters.Where(f => f.Mode == mode && f.UserId == userId).AsNoTracking().ToListAsync(ct);
 
     public async Task<SavedFilter> AddAsync(SavedFilter entity, CancellationToken ct = default)
     {

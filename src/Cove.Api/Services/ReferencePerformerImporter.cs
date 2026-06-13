@@ -18,7 +18,7 @@ namespace Cove.Api.Services;
 public sealed class ReferencePerformerImporter(IServiceScopeFactory scopeFactory, ILogger<ReferencePerformerImporter>? logger = null)
     : IReferencePerformerImporter
 {
-    public async Task<bool> TryImportAsync(int performerId, string endpoint, string externalId, CancellationToken cancellationToken = default)
+    public async Task<bool> TryImportAsync(int performerId, string endpoint, string externalId, bool importMetadata = true, CancellationToken cancellationToken = default)
     {
         if (performerId <= 0 || string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(externalId))
             return false;
@@ -57,6 +57,11 @@ public sealed class ReferencePerformerImporter(IServiceScopeFactory scopeFactory
                 existingRemoteId.RemoteId = externalId;
                 await db.SaveChangesAsync(cancellationToken);
             }
+
+            // The remote id is now recorded. When the caller opted out of scraping (the "Update existing
+            // performers from metadata servers" setting is off), stop here without touching the server.
+            if (!importMetadata)
+                return false;
 
             var metadataServer = scope.ServiceProvider.GetService<MetadataServerService>();
             if (metadataServer is null)

@@ -374,6 +374,10 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         {
             await EnsureBuiltInProfilesLockedAsync(ct);
 
+            // Prefer the user's own default if they have explicitly created one, but do NOT
+            // auto-create a per-user "Default" copy — that produced a confusing duplicate profile
+            // that reappeared every time it was deleted. Users without a personal profile fall back
+            // to the shared global default and can create their own profile when they want to customize.
             if (userId.HasValue)
             {
                 var userProfile = await db.SegmentDisplayProfiles.FirstOrDefaultAsync(
@@ -381,20 +385,6 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
                     ct);
                 if (userProfile is not null)
                     return userProfile;
-
-                userProfile = new SegmentDisplayProfile
-                {
-                    Name = "Default",
-                    Description = "User default segment display profile",
-                    UserId = userId.Value,
-                    IsDefault = true,
-                    Version = 1,
-                };
-
-                db.SegmentDisplayProfiles.Add(userProfile);
-                db.SegmentDisplayRules.Add(CreateBuiltInDefaultRule(userProfile));
-                await db.SaveChangesAsync(ct);
-                return userProfile;
             }
 
             var globalDefault = await db.SegmentDisplayProfiles.FirstOrDefaultAsync(

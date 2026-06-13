@@ -27,7 +27,17 @@ public class TagApplicationRepository : ITagApplicationRepository
 
     public void Add(TagApplication tagApplication) => _db.TagApplications.Add(tagApplication);
 
-    public void RemoveRange(IEnumerable<TagApplication> tagApplications) => _db.TagApplications.RemoveRange(tagApplications);
+    public void RemoveRange(IEnumerable<TagApplication> tagApplications)
+    {
+        // FindAsync returns no-tracking instances; if the context already tracks an entity with the
+        // same key (e.g. added earlier in this scope), attaching the detached copy would throw an
+        // identity conflict. Prefer the tracked instance when one exists.
+        var items = tagApplications
+            .Select(ta => _db.TagApplications.Local.FirstOrDefault(local => local.Id == ta.Id) ?? ta)
+            .Distinct()
+            .ToList();
+        _db.TagApplications.RemoveRange(items);
+    }
 
     public async Task RemoveOrphanedTagLinksAsync(AffinityHostType hostType,
         IReadOnlyList<int> entityIds, string sourceKey, CancellationToken ct = default)

@@ -2890,7 +2890,12 @@ namespace Cove.Data.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Mode");
 
                     b.ToTable("saved_filters", (string)null);
                 });
@@ -5183,6 +5188,16 @@ namespace Cove.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Session");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.SavedFilter", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.Auth.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Segment", b =>

@@ -8,6 +8,23 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.3.0] - 2026-06-13
+
+- Scan fixes
+- Stash migration generated preview
+- Complete redesign of Segments on video pages
+- Face improvements/fixes
+- ETA redesign
+- Jobs page redesign
+- Settings tabs remember last collapse/expand
+- Fix lightbox on mobile margins
+- Add random sort for audio/texts
+- Fix docker crashes if config folder isnt writeable
+- Make home page customization and default saved-filters user-specific
+- Auth failsfae improvements
+- Stash migration performer images fix
+- Assortment of UI fixes and improvements
+
 ## [0.2.0] - 2026-06-10
 
 - Security settings panel ui improvements

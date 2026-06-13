@@ -860,6 +860,20 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
             db.Tags.Remove(source);
         }
 
+        // Re-point tag-keyed timeline data from the source tags to the target so a merge moves the
+        // segments instead of orphaning them. Without this, deleting the source tag would trigger the
+        // segments' ON DELETE SET NULL and leave kind=tag rows with no tag.
+        var mergedSourceIds = sources.Select(source => source.Id).ToArray();
+        if (mergedSourceIds.Length > 0)
+        {
+            await db.Segments
+                .Where(segment => segment.TagId != null && mergedSourceIds.Contains(segment.TagId.Value))
+                .ExecuteUpdateAsync(setters => setters.SetProperty(segment => segment.TagId, target.Id), ct);
+            await db.Set<SegmentDisplayRule>()
+                .Where(rule => rule.TagId != null && mergedSourceIds.Contains(rule.TagId.Value))
+                .ExecuteUpdateAsync(setters => setters.SetProperty(rule => rule.TagId, target.Id), ct);
+        }
+
         await db.SaveChangesAsync(ct);
         var result = await tagRepo.GetByIdWithRelationsAsync(target.Id, ct);
         return Ok(await MapToDetailDtoAsync(result!, ct));

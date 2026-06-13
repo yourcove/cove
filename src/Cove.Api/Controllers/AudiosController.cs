@@ -31,6 +31,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null,
         [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
@@ -50,7 +51,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             tagSelectors: [audio => audio.AudioTags.Where(at => at.Tag != null).Select(at => at.Tag!)],
             performerSelectors: [audio => audio.AudioPerformers.Where(ap => ap.Performer != null).Select(ap => ap.Performer!)]);
 
-        query = ApplySort(query, sort, descending);
+        query = ApplySort(query, sort, descending, seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
 
@@ -90,7 +91,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performerSelectors: [audio => audio.AudioPerformers.Where(ap => ap.Performer != null).Select(ap => ap.Performer!)]);
 
         query = ApplyFilter(query, req.ObjectFilter);
-        query = ApplySort(query, findFilter.Sort, descending);
+        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
 
@@ -513,13 +514,14 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         return items.OrderBy(audio => orderMap.GetValueOrDefault(audio.Id, int.MaxValue)).ToList();
     }
 
-    private IQueryable<Audio> ApplySort(IQueryable<Audio> query, string? sort, bool descending)
+    private IQueryable<Audio> ApplySort(IQueryable<Audio> query, string? sort, bool descending, int? seed = null)
     {
         if (FilterHelpers.TryParseCustomFieldSort(sort, out _, out _))
             return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Audio, sort, descending);
 
         return (sort ?? string.Empty).Trim().ToLowerInvariant() switch
         {
+            "random" => Cove.Data.Repositories.SeededRandomOrdering.OrderBy(query, seed, audio => audio.Id, descending),
             "title" => descending ? query.OrderByDescending(audio => audio.Title).ThenByDescending(audio => audio.Id) : query.OrderBy(audio => audio.Title).ThenBy(audio => audio.Id),
             "date" => descending ? query.OrderByDescending(audio => audio.Date).ThenByDescending(audio => audio.Id) : query.OrderBy(audio => audio.Date).ThenBy(audio => audio.Id),
             "duration" => descending ? query.OrderByDescending(audio => audio.MaxDuration).ThenByDescending(audio => audio.Id) : query.OrderBy(audio => audio.MaxDuration).ThenBy(audio => audio.Id),

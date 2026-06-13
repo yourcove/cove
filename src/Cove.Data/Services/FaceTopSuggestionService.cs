@@ -19,17 +19,12 @@ namespace Cove.Data.Services;
 /// </summary>
 public sealed class FaceTopSuggestionService(
     CoveContext db,
-    IEmbeddingService embeddingService,
     IEnumerable<IFaceSuggester> faceSuggesters,
-    ILogger<FaceTopSuggestionService> logger,
     IExtensionServiceExchange? serviceExchange = null) : IFaceTopSuggestionMaintenance
 {
     // How many candidate suggestions to request per face before taking the single best. Mirrors the
     // controller's TopSuggestionCandidateCount so list and detail agree on ranking.
     private const int CandidateCount = 3;
-
-    // Neighbourhood size used when a link change invalidates visually-similar faces.
-    private const int NeighborK = 80;
 
     private IReadOnlyList<IFaceSuggester> ActiveSuggesters()
         => faceSuggesters
@@ -155,51 +150,14 @@ public sealed class FaceTopSuggestionService(
                 .SetProperty(face => face.UpdatedAt, DateTime.UtcNow),
                 cancellationToken);
 
-        // Linking changes the local-match landscape for visually-similar faces: this performer can now
-        // surface as a suggestion for them. Invalidate the bounded neighbourhood so they get recomputed.
-        try
-        {
-            var neighborIds = await FindNeighborFaceIdsAsync(faceId, cancellationToken);
-            if (neighborIds.Length > 0)
-                await InvalidateAsync(neighborIds, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            // Neighbour invalidation is best-effort; a missing embedding or KNN hiccup must not fail the
-            // user's link operation. The next global/face invalidation will reconcile.
-            logger.LogWarning(ex, "Failed to invalidate suggestion neighbours for face {FaceId}.", faceId);
-        }
-    }
-
-    private async Task<int[]> FindNeighborFaceIdsAsync(int faceId, CancellationToken cancellationToken)
-    {
-        var sourceEmbedding = await db.Embeddings
-            .AsNoTracking()
-            .Where(embedding =>
-                embedding.HostType == EmbeddingHostType.Face &&
-                embedding.HostId == faceId &&
-                embedding.Modality == EmbeddingModality.Face)
-            .OrderByDescending(embedding => embedding.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (sourceEmbedding is null)
-            return [];
-
-        var results = await embeddingService.KnnAsync(
-            sourceEmbedding.Vector,
-            NeighborK + 1,
-            new EmbeddingSearchOptions
-            {
-                HostType = EmbeddingHostType.Face,
-                KindFamily = sourceEmbedding.KindFamily,
-                Modality = EmbeddingModality.Face,
-            },
-            cancellationToken);
-
-        return results
-            .Select(result => result.Embedding.HostId)
-            .Where(hostId => hostId != faceId)
-            .Distinct()
-            .ToArray();
+        // NOTE: we intentionally do NOT invalidate visually-similar ("neighbour") faces here.
+        // The newly-linked performer does become a usable local-match reference, but eagerly
+        // recomputing neighbours on every link churned their suggestions and — because the materializer
+        // runs off the request path — left them showing "no top suggestion yet" until it caught up.
+        // Users found it surprising that accepting one face changed/blanked the suggestions for other
+        // faces. The new reference is still picked up whenever a face's suggestion is next (re)computed
+        // (new/uncomputed faces, or a bulk recompute via InvalidateAllUnlinkedAsync), so suggestions
+        // stay stable during a linking session instead of shifting underfoot.
     }
 
     private async Task<Dictionary<int, FaceSuggestionDto>> ComputeTopSuggestionsAsync(IReadOnlyCollection<int> faceIds, CancellationToken cancellationToken)

@@ -197,7 +197,7 @@ public class PostgresManagerService : IHostedService
 
         await DownloadFileAsync(url, archivePath, ct);
 
-        _logger.LogInformation("Extracting…");
+        _logger.LogInformation("Extracting PostgreSQL binaries to {BinDir}", BinDir);
 
         if (ext == ".zip")
         {
@@ -438,7 +438,7 @@ public class PostgresManagerService : IHostedService
             // Extract .deb packages
             foreach (var debFile in Directory.GetFiles(tempDir, "*.deb"))
             {
-                _logger.LogInformation("Extracting {File}", Path.GetFileName(debFile));
+                _logger.LogDebug("Extracting {File}", Path.GetFileName(debFile));
                 var exitCode = await RunAsync("/usr/bin/dpkg-deb", $"-x \"{debFile}\" \"{extractDir}\"", tempDir, ct);
                 if (exitCode != 0)
                 {
@@ -690,7 +690,7 @@ public class PostgresManagerService : IHostedService
         {
             var pkgUrl = $"{baseUrl}/{pkgName}";
             var pkgPath = Path.Combine(tempDir, pkgName);
-            _logger.LogInformation("Trying {Url}…", pkgUrl);
+            _logger.LogDebug("Trying package URL {Url}", pkgUrl);
             try
             {
                 await DownloadFileAsync(pkgUrl, pkgPath, ct);
@@ -698,7 +698,7 @@ public class PostgresManagerService : IHostedService
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogInformation(ex, "Package {PackageName} was not available at {Url}", pkgName, pkgUrl);
+                _logger.LogDebug(ex, "Package {PackageName} was not available at {Url}", pkgName, pkgUrl);
             }
         }
 
@@ -724,7 +724,7 @@ public class PostgresManagerService : IHostedService
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogInformation(ex, "Optional Linux runtime dependency {PackageName} was not available at {Url}", packageName, url);
+                _logger.LogDebug(ex, "Optional Linux runtime dependency {PackageName} was not available at {Url}", packageName, url);
             }
         }
     }
@@ -786,7 +786,7 @@ public class PostgresManagerService : IHostedService
                 int pct = (int)(totalRead * 100 / totalBytes);
                 if (pct / 10 > lastPct / 10)
                 {
-                    _logger.LogInformation("  Download progress: {Pct}% ({MB:F0} MB)",
+                    _logger.LogInformation("Download progress: {Pct}% ({MB:F0} MB)",
                         pct, totalRead / 1048576.0);
                     lastPct = pct;
                 }

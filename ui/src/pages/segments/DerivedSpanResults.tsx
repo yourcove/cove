@@ -132,7 +132,7 @@ export function DerivedSpanResults({
                 hostTitle: item.videoTitle,
               }}
               route={route}
-              label={`Open span ${title}`}
+              label={`Open segment ${title}`}
               eyebrow={formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}
               onClick={() => (selecting ? onToggle(item.id) : onNavigate(route))}
               selected={selectedIds.has(item.id)}

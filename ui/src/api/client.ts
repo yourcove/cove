@@ -30,7 +30,7 @@ import type {
   SegmentDisplayRule, SegmentDisplayRuleCreate, SegmentDisplayRuleUpdate,
   SegmentSpanQueryRequest, SegmentSpanSearchRequest, SegmentSpanSearchResponse,
   Detection, DetectionCreate, DetectionUpdate,
-  Face, FaceAppearance, FaceAppearancesResponse, FaceCreate, FaceUpdate, FaceLink, FaceBatchLinkTopSuggestionRequest, FaceBatchDeleteRequest, FaceBatchOperationResult, FaceCreatePerformer, FaceHostFace, FaceMerge, FaceIgnore, FaceDeleteImpact, FaceSimilar, FaceSuggestion,
+  Face, FaceAppearance, FaceAppearancesResponse, FaceCreate, FaceUpdate, FaceLink, FaceBatchLinkTopSuggestionRequest, FaceBatchDeleteRequest, FaceBatchOperationResult, FaceCreatePerformer, FaceHostFace, FaceMerge, FaceIgnore, FaceDeleteImpact, FaceNotPresentResult, FaceSimilar, FaceSuggestion,
   EntityEngagement, EntityFavorite, EntityEngagementBatchRequest, EntityRatings,
   EngagementInteraction, EngagementInteractionWrite,
   VideoHistory,
@@ -370,6 +370,8 @@ export const videos = {
   getHistory: (id: number) => request<VideoHistory>(`/videos/${id}/history`),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
     request<MetadataServerVideoMatch[]>(`/videos/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`),
+  findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
+    request<MetadataServerVideoMatch[]>("/videos/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
   importFromMetadataServer: (id: number, data: MetadataServerVideoImportRequest) =>
     request<Video>(`/videos/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data) }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
@@ -524,7 +526,8 @@ export const faces: {
   setIgnored: (id: number, data: FaceIgnore) => Promise<Face>;
   similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceSimilar>>;
   suggestions: (id: number, maxResults?: number) => Promise<FaceSuggestion[]>;
-  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) => Promise<Face>;
+  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) => Promise<Face>;
+  markNotPresent: (id: number, data: { hostType: "video" | "image"; hostId: number }) => Promise<FaceNotPresentResult>;
 } = {
   list: (opts?: FaceListOptions) =>
     request<PaginatedResponse<Face>>(`/faces${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, {
@@ -590,8 +593,11 @@ export const faces: {
     request<PaginatedResponse<FaceSimilar>>(`/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`),
   suggestions: (id: number, maxResults?: number) =>
     request<FaceSuggestion[]>(`/faces/${id}/suggestions${buildQuery(undefined, { maxResults })}`),
-  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[] }) =>
+  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) =>
     request<Face>(`/faces/${id}/suggestions/decision`, { method: "POST", body: JSON.stringify(data) }),
+  // Handled by the AI.Faces extension (ext endpoint), which owns the face-embedding split logic.
+  markNotPresent: (id: number, data: { hostType: "video" | "image"; hostId: number }) =>
+    request<FaceNotPresentResult>(`/ext/ai-faces/faces/${id}/not-present`, { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const entityEngagement = {
@@ -708,12 +714,18 @@ export function createVisualSimilarityClient(apiBasePath: string) {
       request<PaginatedResponse<Image>>(`${normalizedBasePath}/images/search`, { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
     similarVideosForVideo: (videoId: number, params?: { perPage?: number }) =>
       request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos${buildQuery(params)}`),
+    similarImagesForVideo: (videoId: number, params?: { perPage?: number }) =>
+      request<{ items: VisualSimilarImage[] }>(`${normalizedBasePath}/videos/${videoId}/similar-images${buildQuery(params)}`),
     similarVideosForImage: (imageId: number, params?: { perPage?: number }) =>
       request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/images/${imageId}/similar-videos${buildQuery(params)}`),
     similarImagesForImage: (imageId: number, params?: { perPage?: number }) =>
       request<{ items: VisualSimilarImage[] }>(`${normalizedBasePath}/images/${imageId}/similar-images${buildQuery(params)}`),
     similarVideosForVideoSegment: (videoId: number, data: { intervals: Array<{ startSec: number; endSec?: number }>; perPage?: number }) =>
       request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos/segment`, { method: "POST", body: JSON.stringify(data) }),
+    videoHasEmbeddings: (videoId: number) =>
+      request<{ hasEmbeddings: boolean }>(`${normalizedBasePath}/videos/${videoId}/has-embeddings`),
+    imageHasEmbeddings: (imageId: number) =>
+      request<{ hasEmbeddings: boolean }>(`${normalizedBasePath}/images/${imageId}/has-embeddings`),
   };
 }
 
@@ -1231,6 +1243,8 @@ export interface StashPreviewResult {
   groups: number;
   images: number;
   galleries: number;
+  generatedContentFound: boolean;
+  generatedPath: string | null;
 }
 export interface StashImportResult {
   videos: number;
@@ -1296,9 +1310,6 @@ export const savedFilters = {
   create: (data: SavedFilterCreate) => request<SavedFilter>("/savedfilters", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: SavedFilterUpdate) => request<SavedFilter>(`/savedfilters/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/savedfilters/${id}`, { method: "DELETE" }),
-  getDefault: (mode: string) => request<SavedFilter | null>(`/savedfilters/default/${mode}`),
-  setDefault: (mode: string, filterId: number | null) =>
-    request<void>(`/savedfilters/default/${mode}`, { method: "PUT", body: JSON.stringify({ filterId }) }),
 };
 
 // ===== Plugins =====

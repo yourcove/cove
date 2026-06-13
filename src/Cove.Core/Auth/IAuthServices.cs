@@ -101,7 +101,11 @@ public sealed record UserUiPreferencesDto(
     UserTrackingPreferencesDto? Tracking,
     UserVideosPreferencesDto? Videos,
     Dictionary<string, string>? KeybindingOverrides,
-    UserPlaybackPreferencesDto? Playback = null);
+    UserPlaybackPreferencesDto? Playback = null,
+    // JSON blob of the user's customized home page rows (opaque to the server).
+    string? HomePageContent = null,
+    // Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON.
+    Dictionary<string, string>? DefaultFilters = null);
 
 public sealed record CreateUserRequest(
     string Username,

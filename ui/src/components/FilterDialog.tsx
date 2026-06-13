@@ -617,6 +617,7 @@ export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
   { id: "kind", label: "Kind", type: "enum", filterKey: "kindCriterion", modifiers: VALUE_ONLY_ENUM_MODIFIERS, options: [{ value: "static", label: "Static" }, { value: "dynamic", label: "Dynamic" }] },
   { id: "querySourceKey", label: "Query Source", type: "string", filterKey: "querySourceKeyCriterion" },
   { id: "hasQuery", label: "Has Dynamic Query", type: "bool", filterKey: "hasQueryCriterion" },
+  { id: "isBuiltIn", label: "Built-In Group", type: "bool", filterKey: "isBuiltInCriterion" },
   { id: "lastResolvedAt", label: "Last Resolved", type: "timestamp", filterKey: "lastResolvedAtCriterion" },
   { id: "cachedItemCount", label: "Cached Item Count", type: "number", filterKey: "cachedItemCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "showInVideoLists", label: "Show In Video Lists", type: "bool", filterKey: "showInVideoListsCriterion" },

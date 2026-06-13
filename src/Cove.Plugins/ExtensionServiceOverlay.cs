@@ -170,7 +170,7 @@ public sealed class ExtensionServiceOverlay : IDisposable
             _providers[extensionId] = built;
         }
 
-        _logger?.LogInformation("Service container built for extension {Id}", extensionId);
+        _logger?.LogDebug("Service container built for extension {Id}", extensionId);
     }
 
     /// <summary>Retire and forget an extension's container (on uninstall/disable).</summary>

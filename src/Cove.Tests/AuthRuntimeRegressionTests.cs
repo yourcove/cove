@@ -100,6 +100,51 @@ public class AuthDisabledRequestGuardTests
 
         Assert.Equal(IPAddress.Parse("203.0.113.9"), AuthDisabledRequestGuard.GetEffectiveRemoteAddress(context, config));
     }
+
+    [Fact]
+    public void Trusted_host_allowlist_makes_public_request_trusted_regardless_of_ip()
+    {
+        // Mirrors a k8s/nginx-ingress deployment: the connection is the private
+        // ingress pod, X-Forwarded-For carries the real public client, and the host
+        // is a custom public FQDN that would never pass the built-in host check.
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("10.0.0.10");
+        context.Request.Host = new HostString("cove.example.com");
+        context.Request.Headers["X-Forwarded-For"] = "8.8.8.8";
+
+        Assert.False(AuthDisabledRequestGuard.IsTrustedLocalRequest(context, new AuthConfig()));
+        Assert.True(AuthDisabledRequestGuard.IsTrustedLocalRequest(
+            context, new AuthConfig { TrustedHosts = ["cove.example.com"] }));
+    }
+
+    [Fact]
+    public void Trusted_host_allowlist_honors_forwarded_host_header()
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+        context.Request.Host = new HostString("internal-service");
+        context.Request.Headers["X-Forwarded-Host"] = "cove.example.com";
+
+        Assert.True(AuthDisabledRequestGuard.IsTrustedLocalRequest(
+            context, new AuthConfig { TrustedHosts = ["cove.example.com"] }));
+    }
+
+    [Theory]
+    [InlineData("cove.example.com", "*.example.com", true)]
+    [InlineData("a.b.example.com", "*.example.com", true)]
+    [InlineData("example.com", "*.example.com", false)]
+    [InlineData("cove.example.org", "*.example.com", false)]
+    [InlineData("anything.test", "*", true)]
+    [InlineData("cove.example.com", "other.example.com", false)]
+    public void Trusted_host_allowlist_matches_exact_wildcard_and_star(string host, string entry, bool expected)
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+        context.Request.Host = new HostString(host);
+
+        Assert.Equal(expected, AuthDisabledRequestGuard.IsTrustedLocalRequest(
+            context, new AuthConfig { TrustedHosts = [entry] }));
+    }
 }
 
 public class AuthorizationSurfaceTests

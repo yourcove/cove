@@ -62,7 +62,6 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
     [RequiresPermission(Permissions.LibraryScan)]
     public ActionResult<object> GenerateVideoPhashes()
     {
-        Console.WriteLine("[JobsController] Received request to generate video phashes");
         var jobId = fingerprintService.StartGenerateVideoPhashes();
         return Accepted(new { jobId });
     }

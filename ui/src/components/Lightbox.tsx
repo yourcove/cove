@@ -368,7 +368,7 @@ export function Lightbox({
       }}
     >
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4">
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <span className="text-white text-sm font-medium select-none">
           {index + 1} / {count}
           {current?.title && (
@@ -469,7 +469,7 @@ export function Lightbox({
 
       {/* Image container */}
       <div
-        className="relative flex h-[85vh] w-[90vw] items-center justify-center overflow-hidden select-none"
+        className="relative flex h-[100dvh] w-screen items-center justify-center overflow-hidden select-none pt-[calc(4rem+env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)] sm:h-[94dvh] sm:w-[96vw] sm:pt-0 sm:pb-0"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             handleClose();

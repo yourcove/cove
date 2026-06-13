@@ -31,7 +31,8 @@ public class FacesController(
     IFieldProvenanceService? fieldProvenanceService = null,
     IEnumerable<IFaceSuggestionDecisionHandler>? faceSuggestionDecisionHandlers = null,
     IExtensionServiceExchange? serviceExchange = null,
-    IFaceTopSuggestionMaintenance? suggestionMaintenance = null) : ControllerBase
+    IFaceTopSuggestionMaintenance? suggestionMaintenance = null,
+    IReferencePerformerImporter? referencePerformerImporter = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
 
@@ -196,7 +197,7 @@ public class FacesController(
                 .Skip((page - 1) * perPage)
                 .Take(perPage)
                 .ToListAsync(cancellationToken);
-            logger.LogInformation("Faces.List[filtered] DB query: {Ms}ms (page={Count}, total={TotalMs}ms)", phaseSw.ElapsedMilliseconds, filteredPage.Count, totalSw.ElapsedMilliseconds);
+            logger.LogDebug("Faces.List (filtered) DB query: {Ms}ms (page={Count}, total={TotalMs}ms)", phaseSw.ElapsedMilliseconds, filteredPage.Count, totalSw.ElapsedMilliseconds);
             var filteredComputedCounts = await LoadComputedCountsAsync(filteredPage.Select(face => face.Id).ToArray(), cancellationToken);
 
             return Ok(new PaginatedResponse<FaceDto>(
@@ -219,10 +220,10 @@ public class FacesController(
             .Skip((page - 1) * perPage)
             .Take(perPage)
             .ToListAsync(cancellationToken);
-        logger.LogInformation("Faces.List DB page query: {Ms}ms (items={Count})", phaseSw.ElapsedMilliseconds, items.Count);
+        logger.LogDebug("Faces.List DB page query: {Ms}ms (items={Count})", phaseSw.ElapsedMilliseconds, items.Count);
 
         var computedCounts = await LoadComputedCountsAsync(items.Select(face => face.Id).ToArray(), cancellationToken);
-        logger.LogInformation("Faces.List total: {Ms}ms", totalSw.ElapsedMilliseconds);
+        logger.LogDebug("Faces.List total: {Ms}ms", totalSw.ElapsedMilliseconds);
 
         return Ok(new PaginatedResponse<FaceDto>(
             items.Select(face => MapToDto(
@@ -657,6 +658,7 @@ public class FacesController(
                     {
                         await facePerformerPropagationService.ApplyLinkChangeAsync(faceId, face.PerformerId, topLocalId, cancellationToken);
                         face.PerformerId = topLocalId;
+                        await RecordReferencePerformerLinkAsync(topLocalId.Value, top.ReferenceEndpoint, top.ReferenceExternalId, top.ReferenceWillRefreshFromMetadata, cancellationToken);
                         succeeded.Add(faceId);
                         continue;
                     }
@@ -680,6 +682,8 @@ public class FacesController(
                 {
                     await facePerformerPropagationService.ApplyLinkChangeAsync(faceId, face.PerformerId, performerId, cancellationToken);
                     face.PerformerId = performerId;
+                    if (suggestion is not null)
+                        await RecordReferencePerformerLinkAsync(performerId.Value, suggestion.ReferenceEndpoint, suggestion.ReferenceExternalId, suggestion.ReferenceWillRefreshFromMetadata, cancellationToken);
                     succeeded.Add(faceId);
                     continue;
                 }
@@ -731,12 +735,13 @@ public class FacesController(
         var succeeded = new List<int>();
         var skipped = new List<FaceBatchSkippedDto>();
         var failed = new List<FaceBatchFailedDto>();
+        var clearedEvidence = new List<ClearedFaceRunEvidence>();
 
         foreach (var faceId in dto.FaceIds.Distinct())
         {
             try
             {
-                var deleted = await DeleteFaceAsync(faceId, cancellationToken);
+                var deleted = await DeleteFaceAsync(faceId, cancellationToken, clearedEvidence);
                 if (deleted)
                     succeeded.Add(faceId);
                 else
@@ -749,6 +754,7 @@ public class FacesController(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyHostFacesClearedAsync(clearedEvidence, cancellationToken);
         return Ok(new FaceBatchOperationResultDto(succeeded, skipped, failed));
     }
 
@@ -843,9 +849,11 @@ public class FacesController(
     [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        if (!await DeleteFaceAsync(id, cancellationToken))
+        var clearedEvidence = new List<ClearedFaceRunEvidence>();
+        if (!await DeleteFaceAsync(id, cancellationToken, clearedEvidence))
             return NotFound();
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyHostFacesClearedAsync(clearedEvidence, cancellationToken);
 
         return NoContent();
     }
@@ -960,10 +968,30 @@ public class FacesController(
 
         await db.SaveChangesAsync(cancellationToken);
         if (normalizedDecision == FaceSuggestionDecisionValues.Accept)
+        {
+            // A reference (metadata-server) match that resolved to an existing local performer arrives
+            // here as a plain positive-id accept, so the reference enrichment was skipped. Record this
+            // server's remote id on the performer (and scrape it when enabled).
+            await RecordReferencePerformerLinkAsync(dto.PerformerId, dto.ReferenceEndpoint, dto.ReferenceExternalId, dto.ReferenceUpdateMetadata, cancellationToken);
             await InvalidateSuggestionForLinkChangeAsync(id, cancellationToken);
+        }
         else
             await InvalidateSuggestionAsync(new[] { id }, cancellationToken);
         return Ok(await LoadFaceDtoAsync(id, cancellationToken));
+    }
+
+    // When a reference (metadata-server) match resolved to an existing local performer, the accept comes
+    // in as a normal positive-id link, so the reference enrichment never ran. Record this server's remote
+    // id on the linked performer (and scrape it to refresh image/bio/aliases when the user enabled
+    // "Update existing performers from metadata servers"). No-op for non-reference links, when the
+    // performer already carries the id, or when no importer is registered.
+    private async Task RecordReferencePerformerLinkAsync(int performerId, string? endpoint, string? externalId, bool updateMetadata, CancellationToken cancellationToken)
+    {
+        if (referencePerformerImporter is null || performerId <= 0
+            || string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(externalId))
+            return;
+
+        await referencePerformerImporter.TryImportAsync(performerId, endpoint!, externalId!, importMetadata: updateMetadata, cancellationToken);
     }
 
     private async Task<FaceDto> LoadFaceDtoAsync(int id, CancellationToken cancellationToken)
@@ -1402,7 +1430,7 @@ public class FacesController(
             .ToList();
     }
 
-    private async Task<bool> DeleteFaceAsync(int id, CancellationToken cancellationToken)
+    private async Task<bool> DeleteFaceAsync(int id, CancellationToken cancellationToken, ICollection<ClearedFaceRunEvidence>? clearedEvidence = null)
     {
         var face = await db.Faces.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (face is null)
@@ -1437,6 +1465,35 @@ public class FacesController(
             mergedFace.MergedIntoFaceId = null;
         }
 
+        if (clearedEvidence is not null)
+        {
+            // Capture the (host, model-key) of the face detections AND embeddings being removed so that, once a
+            // host has no faces left, the matching face models can be pruned from its AI run records. The keys
+            // are the categories the AI server reported the work under (e.g. "face_detections"/"face_embeddings").
+            // Embeddings are hosted on the Face, so report them against the asset hosts the face was detected on.
+            var faceModelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var detection in detections)
+            {
+                if (TryReadModelKey(detection.Extra, out var detectionKey))
+                    faceModelKeys.Add(detectionKey);
+            }
+
+            foreach (var embedding in embeddings)
+            {
+                if (TryReadModelKey(embedding.Meta, out var embeddingKey))
+                    faceModelKeys.Add(embeddingKey);
+            }
+
+            if (faceModelKeys.Count > 0)
+            {
+                foreach (var host in detections.Select(detection => (detection.HostType, detection.HostId)).Distinct())
+                {
+                    foreach (var modelKey in faceModelKeys)
+                        clearedEvidence.Add(new ClearedFaceRunEvidence(host.HostType, host.HostId, modelKey));
+                }
+            }
+        }
+
         if (detections.Count > 0)
             db.Detections.RemoveRange(detections);
 
@@ -1463,6 +1520,61 @@ public class FacesController(
             }
         }
 
+        return true;
+    }
+
+    // (host, model) of a removed face detection, recorded during deletion so its run evidence can be
+    // pruned once the host has no faces left.
+    private readonly record struct ClearedFaceRunEvidence(DetectionHostType HostType, int HostId, string ModelKey);
+
+    // After a host's faces are deleted, notify lifecycle participants that the host's face run evidence was
+    // cleared — but only when no faces remain on the host. A host that genuinely has no faces never reaches
+    // here (it never had detections to delete), so it is never needlessly reported. Participants that record
+    // run/processing history (e.g. an AI extension) prune their own evidence for the reported model keys so a
+    // re-run redoes the work; the host stays agnostic of any extension's run/source layout.
+    private async Task NotifyHostFacesClearedAsync(IReadOnlyCollection<ClearedFaceRunEvidence> cleared, CancellationToken cancellationToken)
+    {
+        var participants = ActiveLifecycleParticipants();
+        if (cleared.Count == 0 || participants.Count == 0)
+            return;
+
+        foreach (var hostGroup in cleared.GroupBy(item => (item.HostType, item.HostId)))
+        {
+            var (hostType, hostId) = hostGroup.Key;
+
+            var stillHasFaces = await db.Detections.AnyAsync(
+                detection => detection.HostType == hostType
+                    && detection.HostId == hostId
+                    && detection.RefKind != null
+                    && detection.RefKind.ToLower() == "face",
+                cancellationToken);
+            if (stillHasFaces)
+                continue;
+
+            var modelKeys = hostGroup
+                .Select(item => item.ModelKey)
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (modelKeys.Count == 0)
+                continue;
+
+            var evidence = new FaceRunEvidenceCleared(hostType, hostId, modelKeys);
+            foreach (var participant in participants)
+                await participant.OnHostFacesClearedAsync(evidence, cancellationToken);
+        }
+    }
+
+    private static bool TryReadModelKey(JsonDocument? document, out string modelKey)
+    {
+        modelKey = string.Empty;
+        if (document is null || document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("modelKey", out var element))
+            return false;
+
+        var raw = element.GetString();
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        modelKey = raw.Trim();
         return true;
     }
 
@@ -1562,7 +1674,7 @@ public class FacesController(
         }
 
         var blockedByFaceId = await LoadBlockedSuggestionIdsAsync(eligibleFaceIds, cancellationToken);
-        logger.LogInformation("  BuildTopSuggestions.LoadBlocked: {Ms}ms", sw.ElapsedMilliseconds);
+        logger.LogDebug("BuildTopSuggestions.LoadBlocked: {Ms}ms", sw.ElapsedMilliseconds);
         sw.Restart();
 
         var rankedSuggestionsByFaceId = await BuildRankedSuggestionsByFaceAsync(
@@ -1571,7 +1683,7 @@ public class FacesController(
             TopSuggestionCandidateCount,
             cancellationToken,
             includeReferenceMatches: true);
-        logger.LogInformation("  BuildTopSuggestions.BuildRanked: {Ms}ms (eligibleFaces={Count})", sw.ElapsedMilliseconds, eligibleFaceIds.Length);
+        logger.LogDebug("BuildTopSuggestions.BuildRanked: {Ms}ms (eligibleFaces={Count})", sw.ElapsedMilliseconds, eligibleFaceIds.Length);
 
         var topSuggestions = new Dictionary<int, FaceTopSuggestionDto>(rankedSuggestionsByFaceId.Count);
         foreach (var (faceId, suggestions) in rankedSuggestionsByFaceId)
@@ -1611,7 +1723,7 @@ public class FacesController(
         {
             var suggesterSw = Stopwatch.StartNew();
             var batch = await suggester.SuggestForBatchAsync(distinctFaceIds, maxResults, suggestionOptions, cancellationToken);
-            logger.LogInformation("    Suggester {Name}.SuggestForBatch: {Ms}ms (results={Count})", suggester.GetType().Name, suggesterSw.ElapsedMilliseconds, batch.Count);
+            logger.LogDebug("Suggester {Name}.SuggestForBatch: {Ms}ms (results={Count})", suggester.GetType().Name, suggesterSw.ElapsedMilliseconds, batch.Count);
             foreach (var (faceId, suggestions) in batch)
             {
                 if (!suggestionsByFaceId.TryGetValue(faceId, out var faceSuggestions))
@@ -1816,7 +1928,7 @@ public class FacesController(
                 Count = group.Count(),
             })
             .ToListAsync(cancellationToken);
-        logger.LogInformation("  LoadComputedCounts.Detections: {Ms}ms (faces={Count})", sw.ElapsedMilliseconds, distinctFaceIds.Length);
+        logger.LogDebug("LoadComputedCounts.Detections: {Ms}ms (faces={Count})", sw.ElapsedMilliseconds, distinctFaceIds.Length);
         sw.Restart();
 
         var detectionCounts = detectionAggregates
@@ -1854,7 +1966,7 @@ public class FacesController(
                 item => item.FaceId,
                 item => new FaceStoredCounts(item.AppearanceCount, item.FrameSampleCount, item.VideoCount, item.ImageCount),
                 cancellationToken);
-        logger.LogInformation("  LoadComputedCounts.Appearances: {Ms}ms", sw.ElapsedMilliseconds);
+        logger.LogDebug("LoadComputedCounts.Appearances: {Ms}ms", sw.ElapsedMilliseconds);
 
         var computedCounts = new Dictionary<int, FaceComputedCounts>(distinctFaceIds.Length);
         foreach (var faceId in distinctFaceIds)

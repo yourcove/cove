@@ -45,6 +45,7 @@ const SORT_OPTIONS = [
   { value: "tag_count", label: "Tag Count" },
   { value: "performer_count", label: "Performer Count" },
   { value: "title", label: "Title" },
+  { value: "random", label: "Random" },
 ];
 
 interface Props {
