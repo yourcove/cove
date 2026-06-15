@@ -236,6 +236,27 @@ import { withBase } from '../lib/paths';
 
       <article class="feature-section two-column">
         <MarketingShot
+          src={withBase('images/screenshots/ai-faces.png')}
+          alt="Cove faces page showing recognized people with suggested performer matches."
+          caption="Facial recognition groups the same person together and suggests who they are."
+        />
+        <div class="feature-section-copy">
+          <p class="section-kicker">Facial recognition</p>
+          <h3>Put a name to every face</h3>
+          <p>
+            Cove includes facial recognition that identifies the unknown performers in your content. It finds faces across your videos and images, groups each person's appearances together, and suggests which performer they are so you can confirm with a click — and the facial recognition extension is free to use.
+          </p>
+          <ul>
+            <li>Find and group every person who appears in your library.</li>
+            <li>Identify unknown performers from suggested matches.</li>
+            <li>Free to use — install the AI server and turn it on.</li>
+          </ul>
+          <a href={withBase('download/')}>Get Cove and try it</a>
+        </div>
+      </article>
+
+      <article class="feature-section two-column">
+        <MarketingShot
           src={withBase('images/screenshots/roles-permission-editor.png')}
           alt="Cove role permission editor showing detailed permission controls."
           caption="Roles decide exactly what each kind of user is allowed to do."

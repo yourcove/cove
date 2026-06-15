@@ -51,36 +51,22 @@ Use metadata servers when you want to:
 
 Large libraries often combine manual edits, import data, scrapers, metadata servers, downloaders, and extensions. Provenance is how you keep that understandable instead of turning the result into a pile of unexplained values.
 
-## Common metadata server sections
+## Common metadata servers
 
-These sections are intentionally structured for later provider-specific content. Keep the headings stable so individual provider notes can be expanded without reorganizing the whole page.
+Cove works with metadata servers — community-run databases you point Cove at to identify and enrich your library. Add one under **Settings → Data Sources & Data → Metadata Servers** by pasting its endpoint and your API key, then use it from the Identify and Tagger options.
 
-### Provider template
+These are the metadata servers most people use:
 
-For each metadata server you add later, document:
+| Server | Endpoint | What it covers |
+| --- | --- | --- |
+| **StashDB** | `https://stashdb.org/graphql` | Community-driven database of digital scenes across all orientations. |
+| **ThePornDB** | `https://theporndb.net/graphql` | Scenes and movies, powered by automated scrapers. |
+| **FansDB** | `https://fansdb.cc/graphql` | Creator-platform content (OnlyFans, Fansly, ManyVids, and similar). |
+| **JAVStash** | `https://javstash.org/graphql` | Japanese Adult Video, with original Japanese metadata. |
+| **PMV Stash** | `https://pmvstash.org/graphql` | Remixed works such as Porn Music Videos. |
 
-- what it is best at
-- which media types it works well with
-- whether it is best for identification, enrichment, or both
-- common strengths
-- common failure modes
-- recommended first test workflow
+Each server needs a free account on that server and an API key, which you paste into Cove alongside the endpoint. Pick the servers that match your library — you can add more than one and Cove records which server each saved value came from.
 
-### Planned provider notes
-
-Add later content here for the common metadata servers you want Cove users to consider:
-
-#### Server 1
-
-Provider overview and setup notes go here later.
-
-#### Server 2
-
-Provider overview and setup notes go here later.
-
-#### Server 3
-
-Provider overview and setup notes go here later.
 
 ## Downloaders and the extension model
 
