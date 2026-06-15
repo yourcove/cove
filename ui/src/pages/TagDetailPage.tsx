@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { audios, galleries, groups, images, metadata, performers, videos, segmentLibrary, studios, tags, texts, entityImages } from "../api/client";
+import { audios, galleries, groups, images, performers, videos, segmentLibrary, studios, tags, texts, entityImages } from "../api/client";
 import type { Audio, FindFilter, Gallery, Group, Image, Performer, Video, VideoFilterCriteria, SegmentRecord, Studio, TagDetail as TagDetailModel, TextDocument } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Building2, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MoreVertical, Music, Pencil, Search, Tag as TagIcon, Trash2, UserRound, Wand2 } from "lucide-react";
+import { Building2, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MoreVertical, Music, Pencil, Search, Tag as TagIcon, Trash2, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TagEditModal } from "./TagEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -124,8 +124,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
   const canWriteTag = canWriteEntity("tag", hasPermission);
   const canEngageTag = canReadEntity("tag", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteTag = canDeleteEntity("tag", hasPermission);
-  const canAutoTagTag = hasPermission("library.autotag") && canWriteTag;
-  const showTagOpsMenu = canAutoTagTag || canWriteTag || canDeleteTag;
+  const showTagOpsMenu = canWriteTag || canDeleteTag;
   const visibleTagTabs = filterItemsByPermission(tagTabs, {
     videos: "videos.read",
     performers: "performers.read",
@@ -201,13 +200,6 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const autoTagMut = useMutation({
-    mutationFn: () => {
-      if (!tag) throw new Error("Tag not loaded");
-      return metadata.autoTag({ tags: [tag.name] });
-    },
-  });
-
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -264,13 +256,11 @@ export function TagDetailPage({ id, onNavigate }: Props) {
         ]}
         metaRow={(
           <>
-            {tag.ignoreAutoTag ? <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-yellow-400">Ignores Auto-Tag</span> : null}
             <span title={`Created ${formatDate(tag.createdAt)}`}>Updated {formatDate(tag.updatedAt)}</span>
           </>
         )}
         heroContent={(
           <>
-            {autoTagMut.isSuccess ? <p className="text-sm text-emerald-300">Auto-tag job queued.</p> : null}
             <CustomFieldsDisplay customFields={tag.customFields} entityType="tag" />
           </>
         )}
@@ -284,11 +274,6 @@ export function TagDetailPage({ id, onNavigate }: Props) {
                   <MoreVertical className="h-4 w-4" />
                 </button>
                 <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="w-44 py-1">
-                    {canAutoTagTag ? (
-                      <button type="button" onClick={() => { setShowOpsMenu(false); autoTagMut.mutate(); }} disabled={tag.ignoreAutoTag || autoTagMut.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50">
-                        {autoTagMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Auto Tag
-                      </button>
-                    ) : null}
                     {canWriteTag ? (
                       <button type="button" onClick={() => { setShowOpsMenu(false); setMetadataTaggerOpen(true); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-card hover:text-foreground">
                         <Search className="h-3.5 w-3.5" /> Metadata...

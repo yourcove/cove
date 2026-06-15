@@ -49,6 +49,14 @@ public class ExtensionManager
     public ExtensionManager(ExtensionContext context)
     {
         _context = context;
+        // Surface (once per assembly) when an extension ships a copy of a host-provided assembly. The host
+        // copy is always used regardless; this just nudges authors to slim the package. Reads _logger lazily,
+        // so it works even though the logger is wired up after construction.
+        ExtensionLoadContext.HostAssemblyBundledWarning = assemblyName =>
+            _logger?.LogWarning(
+                "Extension shipped host-provided assembly '{Assembly}'; the host copy is being used. Remove it "
+                + "from the package — bundling host assemblies bloats it and risks load-context type mismatches.",
+                assemblyName);
     }
 
     // ========================================================================
@@ -513,7 +521,7 @@ public class ExtensionManager
         => IsOverlayExtension(id) ? (_overlay?.ProviderFor(id) ?? fallback) : fallback;
 
     /// <summary>
-    /// Create a scope for running the given extension's code (HTTP request, job, scan/auto-tag pass).
+    /// Create a scope for running the given extension's code (HTTP request, job, scan pass).
     /// Returns the extension's own container scope when built; otherwise a plain root scope. Callers
     /// own the returned scope and must dispose it.
     /// </summary>
@@ -1311,15 +1319,6 @@ public class ExtensionManager
             .ToList();
     }
 
-    /// <summary>Get all enabled extensions that participate in auto-tagging.</summary>
-    public IReadOnlyList<IAutoTagParticipant> GetAutoTagParticipants()
-    {
-        return GetInitializationOrder()
-            .OfType<IAutoTagParticipant>()
-            .Where(ext => IsEnabled(ext.Id))
-            .ToList();
-    }
-
     /// <summary>Get all enabled scraper providers.</summary>
     public IReadOnlyList<IScraperProvider> GetScraperProviders()
     {
@@ -1335,16 +1334,6 @@ public class ExtensionManager
         return GetInitializationOrder()
             .OfType<IDownloaderProvider>()
             .Where(ext => IsEnabled(ext.Id))
-            .ToList();
-    }
-
-    /// <summary>Get all enabled auto-tag matchers exposed by extensions.</summary>
-    public IReadOnlyList<IAutoTagMatcher> GetAutoTagMatchers()
-    {
-        return GetInitializationOrder()
-            .OfType<IAutoTagMatcherExtension>()
-            .Where(ext => IsEnabled(ext.Id))
-            .SelectMany(ext => ext.GetMatchers())
             .ToList();
     }
 
@@ -1942,6 +1931,14 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
     private static readonly JsonSerializerOptions ManifestJsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly object SharedAssemblyGate = new();
     private static readonly Dictionary<string, string> PreferredSharedAssemblyPaths = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> WarnedBundledHostAssemblies = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Raised once per assembly when an extension ships a copy of an assembly the host already provides.
+    /// The host copy is always used (so types never split across load contexts); this only surfaces the
+    /// packaging mistake so the extension can be slimmed. Wired to the logger by <see cref="ExtensionManager"/>.
+    /// </summary>
+    internal static Action<string>? HostAssemblyBundledWarning;
 
     private readonly AssemblyDependencyResolver _resolver;
     private readonly string _sourceRoot;
@@ -1957,11 +1954,14 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
+        // 1. Prefer an assembly already loaded into the default (host) context — guarantees shared identity.
         var defaultAssembly = AssemblyLoadContext.Default.Assemblies
             .FirstOrDefault(a => AssemblyName.ReferenceMatchesDefinition(a.GetName(), assemblyName));
         if (defaultAssembly != null)
             return defaultAssembly;
 
+        // 2. Cross-extension shared assemblies (e.g. AI.Extensions.Abstractions): one curated copy in Default
+        //    so sibling extensions exchange the same types.
         if (assemblyName.Name is string sharedAssemblyName && PreferredSharedAssemblyPaths.ContainsKey(sharedAssemblyName))
         {
             var sharedAssembly = TryLoadSharedAssembly(assemblyName);
@@ -1969,9 +1969,50 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
                 return sharedAssembly;
         }
 
+        // 3. The host owns its entire dependency closure (Cove.*, EF Core, Npgsql, Pgvector, …). If the
+        //    default context can supply this assembly — even one the host has not loaded yet — use the host's
+        //    copy so types never split across load contexts. This makes correctness independent of how an
+        //    extension was packaged: even if it bundles host assemblies (a common packaging mistake), the
+        //    bundled copy is ignored. Only genuinely extension-private assemblies fall through to step 4.
+        var hostAssembly = TryLoadHostAssembly(assemblyName);
+        if (hostAssembly != null)
+            return hostAssembly;
+
+        // 4. Genuinely extension-private dependency: load the shadow-copied bundled assembly in this context.
         var path = _resolver.ResolveAssemblyToPath(assemblyName);
         var cachedPath = MapToCachePath(path);
         return cachedPath != null ? LoadFromAssemblyPath(Path.GetFullPath(cachedPath)) : null;
+    }
+
+    /// <summary>
+    /// Returns the host's copy of an assembly if the default context can supply it (i.e. it is part of the
+    /// host's dependency closure), otherwise null. When the extension also shipped the assembly, warns once
+    /// so the package can be slimmed — shipping host assemblies is wasted weight and a latent identity hazard.
+    /// </summary>
+    private Assembly? TryLoadHostAssembly(AssemblyName assemblyName)
+    {
+        Assembly hostAssembly;
+        try
+        {
+            hostAssembly = AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+        {
+            // Not part of the host closure — a genuine extension-private dependency.
+            return null;
+        }
+
+        var name = assemblyName.Name;
+        if (!string.IsNullOrEmpty(name) && _resolver.ResolveAssemblyToPath(assemblyName) is not null)
+        {
+            bool firstTime;
+            lock (WarnedBundledHostAssemblies)
+                firstTime = WarnedBundledHostAssemblies.Add(name);
+            if (firstTime)
+                HostAssemblyBundledWarning?.Invoke(name);
+        }
+
+        return hostAssembly;
     }
 
     protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)

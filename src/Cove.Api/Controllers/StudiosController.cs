@@ -72,7 +72,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         {
             Name = dto.Name, ParentId = dto.ParentId,
             Favorite = dto.Favorite, Details = dto.Details,
-            IgnoreAutoTag = dto.IgnoreAutoTag, Organized = dto.Organized
+            Organized = dto.Organized
         };
         if (dto.Urls?.Count > 0) studio.Urls = dto.Urls.Select(u => new StudioUrl { Url = u }).ToList();
         if (dto.Aliases?.Count > 0) studio.Aliases = dto.Aliases.Select(a => new StudioAlias { Alias = a }).ToList();
@@ -104,7 +104,6 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         if (dto.ParentId.HasValue) studio.ParentId = dto.ParentId;
         if (dto.Favorite.HasValue) studio.Favorite = dto.Favorite.Value;
         if (dto.Details != null) studio.Details = dto.Details;
-        if (dto.IgnoreAutoTag.HasValue) studio.IgnoreAutoTag = dto.IgnoreAutoTag.Value;
         if (dto.Organized.HasValue) studio.Organized = dto.Organized.Value;
 
         if (dto.Urls != null)
@@ -171,7 +170,6 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             if (clearFields.Contains("details")) s.Details = null;
             if (dto.Favorite.HasValue) s.Favorite = dto.Favorite.Value;
             if (dto.Details != null) s.Details = dto.Details;
-            if (dto.IgnoreAutoTag.HasValue) s.IgnoreAutoTag = dto.IgnoreAutoTag.Value;
             if (dto.Organized.HasValue) s.Organized = dto.Organized.Value;
 
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
@@ -229,7 +227,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     }
 
     private StudioDto MapToDto(Studio s, StudioUsageCounts? usageCounts = null, Dictionary<string, object>? customFieldValues = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
-        s.Id, s.Name, s.ParentId, s.Parent?.Name, s.Favorite, s.Details, s.IgnoreAutoTag, s.Organized,
+        s.Id, s.Name, s.ParentId, s.Parent?.Name, s.Favorite, s.Details, s.Organized,
         s.Urls.Select(u => u.Url).ToList(),
         s.Aliases.Select(a => a.Alias).ToList(),
         s.StudioTags.Where(st => st.Tag != null).Select(st => TagDtoMapping.MapTagDto(st.Tag!)).ToList(),

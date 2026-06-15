@@ -1,0 +1,51 @@
+<Project>
+
+  <!--
+    Cove extension packaging rules. Imported automatically into any project that references the Cove.Sdk
+    NuGet package (directly or transitively), including third-party extensions.
+
+    An extension compiles against the Cove host contracts (Cove.Core / Cove.Plugins / Cove.Sdk) and the
+    infrastructure they expose (EF Core, Npgsql, Pgvector, …), but the host process already provides those
+    assemblies at runtime. The extension must therefore NOT ship them:
+      * it is dead weight (the host's copy is always the one that loads), and
+      * if a bundled copy were ever loaded into the extension's AssemblyLoadContext it would create a second
+        identity of types that cross the host boundary (entities, DbContext, Pgvector.Vector, …), so casts
+        and DI silently break.
+
+    `EnableDynamicLoading` + `CopyLocalLockFileAssemblies` (set below) copy an extension's full dependency
+    closure to its output so it can be loaded as a plugin — which is what we want for the extension's OWN
+    private dependencies, but it also drags in the host closure. These targets remove the host-provided
+    assemblies from both the build output and the publish set, leaving only the extension's code and its
+    genuinely-private dependencies.
+  -->
+
+  <PropertyGroup>
+    <!-- Produce a self-contained plugin folder (the extension's private deps travel with it)… -->
+    <EnableDynamicLoading Condition="'$(EnableDynamicLoading)' == ''">true</EnableDynamicLoading>
+    <CopyLocalLockFileAssemblies Condition="'$(CopyLocalLockFileAssemblies)' == ''">true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- …but never the host's own assemblies. Semicolon-delimited, leading/trailing ';' so membership is a
+         simple substring test. Override/extend via CoveHostProvidedAssemblies in a consuming project if a
+         future host dependency needs adding without an SDK bump. -->
+    <CoveHostProvidedAssemblies Condition="'$(CoveHostProvidedAssemblies)' == ''">;Cove.Core;Cove.Plugins;Cove.Sdk;Microsoft.EntityFrameworkCore;Microsoft.EntityFrameworkCore.Abstractions;Microsoft.EntityFrameworkCore.Relational;Npgsql;Npgsql.EntityFrameworkCore.PostgreSQL;Pgvector;Pgvector.EntityFrameworkCore;MediatR.Contracts;</CoveHostProvidedAssemblies>
+  </PropertyGroup>
+
+  <!-- Strip from `dotnet build` output (copy-local). -->
+  <Target Name="CoveStripHostProvidedCopyLocal" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+        Condition="$(CoveHostProvidedAssemblies.Contains(';%(ReferenceCopyLocalPaths.FileName);'))" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Strip from `dotnet publish` output (this is what the extension package is built from). -->
+  <Target Name="CoveStripHostProvidedPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$(CoveHostProvidedAssemblies.Contains(';%(ResolvedFileToPublish.FileName);'))" />
+    </ItemGroup>
+  </Target>
+
+</Project>

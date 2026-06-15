@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { audios, galleries, groups, images, metadata, performers, videos, studios, texts, entityImages } from "../api/client";
+import { audios, galleries, groups, images, performers, videos, studios, texts, entityImages } from "../api/client";
 import type { Audio, AudioFilterCriteria, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, MetadataServer, MetadataServerStudioMatch, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, Studio, StudioFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { ChevronDown, Building2, CloudDownload, CloudUpload, FileText, Film, FolderOpen, GitMerge, Headphones, ImageIcon, Layers, Link as LinkIcon, Loader2, MoreVertical, Music, Pencil, Search, Trash2, UserRound, Wand2 } from "lucide-react";
+import { ChevronDown, Building2, CloudDownload, CloudUpload, FileText, Film, FolderOpen, GitMerge, Headphones, ImageIcon, Layers, Link as LinkIcon, Loader2, MoreVertical, Music, Pencil, Search, Trash2, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { StudioEditModal } from "./StudioEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -131,8 +131,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const canEngageStudio = canReadEntity("studio", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteStudio = canDeleteEntity("studio", hasPermission);
   const canReadTags = canReadEntity("tag", hasPermission);
-  const canAutoTagStudio = hasPermission("library.autotag") && canWriteStudio;
-  const showStudioOpsMenu = canWriteStudio || canAutoTagStudio || canDeleteStudio;
+  const showStudioOpsMenu = canWriteStudio || canDeleteStudio;
   const visibleStudioTabs = filterItemsByPermission(studioTabs, {
     videos: "videos.read",
     performers: "performers.read",
@@ -213,13 +212,6 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const autoTagMut = useMutation({
-    mutationFn: () => {
-      if (!studio) throw new Error("Studio not loaded");
-      return metadata.autoTag({ studios: [studio.name] });
-    },
-  });
-
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -283,7 +275,6 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         ]}
         metaRow={(
           <>
-            {studio.ignoreAutoTag ? <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-yellow-400">Ignores Auto-Tag</span> : null}
             <span title={`Created ${formatDate(studio.createdAt)}`}>Updated {formatDate(studio.updatedAt)}</span>
           </>
         )}
@@ -316,7 +307,6 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
             ) : null}
             <CustomFieldsDisplay customFields={studio.customFields} entityType="studio" />
             <StudioMetadataServerPanel studio={studio} metadataServers={metadataServers} onNavigate={onNavigate} />
-            {autoTagMut.isSuccess ? <p className="mt-3 text-sm text-emerald-300">Auto-tag job queued.</p> : null}
           </>
         )}
         actions={(
@@ -342,7 +332,6 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                   <MoreVertical className="h-4 w-4" />
                 </button>
                 <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[160px] py-1">
-                    {canAutoTagStudio ? <button onClick={() => { autoTagMut.mutate(); setShowOpsMenu(false); }} disabled={autoTagMut.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface disabled:opacity-60">{autoTagMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Auto Tag</button> : null}
                   {canWriteStudio ? <button onClick={() => { setMetadataTaggerOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><Search className="h-3.5 w-3.5" /> Metadata...</button> : null}
                     {canWriteStudio ? <button onClick={() => { setMergeOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><GitMerge className="h-3.5 w-3.5" /> Merge...</button> : null}
                     {canDeleteStudio ? <div className="my-1 border-t border-border" /> : null}

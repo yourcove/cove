@@ -25,7 +25,6 @@ public class Performer : BaseEntity
     public string? Piercings { get; set; }
     public bool Favorite { get; set; }
     public string? Details { get; set; }
-    public bool IgnoreAutoTag { get; set; }
     public string? SearchText { get; set; }
 
     // Image stored as blob reference

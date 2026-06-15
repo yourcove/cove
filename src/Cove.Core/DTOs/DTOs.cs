@@ -60,7 +60,7 @@ public record PerformerDto(
     string? EyeColor, string? HairColor, int? HeightCm, int? Weight,
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
     string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
-    bool Favorite, string? Details, bool IgnoreAutoTag,
+    bool Favorite, string? Details,
     List<string> Urls, List<string> Aliases, List<TagDto> Tags,
     List<PerformerRemoteIdDto> RemoteIds,
     int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount,
@@ -79,7 +79,7 @@ public record PerformerCreateDto(
     string? EyeColor, string? HairColor, int? HeightCm, int? Weight,
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
     string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
-    bool Favorite, int? Rating, string? Details, bool IgnoreAutoTag,
+    bool Favorite, int? Rating, string? Details,
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<PerformerRemoteIdDto>? RemoteIds = null, Dictionary<string, object>? CustomFields = null);
 
 public record PerformerUpdateDto(
@@ -88,7 +88,7 @@ public record PerformerUpdateDto(
     string? EyeColor, string? HairColor, int? HeightCm, int? Weight,
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
     string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
-    bool? Favorite, int? Rating, string? Details, bool? IgnoreAutoTag,
+    bool? Favorite, int? Rating, string? Details,
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<PerformerRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields);
 
 // ===== TAG DTOs =====
@@ -117,7 +117,6 @@ public record TagDto(
     string Name,
     string? Description,
     bool Favorite,
-    bool IgnoreAutoTag,
     List<string> Aliases,
     bool? ShowAsSegment = null,
     string? SegmentColorOverride = null,
@@ -141,7 +140,6 @@ public record TagListDto(
     string Name,
     string? Description,
     bool Favorite,
-    bool IgnoreAutoTag,
     List<string> Aliases,
     int VideoCount,
     int SegmentCount,
@@ -163,7 +161,7 @@ public record TagListDto(
     bool Organized = false);
 
 public record TagDetailDto(
-    int Id, string Name, string? SortName, string? Description, bool Favorite, bool IgnoreAutoTag,
+    int Id, string Name, string? SortName, string? Description, bool Favorite,
     List<string> Aliases, List<TagDto> Parents, List<TagDto> Children,
     int VideoCount, int PerformerCount, int ImageCount, int GalleryCount,
     int StudioCount, int GroupCount, int AudioCount, int TextCount, int SegmentCount,
@@ -246,7 +244,6 @@ public record TagCreateDto(
     string? SortName,
     string? Description,
     bool Favorite,
-    bool IgnoreAutoTag,
     List<string>? Aliases,
     List<int>? ParentIds,
     List<int>? ChildIds,
@@ -265,7 +262,6 @@ public record TagUpdateDto(
     string? SortName,
     string? Description,
     bool? Favorite,
-    bool? IgnoreAutoTag,
     List<string>? Aliases,
     List<int>? ParentIds,
     List<int>? ChildIds,
@@ -281,7 +277,7 @@ public record TagUpdateDto(
     bool? Organized = null);
 
 // ===== STUDIO DTOs =====
-public record StudioDto(int Id, string Name, int? ParentId, string? ParentName, bool Favorite, string? Details, bool IgnoreAutoTag, bool Organized,
+public record StudioDto(int Id, string Name, int? ParentId, string? ParentName, bool Favorite, string? Details, bool Organized,
     List<string> Urls, List<string> Aliases, List<TagDto> Tags, List<StudioRemoteIdDto> RemoteIds,
     int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int PerformerCount, int ChildStudioCount, int AudioCount, int TextCount,
     string? ImagePath, Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt,
@@ -289,10 +285,10 @@ public record StudioDto(int Id, string Name, int? ParentId, string? ParentName, 
 
 public record StudioRemoteIdDto(string Endpoint, string RemoteId);
 
-public record StudioCreateDto(string Name, int? ParentId, int? Rating, bool Favorite, string? Details, bool IgnoreAutoTag, bool Organized,
+public record StudioCreateDto(string Name, int? ParentId, int? Rating, bool Favorite, string? Details, bool Organized,
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<StudioRemoteIdDto>? RemoteIds = null, Dictionary<string, object>? CustomFields = null);
 
-public record StudioUpdateDto(string? Name, int? ParentId, int? Rating, bool? Favorite, string? Details, bool? IgnoreAutoTag, bool? Organized,
+public record StudioUpdateDto(string? Name, int? ParentId, int? Rating, bool? Favorite, string? Details, bool? Organized,
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<StudioRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields);
 
 // ===== GALLERY DTOs =====
@@ -1925,7 +1921,6 @@ public record BulkPerformerUpdateDto
     public bool? Favorite { get; init; }
     public string? Gender { get; init; }
     public string? Details { get; init; }
-    public bool? IgnoreAutoTag { get; init; }
     public List<int>? TagIds { get; init; }
     public BulkUpdateMode TagMode { get; init; } = BulkUpdateMode.Add;
 }
@@ -2003,7 +1998,6 @@ public record BulkStudioUpdateDto
     public int? Rating { get; init; }
     public bool? Favorite { get; init; }
     public string? Details { get; init; }
-    public bool? IgnoreAutoTag { get; init; }
     public bool? Organized { get; init; }
     public List<int>? TagIds { get; init; }
     public BulkUpdateMode TagMode { get; init; } = BulkUpdateMode.Add;
@@ -2020,7 +2014,6 @@ public record BulkTagUpdateDto
     public double? MinOccurrencePercent { get; init; }
     public bool? Organized { get; init; }
     public bool? Favorite { get; init; }
-    public bool? IgnoreAutoTag { get; init; }
     public List<int>? ParentIds { get; init; }
     public BulkUpdateMode ParentMode { get; init; } = BulkUpdateMode.Add;
     public List<int>? ChildIds { get; init; }
@@ -2111,13 +2104,6 @@ public record GenerateOptionsDto
     public List<int>? AudioIds { get; init; }
     public List<int>? TextIds { get; init; }
     public List<string>? Paths { get; init; }
-}
-
-public record AutoTagOptionsDto
-{
-    public List<string>? Performers { get; init; }
-    public List<string>? Studios { get; init; }
-    public List<string>? Tags { get; init; }
 }
 
 public record CleanOptionsDto

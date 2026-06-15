@@ -139,7 +139,6 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                 SortName = $"Tag Sort {index:000}",
                 Description = $"Descriptive tag {index:000}",
                 Favorite = index % 5 == 0,
-                IgnoreAutoTag = index % 7 == 0,
                 CreatedAt = baseDate.AddDays(-120 + index),
                 UpdatedAt = baseDate.AddDays(-10 + index),
                 Aliases =
@@ -156,7 +155,6 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                 Name = $"Studio {index:000}",
                 Favorite = index % 4 == 0,
                 Details = $"Studio details {index:000}",
-                IgnoreAutoTag = index % 6 == 0,
                 Organized = index % 3 != 0,
                 CreatedAt = baseDate.AddDays(-180 + index),
                 UpdatedAt = baseDate.AddDays(-12 + index),

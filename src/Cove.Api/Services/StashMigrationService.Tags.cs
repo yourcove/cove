@@ -10,14 +10,14 @@ public partial class StashMigrationService
     private async Task<Dictionary<int, int>> ImportTagsAsync(SqliteConnection conn, Dictionary<string, string> blobMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var rows = new List<(int Id, string Name, string? SortName, string? Description, bool Favorite, bool IgnoreAutoTag, string? ImageBlob)>();
+        var rows = new List<(int Id, string Name, string? SortName, string? Description, bool Favorite, string? ImageBlob)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, name, sort_name, description, favorite, ignore_auto_tag, image_blob FROM tags";
+            cmd.CommandText = "SELECT id, name, sort_name, description, favorite, image_blob FROM tags";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 rows.Add((r.GetInt32(0), r.GetString(1), ReadStringNull(r, 2), ReadStringNull(r, 3),
-                    ReadBool(r, 4), ReadBool(r, 5), ReadStringNull(r, 6)));
+                    ReadBool(r, 4), ReadStringNull(r, 5)));
         }
         var aliases = await ReadAliasesAsync(conn, "tag_aliases", "tag_id", ct);
 
@@ -104,7 +104,6 @@ public partial class StashMigrationService
                 SortName = row.SortName,
                 Description = row.Description,
                 Favorite = row.Favorite,
-                IgnoreAutoTag = row.IgnoreAutoTag,
                 ImageBlobId = GetBlobId(blobMap, row.ImageBlob),
                 Aliases = aliases.GetValueOrDefault(stashId, []).Select(a => new TagAlias { Alias = a }).ToList(),
             };

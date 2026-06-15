@@ -11,7 +11,7 @@ namespace Cove.Sdk;
 /// have safe no-op defaults.
 /// </summary>
 public abstract class FullExtensionBase : CoveExtensionBase,
-    IDataExtension, IApiExtension, IUIExtension, IEventExtension, IJobExtension, IStatefulExtension, IScanParticipant, IAutoTagParticipant
+    IDataExtension, IApiExtension, IUIExtension, IEventExtension, IJobExtension, IStatefulExtension, IScanParticipant
 {
     private readonly List<ExtensionMigration> _migrations = [];
     private readonly List<ExtensionJobDefinition> _jobs = [];
@@ -117,13 +117,5 @@ public abstract class FullExtensionBase : CoveExtensionBase,
     /// should override this to scan for and ingest those files.
     /// </summary>
     public virtual Task ScanAsync(ScanContext context, CancellationToken ct = default)
-        => Task.CompletedTask;
-
-    // ── IAutoTagParticipant ──────────────────────────────────────────
-    /// <summary>
-    /// Override to participate in the core auto-tag operation.
-    /// Default implementation is a no-op.
-    /// </summary>
-    public virtual Task AutoTagAsync(AutoTagContext context, CancellationToken ct = default)
         => Task.CompletedTask;
 }

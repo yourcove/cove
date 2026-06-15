@@ -210,11 +210,6 @@ public interface IScanService
     Task<int> ImportDownloadedTextAsync(string path, int? textDocumentId, CancellationToken ct = default);
 }
 
-public interface IAutoTagService
-{
-    string StartAutoTag(IEnumerable<string>? performerIds = null, IEnumerable<string>? studioIds = null, IEnumerable<string>? tagIds = null);
-}
-
 public interface ICleanService
 {
     string StartClean(bool dryRun = false);

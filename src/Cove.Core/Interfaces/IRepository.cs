@@ -257,7 +257,6 @@ public class PerformerFilter
     public IntCriterion? PlayCountCriterion { get; set; }
     public IntCriterion? LikeCounterCriterion { get; set; }
     public MultiIdCriterion? GroupsCriterion { get; set; }
-    public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
@@ -296,7 +295,6 @@ public class TagFilter
     public bool GroupCountIncludesChildren { get; set; }
     public IntCriterion? ParentCountCriterion { get; set; }
     public IntCriterion? ChildCountCriterion { get; set; }
-    public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -328,7 +326,6 @@ public class StudioFilter
     public IntCriterion? ChildCountCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? GroupCountCriterion { get; set; }
-    public BoolCriterion? IgnoreAutoTagCriterion { get; set; }
     public BoolCriterion? OrganizedCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];

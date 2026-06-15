@@ -9,14 +9,14 @@ public partial class StashMigrationService
     private async Task<Dictionary<int, int>> ImportStudiosAsync(SqliteConnection conn, Dictionary<string, string> blobMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var rows = new List<(int Id, string Name, int? ParentId, string? Details, int? Rating, bool Favorite, bool IgnoreAutoTag, string? ImageBlob)>();
+        var rows = new List<(int Id, string Name, int? ParentId, string? Details, int? Rating, bool Favorite, string? ImageBlob)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, name, parent_id, details, rating, favorite, ignore_auto_tag, image_blob FROM studios";
+            cmd.CommandText = "SELECT id, name, parent_id, details, rating, favorite, image_blob FROM studios";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 rows.Add((r.GetInt32(0), r.GetString(1), ReadIntNull(r, 2), ReadStringNull(r, 3),
-                    ReadIntNull(r, 4), ReadBool(r, 5), ReadBool(r, 6), ReadStringNull(r, 7)));
+                    ReadIntNull(r, 4), ReadBool(r, 5), ReadStringNull(r, 6)));
         }
         var urls = await ReadUrlsAsync(conn, "studio_urls", "studio_id", ct);
         var aliases = await ReadAliasesAsync(conn, "studio_aliases", "studio_id", ct);
@@ -99,7 +99,6 @@ public partial class StashMigrationService
                 Parent = row.ParentId.HasValue && !idMap.ContainsKey(row.ParentId.Value) && createdStudiosByStashId.TryGetValue(row.ParentId.Value, out var parentStudio) ? parentStudio : null,
                 Details = row.Details,
                 Favorite = row.Favorite,
-                IgnoreAutoTag = row.IgnoreAutoTag,
                 Organized = false,
                 ImageBlobId = GetBlobId(blobMap, row.ImageBlob),
                 Urls = urls.GetValueOrDefault(stashId, []).Select(u => new StudioUrl { Url = u }).ToList(),

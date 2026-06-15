@@ -1,8 +1,8 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { audios, faces, galleries, groups, images, metadata, performers, videos, texts, entityImages } from "../api/client";
+import { audios, faces, galleries, groups, images, performers, videos, texts, entityImages } from "../api/client";
 import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, Trash2, Users, UserRound, Wand2 } from "lucide-react";
+import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, Trash2, Users, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -118,9 +118,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const canReadPerformerTexts = canReadEntity("text", hasPermission);
   const canReadPerformerGroups = canReadEntity("group", hasPermission);
   const canReadTags = canReadEntity("tag", hasPermission);
-  const canAutoTagPerformer = hasPermission("library.autotag") && canWritePerformer;
   const canScrapePerformer = hasAnyPermission(hasPermission, ["performers.scrape", "performers.write"]);
-  const showPerformerOpsMenu = canWritePerformer || canAutoTagPerformer || canScrapePerformer || canDeletePerformer;
+  const showPerformerOpsMenu = canWritePerformer || canScrapePerformer || canDeletePerformer;
   const visiblePerformerTabs = filterItemsByPermission(performerTabs, {
     videos: "videos.read",
     galleries: "galleries.read",
@@ -148,13 +147,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   } = useEntityEngagement("performer", id, {
     fallbackFavorite: performer?.favorite,
     fallbackRating: undefined,
-  });
-
-  const autoTagMut = useMutation({
-    mutationFn: () => {
-      if (!performer) throw new Error("Performer not loaded");
-      return metadata.autoTag({ performers: [performer.name] });
-    },
   });
 
   useDocumentTitle(performer?.name);
@@ -329,8 +321,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
               </FieldProvenanceHover>
             ) : null}
 
-            {autoTagMut.isSuccess ? <p className="mt-4 text-sm text-emerald-300">Auto-tag job queued.</p> : null}
-
             {canReadTags && performer.tags.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {performer.tags.map((tag) => (
@@ -362,7 +352,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                   <MoreVertical className="h-4 w-4" />
                 </button>
                 <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[160px] py-1">
-                    {canAutoTagPerformer ? <button onClick={() => { autoTagMut.mutate(); setShowOpsMenu(false); }} disabled={autoTagMut.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface disabled:opacity-60">{autoTagMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Auto Tag</button> : null}
                     {canScrapePerformer ? <button onClick={() => { setScrapeOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><Search className="h-3.5 w-3.5" /> Scrape / Metadata...</button> : null}
                     {canWritePerformer ? <button onClick={() => { setMergeOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><GitMerge className="h-3.5 w-3.5" /> Merge...</button> : null}
                     {canDeletePerformer ? <div className="my-1 border-t border-border" /> : null}

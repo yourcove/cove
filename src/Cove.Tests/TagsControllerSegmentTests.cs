@@ -205,7 +205,6 @@ public class TagsControllerSegmentTests
             null,
             null,
             null,
-            null,
             false,
             null,
             null), CancellationToken.None);

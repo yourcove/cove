@@ -560,10 +560,6 @@ public class PerformerRepository : IPerformerRepository
                 };
             }
 
-            // IgnoreAutoTag criterion
-            if (filter.IgnoreAutoTagCriterion != null)
-                query = query.Where(p => p.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
-
             // RemoteId criterion
             if (filter.RemoteIdCriterion != null)
             {
@@ -871,10 +867,6 @@ public class TagRepository : ITagRepository
                     _ => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
                 };
             }
-
-            // IgnoreAutoTag criterion
-            if (filter.IgnoreAutoTagCriterion != null)
-                query = query.Where(t => t.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Tag, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
         }
@@ -1436,8 +1428,6 @@ public class StudioRepository : IStudioRepository
             query = FilterHelpers.ApplyInt(query, filter.GroupCountCriterion, s => s.GroupCount);
 
             // Bool criteria
-            if (filter.IgnoreAutoTagCriterion != null)
-                query = query.Where(s => s.IgnoreAutoTag == filter.IgnoreAutoTagCriterion.Value);
             if (filter.OrganizedCriterion != null)
                 query = query.Where(s => s.Organized == filter.OrganizedCriterion.Value);
 

@@ -289,7 +289,6 @@ try
     builder.Services.AddSingleton<IFaceSuggester, EmptyFaceSuggester>();
     builder.Services.AddScoped<IScanService, ScanService>();
     builder.Services.AddScoped<IStreamService, StreamService>();
-    builder.Services.AddScoped<IAutoTagService, AutoTagService>();
     builder.Services.AddScoped<ICleanService, CleanService>();
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddSingleton<IBlobService, BlobService>();

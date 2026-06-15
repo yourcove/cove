@@ -1173,8 +1173,6 @@ export const metadata = {
     request<{ jobId: string }>("/metadata/scan", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   generate: (opts?: GenerateOptions) =>
     request<{ jobId: string }>("/metadata/generate", { method: "POST", body: JSON.stringify(opts ?? {}) }),
-  autoTag: (opts?: { performers?: string[]; studios?: string[]; tags?: string[] }) =>
-    request<{ jobId: string }>("/metadata/auto-tag", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   clean: (opts?: CleanOptions) =>
     request<{ jobId: string }>("/metadata/clean", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   cleanGenerated: (opts?: CleanGeneratedOptions) =>

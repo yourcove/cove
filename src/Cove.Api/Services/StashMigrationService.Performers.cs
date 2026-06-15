@@ -29,14 +29,14 @@ public partial class StashMigrationService
             string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
             string? CareerLength, string? DeathDate,
             string? Tattoos, string? Piercings, bool Favorite, int? Rating, string? Details,
-            bool IgnoreAutoTag, string? ImageBlob)>();
+            string? ImageBlob)>();
         var hasCareerLength = await ColumnExistsAsync(conn, "performers", "career_length", ct);
         await using (var cmd = conn.CreateCommand())
         {
             var careerLengthExpr = hasCareerLength ? "career_length" : "NULL";
             cmd.CommandText = @"SELECT id, name, disambiguation, gender, birthdate, ethnicity, country, eye_color,
                 hair_color, height, weight, measurements, fake_tits, penis_length, circumcised, " + careerLengthExpr + @" AS career_length,
-                death_date, tattoos, piercings, favorite, rating, details, ignore_auto_tag, image_blob
+                death_date, tattoos, piercings, favorite, rating, details, image_blob
                 FROM performers";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
@@ -46,7 +46,7 @@ public partial class StashMigrationService
                     ReadStringNull(r, 12), r.IsDBNull(13) ? null : (double?)r.GetDouble(13),
                     ReadStringNull(r, 14), ReadStringNull(r, 15), ReadStringNull(r, 16),
                     ReadStringNull(r, 17), ReadStringNull(r, 18), ReadBool(r, 19), ReadIntNull(r, 20),
-                    ReadStringNull(r, 21), ReadBool(r, 22), ReadStringNull(r, 23)));
+                    ReadStringNull(r, 21), ReadStringNull(r, 22)));
         }
         var urls = await ReadUrlsAsync(conn, "performer_urls", "performer_id", ct);
         var aliases = await ReadAliasesAsync(conn, "performer_aliases", "performer_id", ct);
@@ -159,7 +159,6 @@ public partial class StashMigrationService
                 Piercings = row.Piercings,
                 Favorite = row.Favorite,
                 Details = row.Details,
-                IgnoreAutoTag = row.IgnoreAutoTag,
                 ImageBlobId = imageBlobId,
                 Urls = performerUrls.Select(url => new PerformerUrl { Url = url }).ToList(),
                 Aliases = performerAliases.Select(alias => new PerformerAlias { Alias = alias }).ToList(),

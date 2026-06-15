@@ -19,7 +19,6 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
 
   const [name, setName] = useState(studio.name);
   const [details, setDetails] = useState(studio.details ?? "");
-  const [ignoreAutoTag, setIgnoreAutoTag] = useState(studio.ignoreAutoTag);
   const [urls, setUrls] = useState(studio.urls.length > 0 ? studio.urls : [""]);
   const [aliases, setAliases] = useState(studio.aliases.length > 0 ? studio.aliases : [""]);
   const [parentId, setParentId] = useState<number | undefined>(studio.parentId ?? undefined);
@@ -32,7 +31,6 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   useEffect(() => {
     setName(studio.name);
     setDetails(studio.details ?? "");
-    setIgnoreAutoTag(studio.ignoreAutoTag);
     setUrls(studio.urls.length > 0 ? studio.urls : [""]);
     setAliases(studio.aliases.length > 0 ? studio.aliases : [""]);
     setParentId(studio.parentId ?? undefined);
@@ -56,7 +54,6 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
     mutation.mutate({
       name,
       details: details || undefined,
-      ignoreAutoTag,
       parentId,
       urls: urlList,
       aliases: aliasList,
@@ -80,13 +77,6 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
 
       <Field label="Details" fieldProvenance={studio.fieldProvenance} fieldKey="details">
         <TextArea value={details} onChange={setDetails} placeholder="Studio description" rows={3} />
-      </Field>
-
-      <Field label="Auto Tagging" fieldProvenance={studio.fieldProvenance} fieldKey="ignoreAutoTag">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={ignoreAutoTag} onChange={(e) => setIgnoreAutoTag(e.target.checked)} className="rounded bg-card border-border" />
-            Ignore Auto Tag
-          </label>
       </Field>
 
       <Field label="URLs" fieldProvenance={studio.fieldProvenance} fieldKey="urls">

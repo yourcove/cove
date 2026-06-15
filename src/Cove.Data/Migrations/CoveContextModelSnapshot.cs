@@ -2446,9 +2446,6 @@ namespace Cove.Data.Migrations
                     b.Property<int?>("HeightCm")
                         .HasColumnType("integer");
 
-                    b.Property<bool>("IgnoreAutoTag")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("ImageBlobId")
                         .HasColumnType("text");
 
@@ -3190,9 +3187,6 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<bool>("IgnoreAutoTag")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("ImageBlobId")
                         .HasColumnType("text");
 
@@ -3387,9 +3381,6 @@ namespace Cove.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
-
-                    b.Property<bool>("IgnoreAutoTag")
-                        .HasColumnType("boolean");
 
                     b.Property<string>("ImageBlobId")
                         .HasColumnType("text");

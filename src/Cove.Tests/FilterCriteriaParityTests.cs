@@ -175,7 +175,6 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.PlayCountCriterion);
         Assert.Null(filter.LikeCounterCriterion);
         Assert.Null(filter.GroupsCriterion);
-        Assert.Null(filter.IgnoreAutoTagCriterion);
         Assert.Null(filter.TagCountCriterion);
         Assert.Null(filter.StudioCountCriterion);
         Assert.Null(filter.RemoteIdValueCriterion);
@@ -275,21 +274,6 @@ public class FilterCriteriaParityTests
         Assert.Equal(2, result.ObjectFilter.GroupsCriterion.Value.Count);
     }
 
-    [Fact]
-    public void PerformerFilter_IgnoreAutoTagCriterion_Deserializes()
-    {
-        var json = """
-        {
-            "objectFilter": {
-                "ignoreAutoTagCriterion": { "value": true, "modifier": "equals" }
-            }
-        }
-        """;
-        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
-        Assert.NotNull(result?.ObjectFilter?.IgnoreAutoTagCriterion);
-        Assert.True(result.ObjectFilter.IgnoreAutoTagCriterion.Value);
-    }
-
     // ===== TAG FILTER CRITERIA EXISTENCE =====
 
     [Fact]
@@ -308,7 +292,6 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.GroupCountCriterion);
         Assert.Null(filter.ParentCountCriterion);
         Assert.Null(filter.ChildCountCriterion);
-        Assert.Null(filter.IgnoreAutoTagCriterion);
     }
 
     [Fact]
@@ -361,7 +344,6 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.ChildCountCriterion);
         Assert.Null(filter.TagCountCriterion);
         Assert.Null(filter.GroupCountCriterion);
-        Assert.Null(filter.IgnoreAutoTagCriterion);
         Assert.Null(filter.OrganizedCriterion);
     }
 
@@ -648,7 +630,6 @@ public class FilterCriteriaParityTests
             PlayCountCriterion = new IntCriterion { Value = 10, Modifier = CriterionModifier.GreaterThan },
             LikeCounterCriterion = new IntCriterion { Value = 5, Modifier = CriterionModifier.LessThan },
             GroupsCriterion = new MultiIdCriterion { Value = [1], Modifier = CriterionModifier.Includes },
-            IgnoreAutoTagCriterion = new BoolCriterion { Value = false },
             TagCountCriterion = new IntCriterion { Value = 3, Modifier = CriterionModifier.Equals }
         };
 
@@ -661,7 +642,6 @@ public class FilterCriteriaParityTests
         Assert.Equal(6, deserialized.PenisLengthCriterion?.Value);
         Assert.Equal("Cut", deserialized.CircumcisedCriterion?.Value);
         Assert.Equal("2010-01-01", deserialized.CareerStartCriterion?.Value);
-        Assert.False(deserialized.IgnoreAutoTagCriterion?.Value);
     }
 
     [Fact]
@@ -680,8 +660,7 @@ public class FilterCriteriaParityTests
             StudioCountCriterion = new IntCriterion { Value = 2, Modifier = CriterionModifier.LessThan },
             GroupCountCriterion = new IntCriterion { Value = 5, Modifier = CriterionModifier.GreaterThan },
             ParentCountCriterion = new IntCriterion { Value = 1, Modifier = CriterionModifier.Equals },
-            ChildCountCriterion = new IntCriterion { Value = 0, Modifier = CriterionModifier.Equals },
-            IgnoreAutoTagCriterion = new BoolCriterion { Value = true }
+            ChildCountCriterion = new IntCriterion { Value = 0, Modifier = CriterionModifier.Equals }
         };
 
         var json = JsonSerializer.Serialize(filter, Options);
@@ -692,7 +671,6 @@ public class FilterCriteriaParityTests
         Assert.Equal("stash", deserialized.RemoteIdCriterion?.Value);
         Assert.Equal("tag-1", deserialized.RemoteIdValueCriterion?.Value);
         Assert.Equal(1, deserialized.ImageCountCriterion?.Value);
-        Assert.True(deserialized.IgnoreAutoTagCriterion?.Value);
     }
 
     [Fact]
@@ -708,7 +686,6 @@ public class FilterCriteriaParityTests
             ChildCountCriterion = new IntCriterion { Value = 3, Modifier = CriterionModifier.GreaterThan },
             TagCountCriterion = new IntCriterion { Value = 2, Modifier = CriterionModifier.Equals },
             GroupCountCriterion = new IntCriterion { Value = 1, Modifier = CriterionModifier.GreaterThan },
-            IgnoreAutoTagCriterion = new BoolCriterion { Value = false },
             OrganizedCriterion = new BoolCriterion { Value = true }
         };
 

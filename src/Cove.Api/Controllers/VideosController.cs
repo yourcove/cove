@@ -937,7 +937,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             tag.Name,
             tag.Description,
             tag.Favorite,
-            tag.IgnoreAutoTag,
             tag.Aliases.Select(alias => alias.Alias).ToList(),
             tag.ShowAsSegment,
             tag.SegmentColorOverride,

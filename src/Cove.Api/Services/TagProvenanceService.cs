@@ -247,7 +247,6 @@ public sealed class TagProvenanceService(CoveContext db, IServiceScopeFactory? s
         var trimmed = value.Trim();
         return trimmed.ToLowerInvariant() switch
         {
-            "system" => "auto-tag",
             "scraper" => "scraper:local",
             "metadata" => "metadata:default",
             "import:stash" => "stash-import",

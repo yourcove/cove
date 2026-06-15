@@ -8,7 +8,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.JobsRead)]
-public class JobsController(IJobService jobService, IScanService scanService, IThumbnailService thumbnailService, IFingerprintService fingerprintService, IAutoTagService autoTagService, ICleanService cleanService, IBackupService backupService) : ControllerBase
+public class JobsController(IJobService jobService, IScanService scanService, IThumbnailService thumbnailService, IFingerprintService fingerprintService, ICleanService cleanService, IBackupService backupService) : ControllerBase
 {
     [HttpGet]
     public ActionResult<IReadOnlyList<JobInfo>> GetJobs()
@@ -74,14 +74,6 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
         return Accepted(new { jobId });
     }
 
-    [HttpPost("auto-tag")]
-    [RequiresPermission(Permissions.LibraryAutoTag)]
-    public ActionResult<object> StartAutoTag([FromBody] AutoTagRequest? request = null)
-    {
-        var jobId = autoTagService.StartAutoTag(request?.PerformerIds, request?.StudioIds, request?.TagIds);
-        return Accepted(new { jobId });
-    }
-
     [HttpPost("clean")]
     [RequiresPermission(Permissions.LibraryClean)]
     public ActionResult<object> StartClean([FromQuery] bool dryRun = false)
@@ -105,13 +97,6 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
         var path = await backupService.GetLatestBackupPathAsync();
         return path != null ? Ok(new { path }) : NotFound();
     }
-}
-
-public class AutoTagRequest
-{
-    public IEnumerable<string>? PerformerIds { get; set; }
-    public IEnumerable<string>? StudioIds { get; set; }
-    public IEnumerable<string>? TagIds { get; set; }
 }
 
 public class ReorderJobRequest

@@ -190,13 +190,13 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const canReadFiles = hasPermission("files.read");
   const canRunJobs = hasPermission("jobs.run");
   const canLibraryScan = hasPermission("library.scan");
-  const canLibraryAutoTag = hasPermission("library.autotag");
+  const canIdentify = hasPermission("library.identify");
   const canScrapeVideo = hasAnyPermission(hasPermission, ["videos.scrape", "videos.write"]);
   const canEngageVideo = canReadVideo && (user?.kind === "user" || user?.kind === "system");
   const trackingEnabled = user?.uiPreferences?.tracking?.enabled ?? true;
   const trackPlaybackActivity = canEngageVideo && trackingEnabled;
   const canGenerateVideo = canRunJobs && canWriteVideo;
-  const canIdentifyVideo = canLibraryAutoTag && canWriteVideo;
+  const canIdentifyVideo = canIdentify && canWriteVideo;
   const canDownloadVideo = canRunJobs && canWriteVideo;
   const seekRef = useRef<((time: number) => void) | null>(null);
   const trackedPageVisitVideoIdRef = useRef<number | null>(null);

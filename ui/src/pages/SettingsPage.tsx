@@ -118,7 +118,6 @@ type BuiltInSettingsTab =
   | "data-sources-metadata-servers"
   | "data-sources-identify-batch-defaults"
   | "data-sources-downloader-paths"
-  | "data-sources-auto-tagging"
   | "data-sources-ai-data"
   | "extensions-installed"
   | "extensions-registry"
@@ -201,7 +200,6 @@ const primaryTabs: BuiltInSettingsTabDefinition[] = [
   { key: "data-sources-metadata-servers", label: "Metadata Servers", icon: Server },
   { key: "data-sources-identify-batch-defaults", label: "Identify & Batch Defaults", icon: FileText },
   { key: "data-sources-downloader-paths", label: "Downloader Paths", icon: Download },
-  { key: "data-sources-auto-tagging", label: "Auto Tagging", icon: Layers },
   { key: "data-sources-ai-data", label: "AI Data", icon: Database },
   { key: "extensions-installed", label: "Installed Extensions", icon: Plug, order: 10 },
   { key: "extensions-registry", label: "Discover", icon: Search, order: 90 },
@@ -229,7 +227,7 @@ const settingsTabGroups: SettingsTabGroupDefinition[] = [
   { key: "my-settings", label: "My Settings", icon: UserCog, tabs: ["my-account", "my-appearance-theme", "my-theme", "my-playback-viewers", "my-lists-wall", "keyboard-shortcuts", "my-activity-history"] },
   { key: "operations", label: "Operations", icon: PlayCircle, tabs: ["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-extension-tasks"] },
   { key: "library", label: "Library", icon: FolderOpen, tabs: ["library-paths-storage", "library-scanning", "library-custom-fields", "library-display-profiles"] },
-  { key: "data-sources", label: "Data Sources & Data", icon: SearchCode, tabs: ["data-sources-scrapers", "data-sources-metadata-servers", "data-sources-identify-batch-defaults", "data-sources-downloader-paths", "data-sources-auto-tagging", "data-sources-ai-data"] },
+  { key: "data-sources", label: "Data Sources & Data", icon: SearchCode, tabs: ["data-sources-scrapers", "data-sources-metadata-servers", "data-sources-identify-batch-defaults", "data-sources-downloader-paths", "data-sources-ai-data"] },
   { key: "extensions", label: "Extensions", icon: Plug, tabs: ["extensions-installed", "extensions-registry", "extensions-customizations"] },
   { key: "security-access", label: "Security & Access", icon: Shield, tabs: authTabs.map((tab) => tab.key) },
   { key: "server", label: "Server", icon: Server, tabs: ["server-host-network", "server-ffmpeg-transcoding"] },
@@ -261,7 +259,6 @@ const settingsTabCanonicalPaths: Partial<Record<BuiltInSettingsTab, string>> = {
   "data-sources-metadata-servers": "/settings/data-sources/metadata-servers",
   "data-sources-identify-batch-defaults": "/settings/data-sources/identify-batch-defaults",
   "data-sources-downloader-paths": "/settings/data-sources/downloader-paths",
-  "data-sources-auto-tagging": "/settings/data-sources/auto-tagging",
   "data-sources-ai-data": "/settings/data-sources/ai-data",
   "extensions-installed": "/settings/extensions/installed",
   "extensions-registry": "/settings/extensions/registry",
@@ -323,8 +320,6 @@ const settingsPathAliases: Partial<Record<string, SettingsTab>> = {
   "data-sources/metadata-servers": "data-sources-metadata-servers",
   "data-sources/identify-batch-defaults": "data-sources-identify-batch-defaults",
   "data-sources/downloader-paths": "data-sources-downloader-paths",
-  "data-sources/auto-tagging": "data-sources-auto-tagging",
-  "data-sources/auto-tag": "data-sources-auto-tagging",
   "data-sources/ai-data": "data-sources-ai-data",
   "extensions/installed": "extensions-installed",
   "extensions/registry": "extensions-registry",
@@ -378,7 +373,6 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "data-sources-metadata-servers": "MetadataServer endpoint configuration and validation.",
   "data-sources-identify-batch-defaults": "Defaults for Identify and MetadataServer batch dialogs.",
   "data-sources-downloader-paths": "Downloader save-path overrides.",
-  "data-sources-auto-tagging": "Queue Auto Tag across the library using current tag names, aliases, and path patterns.",
   "data-sources-ai-data": "Inspect and safely purge AI-produced embeddings, detections, segments, tag sources, and face-owned data.",
   "extensions-installed": "Manage extensions loaded into this instance.",
   "extensions-registry": "Browse and install extensions from the official catalog or a URL package.",
@@ -408,7 +402,6 @@ const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
   "operations-duplicates": ["duplicates", "duplicate finder", "exact duplicate", "cleanup"],
   "operations-maintenance": ["clean", "clean generated", "orphaned", "optimize", "vacuum", "analyse"],
   "operations-backup-restore": ["backup", "restore", "export", "import", "config backup", "wipe", "danger zone"],
-  "data-sources-auto-tagging": ["auto tag", "auto tagging", "tags", "aliases", "path patterns"],
   "data-sources-downloader-paths": ["downloader", "save path", "path override", "site override"],
   "system-info-about": ["about", "version", "release history", "changelog", "setup tour"],
   "system-info-runtime-status": ["runtime", "status", "shutdown", "database", "config file", "app directory"],
@@ -1936,7 +1929,7 @@ export function SettingsPage() {
           </div>
         </section>
 
-        {["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-extension-tasks", "data-sources-auto-tagging"].includes(resolvedActiveTab) && (
+        {["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-extension-tasks"].includes(resolvedActiveTab) && (
           <TasksPanel
             activeTab={resolvedActiveTab}
             midSlot={resolvedActiveTab === "operations-jobs" && canWriteSystemSettings ? (
@@ -4224,7 +4217,6 @@ function TasksPanel({ activeTab, midSlot }: { activeTab: SettingsTab; midSlot?: 
       {activeTab === "operations-scan-generate" && <LibraryTasksSection refetchJobs={refetchJobs} mode="scan-generate" />}
       {activeTab === "operations-downloads" && <LibraryTasksSection refetchJobs={refetchJobs} mode="downloads" />}
       {activeTab === "operations-duplicates" && <LibraryTasksSection refetchJobs={refetchJobs} mode="duplicates" />}
-      {activeTab === "data-sources-auto-tagging" && <LibraryTasksSection refetchJobs={refetchJobs} mode="auto-tagging" />}
       {activeTab === "operations-maintenance" && <DataManagementSection refetchJobs={refetchJobs} mode="maintenance" />}
       {activeTab === "operations-backup-restore" && <DataManagementSection refetchJobs={refetchJobs} mode="backup" />}
       {activeTab === "operations-extension-tasks" && <ExtensionTasksSection refetchJobs={refetchJobs} />}
@@ -4234,7 +4226,7 @@ function TasksPanel({ activeTab, midSlot }: { activeTab: SettingsTab; midSlot?: 
 
 
 // ---- Library Tasks ----
-type LibraryTaskSectionMode = "scan-generate" | "downloads" | "duplicates" | "auto-tagging";
+type LibraryTaskSectionMode = "scan-generate" | "downloads" | "duplicates";
 
 function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; mode: LibraryTaskSectionMode }) {
   const { config } = useAppConfig();
@@ -4249,7 +4241,6 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
   const [showGenOpts, setShowGenOpts] = useState(false);
   const [genOpts, setGenOpts] = useState<GenerateOptions>(() => loadStoredTaskOptions(TASK_GENERATE_OPTIONS_KEY, DEFAULT_GENERATE_OPTIONS));
   const [showDownloadImportOpts, setShowDownloadImportOpts] = useState(false);
-  const [showAutoTagConfirm, setShowAutoTagConfirm] = useState(false);
   const [downloadImportEntity, setDownloadImportEntity] = useState<DownloadSelectionEntity>(() => {
     const stored = loadStoredTaskOptions(TASK_DOWNLOAD_IMPORT_OPTIONS_KEY, { entity: "Video" as DownloadSelectionEntity });
     return stored.entity as DownloadSelectionEntity;
@@ -4396,7 +4387,6 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
 
   const scanMut = useMutation({ mutationFn: () => metadata.scan(effectiveScanOpts), onSuccess: () => refetchJobs() });
   const genMut = useMutation({ mutationFn: () => metadata.generate(effectiveGenOpts), onSuccess: () => refetchJobs() });
-  const autoTagMut = useMutation({ mutationFn: () => metadata.autoTag(), onSuccess: () => refetchJobs() });
   const downloadImportMut = useMutation({
     mutationFn: async () => {
       let urls: string[];
@@ -4447,26 +4437,10 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
       title: "Duplicates",
       description: "Open duplicate detection to compare exact duplicate video files and choose what to remove.",
     },
-    "auto-tagging": {
-      title: "Auto Tagging",
-      description: "Queue Auto Tag using current tag names, aliases, and path patterns across the library.",
-    },
   };
 
   return (
     <>
-    <ConfirmDialog
-      open={showAutoTagConfirm}
-      title="Run Auto Tag"
-      message="Auto Tag will queue a job that applies tags from current tag names, aliases, and path patterns across the library."
-      confirmLabel="Run Auto Tag"
-      destructive={false}
-      onCancel={() => setShowAutoTagConfirm(false)}
-      onConfirm={() => {
-        setShowAutoTagConfirm(false);
-        autoTagMut.mutate();
-      }}
-    />
     <SectionCard title={sectionMeta[mode].title} description={sectionMeta[mode].description}>
       <div className="space-y-4">
         {mode === "scan-generate" && (
@@ -4635,15 +4609,6 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
           </div>
         </TaskCard>
         </>
-        )}
-
-        {mode === "auto-tagging" && (
-        <TaskCard
-          label="Auto Tag"
-          description="Queue a job that applies tags using current tag names, aliases, and path patterns."
-          onRun={() => setShowAutoTagConfirm(true)}
-          isPending={autoTagMut.isPending}
-        />
         )}
 
         {mode === "duplicates" && (

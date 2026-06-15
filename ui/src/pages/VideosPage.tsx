@@ -148,7 +148,7 @@ export function VideosPage({ onNavigate }: Props) {
   const canDeleteVideo = canDeleteEntity("video", hasPermission);
   const canEngageVideo = canReadEntity("video", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canScrapeVideo = hasAnyPermission(hasPermission, ["videos.scrape", "videos.write"]);
-  const canIdentifyVideo = hasPermission("library.autotag") && canWriteVideo;
+  const canIdentifyVideo = hasPermission("library.identify") && canWriteVideo;
   const canDownloadVideo = hasPermission("jobs.run") && canWriteVideo;
   const feedVideoSource = config?.ui.feedVideoSource ?? "preview";
   const feedVideoSound = config?.ui.feedVideoSound ?? false;

@@ -4,6 +4,8 @@ import { performers } from "../api/client";
 import type { EntityEngagement, FindFilter, Performer, PerformerCreate, PerformerFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
+import { StringListEditor } from "../components/StringListEditor";
+import { GENDER_OPTIONS } from "./PerformerEditModal";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { PERFORMER_CRITERIA } from "../components/FilterDialog";
@@ -275,20 +277,38 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
 }
 
 /* ── Performer Create Modal ── */
+const SELECT_CLASS = "w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
+
 function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({
-    name: "",
-    disambiguation: "",
-    gender: "",
-    details: "",
-    ignoreAutoTag: false,
-  });
+  const [name, setName] = useState("");
+  const [gender, setGender] = useState("");
+  const [birthdate, setBirthdate] = useState("");
+  const [deathDate, setDeathDate] = useState("");
+  const [country, setCountry] = useState("");
+  const [ethnicity, setEthnicity] = useState("");
+  const [eyeColor, setEyeColor] = useState("");
+  const [hairColor, setHairColor] = useState("");
+  const [tattoos, setTattoos] = useState("");
+  const [piercings, setPiercings] = useState("");
+  const [details, setDetails] = useState("");
+  const [aliases, setAliases] = useState<string[]>([""]);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
-    setForm({ name: "", disambiguation: "", gender: "", details: "", ignoreAutoTag: false });
+    setName("");
+    setGender("");
+    setBirthdate("");
+    setDeathDate("");
+    setCountry("");
+    setEthnicity("");
+    setEyeColor("");
+    setHairColor("");
+    setTattoos("");
+    setPiercings("");
+    setDetails("");
+    setAliases([""]);
     setCustomFields({});
   };
 
@@ -304,46 +324,86 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
   });
 
   const save = () => {
-    const name = form.name.trim();
-    if (!name) return;
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
     mutation.mutate({
-      name,
-      disambiguation: form.disambiguation || undefined,
-      gender: form.gender || undefined,
-      details: form.details || undefined,
-      ignoreAutoTag: form.ignoreAutoTag || undefined,
+      name: trimmedName,
+      gender: gender || undefined,
+      birthdate: birthdate || undefined,
+      deathDate: deathDate || undefined,
+      country: country || undefined,
+      ethnicity: ethnicity || undefined,
+      eyeColor: eyeColor || undefined,
+      hairColor: hairColor || undefined,
+      tattoos: tattoos || undefined,
+      piercings: piercings || undefined,
+      details: details || undefined,
+      aliases: aliasList,
       customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
     });
   };
 
   return (
     <EditModal title="Create Performer" open={open} onClose={onClose}>
-      <Field label="Name">
-        <TextInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-      </Field>
-      <Field label="Disambiguation">
-        <TextInput value={form.disambiguation} onChange={(v) => setForm({ ...form, disambiguation: v })} />
-      </Field>
-      <Field label="Gender">
-        <TextInput value={form.gender} onChange={(v) => setForm({ ...form, gender: v })} />
-      </Field>
-      <Field label="Details">
-        <TextArea value={form.details} onChange={(v) => setForm({ ...form, details: v })} rows={3} />
-      </Field>
-      <div className="flex items-center gap-4 mb-4">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.ignoreAutoTag}
-            onChange={(e) => setForm({ ...form, ignoreAutoTag: e.target.checked })}
-            className="rounded bg-card border-border"
-          />
-          Ignore Auto Tag
-        </label>
+      <div className="space-y-4">
+        <Field label="Name *">
+          <TextInput value={name} onChange={setName} placeholder="Performer name" />
+        </Field>
+
+        <div className="grid grid-cols-4 gap-4">
+          <Field label="Gender">
+            <select value={gender} onChange={(e) => setGender(e.target.value)} className={SELECT_CLASS}>
+              <option value="">—</option>
+              {GENDER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Birthdate">
+            <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className={SELECT_CLASS} />
+          </Field>
+          <Field label="Death Date">
+            <input type="date" value={deathDate} onChange={(e) => setDeathDate(e.target.value)} className={SELECT_CLASS} />
+          </Field>
+          <Field label="Country">
+            <TextInput value={country} onChange={setCountry} placeholder="e.g. US" />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Ethnicity">
+            <TextInput value={ethnicity} onChange={setEthnicity} />
+          </Field>
+          <Field label="Eye Color">
+            <TextInput value={eyeColor} onChange={setEyeColor} />
+          </Field>
+          <Field label="Hair Color">
+            <TextInput value={hairColor} onChange={setHairColor} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Tattoos">
+            <TextInput value={tattoos} onChange={setTattoos} />
+          </Field>
+          <Field label="Piercings">
+            <TextInput value={piercings} onChange={setPiercings} />
+          </Field>
+        </div>
+
+        <Field label="Details">
+          <TextArea value={details} onChange={setDetails} placeholder="Bio / notes" rows={2} />
+        </Field>
+
+        <Field label="Aliases">
+          <StringListEditor values={aliases} onChange={setAliases} placeholder="Alias" addLabel="Add Alias" />
+        </Field>
+
+        <Field label="Custom Fields">
+          <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="performer" />
+        </Field>
       </div>
-      <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="performer" />
-      </Field>
       <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
   );

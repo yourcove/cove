@@ -23,7 +23,7 @@ interface Props {
 interface IdentifySource {
   id: string;
   name: string;
-  type: "metadata-server" | "scraper" | "auto-tag";
+  type: "metadata-server" | "scraper";
   enabled: boolean;
 }
 
@@ -70,12 +70,6 @@ function buildIdentifySources(metadataServers: MetadataServer[]): IdentifySource
       type: "metadata-server",
       enabled: true,
     });
-  });
-  sources.push({
-    id: "auto-tag",
-    name: "Auto Tag (built-in)",
-    type: "auto-tag",
-    enabled: true,
   });
   return sources;
 }

@@ -314,7 +314,7 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
   const isVideos = entityType === "videos";
   const isAudios = entityType === "audios";
   const isTexts = entityType === "texts";
-  const canIdentify = isVideos && hasPermission("library.autotag") && canWrite;
+  const canIdentify = isVideos && hasPermission("library.identify") && canWrite;
   const downloadEntity: DownloadSelectionEntity | null = entityType === "videos"
     ? "Video"
     : entityType === "images"

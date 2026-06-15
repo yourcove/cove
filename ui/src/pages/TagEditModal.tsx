@@ -31,7 +31,6 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   const [tagGroupId, setTagGroupId] = useState<number | undefined>(tag.tagGroupId ?? undefined);
   const [minOccurrenceSec, setMinOccurrenceSec] = useState<number | undefined>(tag.minOccurrenceSec ?? undefined);
   const [minOccurrencePercent, setMinOccurrencePercent] = useState<number | undefined>(tag.minOccurrencePercent ?? undefined);
-  const [ignoreAutoTag, setIgnoreAutoTag] = useState(tag.ignoreAutoTag);
   const [playerBarMode, setPlayerBarMode] = useState<PlayerBarMode>(() => readPlayerBarMode(tag.showAsSegment));
   const [segmentColorOverride, setSegmentColorOverride] = useState(tag.segmentColorOverride ?? "");
   const [segmentLaneOverride, setSegmentLaneOverride] = useState<number | undefined>(tag.segmentLaneOverride ?? undefined);
@@ -57,7 +56,6 @@ export function TagEditModal({ tag, open, onClose }: Props) {
     setTagGroupId(tag.tagGroupId ?? undefined);
     setMinOccurrenceSec(tag.minOccurrenceSec ?? undefined);
     setMinOccurrencePercent(tag.minOccurrencePercent ?? undefined);
-    setIgnoreAutoTag(tag.ignoreAutoTag);
     setPlayerBarMode(readPlayerBarMode(tag.showAsSegment));
     setSegmentColorOverride(tag.segmentColorOverride ?? "");
     setSegmentLaneOverride(tag.segmentLaneOverride ?? undefined);
@@ -87,7 +85,6 @@ export function TagEditModal({ tag, open, onClose }: Props) {
       tagGroupId: tagGroupId ?? null,
       minOccurrenceSec: minOccurrenceSec ?? null,
       minOccurrencePercent: clampOptionalPercent(minOccurrencePercent) ?? null,
-      ignoreAutoTag,
       showAsSegment: playerBarMode === "default" ? null : playerBarMode === "always",
       segmentColorOverride: playerBarMode === "always" ? (segmentColorOverride.trim() || null) : null,
       segmentLaneOverride: playerBarMode === "always" ? (segmentLaneOverride ?? null) : null,
@@ -152,12 +149,6 @@ export function TagEditModal({ tag, open, onClose }: Props) {
         />
       </Field>
 
-      <Field label="Auto Tagging" fieldProvenance={tag.fieldProvenance} fieldKey="ignoreAutoTag">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={ignoreAutoTag} onChange={(e) => setIgnoreAutoTag(e.target.checked)} className="rounded bg-card border-border" />
-          Ignore Auto Tag
-        </label>
-      </Field>
 
       <Field label="Player Bar" fieldProvenance={tag.fieldProvenance} fieldKey="showAsSegment">
         <div className="space-y-3 rounded-xl border border-border bg-surface/40 p-3">

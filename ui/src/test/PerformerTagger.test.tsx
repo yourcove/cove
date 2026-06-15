@@ -73,7 +73,6 @@ describe("PerformerTagger", () => {
       id: 1,
       name: "Missing Performer",
       favorite: false,
-      ignoreAutoTag: false,
       urls: [],
       aliases: [],
       tags: [],

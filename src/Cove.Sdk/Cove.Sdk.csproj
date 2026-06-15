@@ -8,6 +8,13 @@
     <ProjectReference Include="..\Cove.Plugins\Cove.Plugins.csproj" />
   </ItemGroup>
 
+  <!-- Ship the extension packaging rules inside the package so every consumer (including third-party
+       extensions) automatically compiles against the host contracts without bundling the host's runtime
+       assemblies. buildTransitive/ flows to both direct and indirect referencers. -->
+  <ItemGroup>
+    <None Include="buildTransitive\Cove.Sdk.targets" Pack="true" PackagePath="buildTransitive\Cove.Sdk.targets" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -20,6 +27,11 @@
     <RepositoryUrl>https://github.com/yourcove/cove</RepositoryUrl>
     <PackageProjectUrl>https://github.com/yourcove/cove</PackageProjectUrl>
     <PackageTags>cove;sdk;extensions;plugins</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>

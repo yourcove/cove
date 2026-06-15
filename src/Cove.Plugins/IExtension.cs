@@ -246,20 +246,6 @@ public interface IScanParticipant : IExtension
 }
 
 /// <summary>
-/// Extension that participates in the core auto-tag operation.
-/// When a user triggers auto-tag, the core system calls all registered
-/// auto-tag participants as part of the same job, sharing progress tracking.
-/// </summary>
-public interface IAutoTagParticipant : IExtension
-{
-    /// <summary>
-    /// Called by the core auto-tag system to let this extension auto-tag its entities.
-    /// The extension receives pre-loaded performer, studio, and tag data to match against.
-    /// </summary>
-    Task AutoTagAsync(AutoTagContext context, CancellationToken ct = default);
-}
-
-/// <summary>
 /// Context provided to extension scan participants during a core library scan.
 /// </summary>
 public record ScanContext(
@@ -282,31 +268,6 @@ public record ScanPathInfo(
     bool IsFile,
     bool ExcludeText = false
 );
-
-/// <summary>
-/// Context provided to extension auto-tag participants.
-/// </summary>
-public record AutoTagContext(
-    /// <summary>Pre-loaded performers with names and aliases for matching.</summary>
-    IReadOnlyList<AutoTagPerformer> Performers,
-    /// <summary>Pre-loaded studios with names for matching.</summary>
-    IReadOnlyList<AutoTagStudio> Studios,
-    /// <summary>Pre-loaded tags with names and aliases for matching.</summary>
-    IReadOnlyList<AutoTagTag> Tags,
-    /// <summary>Progress reporter scoped to this participant's allocation.</summary>
-    IJobProgress Progress,
-    /// <summary>Service provider for resolving dependencies.</summary>
-    IServiceProvider Services
-);
-
-/// <summary>Performer data for auto-tag matching.</summary>
-public record AutoTagPerformer(int Id, string Name, IReadOnlyList<string> Aliases);
-
-/// <summary>Studio data for auto-tag matching.</summary>
-public record AutoTagStudio(int Id, string Name);
-
-/// <summary>Tag data for auto-tag matching.</summary>
-public record AutoTagTag(int Id, string Name, IReadOnlyList<string> Aliases);
 
 /// <summary>
 /// Extension that contributes toolbar actions, context menu items, and bulk actions.

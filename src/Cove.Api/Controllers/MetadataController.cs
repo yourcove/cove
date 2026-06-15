@@ -659,17 +659,6 @@ public class MetadataController(
         }
     }
 
-    [HttpPost("auto-tag")]
-    [RequiresPermission(Permissions.LibraryAutoTag)]
-    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersWrite, ActionArgumentName = "opts", PropertyName = "Performers")]
-    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosWrite, ActionArgumentName = "opts", PropertyName = "Studios")]
-    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsWrite, ActionArgumentName = "opts", PropertyName = "Tags")]
-    public ActionResult<object> StartAutoTag([FromBody] AutoTagOptionsDto? opts, [FromServices] IAutoTagService autoTagService)
-    {
-        var jobId = autoTagService.StartAutoTag(opts?.Performers, opts?.Studios, opts?.Tags);
-        return Ok(new { jobId });
-    }
-
     [HttpPost("clean")]
     [RequiresPermission(Permissions.LibraryClean)]
     public ActionResult<object> StartClean([FromBody] CleanOptionsDto? opts)
@@ -820,11 +809,11 @@ public class MetadataController(
                     var existing = await dbCtx.Tags.FirstOrDefaultAsync(t => t.Name == tag.Name, ct);
                     if (existing != null)
                     {
-                        if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; existing.IgnoreAutoTag = tag.IgnoreAutoTag; }
+                        if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; }
                     }
                     else
                     {
-                        dbCtx.Tags.Add(new Tag { Name = tag.Name, Description = tag.Description, Favorite = tag.Favorite, IgnoreAutoTag = tag.IgnoreAutoTag });
+                        dbCtx.Tags.Add(new Tag { Name = tag.Name, Description = tag.Description, Favorite = tag.Favorite });
                     }
                 }
                 await dbCtx.SaveChangesAsync(ct);
@@ -952,7 +941,7 @@ public class MetadataController(
     }
 
     [HttpPost("identify")]
-    [RequiresPermission(Permissions.LibraryAutoTag)]
+    [RequiresPermission(Permissions.LibraryIdentify)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "opts", PropertyName = "VideoIds")]
     public ActionResult<object> StartIdentify([FromBody] IdentifyOptionsDto? opts)
     {

@@ -8,7 +8,6 @@ public class Tag : BaseEntity
     public string? Color { get; set; }
     public int? TagGroupId { get; set; }
     public bool Favorite { get; set; }
-    public bool IgnoreAutoTag { get; set; }
     public bool Organized { get; set; }
     public double? MinOccurrenceSec { get; set; }
     public double? MinOccurrencePercent { get; set; }

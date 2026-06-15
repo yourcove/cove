@@ -78,7 +78,7 @@ public static class Permissions
 
     // Library / scan / cleanup
     public const string LibraryScan = "library.scan";
-    public const string LibraryAutoTag = "library.autotag";
+    public const string LibraryIdentify = "library.identify";
     public const string LibraryClean = "library.clean";
 
     // Saved filters
@@ -192,7 +192,7 @@ public static class Permissions
         new(FilesDelete, "Files", "Delete raw files from disk.", Dangerous: true, Implies: [FilesWrite]),
 
         new(LibraryScan, "Library", "Trigger library scans."),
-        new(LibraryAutoTag, "Library", "Trigger auto-tag jobs."),
+        new(LibraryIdentify, "Library", "Run identify (scraper-based metadata matching) jobs."),
         new(LibraryClean, "Library", "Trigger cleanup of missing files.", Dangerous: true),
 
         new(SavedFiltersRead, "Saved Filters", "View saved filters."),
@@ -248,7 +248,7 @@ public static class Permissions
         GalleriesWrite, ImagesWrite, GroupsWrite,
         SegmentsWrite, SegmentsDelete,
         FilesRead, FilesWrite,
-        LibraryScan, LibraryAutoTag,
+        LibraryScan, LibraryIdentify,
         SavedFiltersWrite, SavedFiltersDelete,
         JobsRun, JobsCancel,
         ExtensionsRead,

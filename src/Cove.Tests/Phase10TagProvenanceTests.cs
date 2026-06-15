@@ -1,17 +1,12 @@
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
-using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Plugins;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using GalleriesController = Cove.Api.Controllers.GalleriesController;
 using VideosController = Cove.Api.Controllers.VideosController;
 
@@ -112,30 +107,6 @@ public sealed class Phase10TagProvenanceTests
         Assert.Equal(0.67f, provenance.Confidence);
     }
 
-    [Fact]
-    public async Task StartAutoTag_RecordsGalleryTagProvenance()
-    {
-        await using var environment = await CreateAutoTagEnvironmentAsync();
-        await SeedAutoTagLibraryContentAsync(environment.Services);
-        var provenanceRecorder = new RecordingTagProvenanceService();
-
-        var service = new AutoTagService(
-            environment.JobService,
-            environment.Services.GetRequiredService<IServiceScopeFactory>(),
-            new ExtensionManager(new ExtensionContext
-            {
-                Configuration = new ConfigurationBuilder().Build(),
-                DataDirectory = Path.GetTempPath(),
-                CoveVersion = "test",
-            }),
-            provenanceRecorder,
-            NullLogger<AutoTagService>.Instance);
-
-        service.StartAutoTag();
-
-        Assert.Contains(provenanceRecorder.RecordCalls, call => call.HostType == AffinityHostType.Gallery && call.SourceKey == "system");
-    }
-
     private static CoveContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
@@ -145,130 +116,11 @@ public sealed class Phase10TagProvenanceTests
         return new TestCoveContext(options);
     }
 
-    private static async Task<AutoTagTestEnvironment> CreateAutoTagEnvironmentAsync()
-    {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var services = new ServiceCollection();
-        var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite(connection)
-            .Options;
-        services.AddScoped<CoveContext>(_ => new AutoTagTestContext(options));
-
-        var provider = services.BuildServiceProvider();
-        await using var scope = provider.CreateAsyncScope();
-        var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync();
-
-        return new AutoTagTestEnvironment(provider, connection, new ImmediateJobService());
-    }
-
-    private static async Task SeedAutoTagLibraryContentAsync(IServiceProvider services)
-    {
-        await using var scope = services.CreateAsyncScope();
-        var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-        var performer = new Performer { Name = "Alice" };
-        var studio = new Studio { Name = "Acme" };
-        var tag = new Tag { Name = "Summer" };
-
-        var videoFolder = new Folder { Path = Path.Combine("C:\\library", "Acme Alice Summer"), ModTime = DateTime.UtcNow };
-        var imageFolder = new Folder { Path = Path.Combine("C:\\library", "Acme Alice Summer", "images"), ModTime = DateTime.UtcNow };
-        var galleryFolder = new Folder { Path = Path.Combine("C:\\library", "Acme Alice Summer", "gallery"), ModTime = DateTime.UtcNow };
-
-        var video = new Video { Title = "Alice showcase" };
-        video.Files.Add(new VideoFile { Basename = "alice-summer-video.mp4", ParentFolder = videoFolder, ModTime = DateTime.UtcNow });
-
-        var image = new Image { Title = "Alice still" };
-        image.Files.Add(new ImageFile { Basename = "alice-summer-image.jpg", ParentFolder = imageFolder, ModTime = DateTime.UtcNow });
-
-        var gallery = new Gallery { Title = "Alice gallery" };
-        gallery.Files.Add(new GalleryFile { Basename = "alice-summer-gallery.zip", ParentFolder = galleryFolder, ModTime = DateTime.UtcNow });
-
-        context.AddRange(performer, studio, tag, videoFolder, imageFolder, galleryFolder, video, image, gallery);
-        await context.SaveChangesAsync();
-    }
-
     private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
     {
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-
         }
-    }
-
-    private sealed class AutoTagTestContext(DbContextOptions<CoveContext> options) : CoveContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-        }
-    }
-
-    private sealed class AutoTagTestEnvironment(ServiceProvider services, SqliteConnection connection, ImmediateJobService jobService) : IAsyncDisposable
-    {
-        public ServiceProvider Services { get; } = services;
-        public ImmediateJobService JobService { get; } = jobService;
-
-        public async ValueTask DisposeAsync()
-        {
-            await Services.DisposeAsync();
-            await connection.DisposeAsync();
-        }
-    }
-
-    private sealed class ImmediateJobService : IJobService
-    {
-        private int _nextId;
-
-        public string Enqueue(string type, string description, Func<Cove.Core.Interfaces.IJobProgress, CancellationToken, Task> work, bool exclusive = true)
-        {
-            work(new ImmediateJobProgress(), CancellationToken.None).GetAwaiter().GetResult();
-            return $"job-{Interlocked.Increment(ref _nextId)}";
-        }
-
-        public bool Cancel(string jobId) => false;
-
-        public bool ReorderQueued(string jobId, string? beforeJobId) => false;
-
-        public Cove.Core.Interfaces.JobInfo? GetJob(string jobId) => null;
-
-        public IReadOnlyList<Cove.Core.Interfaces.JobInfo> GetAllJobs() => [];
-
-        public IReadOnlyList<Cove.Core.Interfaces.JobInfo> GetJobHistory() => [];
-    }
-
-    private sealed class ImmediateJobProgress : Cove.Core.Interfaces.IJobProgress
-    {
-        public void Report(double progress, string? subTask = null)
-        {
-        }
-    }
-
-    private sealed class RecordingTagProvenanceService : ITagProvenanceService
-    {
-        public List<(AffinityHostType HostType, int HostId, int TagId, string SourceKey)> RecordCalls { get; } = [];
-
-        public Task RecordAsync(AffinityHostType hostType, int hostId, int tagId, string sourceKey, string? sourceRunId = null, string? modelKey = null, float? confidence = null, string? contextType = null, int? contextId = null, double? totalDurationSec = null, double? hostDurationSec = null, CancellationToken cancellationToken = default)
-        {
-            RecordCalls.Add((hostType, hostId, tagId, sourceKey));
-            return Task.CompletedTask;
-        }
-
-        public Task RecordAsync(AffinityHostType hostType, int hostId, Tag tag, string sourceKey, string? sourceRunId = null, string? modelKey = null, float? confidence = null, string? contextType = null, int? contextId = null, double? totalDurationSec = null, double? hostDurationSec = null, CancellationToken cancellationToken = default)
-            => RecordAsync(hostType, hostId, tag.Id, sourceKey, sourceRunId, modelKey, confidence, contextType, contextId, totalDurationSec, hostDurationSec, cancellationToken);
-
-        public Task SyncTagSetAsync(AffinityHostType hostType, int hostId, IReadOnlyCollection<int> previousTagIds, IReadOnlyCollection<int> currentTagIds, string sourceKey = "user", CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task RemoveForHostAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task<IReadOnlyDictionary<int, List<TagProvenanceDto>>> GetLookupAsync(AffinityHostType hostType, int hostId, IReadOnlyCollection<int> tagIds, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyDictionary<int, List<TagProvenanceDto>>>(new Dictionary<int, List<TagProvenanceDto>>());
     }
 }
-

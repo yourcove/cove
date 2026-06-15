@@ -16,7 +16,7 @@ interface Props {
   onClose: () => void;
 }
 
-const GENDER_OPTIONS = [
+export const GENDER_OPTIONS = [
   { value: "Male", label: "Male" },
   { value: "Female", label: "Female" },
   { value: "TransMale", label: "Trans Male" },
@@ -25,7 +25,7 @@ const GENDER_OPTIONS = [
   { value: "NonBinary", label: "Non-Binary" },
 ];
 
-const CIRCUMCISED_OPTIONS = [
+export const CIRCUMCISED_OPTIONS = [
   { value: "Cut", label: "Cut" },
   { value: "Uncut", label: "Uncut" },
 ];
@@ -60,7 +60,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [circumcised, setCircumcised] = useState(performer.circumcised || "");
   const [careerStart, setCareerStart] = useState(performer.careerStart || "");
   const [careerEnd, setCareerEnd] = useState(performer.careerEnd || "");
-  const [ignoreAutoTag, setIgnoreAutoTag] = useState(performer.ignoreAutoTag ?? false);
   const [urls, setUrls] = useState(performer.urls.length > 0 ? performer.urls : [""]);
   const [aliases, setAliases] = useState(performer.aliases.length > 0 ? performer.aliases : [""]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(performer.tags.map((t) => t.id));
@@ -99,7 +98,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     setCircumcised(performer.circumcised || "");
     setCareerStart(performer.careerStart || "");
     setCareerEnd(performer.careerEnd || "");
-    setIgnoreAutoTag(performer.ignoreAutoTag ?? false);
     setUrls(performer.urls.length > 0 ? performer.urls : [""]);
     setAliases(performer.aliases.length > 0 ? performer.aliases : [""]);
     setSelectedTagIds(performer.tags.map((t) => t.id));
@@ -143,7 +141,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       careerEnd: careerEnd || undefined,
       rating,
       details: details || undefined,
-      ignoreAutoTag,
       urls: urlList,
       aliases: aliasList,
       tagIds: selectedTagIds,
@@ -349,13 +346,6 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
             ) : null}
           </div>
         )}
-      </Field>
-
-      <Field label="Auto Tagging" fieldProvenance={performer.fieldProvenance} fieldKey="ignoreAutoTag">
-        <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer">
-          <input type="checkbox" checked={ignoreAutoTag} onChange={(e) => setIgnoreAutoTag(e.target.checked)} className="rounded border-border bg-card" />
-          Ignore Auto Tag
-        </label>
       </Field>
 
       <Field label="Remote IDs" fieldProvenance={performer.fieldProvenance} fieldKey="remoteIds">

@@ -398,7 +398,6 @@ export const PERFORMER_BULK_FIELDS: BulkEditField[] = [
     options: ["Female", "Male", "TransgenderFemale", "TransgenderMale", "Intersex", "NonBinary"].map((value) => ({ value, label: value.replace(/([a-z])([A-Z])/g, "$1 $2") })),
   },
   { key: "details", label: "Details", type: "string" },
-  { key: "ignoreAutoTag", label: "Ignore Auto-Tag", type: "bool" },
   { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
 ];
 
@@ -455,7 +454,6 @@ export const TAG_BULK_FIELDS: BulkEditField[] = [
   { key: "minOccurrencePercent", label: "Min Percent", type: "number" },
   { key: "organized", label: "Organized", type: "bool" },
   { key: "favorite", label: "Favorite", type: "bool" },
-  { key: "ignoreAutoTag", label: "Ignore Auto-Tag", type: "bool" },
   { key: "parentIds", label: "Parent Tags", type: "multiId", entityType: "tags", modeKey: "parentMode" },
   { key: "childIds", label: "Child Tags", type: "multiId", entityType: "tags", modeKey: "childMode" },
 ];
@@ -464,7 +462,6 @@ export const STUDIO_BULK_FIELDS: BulkEditField[] = [
   { key: "rating", label: "Rating", type: "rating" },
   { key: "favorite", label: "Favorite", type: "bool" },
   { key: "details", label: "Details", type: "string" },
-  { key: "ignoreAutoTag", label: "Ignore Auto-Tag", type: "bool" },
   { key: "organized", label: "Organized", type: "bool" },
   { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
 ];

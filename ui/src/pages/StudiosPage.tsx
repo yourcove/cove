@@ -222,14 +222,13 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
   const [form, setForm] = useState({
     name: "",
     details: "",
-    ignoreAutoTag: false,
   });
   const [parentId, setParentId] = useState<number | undefined>(undefined);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
-    setForm({ name: "", details: "", ignoreAutoTag: false });
+    setForm({ name: "", details: "" });
     setParentId(undefined);
     setCustomFields({});
   };
@@ -251,7 +250,6 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
     mutation.mutate({
       name,
       details: form.details || undefined,
-      ignoreAutoTag: form.ignoreAutoTag || undefined,
       parentId,
       customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
     });
@@ -268,17 +266,6 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
       <Field label="Parent Studio">
         <EntityReferenceSelector entityType="studio" value={parentId} onChange={setParentId} placeholder="Search parent studios..." />
       </Field>
-      <div className="flex items-center gap-4 mb-4">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.ignoreAutoTag}
-            onChange={(e) => setForm({ ...form, ignoreAutoTag: e.target.checked })}
-            className="rounded bg-card border-border"
-          />
-          Ignore Auto Tag
-        </label>
-      </div>
       <Field label="Custom Fields">
         <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="studio" />
       </Field>

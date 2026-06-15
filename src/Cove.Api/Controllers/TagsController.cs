@@ -221,7 +221,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
             Color = NormalizeOptionalText(dto.Color),
             TagGroupId = NormalizeOptionalId(dto.TagGroupId),
             Favorite = dto.Favorite,
-            IgnoreAutoTag = dto.IgnoreAutoTag,
             Organized = dto.Organized,
             MinOccurrenceSec = NormalizeOptionalPositive(dto.MinOccurrenceSec),
             MinOccurrencePercent = NormalizeOptionalPercent(dto.MinOccurrencePercent),
@@ -268,7 +267,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
         tag.Color = NormalizeOptionalText(dto.Color);
         tag.TagGroupId = NormalizeOptionalId(dto.TagGroupId);
         if (dto.Favorite.HasValue) tag.Favorite = dto.Favorite.Value;
-        if (dto.IgnoreAutoTag.HasValue) tag.IgnoreAutoTag = dto.IgnoreAutoTag.Value;
         if (dto.Organized.HasValue) tag.Organized = dto.Organized.Value;
         tag.MinOccurrenceSec = NormalizeOptionalPositive(dto.MinOccurrenceSec);
         tag.MinOccurrencePercent = NormalizeOptionalPercent(dto.MinOccurrencePercent);
@@ -500,7 +498,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
             t.SortName,
             t.Description,
             t.Favorite,
-            t.IgnoreAutoTag,
             t.Aliases.Select(a => a.Alias).ToList(),
             t.ParentRelations.Where(pr => pr.Parent != null).Select(pr => MapTagDto(pr.Parent!)).ToList(),
             t.ChildRelations.Where(cr => cr.Child != null).Select(cr => MapTagDto(cr.Child!)).ToList(),
@@ -543,7 +540,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
                 t.Name,
                 t.Description,
                 t.Favorite,
-                t.IgnoreAutoTag,
                 t.Aliases.Select(a => a.Alias).ToList(),
                 usageCounts.VideoCount,
                 usageCounts.SegmentCount,
@@ -650,7 +646,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
             tag.Name,
             tag.Description,
             tag.Favorite,
-            tag.IgnoreAutoTag,
             tag.Aliases.Select(alias => alias.Alias).ToList(),
             tag.ShowAsSegment,
             tag.SegmentColorOverride,
@@ -748,7 +743,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
             if (dto.MinOccurrencePercent.HasValue) tag.MinOccurrencePercent = dto.MinOccurrencePercent;
             if (dto.Organized.HasValue) tag.Organized = dto.Organized.Value;
             if (dto.Favorite.HasValue) tag.Favorite = dto.Favorite.Value;
-            if (dto.IgnoreAutoTag.HasValue) tag.IgnoreAutoTag = dto.IgnoreAutoTag.Value;
 
             var parentIds = dto.ParentIds?
                 .Where(parentId => parentId != tag.Id)

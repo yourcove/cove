@@ -96,7 +96,6 @@ export interface Performer {
   piercings?: string;
   favorite: boolean;
   details?: string;
-  ignoreAutoTag: boolean;
   urls: string[];
   aliases: string[];
   tags: Tag[];
@@ -156,7 +155,6 @@ export interface PerformerCreate {
   favorite?: boolean;
   rating?: number;
   details?: string;
-  ignoreAutoTag?: boolean;
   urls?: string[];
   aliases?: string[];
   tagIds?: number[];
@@ -208,7 +206,6 @@ export interface Tag {
   description?: string;
   imagePath?: string;
   favorite: boolean;
-  ignoreAutoTag: boolean;
   organized: boolean;
   showAsSegment?: boolean | null;
   segmentColorOverride?: string | null;
@@ -368,7 +365,6 @@ export interface TagCreate {
   sortName?: string;
   description?: string;
   favorite?: boolean;
-  ignoreAutoTag?: boolean;
   organized?: boolean;
   color?: string | null;
   tagGroupId?: number | null;
@@ -394,7 +390,6 @@ export interface Studio {
   parentName?: string;
   favorite: boolean;
   details?: string;
-  ignoreAutoTag: boolean;
   organized: boolean;
   urls: string[];
   aliases: string[];
@@ -425,7 +420,6 @@ export interface StudioCreate {
   rating?: number;
   favorite?: boolean;
   details?: string;
-  ignoreAutoTag?: boolean;
   organized?: boolean;
   urls?: string[];
   aliases?: string[];
@@ -2607,7 +2601,6 @@ export interface PerformerFilterCriteria {
   playCountCriterion?: IntCriterion;
   likeCounterCriterion?: IntCriterion;
   groupsCriterion?: MultiIdCriterion;
-  ignoreAutoTagCriterion?: BoolCriterion;
   tagCountCriterion?: IntCriterion;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
@@ -2644,7 +2637,6 @@ export interface TagFilterCriteria {
   groupCountIncludesChildren?: boolean;
   parentCountCriterion?: IntCriterion;
   childCountCriterion?: IntCriterion;
-  ignoreAutoTagCriterion?: BoolCriterion;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -2672,7 +2664,6 @@ export interface StudioFilterCriteria {
   childCountCriterion?: IntCriterion;
   tagCountCriterion?: IntCriterion;
   groupCountCriterion?: IntCriterion;
-  ignoreAutoTagCriterion?: BoolCriterion;
   organizedCriterion?: BoolCriterion;
   galleryCountCriterion?: IntCriterion;
   imageCountCriterion?: IntCriterion;
@@ -2910,7 +2901,6 @@ export interface BulkPerformerUpdate {
   favorite?: boolean;
   gender?: string;
   details?: string;
-  ignoreAutoTag?: boolean;
   tagIds?: number[];
   tagMode?: BulkUpdateMode;
 }
@@ -2925,7 +2915,6 @@ export interface BulkTagUpdate {
   minOccurrencePercent?: number;
   organized?: boolean;
   favorite?: boolean;
-  ignoreAutoTag?: boolean;
   parentIds?: number[];
   parentMode?: BulkUpdateMode;
   childIds?: number[];
@@ -2938,7 +2927,6 @@ export interface BulkStudioUpdate {
   rating?: number;
   favorite?: boolean;
   details?: string;
-  ignoreAutoTag?: boolean;
   organized?: boolean;
   tagIds?: number[];
   tagMode?: BulkUpdateMode;

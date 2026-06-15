@@ -16,7 +16,6 @@ public enum EventType
     // Jobs
     ScanStarted, ScanProgress, ScanCompleted,
     GenerateStarted, GenerateProgress, GenerateCompleted,
-    AutoTagStarted, AutoTagProgress, AutoTagCompleted,
     CleanStarted, CleanProgress, CleanCompleted,
 
     // System

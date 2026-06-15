@@ -11,7 +11,6 @@ internal static class TagDtoMapping
             tag.Name,
             tag.Description,
             tag.Favorite,
-            tag.IgnoreAutoTag,
             tag.Aliases.Select(alias => alias.Alias).ToList(),
             tag.ShowAsSegment,
             tag.SegmentColorOverride,

@@ -6,7 +6,6 @@ public class Studio : BaseEntity
     public int? ParentId { get; set; }
     public bool Favorite { get; set; }
     public string? Details { get; set; }
-    public bool IgnoreAutoTag { get; set; }
     public bool Organized { get; set; }
     public string? SearchText { get; set; }
 

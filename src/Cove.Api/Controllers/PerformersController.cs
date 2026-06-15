@@ -210,8 +210,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             PenisLength = dto.PenisLength, Circumcised = ParseEnum<CircumcisedEnum>(dto.Circumcised),
             CareerStart = ParseDate(dto.CareerStart), CareerEnd = ParseDate(dto.CareerEnd),
             Tattoos = dto.Tattoos, Piercings = dto.Piercings,
-            Favorite = dto.Favorite, Details = dto.Details,
-            IgnoreAutoTag = dto.IgnoreAutoTag
+            Favorite = dto.Favorite, Details = dto.Details
         };
         if (dto.Urls?.Count > 0) performer.Urls = dto.Urls.Select(u => new PerformerUrl { Url = u }).ToList();
         if (dto.Aliases?.Count > 0) performer.Aliases = dto.Aliases.Select(a => new PerformerAlias { Alias = a }).ToList();
@@ -260,7 +259,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.Piercings != null) p.Piercings = dto.Piercings;
         if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
         if (dto.Details != null) p.Details = dto.Details;
-        if (dto.IgnoreAutoTag.HasValue) p.IgnoreAutoTag = dto.IgnoreAutoTag.Value;
 
         if (dto.Urls != null)
         {
@@ -568,7 +566,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         p.Ethnicity, p.Country, p.EyeColor, p.HairColor, p.HeightCm, p.Weight,
         p.Measurements, p.FakeTits, p.PenisLength, p.Circumcised?.ToString(),
         p.CareerStart?.ToString("yyyy-MM-dd"), p.CareerEnd?.ToString("yyyy-MM-dd"),
-        p.Tattoos, p.Piercings, p.Favorite, p.Details, p.IgnoreAutoTag,
+        p.Tattoos, p.Piercings, p.Favorite, p.Details,
         p.Urls.Select(u => u.Url).ToList(),
         p.Aliases.Select(a => a.Alias).ToList(),
         p.PerformerTags.Where(pt => pt.Tag != null).Select(pt => TagDtoMapping.MapTagDto(pt.Tag!)).ToList(),
@@ -719,7 +717,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
             if (dto.Gender != null) p.Gender = ParseEnum<GenderEnum>(dto.Gender);
             if (dto.Details != null) p.Details = dto.Details;
-            if (dto.IgnoreAutoTag.HasValue) p.IgnoreAutoTag = dto.IgnoreAutoTag.Value;
 
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {
