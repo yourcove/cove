@@ -355,6 +355,10 @@ try
     extensionManager.Register(new Cove.Api.Extensions.ThemeCollectionExtension());
     extensionManager.Register(new Cove.Api.Extensions.DirectFileDownloaderExtension());
     CoveContext.SetDataExtensions(extensionManager.Extensions.OfType<IDataExtension>());
+    // Keep the EF model's data-extension set in sync when extensions are installed/uninstalled at
+    // runtime, so a newly installed data extension's entity types resolve without an app restart.
+    extensionManager.DataExtensionsChanged = () =>
+        CoveContext.SetDataExtensions(extensionManager.Extensions.OfType<IDataExtension>());
     builder.Services.AddSingleton(extensionManager);
     // The cross-extension capability/service exchange: extensions publish shared-contract services
     // here and consume siblings' contributions, since each extension lives in its own container.

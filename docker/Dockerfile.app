@@ -104,13 +104,7 @@ RUN if [ "$COVE_GPU_VENDOR" = "intel" ]; then \
         && rm -rf /var/lib/apt/lists/* ; \
     fi
 
-# PostgreSQL client tools (pg_dump / pg_restore / psql). The app-only image talks to an
-# external PostgreSQL container, but the backup/restore feature — including the mandatory
-# pre-migration backup — shells out to these client binaries, so they must be present here
-# too (the all-in-one image gets them for free via the bundled postgresql-17 server). Pin
-# to the newest client from pgdg (currently v18). pg_dump must be >= the server version it
-# dumps, and the external Postgres can be any version, so we track the latest stable client
-# rather than the v17 the all-in-one image bundles. Bump when a newer Postgres major ships.
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl gnupg lsb-release \
     && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \

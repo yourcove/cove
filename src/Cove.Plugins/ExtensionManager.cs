@@ -39,6 +39,13 @@ public class ExtensionManager
     public IReadOnlyList<IExtension> Extensions => _extensions;
     public ExtensionContext Context => _context;
 
+    /// <summary>
+    /// Invoked when the set of loaded <see cref="IDataExtension"/>s changes at runtime (install or
+    /// uninstall), so the host can refresh the EF model registration (see CoveContext.SetDataExtensions).
+    /// ExtensionManager stays unaware of the data layer; the host wires this up.
+    /// </summary>
+    public Action? DataExtensionsChanged { get; set; }
+
     public ExtensionManager(ExtensionContext context)
     {
         _context = context;
@@ -793,6 +800,16 @@ public class ExtensionManager
             BuildExtensionProvider(ext.Id);
         var extServices = ServicesFor(ext.Id, runtimeServices);
 
+        // A data extension installed at runtime contributes new tables and entity types. Create its
+        // schema (migrations are raw SQL and model-independent) and refresh the host EF model BEFORE it
+        // installs/initializes or handles any query, so the host DbContext can resolve its DbSet<> types
+        // without an app restart. The rebuilt model is a superset, so other extensions are unaffected.
+        if (ext is IDataExtension)
+        {
+            await ApplyExtensionMigrationsAsync(runtimeServices, ct);
+            DataExtensionsChanged?.Invoke();
+        }
+
         try
         {
             await ext.OnInstallAsync(extServices, ct);
@@ -856,6 +873,15 @@ public class ExtensionManager
             BuildExtensionProvider(ext.Id);
         var extServices = ServicesFor(ext.Id, services);
 
+        // Mirror the runtime-install path: ensure a data extension's schema exists and the host EF model
+        // includes its entity types before it initializes. Both calls are idempotent (already-applied
+        // migrations are skipped; the model only rebuilds when the data-extension set actually changed).
+        if (ext is IDataExtension)
+        {
+            await ApplyExtensionMigrationsAsync(services, ct);
+            DataExtensionsChanged?.Invoke();
+        }
+
         try
         {
             await ext.InitializeAsync(extServices, ct);
@@ -899,6 +925,7 @@ public class ExtensionManager
         if (_installations.TryGetValue(id, out var inst))
             inst.Enabled = false;
 
+        var wasDataExtension = ext is IDataExtension;
         var uninstallServices = ServicesFor(id, services);
 
         try
@@ -931,6 +958,11 @@ public class ExtensionManager
         StopBackgroundWorker(id);
         _overlay?.Remove(id);
         WithdrawFromExchange(id);
+
+        // A removed data extension's entity types should leave the EF model so the host stops mapping
+        // tables that may be dropped. Refresh after the extension is gone from the loaded set.
+        if (wasDataExtension)
+            DataExtensionsChanged?.Invoke();
 
         // Encourage collectible AssemblyLoadContext cleanup. File operations do not
         // depend on this completing because extension binaries are loaded from cache.
@@ -1688,6 +1720,9 @@ public class ExtensionManager
 
         _manifestFiles.Remove(id);
         _extensionDirectories.Remove(id);
+        // Drop the active-slot record so the now-unreferenced shadow-copy slot is reaped on the
+        // next discovery pass (it stays protected only while the extension is loaded).
+        _loadCacheSlots.Remove(id);
         _initOrder = null;
 
         if (_loadContexts.TryGetValue(id, out var context))
@@ -1788,11 +1823,25 @@ public class ExtensionManager
         var cacheKey = !string.IsNullOrWhiteSpace(extensionId)
             ? extensionId
             : new DirectoryInfo(extensionDir).Name;
-        var activeSlot = _loadCacheSlots.GetValueOrDefault(cacheKey);
-        var nextSlot = string.Equals(activeSlot, "a", StringComparison.OrdinalIgnoreCase) ? "b" : "a";
-        var cacheRoot = Path.Combine(extensionsRoot, ".load-cache", cacheKey, nextSlot);
+        var extensionCacheRoot = Path.Combine(extensionsRoot, ".load-cache", cacheKey);
+        Directory.CreateDirectory(extensionCacheRoot);
 
-        RecreateDirectory(cacheRoot);
+        // Eagerly reap this extension's previous slots before allocating a new one, so a long-lived
+        // session that installs/reinstalls many times cannot accumulate orphaned slots. The slot the
+        // extension is currently loaded from (recorded in _loadCacheSlots) is preserved; any slot
+        // still locked by a not-yet-collected load context fails to delete and is reaped on a later
+        // pass. (Slots also get a full sweep at startup discovery, covering a force-terminated run.)
+        CleanupExtensionLoadCacheSlots(cacheKey, extensionCacheRoot);
+
+        // Copy the binaries into a brand-new slot directory on every load. A never-before-used
+        // directory cannot be locked by an earlier AssemblyLoadContext that has not yet been
+        // collected, so the copy can never fail with a sharing violation. Reusing a fixed "a"/"b"
+        // slot used to throw UnauthorizedAccessException ("Access to the path 'X.dll' is denied")
+        // when an extension was reinstalled before its previous load context unloaded, which
+        // aborted discovery and left the extension permanently failing to initialize.
+        var slot = "s-" + Guid.NewGuid().ToString("N");
+        var cacheRoot = Path.Combine(extensionCacheRoot, slot);
+        Directory.CreateDirectory(cacheRoot);
 
         foreach (var sourcePath in Directory.GetFiles(extensionDir, "*.dll", SearchOption.AllDirectories))
         {
@@ -1802,10 +1851,10 @@ public class ExtensionManager
             File.Copy(sourcePath, destinationPath, overwrite: true);
         }
 
-        return new ExtensionBinaryCache(cacheKey, nextSlot, extensionDir, cacheRoot);
+        return new ExtensionBinaryCache(cacheKey, slot, extensionDir, cacheRoot);
     }
 
-    private static void CleanupStaleLoadCaches(string extensionsRoot, IReadOnlyCollection<string> extensionDirectories)
+    private void CleanupStaleLoadCaches(string extensionsRoot, IReadOnlyCollection<string> extensionDirectories)
     {
         var loadCacheRoot = Path.Combine(extensionsRoot, ".load-cache");
         if (!Directory.Exists(loadCacheRoot))
@@ -1819,42 +1868,35 @@ public class ExtensionManager
         foreach (var cacheDir in Directory.GetDirectories(loadCacheRoot))
         {
             var cacheName = Path.GetFileName(cacheDir);
-            if (!string.Equals(cacheName, "__shared", StringComparison.OrdinalIgnoreCase)
-                && !installedExtensionIds.Contains(cacheName))
+            if (string.Equals(cacheName, "__shared", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!installedExtensionIds.Contains(cacheName))
             {
                 TryDeleteDirectory(cacheDir);
                 continue;
             }
 
-            if (!string.Equals(cacheName, "__shared", StringComparison.OrdinalIgnoreCase))
-            {
-                CleanupLegacyLoadCacheSlots(cacheDir);
-            }
+            CleanupExtensionLoadCacheSlots(cacheName, cacheDir);
         }
     }
 
-    private static void CleanupLegacyLoadCacheSlots(string extensionCacheRoot)
+    /// <summary>
+    /// Delete every shadow-copy slot for one extension except the slot it is currently loaded from.
+    /// Slots still locked by a load context that has not yet been collected simply fail to delete
+    /// (best effort) and are reaped on a later discovery pass once the context is gone.
+    /// </summary>
+    private void CleanupExtensionLoadCacheSlots(string cacheKey, string extensionCacheRoot)
     {
+        var activeSlot = _loadCacheSlots.GetValueOrDefault(cacheKey);
         foreach (var slotDir in Directory.GetDirectories(extensionCacheRoot))
         {
             var slotName = Path.GetFileName(slotDir);
-            if (!string.Equals(slotName, "a", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(slotName, "b", StringComparison.OrdinalIgnoreCase))
-            {
-                TryDeleteDirectory(slotDir);
-            }
-        }
-    }
+            if (activeSlot != null && string.Equals(slotName, activeSlot, StringComparison.OrdinalIgnoreCase))
+                continue;
 
-    private static void RecreateDirectory(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            RemoveReadOnlyAttributes(path);
-            Directory.Delete(path, recursive: true);
+            TryDeleteDirectory(slotDir);
         }
-
-        Directory.CreateDirectory(path);
     }
 
     private static void RemoveReadOnlyAttributes(string rootPath)

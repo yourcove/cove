@@ -17,11 +17,26 @@ namespace Cove.Data;
 public partial class CoveContext : DbContext
 {
     private static IReadOnlyList<IDataExtension> _dataExtensions = [];
+    private static int _modelGeneration;
     private bool _persistingDerivedCounts;
+
+    /// <summary>
+    /// Monotonic token that changes whenever the set of loaded data extensions changes. Consumed by
+    /// <see cref="CoveModelCacheKeyFactory"/> so EF Core rebuilds the model — picking up or dropping an
+    /// extension's entity types — when a data extension is installed or uninstalled at runtime, without
+    /// an app restart. The rebuilt model is a superset for installs, so other extensions and core code
+    /// keep working against it unchanged.
+    /// </summary>
+    public static int ModelGeneration => Volatile.Read(ref _modelGeneration);
 
     public static void SetDataExtensions(IEnumerable<IDataExtension> extensions)
     {
-        _dataExtensions = extensions.ToList();
+        var next = extensions.ToList();
+        var changed = !next.Select(ext => ext.Id).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(_dataExtensions.Select(ext => ext.Id));
+        _dataExtensions = next;
+        if (changed)
+            Interlocked.Increment(ref _modelGeneration);
     }
 
     public CoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null) : base(options)
@@ -2153,6 +2168,19 @@ public partial class CoveContext : DbContext
             }
         }
     }
+}
+
+/// <summary>
+/// Keys EF Core's model cache by context type plus <see cref="CoveContext.ModelGeneration"/>, so the
+/// model is rebuilt when a data extension is installed or removed at runtime. Paired with a non-pooled
+/// DbContext registration: pooled context instances pin the model they first resolved, so a generation
+/// bump would never reach already-rented instances; non-pooled contexts resolve the current model per
+/// scope, making runtime extension entity changes take effect without an app restart.
+/// </summary>
+public sealed class CoveModelCacheKeyFactory : Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory
+{
+    public object Create(DbContext context, bool designTime)
+        => (context.GetType(), CoveContext.ModelGeneration, designTime);
 }
 
 

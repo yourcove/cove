@@ -60,6 +60,7 @@ import type {
   DownloaderPathOverrideConfig,
   DependencyInfo,
   ExtensionDependencyImpact,
+  ExtensionTutorialTopic,
   IdentifyDefaultsConfig,
   MetadataServerValidationResult,
   TagGroup,
@@ -6545,6 +6546,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 // ===== Find and Install Extensions =====
 function FindAndInstallExtensions() {
   const queryClient = useQueryClient();
+  const { manifest, refreshManifest } = useExtensions();
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState<string>("");
   const [registryType, setRegistryType] = useState<string>("");
@@ -6559,8 +6561,26 @@ function FindAndInstallExtensions() {
   const [urlInstallUrl, setUrlInstallUrl] = useState("");
   const [confirmUrlInstall, setConfirmUrlInstall] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
+  // Just-installed extension that ships a setup guide, surfaced as a post-install CTA (we don't auto-open it).
+  const [justInstalledSetup, setJustInstalledSetup] = useState<{ name: string; topicId: string } | null>(null);
 
   const REGISTRY_PAGE_SIZE = 20;
+
+  // Map an extension id to its setup-guide topic id (topics flagged kind === "setup" in the manifest).
+  const findSetupTopicId = (topics: ExtensionTutorialTopic[] | undefined, extensionId: string) =>
+    topics?.find((topic) => topic.kind === "setup" && topic.extensionId === extensionId)?.id;
+
+  // Resolve a friendly display name for the setup CTA. The owning extension may be a dependency that
+  // was just installed, so fall back to a fresh extensions list lookup before showing the raw id.
+  const resolveExtensionName = async (extensionId: string, knownName?: string): Promise<string> => {
+    if (knownName) return knownName;
+    try {
+      const list = await import("../api/client").then((m) => m.extensions.list());
+      return list.find((ext) => ext.id === extensionId)?.name ?? extensionId;
+    } catch {
+      return extensionId;
+    }
+  };
 
   // Reset to the first page whenever the search/filters change.
   useEffect(() => {
@@ -6610,6 +6630,22 @@ function FindAndInstallExtensions() {
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+
+      // Pull the freshened manifest so a newly installed extension's setup guide becomes
+      // available, then offer it as a CTA rather than opening the manual automatically. The
+      // setup guide can belong to an auto-installed dependency (e.g. installing AI Tagging pulls
+      // in AI Core, which is the one that ships the setup guide), so scan the requested extension
+      // and every dependency that was installed alongside it.
+      void refreshManifest().then((fresh) => {
+        const candidateIds = [variables.extensionId, ...(data.installedDependencies ?? [])];
+        const match = candidateIds
+          .map((id) => ({ id, topicId: findSetupTopicId(fresh?.tutorialTopics, id) }))
+          .find((candidate) => candidate.topicId);
+        if (match?.topicId) {
+          void resolveExtensionName(match.id, match.id === variables.extensionId ? data.extension?.name ?? variables.name : undefined)
+            .then((name) => setJustInstalledSetup({ name, topicId: match.topicId! }));
+        }
+      });
     },
     onError: (error) => setInstallError(error instanceof Error ? error.message : "Extension install failed."),
   });
@@ -6618,7 +6654,7 @@ function FindAndInstallExtensions() {
     mutationFn: () => import("../api/client").then(m =>
       m.extensions.installFromUrl(urlInstallUrl.trim(), true)
     ),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setInstallError(null);
       setConfirmUrlInstall(false);
       setShowUrlInstallForm(false);
@@ -6626,6 +6662,16 @@ function FindAndInstallExtensions() {
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+
+      const installedId = data?.extensionId;
+      if (installedId) {
+        void refreshManifest().then((fresh) => {
+          const setupTopicId = findSetupTopicId(fresh?.tutorialTopics, installedId);
+          if (setupTopicId) {
+            void resolveExtensionName(installedId).then((name) => setJustInstalledSetup({ name, topicId: setupTopicId }));
+          }
+        });
+      }
     },
     onError: (error) => setInstallError(error instanceof Error ? error.message : "Extension install failed."),
   });
@@ -6666,6 +6712,34 @@ function FindAndInstallExtensions() {
 
   return (
     <SectionCard title="Find and Install Extensions" description="Browse and install extensions from the official Cove extension registry.">
+      {justInstalledSetup && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded border border-accent/30 bg-accent/10 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <BookOpen className="h-4 w-4 shrink-0 text-accent" />
+            <span><span className="font-medium">{justInstalledSetup.name}</span> is installed. View its setup guide to finish getting it ready.</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                openTutorialStoryboard({ topicId: justInstalledSetup.topicId });
+                setJustInstalledSetup(null);
+              }}
+              className="px-3 py-1 text-xs rounded font-medium bg-accent text-background hover:bg-accent/90"
+            >
+              View setup guide
+            </button>
+            <button
+              type="button"
+              onClick={() => setJustInstalledSetup(null)}
+              className="rounded px-2 py-1 text-xs text-secondary hover:bg-card-hover/40"
+              aria-label="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
       {/* Updates banner */}
       {updates && updates.length > 0 && (
         <div className="mb-4 p-3 bg-yellow-600/10 border border-yellow-600/30 rounded-lg">

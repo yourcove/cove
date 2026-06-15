@@ -24,8 +24,15 @@ public static class DataServiceExtensions
             return dataSourceBuilder.Build();
         });
 
-        // Use DbContext pooling for faster context acquisition (avoids repeated setup)
-        services.AddDbContextPool<CoveContext>((sp, options) =>
+        // Not pooled by design: a data extension installed at runtime changes the EF model (it
+        // contributes new entity types via CoveContext.OnModelCreating). Pooled context instances pin
+        // the model they first resolved, so a model rebuild would never reach already-rented instances
+        // and the extension's DbSet<> types would fail until an app restart. Non-pooled contexts resolve
+        // the current model per scope, so paired with CoveModelCacheKeyFactory (keyed on
+        // CoveContext.ModelGeneration) runtime install/uninstall takes effect with no restart. Context
+        // construction is cheap relative to Cove's query workload; the model itself is still cached per
+        // generation, so it is rebuilt once on change, not per request.
+        services.AddDbContext<CoveContext>((sp, options) =>
         {
             var dataSource = sp.GetRequiredService<NpgsqlDataSource>();
 
@@ -36,6 +43,7 @@ public static class DataServiceExtensions
                 npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 npgsqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(2), null);
             });
+            options.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, CoveModelCacheKeyFactory>();
             // Loaded data extensions contribute their own entities/tables to the model at runtime
             // (CoveContext.OnModelCreating calls ext.ConfigureModel), but those are intentionally not
             // part of the core migration snapshot — extensions own their schema. Without this, EF's
@@ -48,7 +56,7 @@ public static class DataServiceExtensions
             options.EnableThreadSafetyChecks(false);
             // Disable detailed errors (only useful for debugging)
             options.EnableDetailedErrors(false);
-        }, poolSize: 256);
+        });
 
         // Allow extensions to resolve via DbContext base type
         services.AddScoped<DbContext>(sp => sp.GetRequiredService<CoveContext>());

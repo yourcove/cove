@@ -9,7 +9,7 @@ DB_USER="cove"
 # Wait for PostgreSQL to accept connections
 echo "[cove] Waiting for PostgreSQL..."
 for i in $(seq 1 30); do
-    if su - postgres -c "/usr/lib/postgresql/17/bin/pg_isready -q -p 5432" 2>/dev/null; then
+    if su - postgres -c "/usr/lib/postgresql/18/bin/pg_isready -q -p 5432" 2>/dev/null; then
         break
     fi
     sleep 1

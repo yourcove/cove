@@ -8,6 +8,11 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.4.1] - 2026-06-15
+
+- Docker postgres 18 bugfix
+- Extension installation bugfixes
+
 ## [0.4.0] - 2026-06-15
 
 - Further Stash migration fixes
