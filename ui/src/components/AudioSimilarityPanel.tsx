@@ -17,14 +17,26 @@ interface PanelProps {
 
 export function useVideoAudioSimilarityAvailable(videoId?: number) {
   const audioSimilarity = useAudioSimilarityApi();
+  const enabled = audioSimilarity != null && typeof videoId === "number" && videoId > 0;
   const preview = useQuery({
-    queryKey: ["audio-similarity", "video", videoId, "similar-videos", "preview"],
+    queryKey: ["audio-similarity", "video", videoId, "has-embeddings"],
+    queryFn: () => audioSimilarity!.videoHasEmbeddings(videoId!),
+    enabled,
+    retry: false,
+  });
+  // Version-skew safety net: an older AI.Audio build won't have the has-embeddings endpoint (the call
+  // 404s). Fall back to the previous 1-item similarity probe so the tab still appears.
+  const legacy = useQuery({
+    queryKey: ["audio-similarity", "video", videoId, "availability-fallback"],
     queryFn: () => audioSimilarity!.similarVideosForVideo(videoId!, { perPage: AVAILABILITY_PER_PAGE }),
-    enabled: audioSimilarity != null && typeof videoId === "number" && videoId > 0,
+    enabled: enabled && preview.isError,
     retry: false,
   });
 
-  return audioSimilarity != null && (preview.data?.items.length ?? 0) > 0;
+  if (!enabled) return false;
+  if (preview.data) return preview.data.hasEmbeddings;
+  if (preview.isError) return (legacy.data?.items.length ?? 0) > 0;
+  return false;
 }
 
 export function VideoAudioSimilarityPanel({ videoId, onNavigate }: PanelProps & { videoId: number }) {

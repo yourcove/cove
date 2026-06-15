@@ -1077,7 +1077,16 @@ export function SettingsPage() {
     resolveComponent,
     settingsTabs: contributedSettingsTabs,
     loaded: extensionsLoaded,
+    manifest: extensionManifest,
   } = useExtensions();
+  // Built-in nav pages plus any extension-contributed nav pages, so extension pages
+  // (e.g. "AI Dome") are reorderable/toggleable here just like built-in pages.
+  const navMenuItems = [
+    ...menuItems,
+    ...(extensionManifest?.pages ?? [])
+      .filter((page) => page.showInNav && !menuItems.some((item) => item.value === page.route))
+      .map((page) => ({ value: page.route, label: page.label })),
+  ];
   const canWriteSystemSettings = hasPermission("system.settings.write");
   const canShutdownSystem = hasPermission("system.shutdown");
   const canReadSegments = hasPermission("segments.read");
@@ -2392,7 +2401,7 @@ export function SettingsPage() {
                     <span>{uploadFaviconMutation.isPending ? "Uploading" : "Choose file"}</span>
                     <input
                       type="file"
-                      accept=".ico,image/png,image/jpeg,image/webp"
+                      accept=".ico,image/png,image/jpeg,image/webp,image/svg+xml"
                       className="hidden"
                       disabled={uploadFaviconMutation.isPending}
                       onChange={(event) => {
@@ -2426,7 +2435,7 @@ export function SettingsPage() {
             <SectionCard title="Navigation" description="Drag to reorder, toggle to show/hide. Changes apply immediately after save.">
               <div className="space-y-4">
                 <NavReorderList
-                  allItems={menuItems}
+                  allItems={navMenuItems}
                   enabledItems={draft.interface.menuItems}
                   onChange={(items) =>
                     updateDraft((current) => ({

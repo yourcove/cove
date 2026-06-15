@@ -735,6 +735,8 @@ export function createAudioSimilarityClient(apiBasePath: string) {
   return {
     similarVideosForVideo: (videoId: number, params?: { perPage?: number }) =>
       request<{ items: AudioSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos${buildQuery(params)}`),
+    videoHasEmbeddings: (videoId: number) =>
+      request<{ hasEmbeddings: boolean }>(`${normalizedBasePath}/videos/${videoId}/has-embeddings`),
   };
 }
 

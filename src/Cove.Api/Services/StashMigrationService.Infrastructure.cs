@@ -471,15 +471,18 @@ WHERE files.zip_file_id IS NOT NULL";
         try
         {
             progress.Report(startProgress, "Copying generated scene assets...");
+            // Writing the scene cover thumbnail only needs the imported cover blob and Cove's own
+            // destination path — NOT Stash's generated folder. So a missing/absent Stash generated
+            // directory must not stop cover thumbnails from being written; it only disables the
+            // file-copy steps (previews/sprites/vtt and the legacy screenshot fallback) that read
+            // from it.
             var stashGeneratedPath = stashConfig.GeneratedPath;
-            if (string.IsNullOrWhiteSpace(stashGeneratedPath) || !Directory.Exists(stashGeneratedPath))
-            {
-                _logger.LogWarning("Stash generated path not found: {Path}", stashGeneratedPath);
-                return;
-            }
+            var hasStashGenerated = !string.IsNullOrWhiteSpace(stashGeneratedPath) && Directory.Exists(stashGeneratedPath);
+            if (!hasStashGenerated)
+                _logger.LogWarning("Stash generated path not found: {Path} - migrating cover thumbnails from blobs only", stashGeneratedPath);
 
-            var stashScreenshotsDir = Path.Combine(stashGeneratedPath, "screenshots");
-            var stashVttDir = Path.Combine(stashGeneratedPath, "vtt");
+            var stashScreenshotsDir = hasStashGenerated ? Path.Combine(stashGeneratedPath!, "screenshots") : string.Empty;
+            var stashVttDir = hasStashGenerated ? Path.Combine(stashGeneratedPath!, "vtt") : string.Empty;
 
             var previewHashes = Directory.Exists(stashScreenshotsDir)
                 ? Directory.EnumerateFiles(stashScreenshotsDir, "*.mp4", SearchOption.TopDirectoryOnly)
@@ -498,6 +501,18 @@ WHERE files.zip_file_id IS NOT NULL";
             var vttHashes = Directory.Exists(stashVttDir)
                 ? Directory.EnumerateFiles(stashVttDir, "*_thumbs.vtt", SearchOption.TopDirectoryOnly)
                     .Select(path => TrimGeneratedSuffix(Path.GetFileNameWithoutExtension(path), "_thumbs"))
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => name!)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Older Stash installs (or libraries where the "Migrate scene screenshots" task was never
+            // run) keep the scene cover as a generated file at screenshots/<hash>.jpg rather than a
+            // cover_blob. Index those so scenes without a cover blob still get a thumbnail. Exclude
+            // "<hash>.thumb.jpg" sidecars — only the full-size "<hash>.jpg" is the cover.
+            var legacyScreenshotHashes = Directory.Exists(stashScreenshotsDir)
+                ? Directory.EnumerateFiles(stashScreenshotsDir, "*.jpg", SearchOption.TopDirectoryOnly)
+                    .Where(path => !path.EndsWith(".thumb.jpg", StringComparison.OrdinalIgnoreCase))
+                    .Select(Path.GetFileNameWithoutExtension)
                     .Where(name => !string.IsNullOrWhiteSpace(name))
                     .Select(name => name!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -523,6 +538,16 @@ WHERE files.zip_file_id IS NOT NULL";
                 {
                     sourceScreenshots++;
                     if (await TryWriteSceneScreenshotAsync(coveSceneId, generatedData.CoverBlobId!, ct))
+                        migratedScreenshots++;
+                }
+                else if (ResolveGeneratedHash(generatedData, stashConfig.VideoFileNamingAlgorithm, legacyScreenshotHashes) is { } legacyScreenshotHash)
+                {
+                    // No cover blob (legacy state, or the blob failed to import) — fall back to the
+                    // generated screenshots/<hash>.jpg file. Stash screenshots are already JPEG, so a
+                    // straight copy into Cove's screenshot path matches what the runtime serves.
+                    sourceScreenshots++;
+                    var srcScreenshotPath = Path.Combine(stashScreenshotsDir, $"{legacyScreenshotHash}.jpg");
+                    if (TryCopyGeneratedFile(srcScreenshotPath, GetCoveSceneThumbnailPath(coveSceneId)))
                         migratedScreenshots++;
                 }
 
@@ -961,25 +986,25 @@ WHERE files.zip_file_id IS NOT NULL";
 
         var configDirectory = Path.GetDirectoryName(configPath) ?? string.Empty;
 
-        var resolvedBlobFilesPath = ResolveStashConfigPath(configDirectory, blobFilesPath);
-        // When the user runs Stash's "Migrate blobs to filesystem" action without a
-        // custom path, Stash stores blobs under "<config_dir>/blobs" and usually does
-        // not persist a "blobs_path:" key in config.yml. Fall back to that default
-        // location so filesystem-stored blobs (performer/scene images) still import.
-        // Only adopt it when the directory actually exists to avoid a spurious
-        // "blob files path does not exist" warning for inline-blob libraries.
-        if (string.IsNullOrWhiteSpace(resolvedBlobFilesPath) && !string.IsNullOrEmpty(configDirectory))
-        {
-            var defaultBlobsPath = Path.Combine(configDirectory, "blobs");
-            if (Directory.Exists(defaultBlobsPath))
-                resolvedBlobFilesPath = defaultBlobsPath;
-        }
+        // Stash records absolute paths in config.yml that reflect wherever Stash itself ran
+        // (e.g. "/root/.stash/blobs", "/root/.stash/generated"). When a user mounts their Stash
+        // data directory into Cove at a different location, those absolute paths no longer resolve
+        // even though the data sits right next to config.yml/stash-go.sqlite. When the configured
+        // path is unset OR points somewhere that does not exist, fall back to Stash's default
+        // "<config_dir>/<name>" layout if it exists on disk. This also covers "Migrate blobs to
+        // filesystem" runs that leave no "blobs_path:" key. The directory-exists check keeps
+        // inline-blob / generated-less libraries from adopting a bogus path (and, for blobs,
+        // preserves the configured value so the "does not exist" warning still names it).
+        var resolvedBlobFilesPath = ResolveConfigDirDefault(
+            ResolveStashConfigPath(configDirectory, blobFilesPath), configDirectory, "blobs");
+        var resolvedGeneratedPath = ResolveConfigDirDefault(
+            ResolveStashConfigPath(configDirectory, generatedPath), configDirectory, "generated");
 
         return new StashConfigData(
             paths
                 .Select(path => (ResolveStashConfigPath(configDirectory, path.Path) ?? path.Path, path.ExcludeImage, path.ExcludeVideo))
                 .ToList(),
-            ResolveStashConfigPath(configDirectory, generatedPath),
+            resolvedGeneratedPath,
             videoFileNamingAlgorithm ?? (calculateMd5 == true ? "MD5" : "OSHASH"),
             resolvedBlobFilesPath,
             ResolveStashConfigPath(configDirectory, customPerformerImageLocation),
@@ -993,6 +1018,24 @@ WHERE files.zip_file_id IS NOT NULL";
             var trimmed = rawLine.TrimStart();
             return names.Any(name => trimmed.StartsWith($"{name}:", StringComparison.OrdinalIgnoreCase));
         }
+    }
+
+    // Prefers the path resolved from config.yml, but when that path is unset or does not exist on
+    // disk, falls back to Stash's default "<config_dir>/<defaultFolderName>" location if it exists.
+    // Returns the original resolved path otherwise so callers still log/report the configured value.
+    private static string? ResolveConfigDirDefault(string? resolvedPath, string configDirectory, string defaultFolderName)
+    {
+        if (!string.IsNullOrWhiteSpace(resolvedPath) && Directory.Exists(resolvedPath))
+            return resolvedPath;
+
+        if (!string.IsNullOrEmpty(configDirectory))
+        {
+            var fallback = Path.Combine(configDirectory, defaultFolderName);
+            if (Directory.Exists(fallback))
+                return fallback;
+        }
+
+        return resolvedPath;
     }
 
     private static string? ResolveStashConfigPath(string configDirectory, string? configuredPath)

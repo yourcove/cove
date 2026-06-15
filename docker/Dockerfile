@@ -39,7 +39,7 @@ FROM debian:bookworm-slim AS runtime
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install PostgreSQL 17 and s6-overlay for process supervision
+# Install PostgreSQL 18 and s6-overlay for process supervision
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -50,8 +50,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         > /etc/apt/sources.list.d/pgdg.list \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg \
     && apt-get update && apt-get install -y --no-install-recommends \
-        postgresql-17 \
-        postgresql-17-pgvector \
+        postgresql-18 \
+        postgresql-18-pgvector \
         libicu72 \
         libssl3 \
     && apt-get purge -y --auto-remove gnupg lsb-release \

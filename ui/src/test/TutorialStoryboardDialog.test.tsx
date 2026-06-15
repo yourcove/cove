@@ -5,15 +5,15 @@ import { TutorialStoryboardDialog, builtinTutorialTopics } from "../components/T
 import type { ExtensionTutorialTopic } from "../api/types";
 
 describe("TutorialStoryboardDialog", () => {
-  // it("gives every built-in manual slide a screenshot", () => {
-  //   const missing = builtinTutorialTopics.flatMap((topic) =>
-  //     topic.slides
-  //       .filter((slide) => !slide.imageSrc || !slide.imageAlt)
-  //       .map((slide) => `${topic.id}/${slide.id}`),
-  //   );
+  it("gives every built-in manual slide a screenshot", () => {
+    const missing = builtinTutorialTopics.flatMap((topic) =>
+      topic.slides
+        .filter((slide) => !slide.imageSrc || !slide.imageAlt)
+        .map((slide) => `${topic.id}/${slide.id}`),
+    );
 
-  //   expect(missing).toEqual([]);
-  // });
+    expect(missing).toEqual([]);
+  });
 
   it("renders colored manual callouts without the box label text", () => {
     render(

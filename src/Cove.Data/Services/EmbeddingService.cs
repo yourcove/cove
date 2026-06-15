@@ -73,17 +73,24 @@ public sealed class EmbeddingService(
                 .ToListAsync(cancellationToken);
 
             return ranked
-                .Select(item => new EmbeddingSearchResult(item.Embedding, (float)item.Distance))
+                .Select(item => new EmbeddingSearchResult(item.Embedding, SanitizeDistance((float)item.Distance)))
                 .ToList();
         }
 
         var candidates = await embeddings.ToListAsync(cancellationToken);
         return candidates
-            .Select(embedding => new EmbeddingSearchResult(embedding, ComputeCosineDistance(embedding.Vector, query)))
+            .Select(embedding => new EmbeddingSearchResult(embedding, SanitizeDistance(ComputeCosineDistance(embedding.Vector, query))))
             .OrderBy(result => result.Distance)
             .Take(k)
             .ToList();
     }
+
+    // A zero-norm / degenerate embedding vector yields an undefined (NaN) cosine distance. Map any
+    // non-finite distance to the maximum cosine distance so it ranks last and never propagates into
+    // downstream similarity math or JSON serialization (System.Text.Json rejects NaN/Infinity).
+    private const float MaxCosineDistance = 2f;
+
+    private static float SanitizeDistance(float distance) => float.IsFinite(distance) ? distance : MaxCosineDistance;
 
     private static IQueryable<Embedding> ApplyFilters(IQueryable<Embedding> query, EmbeddingSearchOptions options)
     {

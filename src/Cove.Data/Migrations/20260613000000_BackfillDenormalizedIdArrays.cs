@@ -23,13 +23,14 @@ namespace Cove.Data.Migrations
         private static string ResyncSql(string parentTable, string arrayColumn, string joinTable, string parentKey, string childKey) => $@"
             UPDATE public.{parentTable} p
             SET ""{arrayColumn}"" = COALESCE(agg.ids, ARRAY[]::integer[])
-            FROM public.{parentTable} p2
-            LEFT JOIN LATERAL (
-                SELECT array_agg(DISTINCT j.""{childKey}"" ORDER BY j.""{childKey}"") AS ids
+            FROM public.{parentTable} pp
+            LEFT JOIN (
+                SELECT j.""{parentKey}"" AS parent_id,
+                       array_agg(DISTINCT j.""{childKey}"" ORDER BY j.""{childKey}"") AS ids
                 FROM public.{joinTable} j
-                WHERE j.""{parentKey}"" = p2.""Id""
-            ) agg ON TRUE
-            WHERE p.""Id"" = p2.""Id""
+                GROUP BY j.""{parentKey}""
+            ) agg ON agg.parent_id = pp.""Id""
+            WHERE p.""Id"" = pp.""Id""
               AND p.""{arrayColumn}"" IS DISTINCT FROM COALESCE(agg.ids, ARRAY[]::integer[]);";
 
         /// <inheritdoc />

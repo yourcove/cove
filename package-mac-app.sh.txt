@@ -3,7 +3,7 @@
 # Ensure we are in the script's directory
 cd "$(dirname "$0")"
 
-echo "Packaging Cove.Api for macOS..."
+echo "Packaging Cove for macOS..."
 
 PUBLISH_DIR="publish/osx-arm64"
 APP_DIR="${PUBLISH_DIR}/Cove.app"
@@ -16,15 +16,22 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 # 2. Copy the binary and relevant files (like appsettings.json or wwwroot)
-if [ ! -f "${PUBLISH_DIR}/Cove.Api" ]; then
-    echo "Error: Cove.Api binary not found in ${PUBLISH_DIR}."
+if [ ! -f "${PUBLISH_DIR}/Cove" ]; then
+    echo "Error: Cove binary not found in ${PUBLISH_DIR}."
     echo "Did you run 'dotnet publish' first?"
     exit 1
 fi
 
 echo "Copying binary and configurations..."
-cp "${PUBLISH_DIR}/Cove.Api" "$MACOS_DIR/"
+cp "${PUBLISH_DIR}/Cove" "$MACOS_DIR/"
 cp "${PUBLISH_DIR}/appsettings"*.json "$MACOS_DIR/" 2>/dev/null
+
+# Copy the Cove app icon (shared logo at the repo root) into the bundle.
+if [ -f "coveicon.icns" ]; then
+    cp "coveicon.icns" "$RESOURCES_DIR/Cove.icns"
+else
+    echo "Warning: coveicon.icns not found at repo root; bundle will use the default icon."
+fi
 
 # 3. Create the Info.plist file
 echo "Generating Info.plist..."
@@ -34,10 +41,12 @@ cat <<EOF > "$CONTENTS_DIR/Info.plist"
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>Cove.Api</string>
+    <string>Cove</string>
     <key>CFBundleIdentifier</key>
     <string>com.cove.api</string>
     <key>CFBundleName</key>
+    <string>Cove</string>
+    <key>CFBundleIconFile</key>
     <string>Cove</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>

@@ -629,6 +629,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       for (const segment of segmentsToDelete) {
         await queryClient.invalidateQueries({ queryKey: ["segment", segment.id] });
         await queryClient.invalidateQueries({ queryKey: ["video", segment.hostId, "segments"] });
+        await queryClient.invalidateQueries({ queryKey: ["video", segment.hostId, "resolved-spans"] });
         await queryClient.invalidateQueries({ queryKey: ["video", segment.hostId] });
       }
       setConfirmRawDelete(false);

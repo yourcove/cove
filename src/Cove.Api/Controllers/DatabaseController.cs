@@ -58,6 +58,11 @@ public class DatabaseController(CoveContext db, IBackupService backupService, IL
         var backup = await backupService.CreateBackupAsync("pre_migration", ct);
         logger.LogInformation("Pre-migration database backup created at {Path}", backup.BackupPath);
 
+        // Data-backfill migrations (e.g. BackfillDenormalizedIdArrays) rewrite whole tables and can
+        // easily exceed the default 30s command timeout on a large library — the command then times
+        // out and EF's retry strategy re-runs it, looping. Lift the timeout for the gated migration
+        // run so big datasets can finish. The context is request-scoped, so this only affects this call.
+        db.Database.SetCommandTimeout(TimeSpan.FromHours(2));
         await db.Database.MigrateAsync(ct);
 
         var remainingMigrations = (await db.Database.GetPendingMigrationsAsync(ct)).ToArray();

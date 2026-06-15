@@ -133,10 +133,18 @@ export function VideoSegmentsPanel({
   };
 
   // ----- Mutations -----
+  // After a segment mutation, refresh both the raw segment list and the
+  // server-resolved spans (sidebar + scrubber swimlanes render from spans).
+  // The resolved-spans query key includes a profile id, so invalidate by
+  // prefix to cover every profile variant.
+  const invalidateSegments = () => {
+    queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] });
+    queryClient.invalidateQueries({ queryKey: ["video", videoId, "resolved-spans"] });
+  };
   const createMutation = useMutation({
     mutationFn: (data: { title?: string; kind?: string; startSec: number; endSec?: number; tagId?: number; refId?: number }) =>
       videos.segments.create(videoId, { startSec: data.startSec, endSec: data.endSec, tagId: data.tagId, refId: data.refId, kind: data.kind, title: data.title }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] }); resetForm(); },
+    onSuccess: () => { invalidateSegments(); resetForm(); },
   });
   const updateMutation = useMutation({
     mutationFn: (data: { segment: Segment; startSec: number; endSec?: number; tagId?: number; refId?: number; kind?: string; title?: string }) =>
@@ -146,11 +154,11 @@ export function VideoSegmentsPanel({
         payload: data.segment.payload, sourceKey: data.segment.sourceKey || "user", sourceRunId: data.segment.sourceRunId,
         confidence: data.segment.confidence, title: data.title, colorHint: data.segment.colorHint,
       }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] }); resetForm(); },
+    onSuccess: () => { invalidateSegments(); resetForm(); },
   });
   const deleteMutation = useMutation({
     mutationFn: async (ids: number[]) => { for (const id of ids) await videos.segments.delete(videoId, id); },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["video", videoId, "segments"] }),
+    onSuccess: () => invalidateSegments(),
   });
 
   // ----- Edit form helpers -----

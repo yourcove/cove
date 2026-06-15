@@ -36,6 +36,7 @@ public class SystemController(
         [".jpg"] = "image/jpeg",
         [".jpeg"] = "image/jpeg",
         [".webp"] = "image/webp",
+        [".svg"] = "image/svg+xml",
     };
 
     [HttpGet("status")]
@@ -313,7 +314,7 @@ public class SystemController(
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!UiAssetContentTypes.ContainsKey(extension))
-            return BadRequest(new { error = "Favicon must be an ico, png, jpg, or webp file." });
+            return BadRequest(new { error = "Favicon must be an ico, png, jpg, webp, or svg file." });
 
         var assetDir = CoveDefaultPaths.GetDataSubdirectory("ui-assets");
         Directory.CreateDirectory(assetDir);

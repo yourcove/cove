@@ -115,7 +115,7 @@ export function JobCard({ job, variant = "drawer", onCancel, onMoveUp, onMoveDow
             )}
           </div>
 
-          {job.subTask && <p className="text-xs text-muted mt-0.5 truncate">{job.subTask}</p>}
+          {job.subTask && <p className="text-xs text-muted mt-0.5 line-clamp-3">{job.subTask}</p>}
 
           {job.status === "running" && job.progress != null && job.progress >= 0 && (
             <div className="mt-2">

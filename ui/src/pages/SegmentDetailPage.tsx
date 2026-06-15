@@ -260,6 +260,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
 
     if (current?.hostId != null) {
       queryClient.invalidateQueries({ queryKey: ["video", current.hostId, "segments"] });
+      queryClient.invalidateQueries({ queryKey: ["video", current.hostId, "resolved-spans"] });
       queryClient.invalidateQueries({ queryKey: ["video", current.hostId] });
     }
 

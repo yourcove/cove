@@ -308,6 +308,71 @@ stash_boxes:
     }
 
     [Fact]
+    public async Task ParseStashConfig_FallsBackToConfigDirWhenAbsolutePathsMissing()
+    {
+        // Reproduces the common Docker-migration case: config.yml records absolute paths from the
+        // machine where Stash ran (e.g. "/root/.stash/blobs"), which do not exist after the user
+        // mounts their Stash data into Cove — but blobs/generated sit next to config.yml.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"stash-config-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "blobs"));
+        Directory.CreateDirectory(Path.Combine(tempDir, "generated"));
+        var configPath = Path.Combine(tempDir, "config.yml");
+
+        try
+        {
+            await File.WriteAllTextAsync(configPath, """
+generated: /root/.stash/generated
+blobs_path: /root/.stash/blobs
+stash:
+  - path: /root/.stash/library
+""");
+
+            var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
+            Assert.NotNull(stashConfig);
+
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(tempDir, "blobs")),
+                GetPrivateProperty<string>(stashConfig!, "BlobFilesPath"));
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(tempDir, "generated")),
+                GetPrivateProperty<string>(stashConfig!, "GeneratedPath"));
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ParseStashConfig_KeepsConfiguredBlobPathWhenNoConfigDirFallbackExists()
+    {
+        // When neither the configured path nor "<config_dir>/blobs" exists, keep the configured
+        // value so the import's "blob files path does not exist" warning still names it.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"stash-config-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var configPath = Path.Combine(tempDir, "config.yml");
+
+        try
+        {
+            await File.WriteAllTextAsync(configPath, """
+blobs_path: /root/.stash/blobs
+""");
+
+            var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
+            Assert.NotNull(stashConfig);
+
+            Assert.Equal(
+                Path.GetFullPath("/root/.stash/blobs"),
+                GetPrivateProperty<string>(stashConfig!, "BlobFilesPath"));
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void MergeStashConfigIntoCoveConfig_ImportsMetadataServers()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"stash-config-{Guid.NewGuid():N}");

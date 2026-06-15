@@ -6,6 +6,8 @@
          RootNamespace stays Cove.Api so all source namespaces are unaffected. -->
     <AssemblyName>Cove</AssemblyName>
     <RootNamespace>Cove.Api</RootNamespace>
+    <!-- Windows executable icon (Cove.exe). Shared Cove logo lives at the repo root. -->
+    <ApplicationIcon>..\..\coveicon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
