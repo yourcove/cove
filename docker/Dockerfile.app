@@ -24,6 +24,10 @@ COPY src/Cove.Tests/Cove.Tests.csproj Cove.Tests/
 RUN dotnet restore Cove.slnx
 
 COPY src/ ./
+# Cove.Api.csproj sets <ApplicationIcon>..\..\coveicon.ico</ApplicationIcon>, which resolves to the
+# repo root (/build/coveicon.ico from /build/src/Cove.Api). It lives outside src/, so copy it in
+# explicitly or the Release publish fails with CS7064 (Could not find file '/build/coveicon.ico').
+COPY coveicon.ico /build/coveicon.ico
 COPY --from=ui-build /build/src/Cove.Api/wwwroot/ Cove.Api/wwwroot/
 RUN dotnet publish Cove.Api/Cove.Api.csproj \
     -c Release \
