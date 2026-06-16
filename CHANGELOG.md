@@ -8,7 +8,7 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
-## [0.4.3] - 2026-06-15
+## [0.4.3] - 2026-06-16
 
 - Ffmpeg fixes & improvements
 - Fix transcoding of some video file types
