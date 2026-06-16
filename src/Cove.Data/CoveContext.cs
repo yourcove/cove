@@ -32,8 +32,10 @@ public partial class CoveContext : DbContext
     public static void SetDataExtensions(IEnumerable<IDataExtension> extensions)
     {
         var next = extensions.ToList();
-        var changed = !next.Select(ext => ext.Id).ToHashSet(StringComparer.OrdinalIgnoreCase)
-            .SetEquals(_dataExtensions.Select(ext => ext.Id));
+        // Compare by instance reference, not id: a reloaded extension keeps its id but is a new object from
+        // a new AssemblyLoadContext, and the model must be rebuilt so its entity types match the running
+        // code. SetEquals over a reference-keyed set also ignores ordering (which is irrelevant here).
+        var changed = !next.ToHashSet().SetEquals(_dataExtensions);
         _dataExtensions = next;
         if (changed)
             Interlocked.Increment(ref _modelGeneration);

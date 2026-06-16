@@ -122,12 +122,18 @@ public partial class StashMigrationService
                     CreatedAt = ParseDateTime(row.CreatedAt),
                     UpdatedAt = ParseDateTime(row.UpdatedAt),
                     Urls = imageUrls.GetValueOrDefault(stashId, []).Select(u => new ImageUrl { Url = u }).ToList(),
+                    // Dedupe on the mapped Cove id — distinct Stash ids can collapse to one Cove id
+                    // (e.g. merged tags/performers), which would otherwise be a duplicate composite key.
                     ImageTags = imageTagMap.GetValueOrDefault(stashId, [])
                         .Where(tagIdMap.ContainsKey)
-                        .Select(t => new ImageTag { TagId = tagIdMap[t] }).ToList(),
+                        .Select(t => tagIdMap[t])
+                        .Distinct()
+                        .Select(tagId => new ImageTag { TagId = tagId }).ToList(),
                     ImagePerformers = imagePerformerMap.GetValueOrDefault(stashId, [])
                         .Where(performerIdMap.ContainsKey)
-                        .Select(p => new ImagePerformer { PerformerId = performerIdMap[p] }).ToList(),
+                        .Select(p => performerIdMap[p])
+                        .Distinct()
+                        .Select(performerId => new ImagePerformer { PerformerId = performerId }).ToList(),
                 };
 
                 if (imageToFiles.TryGetValue(stashId, out var fileIds))

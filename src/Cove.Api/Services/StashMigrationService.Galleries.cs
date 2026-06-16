@@ -139,17 +139,25 @@ public partial class StashMigrationService
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
                 Urls = galleryUrls.GetValueOrDefault(stashId, []).Select(u => new GalleryUrl { Url = u }).ToList(),
+                // Dedupe on the mapped Cove id — distinct Stash ids can collapse to one Cove id
+                // (e.g. merged tags/performers), which would otherwise be a duplicate composite key.
                 GalleryTags = galleryTagMap.GetValueOrDefault(stashId, [])
                     .Where(tagIdMap.ContainsKey)
-                    .Select(t => new GalleryTag { TagId = tagIdMap[t] }).ToList(),
+                    .Select(t => tagIdMap[t])
+                    .Distinct()
+                    .Select(tagId => new GalleryTag { TagId = tagId }).ToList(),
                 GalleryPerformers = galleryPerformerMap.GetValueOrDefault(stashId, [])
                     .Where(performerIdMap.ContainsKey)
-                    .Select(p => new GalleryPerformer { PerformerId = performerIdMap[p] }).ToList(),
+                    .Select(p => performerIdMap[p])
+                    .Distinct()
+                    .Select(performerId => new GalleryPerformer { PerformerId = performerId }).ToList(),
                 Chapters = galleryChapters.GetValueOrDefault(stashId, [])
                     .Select(c => new GalleryChapter { Title = c.Title, ImageIndex = c.ImageIndex }).ToList(),
                 ImageGalleries = galleryImages.GetValueOrDefault(stashId, [])
                     .Where(imageIdMap.ContainsKey)
-                    .Select(imgId => new ImageGallery { ImageId = imageIdMap[imgId] }).ToList(),
+                    .Select(imgId => imageIdMap[imgId])
+                    .Distinct()
+                    .Select(coveImageId => new ImageGallery { ImageId = coveImageId }).ToList(),
             };
 
             if (galleryToFile.TryGetValue(stashId, out var fileId) && fileData.TryGetValue(fileId, out var fd)

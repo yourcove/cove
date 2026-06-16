@@ -66,6 +66,7 @@ public class ConfigService
                 .ToList(),
             CalculateMd5 = cfg.CalculateMd5,
             EnableFfmpegHwAccel = cfg.EnableFfmpegHwAccel,
+            FrameExtractionMode = cfg.FrameExtractionMode,
             FfmpegPath = cfg.FfmpegPath,
             FfprobePath = cfg.FfprobePath,
             MaxTranscodeSize = cfg.MaxTranscodeSize,
@@ -297,6 +298,7 @@ public class ConfigService
             .ToList();
         cfg.CalculateMd5 = dto.CalculateMd5;
         cfg.EnableFfmpegHwAccel = dto.EnableFfmpegHwAccel;
+        cfg.FrameExtractionMode = string.Equals(dto.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase) ? "managed" : "external";
         cfg.FfmpegPath = string.IsNullOrWhiteSpace(dto.FfmpegPath) ? null : dto.FfmpegPath;
         cfg.FfprobePath = string.IsNullOrWhiteSpace(dto.FfprobePath) ? null : dto.FfprobePath;
         cfg.MaxTranscodeSize = dto.MaxTranscodeSize;

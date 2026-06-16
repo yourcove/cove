@@ -43,21 +43,33 @@ const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 function getVideoSourceMimeType(format?: string) {
   switch (format?.trim().toLowerCase()) {
     case "mp4":
+    case "m4v":
       return "video/mp4";
     case "webm":
       return "video/webm";
     case "ogg":
     case "ogv":
       return "video/ogg";
-    case "mpeg":
-    case "mpg":
-      return "video/mpeg";
     case "mov":
       return "video/quicktime";
     default:
       return undefined;
   }
 }
+
+// Containers a browser can reliably play natively. Anything else (avi, wmv, flv, mkv, asf,
+// rm/rmvb, mpg, f4v, ts, …) is routed through the server-side transcode endpoint instead of
+// attempting — and silently failing — direct playback.
+const BROWSER_NATIVE_VIDEO_FORMATS = new Set(["mp4", "m4v", "webm", "ogg", "ogv", "mov"]);
+
+function isBrowserNativeVideoFormat(format?: string) {
+  const normalized = format?.trim().toLowerCase();
+  return normalized != null && BROWSER_NATIVE_VIDEO_FORMATS.has(normalized);
+}
+
+// Sentinel quality meaning "transcode at the source resolution" — used as a fallback when no
+// smaller transcode-ladder entries are available (e.g. a sub-360p source).
+const SOURCE_TRANSCODE_QUALITY = "Source";
 
 function usePersistedFlag(key: string, defaultValue: boolean): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
   const [value, setValue] = useState<boolean>(() => {
@@ -177,6 +189,10 @@ export function VideoPlayer({
   const [selectedQuality, setSelectedQuality] = useState<string>("Direct");
   const [transcodeStartSec, setTranscodeStartSec] = useState(0);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
+  // Tracks whether the user explicitly picked a quality, so automatic transcode fallback
+  // never overrides a deliberate choice. Reset per video.
+  const userChoseQualityRef = useRef(false);
+  const autoTranscodeTriedRef = useRef(false);
   const [faceOverlayEnabled, setFaceOverlayEnabled] = usePersistedFlag(FACE_OVERLAY_KEY, false);
   const playbackTracker = useRef(createPlaybackTracker());
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -227,6 +243,9 @@ export function VideoPlayer({
     lastHideInteractionAt.current = 0;
     playTriggered.current = false;
     pendingAutostartRef.current = false;
+    userChoseQualityRef.current = false;
+    autoTranscodeTriedRef.current = false;
+    setSelectedQuality("Direct");
     setTranscodeStartSec(0);
   }, [videoId]);
 
@@ -489,7 +508,9 @@ export function VideoPlayer({
     [detections, segments],
   );
 
-  const effectiveStreamUrl = selectedQuality === "Direct" ? streamUrl : videos.transcodeUrl(videoId, selectedQuality, transcodeStartSec > 0 ? transcodeStartSec : undefined);
+  // The source sentinel transcodes at the original resolution (no `resolution` query param).
+  const transcodeResolution = selectedQuality === SOURCE_TRANSCODE_QUALITY ? undefined : selectedQuality;
+  const effectiveStreamUrl = selectedQuality === "Direct" ? streamUrl : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined);
   const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
 
   useEffect(() => {
@@ -845,7 +866,7 @@ export function VideoPlayer({
     setShowSpeed(false);
   };
 
-  const changeQuality = (quality: string) => {
+  const applyQuality = (quality: string) => {
     const v = videoRef.current;
     const curTime = v ? toAbsoluteTime(v.currentTime) : currentTime;
     const wasPlaying = v ? !v.paused : false;
@@ -858,6 +879,34 @@ export function VideoPlayer({
     setSelectedQuality(quality);
     setShowQuality(false);
   };
+
+  const changeQuality = (quality: string) => {
+    userChoseQualityRef.current = true;
+    applyQuality(quality);
+  };
+
+  // Fall back to server-side transcoding when the source can't be played directly in the
+  // browser — either a non-native container (avi, wmv, …) or a native container with an
+  // unsupported codec that fails to load. Picks the highest available ladder rung, or a
+  // source-resolution transcode when no ladder entries exist (e.g. sub-360p sources).
+  const fallbackToTranscode = () => {
+    if (autoTranscodeTriedRef.current) return;
+    autoTranscodeTriedRef.current = true;
+    const target = availableQualities.length > 0
+      ? availableQualities[availableQualities.length - 1]
+      : SOURCE_TRANSCODE_QUALITY;
+    applyQuality(target);
+  };
+
+  // Proactively transcode non-browser-native containers so the user doesn't sit through a
+  // failed direct-play attempt first. Only applies before the user makes an explicit choice.
+  useEffect(() => {
+    if (userChoseQualityRef.current) return;
+    if (selectedQuality !== "Direct") return;
+    if (!format || isBrowserNativeVideoFormat(format)) return;
+    fallbackToTranscode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [format, selectedQuality, availableQualities, videoId]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -951,6 +1000,10 @@ export function VideoPlayer({
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
         onLoadedMetadata={updateVideoBox}
         onLoadedData={updateVideoBox}
+        onError={() => {
+          // Direct playback failed (unsupported container/codec) — switch to transcoding.
+          if (selectedQuality === "Direct") fallbackToTranscode();
+        }}
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
         onPlay={() => {

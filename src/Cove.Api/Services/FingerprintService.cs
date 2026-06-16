@@ -277,10 +277,13 @@ public class FingerprintService(
             return null;
         }
 
-        // Initialize FFmpeg.AutoGen bindings (idempotent) and check if in-process is usable.
-        FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
-        logger.LogDebug("pHash FFmpeg setup: path={FfmpegPath}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
-            ffmpegPath, FfmpegInProcess.IsAvailable, duration, path);
+        // In-process extraction is opt-in via the "managed" frame-extraction mode; otherwise use
+        // the crash-isolated ffmpeg CLI path below.
+        var useInProcess = string.Equals(config.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase);
+        if (useInProcess)
+            FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
+        logger.LogDebug("pHash FFmpeg setup: path={FfmpegPath}, managed={Managed}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
+            ffmpegPath, useInProcess, FfmpegInProcess.IsAvailable, duration, path);
 
         var chunkCount = SpriteColumns * SpriteRows; // 25
         var offset = 0.05 * duration;
@@ -289,7 +292,7 @@ public class FingerprintService(
         for (var i = 0; i < chunkCount; i++)
             timestamps[i] = offset + i * stepSize;
 
-        if (FfmpegInProcess.IsAvailable)
+        if (useInProcess && FfmpegInProcess.IsAvailable)
         {
             // Fast path: in-process frame extraction (seeks directly, no process spawning).
             logger.LogDebug("Attempting in-process pHash extraction for {Path}", path);
@@ -319,7 +322,8 @@ public class FingerprintService(
         }
         else
         {
-            logger.LogDebug("In-process FFmpeg unavailable — using process-spawn fallback for {Path}", path);
+            logger.LogDebug("Using ffmpeg CLI for pHash extraction (managed={Managed}, available={Available}) for {Path}",
+                useInProcess, FfmpegInProcess.IsAvailable, path);
         }
 
         var spritePhash = await TryComputeVideoPhashViaSpriteAsync(ffmpegPath, path, duration, ct);

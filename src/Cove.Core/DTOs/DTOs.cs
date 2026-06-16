@@ -1218,6 +1218,7 @@ public record CoveConfigDto
     public List<DownloaderPathOverrideDto> DownloaderPathOverrides { get; init; } = [];
     public bool CalculateMd5 { get; init; }
     public bool EnableFfmpegHwAccel { get; init; }
+    public string FrameExtractionMode { get; init; } = "external";
     public string? FfmpegPath { get; init; }
     public string? FfprobePath { get; init; }
     public int MaxTranscodeSize { get; init; }

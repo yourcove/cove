@@ -8,6 +8,19 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.4.3] - 2026-06-15
+
+- Ffmpeg fixes & improvements
+- Fix transcoding of some video file types
+- Fix special stash migration edge cases
+- Fix Extension db migration runtime on install
+
+## [0.4.2] - 2026-06-15
+
+- Improve performer new dialog
+- Improve how cove packages are used and consumed by extensions to prevent conflicts
+- Remove autotag
+
 ## [0.4.1] - 2026-06-15
 
 - Docker postgres 18 bugfix

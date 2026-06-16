@@ -140,6 +140,7 @@ public partial class StashMigrationService
         }
 
         var count = 0;
+        var skippedFailedScenes = 0;
         var idMap = new Dictionary<int, int>();
         const int SceneBatchSize = 250;
         var pendingBatch = new List<(int StashId, Scene Entity)>(SceneBatchSize);
@@ -161,6 +162,48 @@ public partial class StashMigrationService
             foreach (var (stashId, entity) in pendingBatch)
                 idMap[stashId] = entity.Id;
             pendingBatch.Clear();
+        }
+
+        // Persist the pending batch. If the bulk insert fails (a single malformed scene can take
+        // the whole SaveChanges down), retry the batch one scene at a time on a clean tracker so a
+        // single bad item is skipped and logged instead of aborting the entire migration.
+        async Task SaveSceneBatchAsync()
+        {
+            if (pendingBatch.Count == 0) return;
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                FlushSceneBatch();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                var batch = pendingBatch.ToList();
+                pendingBatch.Clear();
+                _db.ChangeTracker.Clear();
+                _logger.LogWarning(ex,
+                    "[Stash] Scene batch insert failed; retrying {Count} scenes individually", batch.Count);
+
+                foreach (var (stashId, entity) in batch)
+                {
+                    try
+                    {
+                        _db.Videos.Add(entity);
+                        await _db.SaveChangesAsync(ct);
+                        idMap[stashId] = entity.Id;
+                    }
+                    catch (Exception sceneEx) when (sceneEx is not OperationCanceledException)
+                    {
+                        skippedFailedScenes++;
+                        count--; // was counted when added to the batch, but did not import
+                        _logger.LogWarning(sceneEx,
+                            "[Stash] Skipped scene stashId={StashId} after a per-scene insert error", stashId);
+                    }
+                    finally
+                    {
+                        _db.ChangeTracker.Clear();
+                    }
+                }
+            }
         }
 
         // Guard the unique (ParentFolderId, Basename) index: if two scene files resolve to the same
@@ -199,14 +242,23 @@ public partial class StashMigrationService
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
                 Urls = sceneUrls.GetValueOrDefault(row.Id, []).Select(u => new SceneUrl { Url = u }).ToList(),
+                // Dedupe on the mapped Cove id: a scene can list the same Stash id twice, and two
+                // distinct Stash ids can collapse to one Cove id (e.g. merged tags/performers).
+                // Either case yields a duplicate composite key that EF rejects when the graph is
+                // attached, which would otherwise abort the whole scenes phase.
                 VideoTags = sceneTagMap.GetValueOrDefault(row.Id, [])
                     .Where(tagIdMap.ContainsKey)
-                    .Select(t => new SceneTag { TagId = tagIdMap[t] }).ToList(),
+                    .Select(t => tagIdMap[t])
+                    .Distinct()
+                    .Select(tagId => new SceneTag { TagId = tagId }).ToList(),
                 VideoPerformers = scenePerformerMap.GetValueOrDefault(row.Id, [])
                     .Where(performerIdMap.ContainsKey)
-                    .Select(p => new ScenePerformer { PerformerId = performerIdMap[p] }).ToList(),
+                    .Select(p => performerIdMap[p])
+                    .Distinct()
+                    .Select(performerId => new ScenePerformer { PerformerId = performerId }).ToList(),
                 GroupItems = sceneGroupMap.GetValueOrDefault(row.Id, [])
                     .Where(g => groupIdMap.ContainsKey(g.GroupId))
+                    .DistinctBy(g => groupIdMap[g.GroupId])
                     .Select(g => new GroupItem
                     {
                         GroupId = groupIdMap[g.GroupId],
@@ -255,14 +307,24 @@ public partial class StashMigrationService
                 });
             }
 
-            _db.Videos.Add(scene);
+            try
+            {
+                _db.Videos.Add(scene);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Don't let a single bad scene abort the whole import. The pending batch is
+                // re-saved on a clean tracker below, so prior good scenes are not lost.
+                skippedFailedScenes++;
+                _logger.LogWarning(ex, "[Stash] Skipped scene stashId={StashId} during add", row.Id);
+                continue;
+            }
             pendingBatch.Add((row.Id, scene));
             count++;
 
             if (pendingBatch.Count >= SceneBatchSize)
             {
-                await _db.SaveChangesAsync(ct);
-                FlushSceneBatch();
+                await SaveSceneBatchAsync();
                 _db.ChangeTracker.Clear();
                 ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
                 _logger.LogInformation("Imported {Count}/{Total} scenes...", count, sceneRows.Count);
@@ -276,8 +338,7 @@ public partial class StashMigrationService
 
         if (pendingBatch.Count > 0)
         {
-            await _db.SaveChangesAsync(ct);
-            FlushSceneBatch();
+            await SaveSceneBatchAsync();
             _db.ChangeTracker.Clear();
             ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
         }
@@ -306,6 +367,8 @@ public partial class StashMigrationService
         _logger.LogInformation("Imported {Count} scenes in {Elapsed}", count, stopwatch.Elapsed);
         if (skippedDuplicateFiles > 0)
             _logger.LogWarning("Skipped {Count} duplicate scene files because a file with the same folder/basename was already imported", skippedDuplicateFiles);
+        if (skippedFailedScenes > 0)
+            _logger.LogWarning("[Stash] Skipped {Count} scenes that failed to import; the rest of the migration completed", skippedFailedScenes);
 
         var generatedMap = new Dictionary<int, SceneGeneratedData>();
         foreach (var row in sceneRows)

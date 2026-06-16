@@ -3554,13 +3554,28 @@ export function SettingsPage() {
                 />
               </div>
               <div className="mt-4">
+                <SelectField
+                  label="Frame extraction"
+                  value={draft.frameExtractionMode === "managed" ? "managed" : "external"}
+                  onChange={(value) => updateDraft((d) => ({ ...d, frameExtractionMode: value }))}
+                  options={[
+                    { value: "external", label: "External (ffmpeg CLI)" },
+                    { value: "managed", label: "Managed (in-process)" },
+                  ]}
+                />
+                <p className="mt-1 text-xs text-secondary">
+                  How Cove extracts frames for thumbnails, sprites, and phashes. <span className="font-medium">External</span> spawns the ffmpeg CLI — most compatible and crash-isolated. <span className="font-medium">Managed</span> decodes in-process for much higher throughput.
+                  <span className="text-red-300 font-medium"> Warning:</span> managed mode can fatally crash the process on some systems (e.g. missing native drivers, or rare malformed files); switch back to external if you hit instability.
+                </p>
+              </div>
+              <div className="mt-4">
                 <CheckboxLabel
-                  label="Enable hardware acceleration (FFmpeg in-process)"
+                  label="Enable hardware acceleration (managed mode)"
                   checked={draft.enableFfmpegHwAccel}
                   onChange={(checked) => updateDraft((current) => ({ ...current, enableFfmpegHwAccel: checked }))}
                 />
                 <p className="mt-1 text-xs text-secondary">
-                  If enabled, Cove will attempt to use hardware acceleration for phash and sprite generation.
+                  When using managed frame extraction, attempt hardware-accelerated decoding for phash and sprite generation.
                   <span className="text-red-300 font-medium"> Warning:</span> In some Docker environments, this may cause a fatal process crash due to missing native drivers.
                 </p>
               </div>

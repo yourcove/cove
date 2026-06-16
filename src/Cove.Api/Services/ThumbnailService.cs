@@ -56,7 +56,8 @@ public class ThumbnailService(
     private string? _cachedFfmpegPath;
     private bool _ffmpegSearched;
     private string? _hwEncoder;
-    private bool _hwEncoderSearched;
+    private string? _hwEncoderFingerprint;
+    private readonly object _hwEncoderLock = new();
 
     /// <summary>Get (or create) a semaphore sized to MaxParallelTasks. FFmpeg threads are
     /// limited so total CPU usage ≈ MaxParallelTasks cores.</summary>
@@ -143,9 +144,11 @@ public class ThumbnailService(
     private const int SpriteFrameCount = 81; // 9x9 grid
     private const int SpriteFrameSize = 160; // px
 
-    // Corrupt media can crash FFmpeg.AutoGen in-process and take down the API.
-    // Keep thumbnail extraction out-of-process so failures stay isolated to ffmpeg.
-    private static bool UseInProcessVideoFrameExtraction => false;
+    // In-process (FFmpeg.AutoGen) extraction is much faster but a malformed file can crash the
+    // process on some systems, so it is opt-in via the "managed" frame-extraction mode. The
+    // default "external" mode keeps extraction out-of-process so failures stay isolated to ffmpeg.
+    private bool UseInProcessVideoFrameExtraction =>
+        string.Equals(config.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase);
 
     public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct)
     {
@@ -1643,22 +1646,68 @@ public class ThumbnailService(
         return string.Empty;
     }
 
-    /// <summary>Get the best available H.264 encoder, preferring HW-accelerated encoders.</summary>
+    /// <summary>Get the H.264 encoder to use for generation, honoring the configured hardware
+    /// acceleration preference. The probe result is cached, but the cache is keyed on the
+    /// relevant settings (ffmpeg path + hardware-acceleration mode) so changing those in
+    /// Settings takes effect immediately, without restarting Cove.</summary>
     private string GetH264Encoder()
     {
-        if (_hwEncoderSearched) return _hwEncoder ?? "libx264";
-        _hwEncoderSearched = true;
-
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null) return "libx264";
 
+        // Re-probe whenever a setting that can change the outcome changes.
+        var fingerprint = $"{ffmpegPath}|{config.TranscodeHardwareAcceleration}|{config.EnableFfmpegHwAccel}";
+
+        lock (_hwEncoderLock)
+        {
+            if (_hwEncoder != null && _hwEncoderFingerprint == fingerprint)
+                return _hwEncoder;
+
+            var encoder = ProbeH264Encoder(ffmpegPath);
+            _hwEncoder = encoder;
+            _hwEncoderFingerprint = fingerprint;
+            return encoder;
+        }
+    }
+
+    /// <summary>Pick the H.264 encoder for the current configuration. When the user has pinned a
+    /// specific hardware acceleration in Settings, only that encoder is attempted (falling back
+    /// to software if it cannot open a session); otherwise the best available HW encoder is
+    /// auto-detected, falling back to libx264.</summary>
+    private string ProbeH264Encoder(string ffmpegPath)
+    {
         try
         {
             var listed = ListFfmpegEncoders(ffmpegPath);
 
-            // Prefer NVENC > QSV > AMF > VideoToolbox. Verify each candidate with an actual
-            // test encode; presence in the encoder list does not guarantee the runtime
-            // can open a session (e.g. NVENC client-key mismatches with the installed driver).
+            // If the user explicitly selected a hardware acceleration, honor that choice rather
+            // than silently substituting a different vendor's encoder.
+            var pinned = config.TranscodeHardwareAcceleration?.Trim().ToLowerInvariant() switch
+            {
+                "nvenc" => "h264_nvenc",
+                "qsv" => "h264_qsv",
+                "vaapi" => "h264_vaapi",
+                "amf" => "h264_amf",
+                _ => null,
+            };
+
+            if (pinned != null)
+            {
+                if (listed.Contains(pinned, StringComparer.OrdinalIgnoreCase)
+                    && ProbeEncoder(ffmpegPath, pinned, out var pinnedError))
+                {
+                    logger.LogInformation("Using configured HW-accelerated H.264 encoder: {Encoder}", pinned);
+                    return pinned;
+                }
+
+                logger.LogWarning(
+                    "Configured HW encoder {Encoder} is unavailable on this system; falling back to libx264", pinned);
+                return "libx264";
+            }
+
+            // Auto-detect: prefer NVENC > QSV > AMF > VideoToolbox. Verify each candidate with an
+            // actual test encode; presence in the encoder list does not guarantee the runtime can
+            // open a session (e.g. NVENC client-key mismatches with the installed driver).
             string[] hwEncoders = ["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"];
             foreach (var enc in hwEncoders)
             {
@@ -1669,7 +1718,6 @@ public class ThumbnailService(
                     continue;
                 }
 
-                _hwEncoder = enc;
                 logger.LogInformation("Using HW-accelerated H.264 encoder: {Encoder}", enc);
                 return enc;
             }
@@ -1679,7 +1727,6 @@ public class ThumbnailService(
             logger.LogWarning(ex, "Failed to detect HW encoders, falling back to libx264");
         }
 
-        _hwEncoder = "libx264";
         logger.LogInformation("Using software H.264 encoder: libx264");
         return "libx264";
     }

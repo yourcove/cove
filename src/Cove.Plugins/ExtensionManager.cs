@@ -155,6 +155,16 @@ public class ExtensionManager
                     }
                 }
 
+                // Skip extensions already loaded in this process. Runtime re-discovery (triggered by
+                // installing or updating another extension) re-scans every directory; reloading an
+                // unchanged extension into a fresh AssemblyLoadContext would give its types new identities
+                // while the EF model, overlay containers, workers, and endpoints still reference the old
+                // ones — producing "entity type X is of type X but the generic type provided is of type X"
+                // splits that only a restart clears. An extension being installed or updated is always
+                // unloaded by the caller before re-discovery, so anything still loaded here is current.
+                if (manifestFile?.Id is string alreadyLoadedId && _extensionMap.ContainsKey(alreadyLoadedId))
+                    continue;
+
                 // Determine which DLL to load
                 var sourceDllsToLoad = manifestFile?.EntryDll != null
                     ? new[] { Path.Combine(dir, manifestFile.EntryDll) }

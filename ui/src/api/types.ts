@@ -1962,6 +1962,7 @@ export interface CoveConfig {
   maxConcurrentDownloads: number;
   calculateMd5: boolean;
   enableFfmpegHwAccel: boolean;
+  frameExtractionMode: string;
   videoExtensions: string[];
   imageExtensions: string[];
   galleryExtensions: string[];

@@ -21,6 +21,10 @@ public class CoveConfiguration
     public List<DownloaderPathOverride> DownloaderPathOverrides { get; set; } = [];
     public bool CalculateMd5 { get; set; }
     public bool EnableFfmpegHwAccel { get; set; } // Default false to prevent instability during native probes
+    // Frame-extraction engine for thumbnails, sprites, and pHash. "external" spawns the ffmpeg CLI
+    // (most compatible, crash-isolated). "managed" decodes in-process via FFmpeg.AutoGen — much
+    // faster, but a malformed file can crash the process on some systems, so it is opt-in.
+    public string FrameExtractionMode { get; set; } = "external";
     public List<string> VideoExtensions { get; set; } = [".m4v", ".mp4", ".mov", ".wmv", ".avi", ".mpg", ".mpeg", ".rmvb", ".rm", ".flv", ".asf", ".mkv", ".webm", ".f4v"];
     public List<string> ImageExtensions { get; set; } = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"];
     public List<string> GalleryExtensions { get; set; } = [".zip", ".cbz"];
