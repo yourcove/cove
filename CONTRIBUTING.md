@@ -1,7 +1,7 @@
 # Contributing to Cove
 
 Thanks for your interest in making Cove better! Contributions of all kinds are welcome. Cove also **pays contributors** for delivered work
-on evaluated issues; see [Getting paid for contributions](#getting-paid-for-contributions).
+on approved issues; see [Getting paid for contributions](#getting-paid-for-contributions).
 
 By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
@@ -55,8 +55,8 @@ for more detail.
 ## Submitting a pull request
 
 1. Find or open an issue describing the work. For **paid** work, the issue must be labeled
-   `evaluated` first (see below). Feel free to ask a maintainer to evaluate a `needs-evaluation` issue
-   if you want to determine whether to start work on it.
+   `approved` first (see below). Feel free to ask a maintainer to evaluate an issue
+   if you want to determine whether to start work on it. Maintainers will actively evaluate issues.
 2. Create a branch and make a **focused** change. Don't bundle unrelated work.
 3. Add or update tests where it makes sense, and make sure the build and existing tests pass.
 4. Open a PR and fill out the [pull request template](.github/pull_request_template.md).
@@ -76,10 +76,10 @@ own everything you submit, exactly as if you'd typed it yourself.
 
 Feature and improvement issues move through these stages:
 
-- **`needs-evaluation`**: newly filed; not yet eligible for paid work.
-- **`evaluated`**: a maintainer has set a **Complexity** (0&ndash;5) and **Value** (0&ndash;5).
+- Newly filed; not yet eligible for paid work.
+- **`approved`**: a maintainer has set a **Complexity** (0&ndash;5) and **Value** (0&ndash;5).
   These two numbers determine the payout (see the [payout chart](docs/contributing/payouts.md)). Only
-  evaluated issues are eligible for payment.
+  approved issues are eligible for payment.
 - **Delivered**: the implementing PR is merged and accepted.
 
 ## Getting paid for contributions
@@ -98,7 +98,7 @@ month:
 
 Payments are reserved for trusted **Contributors**. You earn that status by building a track record:
 
-- **3 or more** merged PRs on `evaluated` issues, **and**
+- **3 or more** merged PRs on `approved` issues, **and**
 - a combined **Complexity of 8 or more** across total PRs, **and**
 - at least **one** PR with **Complexity 2 or higher**, **and**
 - a maintainer vouches for the quality of your work (and your adherence to the policies).
@@ -133,7 +133,7 @@ first.
 ### Transparency
 
 - The payout chart and every change to it live in [git history](docs/contributing/payouts.md).
-- Each `evaluated` issue shows its Complexity, Value, and resulting payout.
+- Each `approved` issue shows its Complexity, Value, and resulting payout.
 - Donations and balances are public on [Open Collective](https://opencollective.com/yourcove).
 
 ## License

@@ -6,7 +6,7 @@ transparent and auditable over time.
 
 A delivered feature pays out the chart value for its **Complexity** and **Value**, using the version
 of this chart **in effect on the date the feature's PR was merged**. (Complexity and Value are
-assigned by a maintainer when the issue is evaluated; see the rubrics below.)
+assigned by a maintainer when the issue is approved; see the rubrics below.)
 
 For *how* contributors qualify and *when* payouts happen, see the
 [Contribution Guide](../../CONTRIBUTING.md#getting-paid-for-contributions).
@@ -56,7 +56,7 @@ contributions are still welcome as ordinary open-source PRs.
 ## How an amount is decided
 
 1. A maintainer evaluates the issue and sets **Complexity** and **Value** (each 0&ndash;5).
-2. The evaluated issue is labeled `evaluated` and shows its Complexity, Value. (which will determine payout when completed)
+2. The evaluated issue is labeled `approved` and shows its Complexity, Value. (which will determine payout when completed)
 3. Complexity or Value can be adjusted based on enough complexity evidence or from community requests/engagement.
 3. When the implementing PR is **merged**, the payout is the chart cell above for that
    (Complexity, Value), using the chart as it stands on the merge date.

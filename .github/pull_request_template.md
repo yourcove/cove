@@ -10,7 +10,7 @@ For paid contributions, see the payout rules in CONTRIBUTING.md.
 ## Linked issue
 
 Closes #
-<!-- Paid contributions MUST link an issue labeled `evaluated`. -->
+<!-- Paid contributions MUST link an issue labeled `approved`. -->
 
 ## Type of change
 
