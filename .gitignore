@@ -15,9 +15,6 @@
 # Build results
 [Dd]ebug/
 [Rr]elease/
-docs/
-docs/release/
-docs/release/**
 x64/
 [Bb]in/
 [Oo]bj/
@@ -277,3 +274,4 @@ packages/react-devtools-timeline/dist
 /gitignored/*
 **/artifacts/*
 .playwright-mcp/*
+gitignored-docs/
