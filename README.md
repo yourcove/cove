@@ -47,24 +47,28 @@
     <td><strong>Find content by whatever you remember or are looking for.</strong><br>Search across everything by title, tag, performer, studio, path, or group. Or add filters to narrow a big library down. Save the searches & filters you like.</td>
   </tr>
   <tr>
-    <td><img src="ui/public/manual/screenshots/occurrence-tagging.png" alt="Per-occurrence tagging"></td>
+    <td><img src="docs/screenshots/occurrence-tagging.png" alt="Per-occurrence tagging"></td>
     <td><strong>Tag people, moments, and parts of a video.</strong><br>When a tag only applies to one person or one part of a video, put it exactly there. See who appears in which part of a scene, not just who's in it somewhere.</td>
   </tr>
   <tr>
-    <td><img src="ui/public/manual/screenshots/feed-view.png" alt="Feed view"></td>
+    <td><img src="docs/screenshots/feed-viewer.png" alt="Feed view"></td>
     <td><strong>Browse it your way.</strong><br>Grid and list pages for sorting and cleanup; feed and vertical pages for when you just want to watch. Watch later, history, and continue watching let you pick up where you left off.</td>
   </tr>
   <tr>
-    <td><img src="ui/public/manual/screenshots/tags-graph.png" alt="Tag graph"></td>
+    <td><img src="docs/screenshots/groups-detail.png" alt="Groups Page"></td>
     <td><strong>Go beyond flat tagging.</strong><br>Tag groups, dynamic groups that fill themselves based on rules, segments, sub-scenes, and compilations give your library real structure as it grows.</td>
   </tr>
   <tr>
-    <td><img src="ui/public/manual/screenshots/roles-permissions.png" alt="Roles and permissions"></td>
+    <td><img src="docs/screenshots/security-and-sharing.png" alt="Security and Sharing"></td>
     <td><strong>Share one library safely.</strong><br>Give each person on your network their own account with roles and permissions that control what they can see and do. Or give someone a share link to specific content.</td>
   </tr>
   <tr>
-    <td><img src="ui/public/manual/screenshots/extensions-discover.png" alt="Extensions"></td>
+    <td><img src="docs/screenshots/extensions-registry.png" alt="Extensions"></td>
     <td><strong>Extend almost anything.</strong><br>Downloaders, scrapers, themes, settings panels, pages, background jobs, API endpoints. If Cove doesn't do something yet, there's a way to add it with extensions.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/audio-detail.png" alt="Audio"></td>
+    <td><strong>Store all your kinds of content.</strong><br>Store all your types of media in one place: Video, Audio, Galleries, Text files, and the organization surrounding them</td>
   </tr>
 </table>
 
@@ -72,11 +76,11 @@ See the [full feature tour](https://yourcove.net/features/) and more [screenshot
 
 ## Get started
 
-**Native app** &mdash; download for Windows, macOS, or Linux. The app handles first-run setup, and includes the Cove Instance Manager for running separate local libraries from one place.
+**Native app**: download for Windows, macOS, or Linux. The app handles first-run setup, and includes the Cove Instance Manager for running separate local libraries from one place.
 
 - [Latest release](https://github.com/yourcove/cove/releases/latest) &middot; [All releases](https://github.com/yourcove/cove/releases)
 
-**Docker (all-in-one)** &mdash; the easiest container setup:
+**Docker (all-in-one)**: the easiest container setup:
 
 Copy the `docker-compose.allinone.yml` from the docker folder and then simply run:
 ```bash

@@ -26,7 +26,7 @@ Closes #
 - [ ] AI was used for this PR.
   - **Model(s):** <!-- e.g. Claude Opus 4.x, GPT-5, ... -->
   - **Where / how:** <!-- e.g. drafting, tests, refactor -->
-- [ ] **A human (me) has reviewed, understands, and takes full responsibility for every change here — including that the design and architecture are sound.** *(required)*
+- [ ] **A human (me) has reviewed, understands, and takes full responsibility for every change here including that the design and architecture are sound.** *(required)*
 
 ## Testing done & evidence
 
