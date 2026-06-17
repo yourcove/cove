@@ -321,7 +321,6 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                 Organized = index % 4 != 0,
                 StudioId = studio.Id,
                 Captions = index % 3 == 0 ? "en" : null,
-                InteractiveSpeed = index % 6 == 0 ? 2 + (index % 3) : null,
                 CreatedAt = baseDate.AddDays(-240 + index),
                 UpdatedAt = baseDate.AddDays(-4 + index),
                 Urls =
@@ -384,8 +383,6 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                     AudioCodec = videoOrdinal % 3 == 0 ? "aac" : "opus",
                     FrameRate = new[] { 23.976, 24.0, 30.0, 60.0 }[(videoOrdinal + fileIndex) % 4],
                     BitRate = 1_500_000L + (((videoOrdinal + fileIndex) % 6) * 850_000L),
-                    Interactive = (videoOrdinal + fileIndex) % 6 == 0,
-                    InteractiveSpeed = (videoOrdinal + fileIndex) % 6 == 0 ? 2 + ((videoOrdinal + fileIndex) % 3) : null,
                 };
 
                 videoFile.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = $"video-md5-{videoOrdinal:000}-{fileIndex:00}" });

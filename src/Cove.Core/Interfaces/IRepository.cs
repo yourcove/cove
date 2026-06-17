@@ -167,7 +167,6 @@ public class VideoFilter
     public MultiIdCriterion? GroupsCriterion { get; set; }
     public BoolCriterion? OrganizedCriterion { get; set; }
     public BoolCriterion? IsVrCriterion { get; set; }
-    public BoolCriterion? InteractiveCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
     public FingerprintCriterion? FingerprintCriterion { get; set; }
     public StringCriterion? HashCriterion { get; set; }
@@ -202,7 +201,6 @@ public class VideoFilter
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
     public IntCriterion? PerformerAgeCriterion { get; set; }
     public StringCriterion? CaptionsCriterion { get; set; }
-    public IntCriterion? InteractiveSpeedCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }

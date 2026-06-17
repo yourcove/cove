@@ -48,13 +48,15 @@ public class AuthController : ControllerBase
         var ip = GetRequestIp();
         var ua = HttpContext.Request.Headers.UserAgent.ToString();
 
-        if (!_config.Auth.Enabled && !Cove.Api.Middleware.AuthDisabledRequestGuard.IsTrustedLocalRequest(HttpContext, _config.Auth))
-            return StatusCode(StatusCodes.Status403Forbidden, new { code = "LOCAL_ONLY", message = "Owner bootstrap is only available from a local address while authentication is disabled." });
+        // Owner bootstrap is allowed from any address (including behind a reverse proxy) until an owner
+        // exists, so first-run setup can be completed remotely without a token. The failsafe lockdown
+        // only engages once an owner exists, and BootstrapOwnerAsync itself refuses once one does, so
+        // this endpoint is only usable during the pre-owner setup window. This intentionally trades the
+        // old "local-only owner claim" protection for usability in reverse-proxied deployments.
 
-        // When the deployment is in token-first setup mode (an unconsumed setup token exists), the
-        // owner account MUST be created by redeeming that token via /auth/setup-token-redeem. Allowing
-        // direct password-only bootstrap here would let an unauthenticated visitor claim the owner
-        // account before the admin redeems the token, bypassing the setup-token requirement entirely.
+        // When the deployment is in token-first setup mode (an unconsumed setup token was explicitly
+        // issued, e.g. via an admin invite), the owner account MUST be created by redeeming that token
+        // via /auth/setup-token-redeem instead of this password-only path.
         if (await _users.HasSetupTokenAsync(ct))
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "SETUP_TOKEN_REQUIRED", message = "A setup token is required to create the owner account." });
 

@@ -1145,6 +1145,12 @@ export interface GenerateOptions {
   paths?: string[];
 }
 
+export interface LibraryFolder {
+  name: string;
+  path: string;
+  hasChildren: boolean;
+}
+
 export interface CleanOptions {
   paths?: string[];
   dryRun?: boolean;
@@ -1173,6 +1179,8 @@ export const metadata = {
     request<{ jobId: string }>("/metadata/scan", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   generate: (opts?: GenerateOptions) =>
     request<{ jobId: string }>("/metadata/generate", { method: "POST", body: JSON.stringify(opts ?? {}) }),
+  libraryFolders: (path?: string) =>
+    request<LibraryFolder[]>(`/metadata/library-folders${path ? `?path=${encodeURIComponent(path)}` : ""}`),
   clean: (opts?: CleanOptions) =>
     request<{ jobId: string }>("/metadata/clean", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   cleanGenerated: (opts?: CleanGeneratedOptions) =>

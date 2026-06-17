@@ -29,14 +29,14 @@ public partial class StashMigrationService
             string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
             string? CareerLength, string? DeathDate,
             string? Tattoos, string? Piercings, bool Favorite, int? Rating, string? Details,
-            string? ImageBlob)>();
+            string? ImageBlob, string CreatedAt, string UpdatedAt)>();
         var hasCareerLength = await ColumnExistsAsync(conn, "performers", "career_length", ct);
         await using (var cmd = conn.CreateCommand())
         {
             var careerLengthExpr = hasCareerLength ? "career_length" : "NULL";
             cmd.CommandText = @"SELECT id, name, disambiguation, gender, birthdate, ethnicity, country, eye_color,
                 hair_color, height, weight, measurements, fake_tits, penis_length, circumcised, " + careerLengthExpr + @" AS career_length,
-                death_date, tattoos, piercings, favorite, rating, details, image_blob
+                death_date, tattoos, piercings, favorite, rating, details, image_blob, created_at, updated_at
                 FROM performers";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
@@ -46,7 +46,7 @@ public partial class StashMigrationService
                     ReadStringNull(r, 12), r.IsDBNull(13) ? null : (double?)r.GetDouble(13),
                     ReadStringNull(r, 14), ReadStringNull(r, 15), ReadStringNull(r, 16),
                     ReadStringNull(r, 17), ReadStringNull(r, 18), ReadBool(r, 19), ReadIntNull(r, 20),
-                    ReadStringNull(r, 21), ReadStringNull(r, 22)));
+                    ReadStringNull(r, 21), ReadStringNull(r, 22), r.GetString(23), r.GetString(24)));
         }
         var urls = await ReadUrlsAsync(conn, "performer_urls", "performer_id", ct);
         var aliases = await ReadAliasesAsync(conn, "performer_aliases", "performer_id", ct);
@@ -164,6 +164,8 @@ public partial class StashMigrationService
                 Aliases = performerAliases.Select(alias => new PerformerAlias { Alias = alias }).ToList(),
                 PerformerTags = performerTags.Select(tagId => new PerformerTag { TagId = tagId }).ToList(),
                 RemoteIds = performerRemoteIds.Select(remoteId => new PerformerRemoteId { Endpoint = remoteId.Ep, RemoteId = remoteId.Rid }).ToList(),
+                CreatedAt = ParseDateTime(row.CreatedAt),
+                UpdatedAt = ParseDateTime(row.UpdatedAt),
             };
             _db.Performers.Add(entity);
             pendingBatch.Add((row.Id, entity));

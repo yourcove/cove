@@ -33,7 +33,6 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.StudiosCriterion);
         Assert.Null(filter.GroupsCriterion);
         Assert.Null(filter.OrganizedCriterion);
-        Assert.Null(filter.InteractiveCriterion);
         Assert.Null(filter.PathCriterion);
         Assert.Null(filter.VideoCodecCriterion);
         Assert.Null(filter.AudioCodecCriterion);
@@ -57,7 +56,6 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.PerformerTagsCriterion);
         Assert.Null(filter.PerformerAgeCriterion);
         Assert.Null(filter.CaptionsCriterion);
-        Assert.Null(filter.InteractiveSpeedCriterion);
     }
 
     [Fact]
@@ -105,21 +103,6 @@ public class FilterCriteriaParityTests
         var result = JsonSerializer.Deserialize<FilteredQueryRequest<VideoFilter>>(json, Options);
         Assert.NotNull(result?.ObjectFilter?.CaptionsCriterion);
         Assert.Equal("english", result.ObjectFilter.CaptionsCriterion.Value);
-    }
-
-    [Fact]
-    public void VideoFilter_InteractiveSpeedCriterion_Deserializes()
-    {
-        var json = """
-        {
-            "objectFilter": {
-                "interactiveSpeedCriterion": { "value": 50, "modifier": "equals" }
-            }
-        }
-        """;
-        var result = JsonSerializer.Deserialize<FilteredQueryRequest<VideoFilter>>(json, Options);
-        Assert.NotNull(result?.ObjectFilter?.InteractiveSpeedCriterion);
-        Assert.Equal(50, result.ObjectFilter.InteractiveSpeedCriterion.Value);
     }
 
     [Fact]
@@ -494,55 +477,49 @@ public class FilterCriteriaParityTests
     // ===== VIDEO ENTITY NEW FIELDS =====
 
     [Fact]
-    public void Video_HasCaptionsAndInteractiveSpeed()
+    public void Video_HasCaptions()
     {
         var video = new Video
         {
             Captions = "English subtitles",
-            InteractiveSpeed = 75
         };
         Assert.Equal("English subtitles", video.Captions);
-        Assert.Equal(75, video.InteractiveSpeed);
     }
 
     [Fact]
-    public void Video_CaptionsAndInteractiveSpeedDefaults()
+    public void Video_CaptionsDefaults()
     {
         var video = new Video();
         Assert.Null(video.Captions);
-        Assert.Null(video.InteractiveSpeed);
     }
 
     // ===== DTO NEW FIELDS =====
 
     [Fact]
-    public void VideoCreateDto_HasCaptionsAndInteractiveSpeed()
+    public void VideoCreateDto_HasCaptions()
     {
         var dto = new VideoCreateDto("Title", "Code", "Details", "Director", "2024-01-01",
-            85, false, null, "English", 50,
+            85, false, null, "English",
             null, null, null, null, null);
         Assert.Equal("English", dto.Captions);
-        Assert.Equal(50, dto.InteractiveSpeed);
     }
 
     [Fact]
-    public void VideoUpdateDto_HasCaptionsAndInteractiveSpeed()
+    public void VideoUpdateDto_HasCaptions()
     {
         var dto = new VideoUpdateDto("Title", "Code", "Details", "Director", "2024-01-01",
-            85, false, null, "English", 50,
+            85, false, null, "English",
             null, null, null, null, null, null, null);
         Assert.Equal("English", dto.Captions);
-        Assert.Equal(50, dto.InteractiveSpeed);
     }
 
     [Fact]
-    public void VideoDto_HasCaptionsAndInteractiveSpeed()
+    public void VideoDto_HasCaptions()
     {
         var dto = new VideoDto(1, "Title", "Code", "Details", "Director", "2024-01-01",
-            false, false, null, null, "English", 50,
+            false, false, null, null, "English",
             [], [], [], [], [], [], [], null, "2024-01-01", "2024-01-01");
         Assert.Equal("English", dto.Captions);
-        Assert.Equal(50, dto.InteractiveSpeed);
     }
 
     [Fact]
@@ -591,7 +568,6 @@ public class FilterCriteriaParityTests
             PerformerTagsCriterion = new MultiIdCriterion { Value = [1], Modifier = CriterionModifier.Includes },
             PerformerAgeCriterion = new IntCriterion { Value = 25, Modifier = CriterionModifier.GreaterThan },
             CaptionsCriterion = new StringCriterion { Value = "en", Modifier = CriterionModifier.Includes },
-            InteractiveSpeedCriterion = new IntCriterion { Value = 50, Modifier = CriterionModifier.Equals }
         };
 
         var json = JsonSerializer.Serialize(filter, Options);
@@ -601,11 +577,9 @@ public class FilterCriteriaParityTests
         Assert.NotNull(deserialized.PerformerTagsCriterion);
         Assert.NotNull(deserialized.PerformerAgeCriterion);
         Assert.NotNull(deserialized.CaptionsCriterion);
-        Assert.NotNull(deserialized.InteractiveSpeedCriterion);
         Assert.Equal(CriterionModifier.Includes, deserialized.PerformerTagsCriterion.Modifier);
         Assert.Equal(25, deserialized.PerformerAgeCriterion.Value);
         Assert.Equal("en", deserialized.CaptionsCriterion.Value);
-        Assert.Equal(50, deserialized.InteractiveSpeedCriterion.Value);
     }
 
     [Fact]

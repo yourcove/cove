@@ -1983,7 +1983,6 @@ export interface CoveConfig {
   transcodeOutputArgs?: string;
   liveTranscodeInputArgs?: string;
   liveTranscodeOutputArgs?: string;
-  drawFunscriptHeatmapRange: boolean;
   previewPreset: string;
   previewAudio: string;
   logLevel: string;
@@ -2515,7 +2514,6 @@ export interface VideoFilterCriteria {
   groupsCriterion?: MultiIdCriterion;
   organizedCriterion?: BoolCriterion;
   isVrCriterion?: BoolCriterion;
-  interactiveCriterion?: BoolCriterion;
   pathCriterion?: StringCriterion;
   fingerprintCriterion?: FingerprintCriterion;
   hashCriterion?: StringCriterion;
@@ -2549,7 +2547,6 @@ export interface VideoFilterCriteria {
   performerTagsCriterion?: MultiIdCriterion;
   performerAgeCriterion?: IntCriterion;
   captionsCriterion?: StringCriterion;
-  interactiveSpeedCriterion?: IntCriterion;
   orientationCriterion?: StringCriterion;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];

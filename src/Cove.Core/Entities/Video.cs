@@ -11,7 +11,6 @@ public class Video : BaseEntity
     public bool IsVr { get; set; }
     public int? StudioId { get; set; }
     public string? Captions { get; set; }
-    public int? InteractiveSpeed { get; set; }
     public string? ImageBlobId { get; set; }
     public int? ParentVideoId { get; set; }
     public double? ClipStartSec { get; set; }
@@ -40,8 +39,6 @@ public class Video : BaseEntity
     public bool HasLandscapeFiles { get; set; }
     public bool HasPortraitFiles { get; set; }
     public bool HasSquareFiles { get; set; }
-    public bool HasInteractiveFiles { get; set; }
-    public bool HasNonInteractiveFiles { get; set; }
 
     // Navigation properties
     public Studio? Studio { get; set; }

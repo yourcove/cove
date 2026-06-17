@@ -220,11 +220,6 @@ public class VideoRepository : IVideoRepository
             if (filter.IsVrCriterion != null)
                 query = query.Where(s => s.IsVr == filter.IsVrCriterion.Value);
 
-            if (filter.InteractiveCriterion != null)
-                query = filter.InteractiveCriterion.Value
-                    ? query.Where(s => s.HasInteractiveFiles)
-                    : query.Where(s => s.HasNonInteractiveFiles);
-
             query = ApplyFingerprintCriterion(query, filter.FingerprintCriterion);
             query = ApplyFingerprintCriterion(query, filter.HashCriterion, "oshash");
             query = ApplyFingerprintCriterion(query, filter.ChecksumCriterion, "md5");
@@ -333,10 +328,6 @@ public class VideoRepository : IVideoRepository
             // Captions criterion (filter by caption content)
             query = FilterHelpers.ApplyString(query, filter.CaptionsCriterion, s => s.Captions);
 
-            // Interactive speed criterion
-            if (filter.InteractiveSpeedCriterion != null)
-                query = ApplyIntCriterion(query, filter.InteractiveSpeedCriterion, s => s.InteractiveSpeed ?? 0);
-
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Video, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
 
             // Orientation criterion: landscape, portrait, or square based on file dimensions
@@ -384,7 +375,8 @@ public class VideoRepository : IVideoRepository
             s.VideoGalleries.Any(sg => sg.Gallery != null && sg.Gallery.Title != null && sg.Gallery.Title.ToLower().Contains(normalizedLower)) ||
             s.GroupItems.Any(item => item.Group != null && item.Group.Name.ToLower().Contains(normalizedLower)));
 
-        return textQuery.Concat(relationalQuery).Distinct();
+        var combined = textQuery.Concat(relationalQuery).Distinct();
+        return FullTextSearchHelpers.ApplyFilePathMatch(combined, query, search, s => s.Files);
     }
 
     private IQueryable<Video> ApplySorting(IQueryable<Video> query, string sort, bool desc, int? seed = null)

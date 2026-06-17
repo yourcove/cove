@@ -68,6 +68,35 @@ public static class FullTextSearchHelpers
         return textQuery.Concat(baseQuery.Where(predicate)).Distinct();
     }
 
+    /// <summary>
+    /// Unions a file-path substring match into an existing free-text result so the main search box
+    /// also finds file-backed entities by their file path (not just title). Paths are stored in
+    /// forward-slash form, so the term's backslashes are normalized before matching. Substring
+    /// matching is used rather than the full-text vector because PostgreSQL tokenizes paths into
+    /// lexemes (e.g. "clip.mp4" -> "clip", "mp4") that don't reliably match a partial path the user
+    /// types. Mirrors <see cref="ApplyRelationalMatches"/>'s concat+distinct union and works on both
+    /// PostgreSQL and the SQLite test provider.
+    /// </summary>
+    public static IQueryable<T> ApplyFilePathMatch<T, TFile>(
+        IQueryable<T> textQuery,
+        IQueryable<T> baseQuery,
+        string? search,
+        Expression<Func<T, IEnumerable<TFile>>> filesSelector)
+        where TFile : BaseFileEntity
+    {
+        var normalized = Normalize(search);
+        if (normalized is null)
+            return textQuery;
+
+        var pathTerm = normalized.ToLowerInvariant().Replace('\\', '/');
+        Expression<Func<TFile, bool>> fileMatches = file => file.Path.ToLower().Contains(pathTerm);
+
+        var entityParam = Expression.Parameter(typeof(T), "entity");
+        var body = BuildAnyMatch(filesSelector, entityParam, fileMatches);
+        var predicate = Expression.Lambda<Func<T, bool>>(body, entityParam);
+        return textQuery.Concat(baseQuery.Where(predicate)).Distinct();
+    }
+
     private static Expression OrElse(Expression? left, Expression right)
         => left is null ? right : Expression.OrElse(left, right);
 

@@ -70,7 +70,9 @@ CREATE TABLE performers (
   rating INTEGER,
   details TEXT,
   ignore_auto_tag INTEGER NOT NULL,
-  image_blob TEXT
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
 );
 CREATE TABLE performer_urls (performer_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE performer_aliases (performer_id INTEGER NOT NULL, alias TEXT NOT NULL);
@@ -127,7 +129,9 @@ CREATE TABLE performers (
   rating INTEGER,
   details TEXT,
   ignore_auto_tag INTEGER NOT NULL,
-  image_blob TEXT
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
 );
 CREATE TABLE performer_urls (performer_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE performer_aliases (performer_id INTEGER NOT NULL, alias TEXT NOT NULL);
@@ -185,7 +189,9 @@ CREATE TABLE performers (
     rating INTEGER,
     details TEXT,
     ignore_auto_tag INTEGER NOT NULL,
-    image_blob TEXT
+    image_blob TEXT,
+    created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+    updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
 );
 CREATE TABLE performer_urls (performer_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE performer_aliases (performer_id INTEGER NOT NULL, alias TEXT NOT NULL);
@@ -220,6 +226,97 @@ INSERT INTO performer_urls (performer_id, url) VALUES
                 Assert.Equal(["https://performer-a.local"], performers[0].Urls.Select(url => url.Url).ToArray());
                 Assert.Equal(["https://performer-b.local"], performers[1].Urls.Select(url => url.Url).ToArray());
         }
+
+    [Fact]
+    public async Task ImportTagsStudiosPerformers_PreserveStashTimestamps()
+    {
+        await using var context = CreateContext();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE tags (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort_name TEXT,
+  description TEXT,
+  favorite INTEGER NOT NULL,
+  ignore_auto_tag INTEGER NOT NULL,
+  image_blob TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE tag_aliases (tag_id INTEGER NOT NULL, alias TEXT NOT NULL);
+CREATE TABLE studios (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_id INTEGER,
+  details TEXT,
+  rating INTEGER,
+  favorite INTEGER NOT NULL,
+  ignore_auto_tag INTEGER NOT NULL,
+  image_blob TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE studio_urls (studio_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE studio_aliases (studio_id INTEGER NOT NULL, alias TEXT NOT NULL);
+CREATE TABLE performers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  disambiguation TEXT,
+  gender TEXT,
+  birthdate TEXT,
+  ethnicity TEXT,
+  country TEXT,
+  eye_color TEXT,
+  hair_color TEXT,
+  height INTEGER,
+  weight INTEGER,
+  measurements TEXT,
+  fake_tits TEXT,
+  penis_length REAL,
+  circumcised TEXT,
+  career_length TEXT,
+  death_date TEXT,
+  tattoos TEXT,
+  piercings TEXT,
+  favorite INTEGER NOT NULL,
+  rating INTEGER,
+  details TEXT,
+  ignore_auto_tag INTEGER NOT NULL,
+  image_blob TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE performer_urls (performer_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE performer_aliases (performer_id INTEGER NOT NULL, alias TEXT NOT NULL);
+CREATE TABLE performers_tags (performer_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+INSERT INTO tags (id, name, favorite, ignore_auto_tag, created_at, updated_at)
+VALUES (1, 'Imported Tag', 0, 0, '2021-05-06T07:08:09Z', '2022-06-07T08:09:10Z');
+INSERT INTO studios (id, name, favorite, ignore_auto_tag, created_at, updated_at)
+VALUES (1, 'Imported Studio', 0, 0, '2021-03-04T05:06:07Z', '2022-04-05T06:07:08Z');
+INSERT INTO performers (id, name, favorite, ignore_auto_tag, created_at, updated_at)
+VALUES (1, 'Imported Performer', 0, 0, '2021-01-02T03:04:05Z', '2022-02-03T04:05:06Z');
+");
+
+        var service = CreateService(context);
+        await InvokePrivateAsync(service, "ImportTagsAsync", stash, new Dictionary<string, string>(), NullJobProgress.Instance, 0d, 1d, CancellationToken.None);
+        await InvokePrivateAsync(service, "ImportStudiosAsync", stash, new Dictionary<string, string>(), NullJobProgress.Instance, 0d, 1d, CancellationToken.None);
+        await InvokePrivateAsync(service, "ImportPerformersAsync", stash, new Dictionary<string, string>(), new Dictionary<int, int>(), NullJobProgress.Instance, 0d, 1d, CancellationToken.None);
+
+        var tag = await context.Tags.SingleAsync();
+        Assert.Equal(new DateTime(2021, 5, 6, 7, 8, 9, DateTimeKind.Utc), tag.CreatedAt);
+        Assert.Equal(new DateTime(2022, 6, 7, 8, 9, 10, DateTimeKind.Utc), tag.UpdatedAt);
+
+        var studio = await context.Studios.SingleAsync();
+        Assert.Equal(new DateTime(2021, 3, 4, 5, 6, 7, DateTimeKind.Utc), studio.CreatedAt);
+        Assert.Equal(new DateTime(2022, 4, 5, 6, 7, 8, DateTimeKind.Utc), studio.UpdatedAt);
+
+        var performer = await context.Performers.SingleAsync();
+        Assert.Equal(new DateTime(2021, 1, 2, 3, 4, 5, DateTimeKind.Utc), performer.CreatedAt);
+        Assert.Equal(new DateTime(2022, 2, 3, 4, 5, 6, DateTimeKind.Utc), performer.UpdatedAt);
+    }
 
     [Fact]
     public async Task ImportBlobsAsync_DetectsAvifContentType()
@@ -534,7 +631,9 @@ CREATE TABLE performers (
   rating INTEGER,
   details TEXT,
   ignore_auto_tag INTEGER NOT NULL,
-  image_blob TEXT
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
 );
 CREATE TABLE performer_urls (performer_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE performer_aliases (performer_id INTEGER NOT NULL, alias TEXT NOT NULL);
@@ -886,7 +985,9 @@ CREATE TABLE studios (
   rating INTEGER,
   favorite INTEGER NOT NULL,
   ignore_auto_tag INTEGER NOT NULL,
-  image_blob TEXT
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
 );
 CREATE TABLE studio_urls (studio_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE studio_aliases (studio_id INTEGER NOT NULL, alias TEXT NOT NULL);

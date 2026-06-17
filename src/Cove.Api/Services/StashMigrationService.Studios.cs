@@ -9,14 +9,14 @@ public partial class StashMigrationService
     private async Task<Dictionary<int, int>> ImportStudiosAsync(SqliteConnection conn, Dictionary<string, string> blobMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var rows = new List<(int Id, string Name, int? ParentId, string? Details, int? Rating, bool Favorite, string? ImageBlob)>();
+        var rows = new List<(int Id, string Name, int? ParentId, string? Details, int? Rating, bool Favorite, string? ImageBlob, string CreatedAt, string UpdatedAt)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, name, parent_id, details, rating, favorite, image_blob FROM studios";
+            cmd.CommandText = "SELECT id, name, parent_id, details, rating, favorite, image_blob, created_at, updated_at FROM studios";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 rows.Add((r.GetInt32(0), r.GetString(1), ReadIntNull(r, 2), ReadStringNull(r, 3),
-                    ReadIntNull(r, 4), ReadBool(r, 5), ReadStringNull(r, 6)));
+                    ReadIntNull(r, 4), ReadBool(r, 5), ReadStringNull(r, 6), r.GetString(7), r.GetString(8)));
         }
         var urls = await ReadUrlsAsync(conn, "studio_urls", "studio_id", ct);
         var aliases = await ReadAliasesAsync(conn, "studio_aliases", "studio_id", ct);
@@ -104,6 +104,8 @@ public partial class StashMigrationService
                 Urls = urls.GetValueOrDefault(stashId, []).Select(u => new StudioUrl { Url = u }).ToList(),
                 Aliases = aliases.GetValueOrDefault(stashId, []).Select(a => new StudioAlias { Alias = a }).ToList(),
                 RemoteIds = remoteIds,
+                CreatedAt = ParseDateTime(row.CreatedAt),
+                UpdatedAt = ParseDateTime(row.UpdatedAt),
             };
             _db.Studios.Add(entity);
             createdStudiosByStashId[stashId] = entity;

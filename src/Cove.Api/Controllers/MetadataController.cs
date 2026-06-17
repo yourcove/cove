@@ -84,6 +84,72 @@ public class MetadataController(
         return Ok(new { jobId });
     }
 
+    /// <summary>
+    /// Lists folders the user may target for a selective scan/generate. With no <paramref name="path"/>
+    /// it returns the configured library roots; otherwise it returns the immediate subfolders of the
+    /// given path. The path MUST be at or below a configured library root — anything else is rejected,
+    /// so the folder picker can never drill outside the library.
+    /// </summary>
+    [HttpGet("library-folders")]
+    [RequiresPermission(Permissions.LibraryScan)]
+    public ActionResult<List<LibraryFolderDto>> GetLibraryFolders([FromQuery] string? path)
+    {
+        var roots = config.CovePaths
+            .Select(covePath => covePath.Path)
+            .Where(rootPath => !string.IsNullOrWhiteSpace(rootPath))
+            .Select(rootPath => CanonicalizePath(rootPath!))
+            .Where(rootPath => rootPath.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return Ok(roots
+                .OrderBy(root => root, StringComparer.OrdinalIgnoreCase)
+                .Select(root => new LibraryFolderDto(root, root, SafeHasSubdirectories(root)))
+                .ToList());
+        }
+
+        var requested = CanonicalizePath(path);
+        if (requested.Length == 0 || !roots.Any(root => IsAtOrUnderPath(requested, root)))
+            return StatusCode(StatusCodes.Status403Forbidden, new { code = "OUTSIDE_LIBRARY", message = "Path is not within a configured library folder." });
+
+        if (!Directory.Exists(requested))
+            return Ok(new List<LibraryFolderDto>());
+
+        try
+        {
+            return Ok(Directory.GetDirectories(requested)
+                .Select(CanonicalizePath)
+                .Where(dir => dir.Length > 0)
+                .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)
+                .Select(dir => new LibraryFolderDto(dir[(dir.LastIndexOf('/') + 1)..], dir, SafeHasSubdirectories(dir)))
+                .ToList());
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            logger.LogWarning(ex, "Failed to list subfolders of {Path}", requested);
+            return Ok(new List<LibraryFolderDto>());
+        }
+    }
+
+    private static string CanonicalizePath(string path)
+    {
+        try { return Path.GetFullPath(path.Trim()).Replace('\\', '/').TrimEnd('/'); }
+        catch { return string.Empty; }
+    }
+
+    // Segment-aware containment check so "/library" does not match "/library-other".
+    private static bool IsAtOrUnderPath(string candidate, string root)
+        => candidate.Equals(root, StringComparison.OrdinalIgnoreCase)
+            || candidate.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool SafeHasSubdirectories(string dir)
+    {
+        try { return Directory.Exists(dir) && Directory.EnumerateDirectories(dir).Any(); }
+        catch { return false; }
+    }
+
     [HttpPost("generate")]
     [RequiresPermission(Permissions.JobsRun)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "opts", PropertyName = "VideoIds")]
@@ -230,11 +296,10 @@ public class MetadataController(
 
             await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (item, token) =>
             {
-                if (!System.IO.File.Exists(item.Path))
+                try
                 {
-                    Interlocked.Increment(ref processed);
+                if (!System.IO.File.Exists(item.Path))
                     return;
-                }
 
                 if (opts?.Thumbnails == true)
                 {
@@ -336,8 +401,16 @@ public class MetadataController(
                         await UpsertFingerprintAsync(item.File!.Id, "md5", md5, token);
                 }
 
-                var current = Interlocked.Increment(ref processed);
-                progress.Report((double)current / total, $"Generating ({current}/{total}) {item.Video.Title ?? "Untitled"}");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Skipped video {VideoId} during generate after an error", item.Video.Id);
+                }
+                finally
+                {
+                    var current = Interlocked.Increment(ref processed);
+                    progress.Report((double)current / total, $"Generating ({current}/{total}) {item.Video.Title ?? "Untitled"}");
+                }
             });
 
             if (allowNonVideoWork && (opts?.ImagePhashes == true || opts?.ImageThumbnails == true || generateNonVideoMd5))
@@ -370,6 +443,8 @@ public class MetadataController(
 
                 await Parallel.ForEachAsync(imageFiles, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (imageFile, token) =>
                 {
+                    try
+                    {
                     var imagePath = imageFile.ParentFolder != null
                         ? Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename)
                         : imageFile.Basename;
@@ -396,8 +471,16 @@ public class MetadataController(
                         }
                     }
 
-                    var current = Interlocked.Increment(ref imageProcessed);
-                    progress.Report((double)current / imageTotal, $"Generating image content ({current}/{imageTotal})");
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Skipped image {ImageId} during generate after an error", imageFile.ImageId);
+                    }
+                    finally
+                    {
+                        var current = Interlocked.Increment(ref imageProcessed);
+                        progress.Report((double)current / imageTotal, $"Generating image content ({current}/{imageTotal})");
+                    }
                 });
             }
 
@@ -440,6 +523,8 @@ public class MetadataController(
 
                 await Parallel.ForEachAsync(galleries, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (gallery, token) =>
                 {
+                    try
+                    {
                     if (opts?.GalleryThumbnails == true)
                     {
                         var coverImageId = gallery.CoverImageId;
@@ -468,8 +553,16 @@ public class MetadataController(
                         }
                     }
 
-                    var current = Interlocked.Increment(ref galleryProcessed);
-                    progress.Report(galleryTotal == 0 ? 1d : (double)current / galleryTotal, $"Generating gallery content ({current}/{galleryTotal})");
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Skipped gallery {GalleryId} during generate after an error", gallery.Id);
+                    }
+                    finally
+                    {
+                        var current = Interlocked.Increment(ref galleryProcessed);
+                        progress.Report(galleryTotal == 0 ? 1d : (double)current / galleryTotal, $"Generating gallery content ({current}/{galleryTotal})");
+                    }
                 });
             }
 
@@ -503,6 +596,8 @@ public class MetadataController(
 
                 await Parallel.ForEachAsync(audioFiles, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (audioFile, token) =>
                 {
+                    try
+                    {
                     var audioPath = audioFile.ParentFolder != null
                         ? Path.Combine(audioFile.ParentFolder.Path, audioFile.Basename)
                         : audioFile.Basename;
@@ -526,8 +621,16 @@ public class MetadataController(
                         }
                     }
 
-                    var current = Interlocked.Increment(ref audioProcessed);
-                    progress.Report(audioTotal == 0 ? 1d : (double)current / audioTotal, $"Generating audio content ({current}/{audioTotal})");
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Skipped audio {AudioId} during generate after an error", audioFile.AudioId);
+                    }
+                    finally
+                    {
+                        var current = Interlocked.Increment(ref audioProcessed);
+                        progress.Report(audioTotal == 0 ? 1d : (double)current / audioTotal, $"Generating audio content ({current}/{audioTotal})");
+                    }
                 });
             }
 
@@ -561,6 +664,8 @@ public class MetadataController(
 
                 await Parallel.ForEachAsync(textFiles, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (textFile, token) =>
                 {
+                    try
+                    {
                     var textPath = textFile.ParentFolder != null
                         ? Path.Combine(textFile.ParentFolder.Path, textFile.Basename)
                         : textFile.Basename;
@@ -584,8 +689,16 @@ public class MetadataController(
                         }
                     }
 
-                    var current = Interlocked.Increment(ref textProcessed);
-                    progress.Report(textTotal == 0 ? 1d : (double)current / textTotal, $"Generating text content ({current}/{textTotal})");
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Skipped text {TextId} during generate after an error", textFile.TextDocumentId);
+                    }
+                    finally
+                    {
+                        var current = Interlocked.Increment(ref textProcessed);
+                        progress.Report(textTotal == 0 ? 1d : (double)current / textTotal, $"Generating text content ({current}/{textTotal})");
+                    }
                 });
             }
         });

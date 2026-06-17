@@ -319,6 +319,13 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [tutorialRequest, setTutorialRequest] = useState<TutorialOpenRequest | undefined>();
 
+  // Owner account status: initial setup must produce an owner before the app is usable. If the wizard
+  // was dismissed before an owner password was set (e.g. closed early when reaching Cove through a
+  // reverse proxy), re-show it on every visit until an owner exists so the owner step can be completed
+  // without needing a token. The failsafe lockdown only engages once an owner exists.
+  const { data: bootstrapStatus } = useQuery({ queryKey: ["auth", "bootstrap-status"], queryFn: auth.bootstrapStatus });
+  const ownerMissing = bootstrapStatus?.ownerExists === false;
+
   // Show setup wizard if config has no library paths and user hasn't dismissed it
   const needsSetup = config && config.covePaths.filter(p => p.path.trim() !== "").length === 0 && !setupDismissed;
 
@@ -354,7 +361,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
     setTutorialOpen(true);
   }, [route]);
 
-  const showSetupWizard = Boolean(config) && !setupDismissed && (needsSetup || setupFlowActive);
+  const showSetupWizard = Boolean(config) && (ownerMissing || (!setupDismissed && (needsSetup || setupFlowActive)));
 
   if (configLoading || statusLoading) {
     return (

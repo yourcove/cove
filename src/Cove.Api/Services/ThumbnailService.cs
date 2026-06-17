@@ -421,8 +421,11 @@ public class ThumbnailService(
             await GenerateImageThumbnailFileWithImageSharpAsync(sourceStream, thumbnailPath, sourceModifiedAt, maxDimension, thumbnailOutput, ct);
             return true;
         }
-        catch (UnknownImageFormatException)
+        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
         {
+            // ImageSharp can't handle this file (unrecognized format, or an unsupported variant such as
+            // a JPEG using lossless arithmetic coding). Fall back to ffmpeg's decoders; if that also
+            // can't decode it, the fallback returns false and the caller skips the thumbnail.
             return await TryGenerateImageThumbnailFileWithFfmpegAsync(sourceStream, sourceFilePath, contentType, thumbnailPath, sourceModifiedAt, maxDimension, thumbnailOutput, ct);
         }
     }
@@ -1137,7 +1140,7 @@ public class ThumbnailService(
                 var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {{0}} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 -preset {preset} -crf {PreviewCrf} {audioArg} \"{previewPath}\"",
+                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 -preset {preset} -crf {PreviewCrf} {audioArg} \"{previewPath}\"",
                     previewPath,
                     TimeSpan.FromMinutes(5),
                     ct);
@@ -1159,7 +1162,7 @@ public class ThumbnailService(
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y -ss {seekTime.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {{0}} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 -preset {preset} -crf {PreviewCrf} {audioArg} \"{chunkPath}\"",
+                    $"{decodeArgs} -v error -y -ss {seekTime.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 -preset {preset} -crf {PreviewCrf} {audioArg} \"{chunkPath}\"",
                     chunkPath,
                     TimeSpan.FromSeconds(60),
                     ct);
@@ -1191,10 +1194,15 @@ public class ThumbnailService(
         }
     }
 
+    // Sentinel token for the video codec args slot in preview encode templates. A plain
+    // string replace is used instead of string.Format so that file paths containing literal
+    // '{' or '}' characters don't get misinterpreted as format placeholders (FormatException).
+    private const string VideoCodecPlaceholder = "__COVE_VCODEC__";
+
     private async Task RunPreviewEncodeAsync(string ffmpegPath, string argsTemplate, string outputPath, TimeSpan timeout, CancellationToken ct)
     {
         var encoder = GetH264Encoder();
-        var args = string.Format(System.Globalization.CultureInfo.InvariantCulture, argsTemplate, $"-c:v {encoder}");
+        var args = argsTemplate.Replace(VideoCodecPlaceholder, $"-c:v {encoder}", StringComparison.Ordinal);
         await RunFfmpegAsync(ffmpegPath, args, timeout, ct);
     }
 

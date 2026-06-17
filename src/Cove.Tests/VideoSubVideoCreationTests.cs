@@ -79,7 +79,6 @@ public class VideoSubVideoCreationTests
             Organized: false,
             StudioId: null,
             Captions: null,
-            InteractiveSpeed: null,
             Urls: null,
             TagIds: null,
             PerformerIds: null,

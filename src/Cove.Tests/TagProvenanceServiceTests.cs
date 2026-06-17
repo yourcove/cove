@@ -130,7 +130,7 @@ public sealed class TagProvenanceServiceTests
             new TagProvenanceService(context));
 
         var createResult = await controller.Create(
-            new VideoCreateDto("Tagged Video", null, null, null, null, null, false, null, null, null, null, [firstTag.Id], null, null, null),
+            new VideoCreateDto("Tagged Video", null, null, null, null, null, false, null, null, null, [firstTag.Id], null, null, null),
             CancellationToken.None);
         var created = Assert.IsType<CreatedAtActionResult>(createResult.Result);
         var createdVideo = Assert.IsType<VideoDto>(created.Value);
@@ -144,7 +144,7 @@ public sealed class TagProvenanceServiceTests
 
         var updateResult = await controller.Update(
             createdVideo.Id,
-            new VideoUpdateDto(null, null, null, null, null, null, null, null, null, null, null, [secondTag.Id], null, null, null, null, null),
+            new VideoUpdateDto(null, null, null, null, null, null, null, null, null, null, [secondTag.Id], null, null, null, null, null),
             CancellationToken.None);
         var updated = Assert.IsType<OkObjectResult>(updateResult.Result);
         Assert.IsType<VideoDto>(updated.Value);

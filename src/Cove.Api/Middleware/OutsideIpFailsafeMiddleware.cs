@@ -26,6 +26,32 @@ public sealed class OutsideIpFailsafeMiddleware
             return;
         }
 
+        // Auth is disabled and the request is from an untrusted (public/remote) address. Hold off the
+        // failsafe lockdown until initial setup is complete — i.e. until an owner account exists. Until
+        // then, a first-run visitor (e.g. reaching Cove through a reverse proxy) must be able to load
+        // the setup wizard and create the owner password without needing a token, so we let the request
+        // through. Once an owner exists, a public request while auth is disabled trips the lockdown.
+        bool ownerExists;
+        try
+        {
+            ownerExists = await users.OwnerExistsAsync(context.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not determine owner account status during auth failsafe; allowing request to proceed to setup.");
+            await _next(context);
+            return;
+        }
+
+        if (!ownerExists)
+        {
+            await _next(context);
+            return;
+        }
+
+        var ip = remoteAddress?.ToString();
+        var ua = context.Request.Headers.UserAgent.ToString();
+
         await Lock.WaitAsync(context.RequestAborted);
         try
         {
@@ -38,39 +64,13 @@ public sealed class OutsideIpFailsafeMiddleware
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Failed to persist auth failsafe enablement after request from {RemoteIp}", context.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+                    logger.LogError(ex, "Failed to persist auth failsafe enablement after request from {RemoteIp}", ip ?? "unknown");
                 }
             }
         }
         finally
         {
             Lock.Release();
-        }
-
-        var ip = remoteAddress?.ToString();
-        var ua = context.Request.Headers.UserAgent.ToString();
-        var ownerExists = false;
-        try
-        {
-            ownerExists = await users.OwnerExistsAsync(context.RequestAborted);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Could not determine owner account status during auth failsafe.");
-        }
-
-        SetupTokenDto? setupToken = null;
-        if (!ownerExists)
-        {
-            try
-            {
-                setupToken = await users.CreateSetupTokenAsync(CovePrincipal.Anonymous(ip, ua), context.RequestAborted);
-                await WriteSetupTokenFileAsync(setupToken, context.RequestAborted);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to create auth setup token during auth failsafe.");
-            }
         }
 
         await audit.LogAsync(
@@ -84,21 +84,8 @@ public sealed class OutsideIpFailsafeMiddleware
                 method = context.Request.Method,
                 path = context.Request.Path.Value,
                 remoteIp = ip,
-                setupTokenRequired = !ownerExists,
-                setupTokenExpiresAt = setupToken?.ExpiresAt,
             },
             context.RequestAborted);
-
-        if (!ownerExists)
-        {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "AuthFailsafeEnabled",
-                setupTokenRequired = true,
-            }, context.RequestAborted);
-            return;
-        }
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new
@@ -106,18 +93,5 @@ public sealed class OutsideIpFailsafeMiddleware
             code = "AUTH_LOCKDOWN_TRIGGERED",
             message = "Authentication was automatically enabled after a public remote request was detected while authentication was disabled.",
         }, context.RequestAborted);
-    }
-
-    private static async Task WriteSetupTokenFileAsync(SetupTokenDto token, CancellationToken ct)
-    {
-        var dataDir = CoveDefaultPaths.GetDataRoot();
-        Directory.CreateDirectory(dataDir);
-        var tokenPath = Path.Combine(dataDir, "setup_token.txt");
-        await File.WriteAllTextAsync(tokenPath,
-            $"Cove enabled authentication after a public remote request.\n" +
-            $"Use this one-time setup token at /auth/redeem-invite or with /api/auth/setup-token-redeem.\n" +
-            $"Token: {token.Token}\n" +
-            $"Expires: {token.ExpiresAt:o}\n",
-            ct);
     }
 }

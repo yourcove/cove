@@ -50,6 +50,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FullTextSearchHelpers.ApplyRelationalMatches(audioText, audioBase, q,
             tagSelectors: [audio => audio.AudioTags.Where(at => at.Tag != null).Select(at => at.Tag!)],
             performerSelectors: [audio => audio.AudioPerformers.Where(ap => ap.Performer != null).Select(ap => ap.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, q, audio => audio.Files);
 
         query = ApplySort(query, sort, descending, seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
@@ -89,6 +90,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FullTextSearchHelpers.ApplyRelationalMatches(audioText, audioBase, findFilter.Q,
             tagSelectors: [audio => audio.AudioTags.Where(at => at.Tag != null).Select(at => at.Tag!)],
             performerSelectors: [audio => audio.AudioPerformers.Where(ap => ap.Performer != null).Select(ap => ap.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter.Q, audio => audio.Files);
 
         query = ApplyFilter(query, req.ObjectFilter);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);

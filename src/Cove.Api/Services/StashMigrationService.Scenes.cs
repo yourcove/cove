@@ -113,14 +113,14 @@ public partial class StashMigrationService
                     ParseDateTime(r.GetString(4)), ParseDateTime(r.GetString(5)));
         }
 
-        var videoData = new Dictionary<int, (double Duration, string VideoCodec, string Format, string AudioCodec, int Width, int Height, double FrameRate, long BitRate, bool Interactive, int? InteractiveSpeed)>();
+        var videoData = new Dictionary<int, (double Duration, string VideoCodec, string Format, string AudioCodec, int Width, int Height, double FrameRate, long BitRate)>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate, interactive, interactive_speed FROM video_files";
+            cmd.CommandText = "SELECT file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate FROM video_files";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 videoData[r.GetInt32(0)] = (r.GetDouble(1), r.GetString(2), r.GetString(3), r.GetString(4),
-                    r.GetInt32(5), r.GetInt32(6), r.GetDouble(7), r.GetInt64(8), ReadBool(r, 9), ReadIntNull(r, 10));
+                    r.GetInt32(5), r.GetInt32(6), r.GetDouble(7), r.GetInt64(8));
         }
 
         var fingerprints = new Dictionary<int, List<(string Type, string Value)>>();
@@ -300,8 +300,6 @@ public partial class StashMigrationService
                     Height = vd.Height,
                     FrameRate = vd.FrameRate,
                     BitRate = vd.BitRate,
-                    Interactive = vd.Interactive,
-                    InteractiveSpeed = vd.InteractiveSpeed,
                     Fingerprints = fingerprints.GetValueOrDefault(fileId, [])
                         .Select(fp => new FileFingerprint { Type = fp.Type, Value = fp.Value }).ToList(),
                 });

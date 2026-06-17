@@ -3,6 +3,19 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 const fieldDescriptionFallbacks: Record<string, string> = {
   "Max parallel tasks (-1 = all CPU threads)": "Caps concurrent background work. Use -1 to let Cove scale to available CPU threads.",
+  // Scan & generate task options (shared labels)
+  "Thumbnails / screenshots": "A still cover frame captured from the video, used as its poster image on cards, lists, and the detail page.",
+  "Video previews": "A short looping clip stitched from a few moments across the video, played when you hover a card so you can preview it without opening it.",
+  "Sprite sheets": "A grid of small thumbnails sampled across the timeline. Powers the scrubbing preview that appears when you hover the seek bar during playback.",
+  "Perceptual hashes (phash)": "A fingerprint of the video's visual content (not the exact bytes). Used to match it against entries on metadata servers and to find near-duplicate or re-encoded copies in your library.",
+  "MD5 checksums": "An exact fingerprint of the file's bytes. Used to match against metadata servers and to detect identical duplicate files in your library.",
+  "Image thumbnails": "A smaller resized copy of each image for fast loading in grids and lists.",
+  "Image phashes": "A visual fingerprint of each image. Used to match against metadata servers and to find near-duplicate images in your library.",
+  "Gallery cover thumbnails": "A thumbnail of each gallery's cover image, shown on gallery cards and lists.",
+  "Audio perceptual hashes": "An acoustic fingerprint of each audio file. Used to match against metadata servers and to find duplicate or re-encoded audio in your library.",
+  "Text perceptual hashes": "A content fingerprint of each text document. Used to match against metadata servers and to find duplicate text in your library.",
+  "Overwrite existing generated files": "Regenerate and replace assets that already exist, instead of skipping files that are already done.",
+  "Force rescan (ignore mtime)": "Re-examine every file even if its modified time hasn't changed, instead of skipping files that look unchanged.",
   "Exclude videos": "Skip video files under this library path during scans.",
   "Exclude images": "Skip image files under this library path during scans.",
   "Exclude audio": "Skip audio files under this library path during scans.",
@@ -71,8 +84,8 @@ const fieldDescriptionFallbacks: Record<string, string> = {
   "Minimum image view seconds": "Minimum image detail-view time before Cove records a view.",
   "Minimum session length for derived likes": "Minimum viewing-session duration before Cove derives engagement from it.",
   "Session idle timeout seconds": "Idle time after which Cove starts a new engagement session.",
-  "Segment thumbnails": "Generate still thumbnails for resolved segments.",
-  "Animated segment previews": "Generate animated previews for resolved segments.",
+  "Segment thumbnails": "A still frame captured at the start of each marker/segment, used as that segment's thumbnail.",
+  "Animated segment previews": "A short looping clip for each marker/segment, played on hover like video previews but scoped to the segment.",
 };
 
 export function getSettingHelpText(label: string, description?: string) {

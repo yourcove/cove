@@ -272,13 +272,12 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         {
             Title = dto.Title, Code = dto.Code, Details = dto.Details, Director = dto.Director,
             Date = parsedDate ?? parentVideo?.Date, Organized = dto.Organized, IsVr = dto.IsVr, StudioId = dto.StudioId ?? parentVideo?.StudioId,
-            Captions = dto.Captions, InteractiveSpeed = dto.InteractiveSpeed,
+            Captions = dto.Captions,
             ParentVideoId = parentVideo?.Id, ClipStartSec = dto.ClipStartSec, ClipEndSec = dto.ClipEndSec,
         };
         if (parentVideo is not null)
         {
             video.Captions ??= parentVideo.Captions;
-            video.InteractiveSpeed ??= parentVideo.InteractiveSpeed;
             ApplySubVideoFileMetrics(video, parentVideo);
         }
         if (dto.Urls?.Count > 0)
@@ -351,7 +350,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
         if (dto.Captions != null) video.Captions = dto.Captions;
-        if (dto.InteractiveSpeed.HasValue) video.InteractiveSpeed = dto.InteractiveSpeed;
         if (video.ParentVideoId.HasValue && (dto.ClipStartSec.HasValue || dto.ClipEndSec.HasValue))
         {
             var parentResolution = await ResolveSubVideoParentAsync(video.ParentVideoId.Value, dto.ClipStartSec ?? video.ClipStartSec, dto.ClipEndSec ?? video.ClipEndSec, ct);
@@ -705,7 +703,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         s.Id, s.Title, s.Code, s.Details, s.Director,
         s.Date?.ToString("yyyy-MM-dd"),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
-        s.Captions, s.InteractiveSpeed,
+        s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
         GetEffectiveTags(s, effectiveTagsByVideoId),
         s.VideoPerformers.Where(sp => sp.Performer != null).Select(sp => MapPerformerSummary(sp.Performer!, performerCounts)).ToList(),
@@ -743,7 +741,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         s.Id, s.Title, s.Code, s.Details, s.Director,
         s.Date?.ToString("yyyy-MM-dd"),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
-        s.Captions, s.InteractiveSpeed,
+        s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
         GetEffectiveTags(s, effectiveTagsByVideoId),
         s.VideoPerformers.Where(sp => sp.Performer != null).Select(sp => MapPerformerSummary(sp.Performer!, null)).ToList(),
@@ -900,8 +898,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         video.HasLandscapeFiles = parentVideo.HasLandscapeFiles;
         video.HasPortraitFiles = parentVideo.HasPortraitFiles;
         video.HasSquareFiles = parentVideo.HasSquareFiles;
-        video.HasInteractiveFiles = parentVideo.HasInteractiveFiles;
-        video.HasNonInteractiveFiles = parentVideo.HasNonInteractiveFiles;
     }
 
     private sealed record SubVideoParentResolution(Video? ParentVideo, double ClipStartSec, double ClipEndSec, string? Error)

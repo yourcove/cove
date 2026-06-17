@@ -57,8 +57,6 @@ public class VideoFile : BaseFileEntity
     public string AudioCodec { get; set; } = string.Empty;
     public double FrameRate { get; set; }
     public long BitRate { get; set; }
-    public bool Interactive { get; set; }
-    public int? InteractiveSpeed { get; set; }
 
     // FK to Video
     public int? VideoId { get; set; }

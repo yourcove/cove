@@ -1228,7 +1228,6 @@ public partial class CoveContext : DbContext
                 file.BitRate,
                 file.Size,
                 file.ModTime,
-                file.Interactive,
             })
             .ToList();
         var summaries = fileRows
@@ -1252,8 +1251,6 @@ public partial class CoveContext : DbContext
                     HasLandscapeFiles = group.Any(file => file.Width > file.Height),
                     HasPortraitFiles = group.Any(file => file.Height > file.Width),
                     HasSquareFiles = group.Any(file => file.Width > 0 && file.Width == file.Height),
-                    HasInteractiveFiles = group.Any(file => file.Interactive),
-                    HasNonInteractiveFiles = group.Any(file => !file.Interactive),
                 });
 
         foreach (var video in videos.Values)
@@ -1276,8 +1273,6 @@ public partial class CoveContext : DbContext
                 video.HasLandscapeFiles = false;
                 video.HasPortraitFiles = false;
                 video.HasSquareFiles = false;
-                video.HasInteractiveFiles = false;
-                video.HasNonInteractiveFiles = false;
                 continue;
             }
 
@@ -1298,8 +1293,6 @@ public partial class CoveContext : DbContext
             video.HasLandscapeFiles = summary.HasLandscapeFiles;
             video.HasPortraitFiles = summary.HasPortraitFiles;
             video.HasSquareFiles = summary.HasSquareFiles;
-            video.HasInteractiveFiles = summary.HasInteractiveFiles;
-            video.HasNonInteractiveFiles = summary.HasNonInteractiveFiles;
         }
     }
 
@@ -1324,7 +1317,6 @@ public partial class CoveContext : DbContext
                 file.BitRate,
                 file.Size,
                 file.ModTime,
-                file.Interactive,
             })
             .ToListAsync(cancellationToken);
         var summaries = fileRows
@@ -1348,8 +1340,6 @@ public partial class CoveContext : DbContext
                     HasLandscapeFiles = group.Any(file => file.Width > file.Height),
                     HasPortraitFiles = group.Any(file => file.Height > file.Width),
                     HasSquareFiles = group.Any(file => file.Width > 0 && file.Width == file.Height),
-                    HasInteractiveFiles = group.Any(file => file.Interactive),
-                    HasNonInteractiveFiles = group.Any(file => !file.Interactive),
                 });
 
         foreach (var video in videos.Values)
@@ -1372,8 +1362,6 @@ public partial class CoveContext : DbContext
                 video.HasLandscapeFiles = false;
                 video.HasPortraitFiles = false;
                 video.HasSquareFiles = false;
-                video.HasInteractiveFiles = false;
-                video.HasNonInteractiveFiles = false;
                 continue;
             }
 
@@ -1394,8 +1382,6 @@ public partial class CoveContext : DbContext
             video.HasLandscapeFiles = summary.HasLandscapeFiles;
             video.HasPortraitFiles = summary.HasPortraitFiles;
             video.HasSquareFiles = summary.HasSquareFiles;
-            video.HasInteractiveFiles = summary.HasInteractiveFiles;
-            video.HasNonInteractiveFiles = summary.HasNonInteractiveFiles;
         }
     }
 

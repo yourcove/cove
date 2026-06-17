@@ -8,6 +8,14 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.5.0] - 2026-06-17
+
+- ffmpeg fallback/fixes for filepaths with special characters
+- Improved selective scan/generate folderpath selection
+- Fix updated at date not transferring properly for some entity types in stash migration
+- Add sort by path for file-backed entities
+- Improve setup process of owner user/password for new installs where the auth failsafe is immediately triggered (such as behind a reverse proxy)
+
 ## [0.4.3] - 2026-06-16
 
 - Ffmpeg fixes & improvements

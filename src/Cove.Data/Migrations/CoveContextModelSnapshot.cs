@@ -4027,17 +4027,7 @@ namespace Cove.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
-                    b.Property<bool>("HasInteractiveFiles")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
                     b.Property<bool>("HasLandscapeFiles")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<bool>("HasNonInteractiveFiles")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
@@ -4054,9 +4044,6 @@ namespace Cove.Data.Migrations
 
                     b.Property<string>("ImageBlobId")
                         .HasColumnType("text");
-
-                    b.Property<int?>("InteractiveSpeed")
-                        .HasColumnType("integer");
 
                     b.Property<bool>("IsVr")
                         .ValueGeneratedOnAdd()
@@ -4143,11 +4130,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("HasDimensionData");
 
-                    b.HasIndex("HasInteractiveFiles");
-
                     b.HasIndex("HasLandscapeFiles");
-
-                    b.HasIndex("HasNonInteractiveFiles");
 
                     b.HasIndex("HasPortraitFiles");
 
@@ -4545,12 +4528,6 @@ namespace Cove.Data.Migrations
                         .HasColumnType("double precision");
 
                     b.Property<int>("Height")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("Interactive")
-                        .HasColumnType("boolean");
-
-                    b.Property<int?>("InteractiveSpeed")
                         .HasColumnType("integer");
 
                     b.Property<string>("VideoCodec")

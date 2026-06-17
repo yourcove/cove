@@ -48,8 +48,6 @@ public class VideoConfiguration : IEntityTypeConfiguration<Video>
         builder.Property(s => s.HasLandscapeFiles).HasDefaultValue(false);
         builder.Property(s => s.HasPortraitFiles).HasDefaultValue(false);
         builder.Property(s => s.HasSquareFiles).HasDefaultValue(false);
-        builder.Property(s => s.HasInteractiveFiles).HasDefaultValue(false);
-        builder.Property(s => s.HasNonInteractiveFiles).HasDefaultValue(false);
         builder.HasIndex(s => s.FileCount);
         builder.HasIndex(s => s.MaxDuration);
         builder.HasIndex(s => s.MaxResolution);
@@ -64,8 +62,6 @@ public class VideoConfiguration : IEntityTypeConfiguration<Video>
         builder.HasIndex(s => s.HasLandscapeFiles);
         builder.HasIndex(s => s.HasPortraitFiles);
         builder.HasIndex(s => s.HasSquareFiles);
-        builder.HasIndex(s => s.HasInteractiveFiles);
-        builder.HasIndex(s => s.HasNonInteractiveFiles);
 
         // GIN-indexed denormalized id sets for tag/performer combo filters.
         builder.Property(s => s.TagIds).HasColumnType("integer[]");

@@ -48,6 +48,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FullTextSearchHelpers.ApplyRelationalMatches(textQuery, textBase, q,
             tagSelectors: [text => text.TextTags.Where(tt => tt.Tag != null).Select(tt => tt.Tag!)],
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, q, text => text.Files);
 
         query = ApplySort(query, sort, descending, seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
@@ -86,6 +87,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FullTextSearchHelpers.ApplyRelationalMatches(textQuery, textBase, findFilter.Q,
             tagSelectors: [text => text.TextTags.Where(tt => tt.Tag != null).Select(tt => tt.Tag!)],
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
         query = ApplyFilter(query, req.ObjectFilter);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);

@@ -1639,6 +1639,16 @@ public class GalleryRepository : IGalleryRepository
         query = FullTextSearchHelpers.ApplyRelationalMatches(galleryText, galleryBase, findFilter?.Q,
             tagSelectors: [g => g.GalleryTags.Where(gt => gt.Tag != null).Select(gt => gt.Tag!)],
             performerSelectors: [g => g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => gp.Performer!)]);
+        // Path search: match the gallery's own folder path as well as its (zip) file paths, since
+        // folder-based galleries have no GalleryFile rows. Paths are stored forward-slash normalized.
+        var galleryPathTerm = findFilter?.Q?.Trim();
+        if (!string.IsNullOrWhiteSpace(galleryPathTerm))
+        {
+            var pathTerm = galleryPathTerm.ToLowerInvariant().Replace('\\', '/');
+            query = query.Concat(galleryBase.Where(g =>
+                g.Files.Any(f => f.Path.ToLower().Contains(pathTerm)) ||
+                (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm)))).Distinct();
+        }
 
         var totalCount = await query.CountAsync(ct);
         var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
@@ -2060,6 +2070,7 @@ public class ImageRepository : IImageRepository
         filterQuery = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
             tagSelectors: [i => i.ImageTags.Where(it => it.Tag != null).Select(it => it.Tag!)],
             performerSelectors: [i => i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!)]);
+        filterQuery = FullTextSearchHelpers.ApplyFilePathMatch(filterQuery, imageBase, findFilter?.Q, i => i.Files);
 
         var perPage = findFilter?.PerPage ?? 25;
 

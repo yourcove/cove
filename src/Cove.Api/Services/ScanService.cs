@@ -2933,15 +2933,22 @@ public class ScanService(
         {
             var matchingConfig = cfg.CovePaths
                 .Select(path => new { Config = path, NormalizedPath = NormalizePath(path.Path) })
-                .Where(x => IsPathWithin(selectedPath, x.NormalizedPath) || IsPathWithin(x.NormalizedPath, selectedPath))
+                .Where(x => IsPathWithin(selectedPath, x.NormalizedPath))
                 .OrderByDescending(x => x.NormalizedPath.Length)
                 .Select(x => x.Config)
                 .FirstOrDefault();
 
-            var excludeVideo = matchingConfig?.ExcludeVideo ?? false;
-            var excludeImage = matchingConfig?.ExcludeImage ?? false;
-            var excludeAudio = matchingConfig?.ExcludeAudio ?? false;
-            var excludeText = matchingConfig?.ExcludeText ?? false;
+            if (matchingConfig == null)
+            {
+                // Selective scan is restricted to configured library roots: ignore any requested path
+                // that isn't at or below one of them, so a scan can never wander outside the library.
+                continue;
+            }
+
+            var excludeVideo = matchingConfig.ExcludeVideo;
+            var excludeImage = matchingConfig.ExcludeImage;
+            var excludeAudio = matchingConfig.ExcludeAudio;
+            var excludeText = matchingConfig.ExcludeText;
             var isFile = File.Exists(selectedPath);
 
             if (!isFile && !Directory.Exists(selectedPath))

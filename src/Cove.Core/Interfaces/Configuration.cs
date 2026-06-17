@@ -46,7 +46,6 @@ public class CoveConfiguration
     public string? TranscodeOutputArgs { get; set; }
     public string? LiveTranscodeInputArgs { get; set; }
     public string? LiveTranscodeOutputArgs { get; set; }
-    public bool DrawFunscriptHeatmapRange { get; set; }
     // Preview generation
     public string PreviewPreset { get; set; } = "slow"; // ultrafast, veryfast, fast, medium, slow, slower, veryslow
     public string PreviewAudio { get; set; } = "false"; // true, false

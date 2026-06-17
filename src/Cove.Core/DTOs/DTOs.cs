@@ -18,7 +18,7 @@ public class FilteredQueryRequest<TFilter> where TFilter : class, new()
 public record VideoDto(
     int Id, string? Title, string? Code, string? Details, string? Director,
     string? Date, bool Organized, bool IsVr, int? StudioId, string? StudioName,
-    string? Captions, int? InteractiveSpeed,
+    string? Captions,
     List<string> Urls, List<TagDto> Tags, List<PerformerSummaryDto> Performers,
     List<VideoFileDto> Files,
     List<GroupSummaryDto> Groups, List<GallerySummaryDto> Galleries,
@@ -40,7 +40,7 @@ public record VideoGroupInputDto(int GroupId, int VideoIndex = 0);
 public record VideoCreateDto(
     string? Title, string? Code, string? Details, string? Director,
     string? Date, int? Rating, bool Organized, int? StudioId,
-    string? Captions, int? InteractiveSpeed,
+    string? Captions,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? Groups, List<VideoRemoteIdDto>? RemoteIds = null, Dictionary<string, object>? CustomFields = null,
     int? ParentVideoId = null, double? ClipStartSec = null, double? ClipEndSec = null, bool IsVr = false);
@@ -48,7 +48,7 @@ public record VideoCreateDto(
 public record VideoUpdateDto(
     string? Title, string? Code, string? Details, string? Director,
     string? Date, int? Rating, bool? Organized, int? StudioId,
-    string? Captions, int? InteractiveSpeed,
+    string? Captions,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? Groups, List<VideoRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields,
     double? ClipStartSec = null, double? ClipEndSec = null, bool? IsVr = null);
@@ -1228,7 +1228,6 @@ public record CoveConfigDto
     public string? TranscodeOutputArgs { get; init; }
     public string? LiveTranscodeInputArgs { get; init; }
     public string? LiveTranscodeOutputArgs { get; init; }
-    public bool DrawFunscriptHeatmapRange { get; init; }
     public string PreviewPreset { get; init; } = "slow";
     public string PreviewAudio { get; init; } = "false";
     public List<string> VideoExtensions { get; init; } = [];
@@ -2068,6 +2067,10 @@ public record GroupSubGroupsDto(List<GroupSubGroupEntryDto> SubGroups);
 public record GroupSubGroupEntryDto(int GroupId, int VideoIndex);
 
 // ===== METADATA OPERATION DTOs =====
+/// <summary>A folder offered in the selective scan/generate picker. <see cref="HasChildren"/> lets the
+/// UI show an expand affordance only for folders that actually contain subfolders.</summary>
+public record LibraryFolderDto(string Name, string Path, bool HasChildren);
+
 public record ScanOptionsDto
 {
     public List<string>? Paths { get; init; }

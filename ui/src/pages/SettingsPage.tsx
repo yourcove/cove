@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as signalR from "@microsoft/signalr";
 import {
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   BookOpen,
   Check,
@@ -570,64 +571,112 @@ function loadStoredTaskOptions<T extends object>(key: string, fallback: T): T {
   return fallback;
 }
 
-export function mergeTaskSelectablePaths(
-  currentPaths: string[] | undefined,
-  selectablePaths: string[],
-  previousSelectablePaths: string[]
-): string[] {
-  if (selectablePaths.length === 0) {
-    return currentPaths ?? [];
+// Hierarchical folder picker for selective scan/generate. Top-level nodes are the configured library
+// roots; expanding a node lazily fetches its subfolders from the server (which only ever returns
+// folders at or below a library root), so the user can drill down but never select a folder outside
+// their library. Selecting a folder targets that whole subtree.
+function LibraryFolderPicker({
+  roots,
+  selected,
+  onToggle,
+  emptyHint,
+}: {
+  roots: string[];
+  selected: string[];
+  onToggle: (path: string, checked: boolean) => void;
+  emptyHint: string;
+}) {
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  if (roots.length === 0) {
+    return <p className="text-[11px] text-muted">{emptyHint}</p>;
   }
-
-  const filteredCurrentPaths = currentPaths?.filter((path) => selectablePaths.includes(path)) ?? [];
-  const customCurrentPaths = getTaskCustomPaths(currentPaths, selectablePaths)
-    .filter((path) => !previousSelectablePaths.includes(path));
-  const selectedRootPaths = filteredCurrentPaths.length === 0 && customCurrentPaths.length === 0
-    ? selectablePaths
-    : filteredCurrentPaths;
-
-  const addedPaths = selectablePaths.filter(
-    (path) => !previousSelectablePaths.includes(path) && !selectedRootPaths.includes(path)
+  return (
+    <div className="max-h-72 space-y-0.5 overflow-auto rounded-lg border border-border/60 bg-surface/40 p-1.5">
+      {roots.map((root) => (
+        <LibraryFolderNode
+          key={root}
+          path={root}
+          label={root}
+          depth={0}
+          hasChildren
+          selectedSet={selectedSet}
+          onToggle={onToggle}
+        />
+      ))}
+    </div>
   );
-
-  const nextRootPaths = addedPaths.length > 0
-    ? [...selectedRootPaths, ...addedPaths]
-    : selectedRootPaths;
-
-  return mergeTaskPathSelection(nextRootPaths, customCurrentPaths);
 }
 
-function parseTaskPathInput(value: string): string[] {
-  return Array.from(new Set(
-    value
-      .split(/\r?\n/)
-      .map((path) => path.trim())
-      .filter(Boolean)
-  ));
-}
-
-function getTaskRootPaths(currentPaths: string[] | undefined, selectablePaths: string[]): string[] {
-  return currentPaths?.filter((path) => selectablePaths.includes(path)) ?? [];
-}
-
-function getTaskCustomPaths(currentPaths: string[] | undefined, selectablePaths: string[]): string[] {
-  return currentPaths?.filter((path) => !selectablePaths.includes(path)) ?? [];
-}
-
-function mergeTaskPathSelection(rootPaths: string[], customPaths: string[]): string[] {
-  return Array.from(new Set([...rootPaths, ...customPaths]));
-}
-
-function arePathSelectionsEqual(left: string[] | undefined, right: string[] | undefined): boolean {
-  if (left === right) {
-    return true;
-  }
-
-  if (!left || !right || left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((value, index) => value === right[index]);
+function LibraryFolderNode({
+  path,
+  label,
+  depth,
+  hasChildren,
+  selectedSet,
+  onToggle,
+}: {
+  path: string;
+  label: string;
+  depth: number;
+  hasChildren: boolean;
+  selectedSet: Set<string>;
+  onToggle: (path: string, checked: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: children, isLoading } = useQuery({
+    queryKey: ["library-folders", path],
+    queryFn: () => metadata.libraryFolders(path),
+    enabled: expanded && hasChildren,
+  });
+  const indent = depth * 16 + 4;
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-surface/70" style={{ paddingLeft: indent }}>
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="text-muted hover:text-foreground"
+            aria-label={expanded ? "Collapse folder" : "Expand folder"}
+          >
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+        ) : (
+          <span className="inline-block w-3.5" />
+        )}
+        <label className="flex min-w-0 cursor-pointer items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={selectedSet.has(path)}
+            onChange={(event) => onToggle(path, event.target.checked)}
+            className="rounded border-border"
+          />
+          <span className="truncate text-xs text-foreground" title={path}>{label}</span>
+        </label>
+      </div>
+      {expanded && hasChildren && (
+        <div>
+          {isLoading ? (
+            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>Loading…</p>
+          ) : (children ?? []).length === 0 ? (
+            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>No subfolders</p>
+          ) : (
+            (children ?? []).map((child) => (
+              <LibraryFolderNode
+                key={child.path}
+                path={child.path}
+                label={child.name}
+                depth={depth + 1}
+                hasChildren={child.hasChildren}
+                selectedSet={selectedSet}
+                onToggle={onToggle}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 type ExtensionDependencyCandidate = {
@@ -4249,7 +4298,6 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
     () => (config?.covePaths ?? []).map((path) => path.path.trim()).filter(Boolean),
     [config?.covePaths],
   );
-  const previousSelectablePathsRef = useRef<string[]>([]);
   const [showScanOpts, setShowScanOpts] = useState(false);
   const [scanOpts, setScanOpts] = useState<ScanOptions>(() => loadStoredTaskOptions(TASK_SCAN_OPTIONS_KEY, DEFAULT_SCAN_OPTIONS));
 
@@ -4284,27 +4332,6 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
   const [downloadImportStatus, setDownloadImportStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    const previousSelectablePaths = previousSelectablePathsRef.current;
-
-    if (selectablePaths.length === 0) {
-      previousSelectablePathsRef.current = selectablePaths;
-      return;
-    }
-
-    setScanOpts((current) => {
-      const nextPaths = mergeTaskSelectablePaths(current.paths, selectablePaths, previousSelectablePaths);
-      return arePathSelectionsEqual(current.paths, nextPaths) ? current : { ...current, paths: nextPaths };
-    });
-
-    setGenOpts((current) => {
-      const nextPaths = mergeTaskSelectablePaths(current.paths, selectablePaths, previousSelectablePaths);
-      return arePathSelectionsEqual(current.paths, nextPaths) ? current : { ...current, paths: nextPaths };
-    });
-
-    previousSelectablePathsRef.current = selectablePaths;
-  }, [selectablePaths]);
-
-  useEffect(() => {
     localStorage.setItem(TASK_SCAN_OPTIONS_KEY, JSON.stringify(scanOpts));
   }, [scanOpts]);
 
@@ -4328,76 +4355,33 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
     }));
   }, [downloadImportCachedFileName, downloadImportCachedUrls]);
 
-  const selectedScanRootPaths = useMemo(() => getTaskRootPaths(scanOpts.paths, selectablePaths), [scanOpts.paths, selectablePaths]);
-  const scanCustomPaths = useMemo(() => getTaskCustomPaths(scanOpts.paths, selectablePaths), [scanOpts.paths, selectablePaths]);
-
-  const effectiveScanOpts = useMemo<ScanOptions>(() => {
-    const selectedPaths = mergeTaskPathSelection(selectedScanRootPaths, scanCustomPaths);
-    return {
-      ...scanOpts,
-      paths: selectablePaths.length === 0
-        ? (scanCustomPaths.length > 0 ? scanCustomPaths : undefined)
-        : selectedScanRootPaths.length === selectablePaths.length && scanCustomPaths.length === 0
-          ? undefined
-          : selectedPaths,
-    };
-  }, [scanCustomPaths, scanOpts, selectablePaths.length, selectedScanRootPaths]);
-
-  const allScanPathsSelected = selectablePaths.length > 0
-    && selectedScanRootPaths.length === selectablePaths.length;
+  // Selected folder paths (library roots and/or drilled-down subfolders). Empty means "everything".
+  const scanSelectedPaths = scanOpts.paths ?? [];
+  const effectiveScanOpts = useMemo<ScanOptions>(
+    () => ({ ...scanOpts, paths: (scanOpts.paths?.length ?? 0) > 0 ? scanOpts.paths : undefined }),
+    [scanOpts],
+  );
 
   const toggleScanPath = (path: string, checked: boolean) => {
     setScanOpts((current) => {
-      const selectedRootPaths = getTaskRootPaths(current.paths, selectablePaths);
-      const customPaths = getTaskCustomPaths(current.paths, selectablePaths);
-      const nextRootPaths = checked
-        ? [...new Set([...selectedRootPaths, path])]
-        : selectedRootPaths.filter((value) => value !== path);
-      return { ...current, paths: mergeTaskPathSelection(nextRootPaths, customPaths) };
+      const next = new Set(current.paths ?? []);
+      if (checked) next.add(path); else next.delete(path);
+      return { ...current, paths: Array.from(next) };
     });
   };
 
-  const updateScanCustomPaths = (value: string) => {
-    setScanOpts((current) => ({
-      ...current,
-      paths: mergeTaskPathSelection(getTaskRootPaths(current.paths, selectablePaths), parseTaskPathInput(value)),
-    }));
-  };
-
-  const selectedGenRootPaths = useMemo(() => getTaskRootPaths(genOpts.paths, selectablePaths), [genOpts.paths, selectablePaths]);
-  const genCustomPaths = useMemo(() => getTaskCustomPaths(genOpts.paths, selectablePaths), [genOpts.paths, selectablePaths]);
-
-  const effectiveGenOpts = useMemo<GenerateOptions>(() => {
-    const selectedPaths = mergeTaskPathSelection(selectedGenRootPaths, genCustomPaths);
-    return {
-      ...genOpts,
-      paths: selectablePaths.length === 0
-        ? (genCustomPaths.length > 0 ? genCustomPaths : undefined)
-        : selectedGenRootPaths.length === selectablePaths.length && genCustomPaths.length === 0
-          ? undefined
-          : selectedPaths,
-    };
-  }, [genCustomPaths, genOpts, selectablePaths.length, selectedGenRootPaths]);
-
-  const allGenPathsSelected = selectablePaths.length > 0
-    && selectedGenRootPaths.length === selectablePaths.length;
+  const genSelectedPaths = genOpts.paths ?? [];
+  const effectiveGenOpts = useMemo<GenerateOptions>(
+    () => ({ ...genOpts, paths: (genOpts.paths?.length ?? 0) > 0 ? genOpts.paths : undefined }),
+    [genOpts],
+  );
 
   const toggleGenPath = (path: string, checked: boolean) => {
     setGenOpts((current) => {
-      const selectedRootPaths = getTaskRootPaths(current.paths, selectablePaths);
-      const customPaths = getTaskCustomPaths(current.paths, selectablePaths);
-      const nextRootPaths = checked
-        ? [...new Set([...selectedRootPaths, path])]
-        : selectedRootPaths.filter((value) => value !== path);
-      return { ...current, paths: mergeTaskPathSelection(nextRootPaths, customPaths) };
+      const next = new Set(current.paths ?? []);
+      if (checked) next.add(path); else next.delete(path);
+      return { ...current, paths: Array.from(next) };
     });
-  };
-
-  const updateGenCustomPaths = (value: string) => {
-    setGenOpts((current) => ({
-      ...current,
-      paths: mergeTaskPathSelection(getTaskRootPaths(current.paths, selectablePaths), parseTaskPathInput(value)),
-    }));
   };
 
   const scanMut = useMutation({ mutationFn: () => metadata.scan(effectiveScanOpts), onSuccess: () => refetchJobs() });
@@ -4500,36 +4484,24 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-medium text-foreground">Selective scan</p>
-                    <p className="text-[11px] text-muted">Choose specific library roots to scan, or leave them all selected for a full scan.</p>
+                    <p className="text-[11px] text-muted">Pick folders to scan, or leave everything unselected to scan the whole library. Expand a library path to drill into a specific subfolder.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setScanOpts({ ...scanOpts, paths: mergeTaskPathSelection(allScanPathsSelected ? [] : selectablePaths, scanCustomPaths) })}
-                    className="text-[11px] text-accent hover:text-accent-hover"
-                  >
-                    {allScanPathsSelected ? "Clear" : "Select all"}
-                  </button>
+                  {scanSelectedPaths.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setScanOpts({ ...scanOpts, paths: [] })}
+                      className="text-[11px] text-accent hover:text-accent-hover"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
-                <div className="space-y-1.5">
-                  {selectablePaths.map((path) => (
-                    <CheckboxLabel
-                      key={path}
-                      label={path}
-                      checked={selectedScanRootPaths.includes(path)}
-                      onChange={(checked) => toggleScanPath(path, checked)}
-                    />
-                  ))}
-                </div>
-                <label className="block space-y-1.5 pt-2">
-                  <span className="text-xs font-medium text-foreground">Specific files or folders</span>
-                  <textarea
-                    value={scanCustomPaths.join("\n")}
-                    onChange={(event) => updateScanCustomPaths(event.target.value)}
-                    rows={3}
-                    placeholder="One path per line"
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
-                  />
-                </label>
+                <LibraryFolderPicker
+                  roots={selectablePaths}
+                  selected={scanSelectedPaths}
+                  onToggle={toggleScanPath}
+                  emptyHint="No library paths configured."
+                />
               </div>
             )}
           </div>
@@ -4589,36 +4561,24 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-medium text-foreground">Selective generate</p>
-                    <p className="text-[11px] text-muted">Choose specific library roots to generate for, or leave them all selected.</p>
+                    <p className="text-[11px] text-muted">Pick folders to generate for, or leave everything unselected to cover the whole library. Expand a library path to drill into a specific subfolder.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setGenOpts({ ...genOpts, paths: mergeTaskPathSelection(allGenPathsSelected ? [] : selectablePaths, genCustomPaths) })}
-                    className="text-[11px] text-accent hover:text-accent-hover"
-                  >
-                    {allGenPathsSelected ? "Clear" : "Select all"}
-                  </button>
+                  {genSelectedPaths.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setGenOpts({ ...genOpts, paths: [] })}
+                      className="text-[11px] text-accent hover:text-accent-hover"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
-                <div className="space-y-1.5">
-                  {selectablePaths.map((path) => (
-                    <CheckboxLabel
-                      key={path}
-                      label={path}
-                      checked={selectedGenRootPaths.includes(path)}
-                      onChange={(checked) => toggleGenPath(path, checked)}
-                    />
-                  ))}
-                </div>
-                <label className="block space-y-1.5 pt-2">
-                  <span className="text-xs font-medium text-foreground">Specific files or folders</span>
-                  <textarea
-                    value={genCustomPaths.join("\n")}
-                    onChange={(event) => updateGenCustomPaths(event.target.value)}
-                    rows={3}
-                    placeholder="One path per line"
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
-                  />
-                </label>
+                <LibraryFolderPicker
+                  roots={selectablePaths}
+                  selected={genSelectedPaths}
+                  onToggle={toggleGenPath}
+                  emptyHint="No library paths configured."
+                />
               </div>
             )}
           </div>

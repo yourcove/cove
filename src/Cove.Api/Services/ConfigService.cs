@@ -76,7 +76,6 @@ public class ConfigService
             TranscodeOutputArgs = cfg.TranscodeOutputArgs,
             LiveTranscodeInputArgs = cfg.LiveTranscodeInputArgs,
             LiveTranscodeOutputArgs = cfg.LiveTranscodeOutputArgs,
-            DrawFunscriptHeatmapRange = cfg.DrawFunscriptHeatmapRange,
             PreviewPreset = cfg.PreviewPreset,
             PreviewAudio = cfg.PreviewAudio,
             VideoExtensions = cfg.VideoExtensions,
@@ -309,7 +308,6 @@ public class ConfigService
         cfg.TranscodeOutputArgs = string.IsNullOrWhiteSpace(dto.TranscodeOutputArgs) ? null : dto.TranscodeOutputArgs;
         cfg.LiveTranscodeInputArgs = string.IsNullOrWhiteSpace(dto.LiveTranscodeInputArgs) ? null : dto.LiveTranscodeInputArgs;
         cfg.LiveTranscodeOutputArgs = string.IsNullOrWhiteSpace(dto.LiveTranscodeOutputArgs) ? null : dto.LiveTranscodeOutputArgs;
-        cfg.DrawFunscriptHeatmapRange = dto.DrawFunscriptHeatmapRange;
         if (!string.IsNullOrWhiteSpace(dto.PreviewPreset))
             cfg.PreviewPreset = dto.PreviewPreset;
         if (!string.IsNullOrWhiteSpace(dto.PreviewAudio))
