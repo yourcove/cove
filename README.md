@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="coveicon.svg" width="96" alt="Cove logo">
+  <img src="coveicon.ico" width="96" alt="Cove logo">
 </p>
 
 <h1 align="center">Cove</h1>
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="ui/public/manual/screenshots/video-detail.png" width="880" alt="Cove video detail page with timeline, people, and metadata">
+  <img src="docs/screenshots/search-and-filters.png" width="880" alt="Cove videos page">
 </p>
 
 ## Why Cove
