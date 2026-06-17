@@ -55,7 +55,7 @@
     <td><strong>Browse it your way.</strong><br>Grid and list pages for sorting and cleanup; feed and vertical pages for when you just want to watch. Watch later, history, and continue watching let you pick up where you left off.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/groups-detail.png" alt="Groups Page"></td>
+    <td><img src="docs/screenshots/group-detail.png" alt="Groups Page"></td>
     <td><strong>Go beyond flat tagging.</strong><br>Tag groups, dynamic groups that fill themselves based on rules, segments, sub-scenes, and compilations give your library real structure as it grows.</td>
   </tr>
   <tr>
