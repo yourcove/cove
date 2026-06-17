@@ -43,7 +43,7 @@
 
 <table>
   <tr>
-    <td width="42%"><img src="ui/public/manual/screenshots/global-search.png" alt="Global search"></td>
+    <td width="42%"><img src="docs/screenshots/global-search.png" alt="Global search"></td>
     <td><strong>Find content by whatever you remember or are looking for.</strong><br>Search across everything by title, tag, performer, studio, path, or group. Or add filters to narrow a big library down. Save the searches & filters you like.</td>
   </tr>
   <tr>
