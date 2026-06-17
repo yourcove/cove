@@ -69,8 +69,9 @@ substitute for engineering judgment. Every change you submit must have a human a
 it, has verified it works, and stands behind its design and architecture. *"The AI wrote it"* is
 never an explanation for code you can't justify. PRs that read as unreviewed AI output such as wrong
 abstractions, nonsense logic, tests that don't actually test, or solutions that don't
-fit Cove's architecture will be closed. **Disclose AI use and the model(s) in your PR.** You
-own everything you submit, exactly as if you'd typed it yourself.
+fit Cove's architecture will be closed and repeated low-effort PR's may lead to being blocked from contributing.
+Do not reply to others on PR's by copying AI responses. **Disclose AI use and the model(s) in your PR.** 
+You own everything you submit, exactly as if you'd typed it yourself.
 
 ## Issue lifecycle and labels
 
