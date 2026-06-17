@@ -40,7 +40,7 @@
 - **Extensions are a core part of the app**, not an afterthought. Cove is designed to be extendable!
 
 ## What you can do
-
+pr test
 <table>
   <tr>
     <td width="62%"><img src="docs/screenshots/global-search.png" alt="Global search"></td>
