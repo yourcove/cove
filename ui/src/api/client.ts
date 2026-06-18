@@ -28,7 +28,7 @@ import type {
   ResolvedSpanDetail, ResolvedSpanList, VideoResolvedSpans, SegmentDisplayProfile,
   SegmentDisplayProfileCreate, SegmentDisplayProfileUpdate,
   SegmentDisplayRule, SegmentDisplayRuleCreate, SegmentDisplayRuleUpdate,
-  SegmentSpanQueryRequest, SegmentSpanSearchRequest, SegmentSpanSearchResponse,
+  SegmentSpanQueryRequest, SegmentSpanSearchRequest, SegmentSpanSearchResponse, SegmentSpanCountResponse,
   Detection, DetectionCreate, DetectionUpdate,
   Face, FaceAppearance, FaceAppearancesResponse, FaceCreate, FaceUpdate, FaceLink, FaceBatchLinkTopSuggestionRequest, FaceBatchDeleteRequest, FaceBatchOperationResult, FaceCreatePerformer, FaceHostFace, FaceMerge, FaceIgnore, FaceDeleteImpact, FaceNotPresentResult, FaceSimilar, FaceSuggestion,
   EntityEngagement, EntityFavorite, EntityEngagementBatchRequest, EntityRatings,
@@ -954,6 +954,9 @@ export const segmentDisplayProfiles = {
 export const segmentSpans = {
   search: (data: SegmentSpanSearchRequest) =>
     request<SegmentSpanSearchResponse>("/segments/spans/search", { method: "POST", body: JSON.stringify(data) }),
+  // Exact span total for a filter set, computed/cached server-side. Independent of page/sort/direction.
+  count: (data: SegmentSpanSearchRequest) =>
+    request<SegmentSpanCountResponse>("/segments/spans/count", { method: "POST", body: JSON.stringify(data) }),
 };
 
 // ===== Entity Images =====
@@ -1035,6 +1038,16 @@ export const system = {
     const form = new FormData();
     form.append("file", file);
     const res = await authedFetch(`${API_BASE}/system/ui/favicon`, { method: "POST", body: form });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API Error ${res.status}: ${text}`);
+    }
+    return res.json() as Promise<{ path: string; fileName: string }>;
+  },
+  uploadLogo: async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await authedFetch(`${API_BASE}/system/ui/logo`, { method: "POST", body: form });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API Error ${res.status}: ${text}`);

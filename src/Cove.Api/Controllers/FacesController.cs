@@ -107,16 +107,30 @@ public class FacesController(
         var totalSw = Stopwatch.StartNew();
         var phaseSw = new Stopwatch();
 
-        var query = db.Faces
+        var baseQuery = db.Faces
             .AsNoTracking()
             .Include(face => face.Performer)
             .AsQueryable();
 
-        query = FullTextSearchHelpers.Apply(db, query, q,
+        var query = FullTextSearchHelpers.Apply(db, baseQuery, q,
             face => face.Label,
             face => face.PrimarySourceKey,
             face => face.SearchText,
             face => face.Performer != null ? face.Performer.Name : null);
+
+        // Postgres full-text matches only the face's own SearchVector, which does not include a *linked*
+        // performer's name — so a search by performer name wouldn't surface that performer's faces (and
+        // the merge dialog, which searches faces the same way, couldn't find a face by who it's linked
+        // to). Union linked performer name/alias matches, mirroring how video search includes performers.
+        var faceSearchTerm = q?.Trim();
+        if (!string.IsNullOrWhiteSpace(faceSearchTerm))
+        {
+            var performerTerm = faceSearchTerm.ToLowerInvariant();
+            query = query.Concat(baseQuery.Where(face => face.Performer != null && (
+                    face.Performer.Name.ToLower().Contains(performerTerm)
+                    || face.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(performerTerm)))))
+                .Distinct();
+        }
 
         if (performerId.HasValue)
             query = query.Where(face => face.PerformerId == performerId.Value);
@@ -133,13 +147,11 @@ public class FacesController(
         if (ignored.HasValue)
             query = query.Where(face => face.Ignored == ignored.Value);
 
-        if (merged.HasValue)
-            query = merged.Value
-                ? query.Where(face => face.MergedIntoFaceId != null)
-                : query.Where(face => face.MergedIntoFaceId == null);
-
-        if (mergedIntoFaceId.HasValue)
-            query = query.Where(face => face.MergedIntoFaceId == mergedIntoFaceId.Value);
+        // A merged face is absorbed into its surviving target, so it must never surface in the faces list
+        // — regardless of the merged / mergedIntoFaceId params. Otherwise a cluster appears twice (the
+        // merged "loser" plus its target) and per-performer counts/numbering look wrong. The tombstone row
+        // is retained only for AI re-scan redirect and un-merge; it is intentionally invisible to the list.
+        query = query.Where(face => face.MergedIntoFaceId == null);
 
         query = FilterHelpers.ApplyString(query, BuildStringCriterion(label, labelModifier), face => face.Label);
         query = FilterHelpers.ApplyString(query, BuildStringCriterion(primarySourceKey, primarySourceKeyModifier), face => face.PrimarySourceKey);
@@ -199,12 +211,14 @@ public class FacesController(
                 .ToListAsync(cancellationToken);
             logger.LogDebug("Faces.List (filtered) DB query: {Ms}ms (page={Count}, total={TotalMs}ms)", phaseSw.ElapsedMilliseconds, filteredPage.Count, totalSw.ElapsedMilliseconds);
             var filteredComputedCounts = await LoadComputedCountsAsync(filteredPage.Select(face => face.Id).ToArray(), cancellationToken);
+            var filteredOrdinals = await LoadPerformerFaceOrdinalsAsync(filteredPage, cancellationToken);
 
             return Ok(new PaginatedResponse<FaceDto>(
                 filteredPage.Select(face => MapToDto(
                     face,
                     filteredComputedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
-                    MapStoredTopSuggestion(face))).ToList(),
+                    MapStoredTopSuggestion(face),
+                    performerFaceOrdinal: filteredOrdinals.TryGetValue(face.Id, out var ord) ? ord : null)).ToList(),
                 totalFilteredCount,
                 page,
                 perPage));
@@ -223,13 +237,15 @@ public class FacesController(
         logger.LogDebug("Faces.List DB page query: {Ms}ms (items={Count})", phaseSw.ElapsedMilliseconds, items.Count);
 
         var computedCounts = await LoadComputedCountsAsync(items.Select(face => face.Id).ToArray(), cancellationToken);
+        var ordinals = await LoadPerformerFaceOrdinalsAsync(items, cancellationToken);
         logger.LogDebug("Faces.List total: {Ms}ms", totalSw.ElapsedMilliseconds);
 
         return Ok(new PaginatedResponse<FaceDto>(
             items.Select(face => MapToDto(
                 face,
                 computedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
-                MapStoredTopSuggestion(face))).ToList(),
+                MapStoredTopSuggestion(face),
+                performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null)).ToList(),
             totalCount,
             page,
             perPage));
@@ -361,11 +377,13 @@ public class FacesController(
         var computedCounts = await LoadComputedCountsAsync(new[] { id }, cancellationToken);
         var topSuggestion = MapStoredTopSuggestion(face);
         var fieldProvenance = await LoadFaceFieldProvenanceAsync(face.Id, cancellationToken);
+        var ordinals = await LoadPerformerFaceOrdinalsAsync([face], cancellationToken);
         return Ok(MapToDto(
             face,
             computedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
             topSuggestion,
-            fieldProvenance));
+            fieldProvenance,
+            ordinals.TryGetValue(face.Id, out var ord) ? ord : null));
     }
 
     [HttpGet("{id:int}/appearances")]
@@ -443,7 +461,11 @@ public class FacesController(
             .ToListAsync(cancellationToken);
 
         var computedCounts = await LoadComputedCountsAsync(faces.Select(face => face.Id).ToArray(), cancellationToken);
-        return Ok(faces.Select(face => MapToDto(face, computedCounts.GetValueOrDefault(face.Id))).ToList());
+        var ordinals = await LoadPerformerFaceOrdinalsAsync(faces, cancellationToken);
+        return Ok(faces.Select(face => MapToDto(
+            face,
+            computedCounts.GetValueOrDefault(face.Id),
+            performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null)).ToList());
     }
 
     [HttpGet("review/unlinked")]
@@ -1141,7 +1163,8 @@ public class FacesController(
         var faces = await db.Faces
             .AsNoTracking()
             .Include(face => face.Performer)
-            .Where(face => faceIds.Contains(face.Id))
+            // Merged faces are absorbed into their target, so they must not appear as similar-face results.
+            .Where(face => faceIds.Contains(face.Id) && face.MergedIntoFaceId == null)
             .ToDictionaryAsync(face => face.Id, cancellationToken);
 
         var computedCounts = await LoadComputedCountsAsync(faceIds, cancellationToken);
@@ -1847,7 +1870,7 @@ public class FacesController(
         performer.ImageBlobId = await blobService.StoreBlobAsync(stream, blob.Value.ContentType, cancellationToken);
     }
 
-    private FaceDto MapToDto(Face face, FaceComputedCounts? computedCounts = null, FaceTopSuggestionDto? topSuggestion = null, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private FaceDto MapToDto(Face face, FaceComputedCounts? computedCounts = null, FaceTopSuggestionDto? topSuggestion = null, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null, (int Index, int Count)? performerFaceOrdinal = null) => new(
         face.Id,
         face.Label,
         face.PerformerId,
@@ -1864,7 +1887,41 @@ public class FacesController(
         computedCounts?.AppearanceCount ?? face.AppearanceCount,
         computedCounts?.FrameSampleCount ?? face.FrameSampleCount,
         topSuggestion,
-        fieldProvenance?.ToList());
+        fieldProvenance?.ToList(),
+        performerFaceOrdinal?.Index ?? 0,
+        performerFaceOrdinal?.Count ?? 0);
+
+    /// <summary>
+    /// For the linked faces in <paramref name="faces"/>, returns each face id's 1-based position among
+    /// all non-merged faces of the same performer (ordered by face id) plus that performer's total face
+    /// count. Used to disambiguate "&lt;performer&gt; 1/2/3…" in lists.
+    /// </summary>
+    private async Task<Dictionary<int, (int Index, int Count)>> LoadPerformerFaceOrdinalsAsync(IEnumerable<Face> faces, CancellationToken cancellationToken)
+    {
+        var performerIds = faces
+            .Where(face => face.PerformerId.HasValue)
+            .Select(face => face.PerformerId!.Value)
+            .Distinct()
+            .ToArray();
+        if (performerIds.Length == 0)
+            return [];
+
+        var rows = await db.Faces
+            .AsNoTracking()
+            .Where(face => face.PerformerId != null && performerIds.Contains(face.PerformerId.Value) && face.MergedIntoFaceId == null)
+            .Select(face => new { face.Id, PerformerId = face.PerformerId!.Value })
+            .ToListAsync(cancellationToken);
+
+        var ordinals = new Dictionary<int, (int Index, int Count)>();
+        foreach (var group in rows.GroupBy(row => row.PerformerId))
+        {
+            var orderedIds = group.Select(row => row.Id).OrderBy(id => id).ToList();
+            for (var index = 0; index < orderedIds.Count; index++)
+                ordinals[orderedIds[index]] = (index + 1, orderedIds.Count);
+        }
+
+        return ordinals;
+    }
 
     private async Task<IReadOnlyList<FieldProvenanceDto>?> LoadFaceFieldProvenanceAsync(int faceId, CancellationToken cancellationToken)
         => fieldProvenanceService == null

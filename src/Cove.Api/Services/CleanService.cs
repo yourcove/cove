@@ -12,6 +12,12 @@ public class CleanService(
     IServiceScopeFactory scopeFactory,
     ILogger<CleanService> logger) : ICleanService
 {
+    // Lightweight projections so clean never materializes (or tracks) full entities + navigation graphs.
+    private sealed record CleanFileInfo(string Path, int? ZipFileId);
+    private sealed record CleanFolderInfo(string Path, int? ZipFileId);
+    private sealed record CleanEntity(int Id, List<CleanFileInfo> Files);
+    private sealed record CleanGallery(int Id, CleanFolderInfo? Folder, List<CleanFileInfo> Files);
+
     public string StartClean(bool dryRun = false)
     {
         return jobService.Enqueue("clean", dryRun ? "Cleaning (dry run)" : "Cleaning library", async (progress, ct) =>
@@ -19,22 +25,25 @@ public class CleanService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-            // Find videos whose files no longer exist on disk
-            var videos = await db.Videos
-                .Include(s => s.Files).ThenInclude(f => f.ParentFolder)
+            // Load only the fields needed for existence checks (Path is a stored, indexed column, so
+            // ParentFolder is not required), untracked and projected. Loading full tracked entities for
+            // every video/image/gallery + their files exhausts memory and can OOM the job on large
+            // libraries (hundreds of thousands of rows), leaving orphans uncleaned.
+            var videos = await db.Videos.AsNoTracking()
+                .Select(v => new CleanEntity(v.Id, v.Files.Select(f => new CleanFileInfo(f.Path, f.ZipFileId)).ToList()))
                 .ToListAsync(ct);
 
-            // Find images whose files no longer exist
-            var images = await db.Images
-                .Include(i => i.Files).ThenInclude(f => f.ParentFolder)
+            var images = await db.Images.AsNoTracking()
+                .Select(i => new CleanEntity(i.Id, i.Files.Select(f => new CleanFileInfo(f.Path, f.ZipFileId)).ToList()))
                 .ToListAsync(ct);
 
-            // Load galleries with both their backing folder AND their files. Zip-based
-            // galleries have FolderId == null (their content lives in a .zip GalleryFile),
-            // so the previous `FolderId != null` filter excluded them from cleaning entirely.
-            var galleries = await db.Galleries
-                .Include(g => g.Folder)
-                .Include(g => g.Files).ThenInclude(f => f.ParentFolder)
+            // Zip-based galleries have FolderId == null (their content lives in a .zip GalleryFile), so
+            // both the backing folder AND the files are needed to decide orphanhood.
+            var galleries = await db.Galleries.AsNoTracking()
+                .Select(g => new CleanGallery(
+                    g.Id,
+                    g.Folder == null ? null : new CleanFolderInfo(g.Folder.Path, g.Folder.ZipFileId),
+                    g.Files.Select(f => new CleanFileInfo(f.Path, f.ZipFileId)).ToList()))
                 .ToListAsync(ct);
 
             // Build an existence map for zip archives referenced by zip-backed files/folders.
@@ -67,6 +76,7 @@ public class CleanService(
             if (zipFileIds.Count > 0)
             {
                 var zipFiles = await db.Set<BaseFileEntity>()
+                    .AsNoTracking()
                     .Where(f => zipFileIds.Contains(f.Id))
                     .Select(f => new { f.Id, f.Path })
                     .ToListAsync(ct);
@@ -76,10 +86,8 @@ public class CleanService(
                         existingZipFileIds.Add(zip.Id);
             }
 
-            bool FileExists(BaseFileEntity? file)
+            bool FileExists(CleanFileInfo file)
             {
-                if (file == null) return false;
-
                 // Zip-backed entry: exists only if its containing archive still exists on disk.
                 if (file.ZipFileId.HasValue)
                     return existingZipFileIds.Contains(file.ZipFileId.Value);
@@ -87,7 +95,7 @@ public class CleanService(
                 return PathExists(file.Path);
             }
 
-            bool FolderExists(Folder folder)
+            bool FolderExists(CleanFolderInfo folder)
             {
                 // A zip-virtual folder exists only while its archive does.
                 if (folder.ZipFileId.HasValue)
@@ -99,7 +107,7 @@ public class CleanService(
             // An item is orphaned when it has no files at all, or none of its files exist.
             // (Previously only Files.FirstOrDefault() was checked, which mis-handled
             // multi-file items in both directions.)
-            static bool AllMissing(IEnumerable<BaseFileEntity> files, Func<BaseFileEntity, bool> exists)
+            static bool AllMissing(IEnumerable<CleanFileInfo> files, Func<CleanFileInfo, bool> exists)
                 => !files.Any(exists);
 
             var orphanVideoIds = new List<int>();

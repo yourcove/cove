@@ -8,6 +8,22 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.6.0] - 2026-06-18
+
+- Improve ffmpeg transcoding
+- Reorganize UI settings
+- Improve face organization (merging, list view, naming)
+- Add faces section to performers page
+- Improve segments list page
+- Improve stash migration memory efficiency to prevent crashes with massive libraries
+- Add ability to replace cove logo with custom logo
+- Fix face "appears in" bugs
+- Fix star ratings on mobile to look and function better
+- Ensure tag remote ids are imported correctly on stash migration
+- Improve clean
+- Add gallery detail view saved filters
+- 
+
 ## [0.5.0] - 2026-06-17
 
 - ffmpeg fallback/fixes for filepaths with special characters

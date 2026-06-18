@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Windows executable icon (Cove.InstanceManager.exe). Shared Cove logo lives at the repo root. -->
     <ApplicationIcon>..\..\coveicon.ico</ApplicationIcon>
+    <!-- GUI subsystem so launching the manager (shortcut, startup script, double-click) does not pop a
+         console/terminal window. When run from an existing terminal it re-attaches to the parent console
+         (see NativeConsole.AttachToParentConsole) so CLI output and the help text still appear. -->
+    <OutputType>WinExe</OutputType>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">

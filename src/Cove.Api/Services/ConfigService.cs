@@ -107,6 +107,7 @@ public class ConfigService
             {
                 Title = cfg.Ui.Title,
                 FaviconPath = cfg.Ui.FaviconPath,
+                LogoPath = cfg.Ui.LogoPath,
                 TroubleshootingModeEnabled = cfg.Ui.TroubleshootingModeEnabled,
                 AbbreviateCounters = cfg.Ui.AbbreviateCounters,
                 RatingSystemOptions = new RatingSystemOptionsDto
@@ -346,6 +347,7 @@ public class ConfigService
 
         cfg.Ui.Title = string.IsNullOrWhiteSpace(dto.Ui.Title) ? null : dto.Ui.Title.Trim();
         cfg.Ui.FaviconPath = string.IsNullOrWhiteSpace(dto.Ui.FaviconPath) ? null : dto.Ui.FaviconPath.Trim();
+        cfg.Ui.LogoPath = string.IsNullOrWhiteSpace(dto.Ui.LogoPath) ? null : dto.Ui.LogoPath.Trim();
         cfg.Ui.TroubleshootingModeEnabled = dto.Ui.TroubleshootingModeEnabled;
         cfg.Ui.AbbreviateCounters = dto.Ui.AbbreviateCounters;
         cfg.Ui.RatingSystemOptions = new RatingSystemOptions

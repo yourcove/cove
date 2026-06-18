@@ -1,4 +1,4 @@
-import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { faces, videos, segmentDisplayProfiles, tagApplications, tags, entityImages, metadata, fileOps, galleries } from "../api/client";
 import { formatDuration, formatFileSize, formatDate, TagBadge, getResolutionLabel, CustomFieldsDisplay, CustomFieldsEditor, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { 
@@ -160,6 +160,13 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const { data: video, isLoading } = useQuery({
     queryKey: ["video", id],
     queryFn: () => videos.get(id),
+    // Keep the previous video's data on screen while the next one loads. Advancing in a queue
+    // otherwise drops to the page-level loading skeleton, which unmounts the whole player subtree —
+    // exiting fullscreen on every "next" and flashing a blank skeleton between items. With the player
+    // kept mounted it handles the id change in place (it already resets per-video state and reloads
+    // the source on videoId/streamUrl change). The player block below reads id/stream/poster from the
+    // loaded `video` so the (id, file, stream) triple stays self-consistent during the swap.
+    placeholderData: keepPreviousData,
   });
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
@@ -475,7 +482,10 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   if (!video) return <div className="text-center text-secondary py-16">Video not found</div>;
 
   const file = video.files[0];
-  const streamUrl = videos.streamUrl(id);
+  // Use video.id (the loaded record) rather than the route id so the stream URL stays consistent with
+  // `file` during a keepPreviousData swap, where the route id is already the next video but the data
+  // (and format) is still the previous one for a frame.
+  const streamUrl = videos.streamUrl(video.id);
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
 
   const studioImageUrl = video.studioId ? entityImages.studioImageUrl(video.studioId) : null;
@@ -678,12 +688,17 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
         {file ? (
           <VideoPlayer
+            // Intentionally NOT keyed by id: the player stays mounted across queue advances so the
+            // fullscreen container (containerRef lives inside VideoPlayer) survives, keeping fullscreen
+            // when you hit next. The player resets its per-video state on the videoId change and the
+            // source-change effect calls video.load() (releasing the old stream); on unmount the cleanup
+            // effect fully tears the connection down.
             streamUrl={streamUrl}
-            posterUrl={videos.screenshotUrl(id, video.updatedAt)}
+            posterUrl={videos.screenshotUrl(video.id, video.updatedAt)}
             format={file.format}
             duration={file.duration}
             resumeTime={effectiveResumeTime}
-            videoId={id}
+            videoId={video.id}
             detections={detections}
             segments={segments}
             faces={videoFaces.map(({ face }) => face)}

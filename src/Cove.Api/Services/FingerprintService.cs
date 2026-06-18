@@ -38,6 +38,12 @@ public class FingerprintService(
     private const int SpriteColumns = 5;
     private const int SpriteRows = 5;
 
+    // The single-process sprite pHash path decodes ~90% of the file to sample its frames, so its cost
+    // scales with video length and routinely times out on long videos before falling through to
+    // seek-based extraction anyway. Past this duration, skip it and go straight to fast input-seek
+    // extraction (near-constant cost per frame).
+    private const double SpriteDecodeMaxDurationSeconds = 600d; // 10 minutes
+
     public async Task<string?> ComputeMd5Async(string path, CancellationToken ct = default)
     {
         if (!File.Exists(path))
@@ -326,11 +332,20 @@ public class FingerprintService(
                 useInProcess, FfmpegInProcess.IsAvailable, path);
         }
 
-        var spritePhash = await TryComputeVideoPhashViaSpriteAsync(ffmpegPath, path, duration, ct);
-        if (!string.IsNullOrWhiteSpace(spritePhash))
-            return spritePhash;
+        // The whole-window sprite decode is fine for short videos but pathological for long ones, so
+        // only attempt it under the duration threshold; otherwise drop straight to seek-based extraction.
+        if (duration <= SpriteDecodeMaxDurationSeconds)
+        {
+            var spritePhash = await TryComputeVideoPhashViaSpriteAsync(ffmpegPath, path, duration, ct);
+            if (!string.IsNullOrWhiteSpace(spritePhash))
+                return spritePhash;
 
-        logger.LogDebug("Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
+            logger.LogDebug("Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
+        }
+        else
+        {
+            logger.LogDebug("Skipping whole-window sprite pHash path for long video ({Duration:F0}s) {Path}; using seek-based extraction", duration, path);
+        }
 
         // Final fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
         return await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
@@ -375,7 +390,9 @@ public class FingerprintService(
             var stepText = step.ToString("0.########", CultureInfo.InvariantCulture);
             var decodeArgs = GetFfmpegDecodeArgs();
             var filter = $"select='if(isnan(prev_selected_t),1,gte(t-prev_selected_t,{stepText}))',scale={SpriteFrameSize}:-2,tile={SpriteColumns}x{SpriteRows}:margin=0:padding=0";
-            var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {offsetText} -t {sampleWindowText} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -f image2 \"{spritePath}\"";
+            // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
+            // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
+            var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {offsetText} -t {sampleWindowText} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p -f image2 \"{spritePath}\"";
             var timeout = TimeSpan.FromSeconds(Math.Clamp(duration / 2d, 45d, 300d));
 
             logger.LogDebug("Attempting single-process sprite extraction for {Path}", videoPath);

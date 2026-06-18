@@ -39,7 +39,7 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "videos" | "galleries" | "images" | "audios" | "texts" | "groups" | "appearsWith" | "similar" | (string & {});
+type TabKey = "videos" | "galleries" | "images" | "audios" | "texts" | "groups" | "faces" | "appearsWith" | "similar" | (string & {});
 
 const IMAGE_SORT = [
   { value: "updated_at", label: "Updated At" },
@@ -99,6 +99,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     { key: "audios", label: "Audios", count: performer?.audioCount },
     { key: "texts", label: "Texts", count: performer?.textCount },
     { key: "groups", label: "Groups", count: performer?.groupCount },
+    { key: "faces", label: "Faces", count: performer?.faceCount },
     { key: "appearsWith", label: "Appears With" },
     { key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> },
   ], id);
@@ -127,6 +128,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     audios: "audios.read",
     texts: "texts.read",
     groups: "groups.read",
+    faces: "faces.read",
     appearsWith: "performers.read",
     similar: "performers.read",
   }, hasPermission);
@@ -382,6 +384,9 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
           )}
           {activeTab === "groups" && (
             <PerformerGroupsPanel performerId={id} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
+          )}
+          {activeTab === "faces" && (
+            <PerformerFacesPanel performerId={id} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
           {activeTab === "appearsWith" && (
             <PerformerAppearsWithPanel performerId={id} filter={appearsWithFilter} setFilter={setAppearsWithFilter} onNavigate={onNavigate} />
@@ -754,6 +759,84 @@ function SimilarPerformerFaceCard({ match, onNavigate }: { match: PerformerFaceM
     </article>
   );
 }
+
+const FACE_SORT_OPTIONS = [
+  { value: "appearances", label: "Appearances" },
+  { value: "videos", label: "Videos" },
+  { value: "images", label: "Images" },
+  { value: "updated_at", label: "Updated At" },
+  { value: "created_at", label: "Created At" },
+];
+
+function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { performerId: number; canReadFaces: boolean; onNavigate: (r: any) => void }) {
+  const [zoomLevel, setZoomLevel] = useState(0);
+  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("faces");
+  // Client-side sort over the (small) linked-face set so this tab gets the same toolbar (sort + zoom +
+  // grid/list) as the other detail tabs without needing a separate paginated endpoint.
+  const [filter, setFilter] = useState<FindFilter>({ page: 1, perPage: 200, sort: "appearances", direction: "desc" });
+  // Shares the cache key with the similarity panel's linked-faces query so switching tabs is instant.
+  const { data: linkedFaces = [], isLoading } = useQuery({
+    queryKey: ["performer", performerId, "linked-faces"],
+    queryFn: () => faces.performerFaces(performerId),
+    enabled: canReadFaces,
+  });
+
+  const sortedFaces = useMemo(() => {
+    const dir = filter.direction === "asc" ? 1 : -1;
+    const key = filter.sort ?? "appearances";
+    return [...linkedFaces].sort((left, right) => {
+      switch (key) {
+        case "videos": return dir * (left.videoCount - right.videoCount);
+        case "images": return dir * (left.imageCount - right.imageCount);
+        case "created_at": return dir * (new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+        case "updated_at": return dir * (new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime());
+        default: return dir * (left.appearanceCount - right.appearanceCount);
+      }
+    });
+  }, [linkedFaces, filter.sort, filter.direction]);
+
+  if (!canReadFaces) return null;
+
+  return (
+    <div className="space-y-4">
+      <DetailListToolbar
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={linkedFaces.length}
+        sortOptions={FACE_SORT_OPTIONS}
+        zoomLevel={zoomLevel}
+        onZoomChange={setZoomLevel}
+        cardSizeEntityType="faces"
+        showPagingControls={false}
+        displayMode={displayMode}
+        onDisplayModeChange={setDisplayMode}
+        availableDisplayModes={availableDisplayModes}
+      />
+      {isLoading ? (
+        <p className="text-sm text-secondary">Loading linked faces...</p>
+      ) : linkedFaces.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-secondary">
+          No faces are linked to this performer yet.
+        </div>
+      ) : (
+        <RelatedEntityListView
+          entityType="faces"
+          items={sortedFaces}
+          displayMode={displayMode}
+          zoomLevel={zoomLevel}
+          selectedIds={EMPTY_SELECTION}
+          selecting={false}
+          onToggle={noop}
+          onNavigate={onNavigate}
+          infinitePageSize={false}
+        />
+      )}
+    </div>
+  );
+}
+
+const EMPTY_SELECTION = new Set<number>();
+const noop = () => {};
 
 function InfoItem({ icon, label, value, fieldProvenance, fieldKey }: { icon?: React.ReactNode; label: string; value: string; fieldProvenance?: FieldProvenance[]; fieldKey?: string | string[] }) {
   const valueNode = fieldKey ? <FieldProvenanceHover fieldProvenance={fieldProvenance} fieldKey={fieldKey}>{value}</FieldProvenanceHover> : value;

@@ -106,6 +106,7 @@ export interface Performer {
   groupCount: number;
   audioCount: number;
   textCount: number;
+  faceCount?: number;
   customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -1210,9 +1211,16 @@ export interface SegmentSpanSearchResultItem {
 
 export interface SegmentSpanSearchResponse {
   items: SegmentSpanSearchResultItem[];
+  /** Exact when known cheaply; -1 when the page was served via early termination (use hasMore for nav
+   *  and fetch the exact total from the spans/count endpoint). */
   totalCount: number;
   page: number;
   perPage: number;
+  hasMore?: boolean;
+}
+
+export interface SegmentSpanCountResponse {
+  totalCount: number;
 }
 
 export interface SegmentDistinctValue {
@@ -1338,6 +1346,9 @@ export interface Face {
   frameSampleCount: number;
   topSuggestion?: FaceTopSuggestion;
   fieldProvenance?: FieldProvenance[];
+  /** 1-based position among the linked performer's faces, with the total. 0 when unlinked/not computed. */
+  performerFaceIndex?: number;
+  performerFaceCount?: number;
 }
 
 export interface FaceAppearance {
@@ -1859,6 +1870,7 @@ export interface CustomFieldDefinitionUpdate {
 export interface UiConfig {
   title?: string;
   faviconPath?: string;
+  logoPath?: string;
   troubleshootingModeEnabled: boolean;
   abbreviateCounters: boolean;
   ratingSystemOptions: RatingSystemOptions;

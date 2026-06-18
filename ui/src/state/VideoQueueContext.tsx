@@ -1,10 +1,27 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 
 interface VideoQueueState {
   videoIds: number[];
   currentIndex: number;
   autoplay: boolean;
   items?: Record<number, VideoQueueItem>;
+}
+
+// Persist the queue per-tab so a refresh or back/forward navigation doesn't lose it. sessionStorage
+// (not localStorage) matches the route-history store and keeps the queue scoped to the tab that
+// started playing — it survives reloads and in-tab history navigation but doesn't bleed across tabs.
+const QUEUE_STORAGE_KEY = "cove-video-queue";
+
+function readStoredQueue(): VideoQueueState | null {
+  try {
+    const raw = sessionStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.videoIds) || typeof parsed.currentIndex !== "number") return null;
+    return parsed as VideoQueueState;
+  } catch {
+    return null;
+  }
 }
 
 export interface VideoQueueItem {
@@ -34,7 +51,16 @@ interface VideoQueueContextValue {
 const VideoQueueContext = createContext<VideoQueueContextValue | null>(null);
 
 export function VideoQueueProvider({ children }: { children: ReactNode }) {
-  const [queue, setQueueState] = useState<VideoQueueState | null>(null);
+  const [queue, setQueueState] = useState<VideoQueueState | null>(() => readStoredQueue());
+
+  useEffect(() => {
+    try {
+      if (queue) sessionStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+      else sessionStorage.removeItem(QUEUE_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures (private mode / quota).
+    }
+  }, [queue]);
 
   const setQueue = useCallback((ids: number[], currentId: number, items?: VideoQueueItem[]) => {
     const idx = ids.indexOf(currentId);

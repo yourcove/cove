@@ -131,7 +131,6 @@ type BuiltInSettingsTab =
   | "share-links"
   | "audit"
   | "server-host-network"
-  | "server-ffmpeg-transcoding"
   | "system-info-about"
   | "system-info-runtime-status"
   | "logs";
@@ -206,7 +205,6 @@ const primaryTabs: BuiltInSettingsTabDefinition[] = [
   { key: "extensions-registry", label: "Discover", icon: Search, order: 90 },
   { key: "extensions-customizations", label: "Customizations (CSS / JS)", icon: FileText, order: 100 },
   { key: "server-host-network", label: "Host & Network", icon: Server },
-  { key: "server-ffmpeg-transcoding", label: "FFmpeg & Transcoding", icon: HardDrive },
   { key: "system-info-about", label: "About", icon: Info },
   { key: "system-info-runtime-status", label: "Runtime Status", icon: Server },
   { key: "logs", label: "Logs", icon: ScrollText },
@@ -231,7 +229,7 @@ const settingsTabGroups: SettingsTabGroupDefinition[] = [
   { key: "data-sources", label: "Data Sources & Data", icon: SearchCode, tabs: ["data-sources-scrapers", "data-sources-metadata-servers", "data-sources-identify-batch-defaults", "data-sources-downloader-paths", "data-sources-ai-data"] },
   { key: "extensions", label: "Extensions", icon: Plug, tabs: ["extensions-installed", "extensions-registry", "extensions-customizations"] },
   { key: "security-access", label: "Security & Access", icon: Shield, tabs: authTabs.map((tab) => tab.key) },
-  { key: "server", label: "Server", icon: Server, tabs: ["server-host-network", "server-ffmpeg-transcoding"] },
+  { key: "server", label: "Server", icon: Server, tabs: ["server-host-network"] },
   { key: "system-info", label: "System Info", icon: Info, tabs: ["system-info-about", "system-info-runtime-status", "logs"] },
 ];
 const settingsGroupKeyByTab = new Map<BuiltInSettingsTab, SettingsTabGroupKey>(
@@ -272,7 +270,6 @@ const settingsTabCanonicalPaths: Partial<Record<BuiltInSettingsTab, string>> = {
   "share-links": "/settings/security-access/share-links",
   audit: "/settings/security-access/audit-log",
   "server-host-network": "/settings/server/host-network",
-  "server-ffmpeg-transcoding": "/settings/server/ffmpeg-transcoding",
   "system-info-about": "/settings/system-info/about",
   "system-info-runtime-status": "/settings/system-info/runtime-status",
   logs: "/settings/system-info/logs",
@@ -338,7 +335,7 @@ const settingsPathAliases: Partial<Record<string, SettingsTab>> = {
   "security-access/audit-log": "audit",
   server: "server-host-network",
   "server/host-network": "server-host-network",
-  "server/ffmpeg-transcoding": "server-ffmpeg-transcoding",
+  "server/ffmpeg-transcoding": "library-scanning",
   "server/preview-generation": "library-scanning",
   "server/logging": "logs",
   "server/runtime-shutdown": "system-info-runtime-status",
@@ -360,7 +357,7 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "keyboard-shortcuts": "Shortcut overrides and the full keyboard reference.",
   "my-activity-history": "Activity and engagement preferences for the current account.",
   "library-paths-storage": "Content roots and file extension handling.",
-  "library-scanning": "Scan rules, generated asset paths, and preview generation defaults.",
+  "library-scanning": "Scan rules, generated asset paths, preview generation, and FFmpeg/transcoding options.",
   "library-custom-fields": "Typed metadata fields stored in the library database.",
   "library-display-profiles": "Manage resolved-span display profiles and the rules attached to each profile.",
   "operations-jobs": "Current queue and recent job history.",
@@ -386,7 +383,6 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "share-links": "Anonymous, time-limited, optionally password-gated read-only links.",
   audit: "Authentication, authorization, and admin action history.",
   "server-host-network": "Host, port, and runtime listener settings.",
-  "server-ffmpeg-transcoding": "FFmpeg binaries, hardware acceleration, and transcode options.",
   "system-info-about": "Version, project information, and release history.",
   "system-info-runtime-status": "Effective runtime values and shutdown control.",
   logs: "Live application logs and server log output settings.",
@@ -397,7 +393,7 @@ const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
   "my-theme": ["theme", "palette", "colors", "custom colors", "style", "layout", "visual effects"],
   "my-playback-viewers": ["autoplay", "resume", "preview clip", "feed", "vertical viewer", "lightbox", "slideshow", "ab loop"],
   "my-lists-wall": ["lists", "cards", "wall", "image fit", "video preview fit", "cover", "contain"],
-  "library-scanning": ["scan", "scanning", "generated assets", "generated path", "cache path", "preview generation", "thumbnails", "md5"],
+  "library-scanning": ["scan", "scanning", "generated assets", "generated path", "cache path", "preview generation", "thumbnails", "md5", "ffmpeg", "ffprobe", "transcode", "transcoding", "hardware acceleration", "hwaccel", "nvenc", "qsv", "vaapi", "frame extraction", "managed", "in-process"],
   "operations-scan-generate": ["scan", "generate", "covers", "thumbnails", "previews", "sprites", "phash", "md5"],
   "operations-downloads": ["download", "download from file", "url file", "batch download", "import urls"],
   "operations-duplicates": ["duplicates", "duplicate finder", "exact duplicate", "cleanup"],
@@ -1416,6 +1412,15 @@ export function SettingsPage() {
     onError: (err: Error) => setError(err.message),
   });
 
+  const uploadLogoMutation = useMutation({
+    mutationFn: system.uploadLogo,
+    onSuccess: (result) => {
+      updateDraft((current) => ({ ...current, ui: { ...current.ui, logoPath: result.path } }));
+      setError(null);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
   const { data: scrapers = [], isLoading: scrapersLoading, error: scrapersError } = useQuery({
     queryKey: ["system-scrapers"],
     queryFn: system.listScrapers,
@@ -2167,6 +2172,98 @@ export function SettingsPage() {
                 </div>
               </div>
             </SectionCard>
+
+            <SectionCard title="FFmpeg" description="FFmpeg binaries, frame extraction, hardware acceleration, and transcode options.">
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    label="FFmpeg path"
+                    value={draft.ffmpegPath ?? ""}
+                    onChange={(value) => updateDraft((d) => ({ ...d, ffmpegPath: value || undefined }))}
+                    placeholder="C:\\ffmpeg\\bin\\ffmpeg.exe"
+                  />
+                  <TextField
+                    label="FFprobe path"
+                    value={draft.ffprobePath ?? ""}
+                    onChange={(value) => updateDraft((d) => ({ ...d, ffprobePath: value || undefined }))}
+                    placeholder="C:\\ffmpeg\\bin\\ffprobe.exe"
+                  />
+                </div>
+                <div>
+                  <SelectField
+                    label="Frame extraction"
+                    value={draft.frameExtractionMode === "managed" ? "managed" : "external"}
+                    onChange={(value) => updateDraft((d) => ({ ...d, frameExtractionMode: value }))}
+                    options={[
+                      { value: "external", label: "External (ffmpeg CLI)" },
+                      { value: "managed", label: "Managed (in-process)" },
+                    ]}
+                  />
+                  <p className="mt-1 text-xs text-secondary">
+                    How Cove extracts frames for thumbnails, sprites, and phashes. <span className="font-medium">External</span> spawns the ffmpeg CLI — most compatible and crash-isolated. <span className="font-medium">Managed</span> decodes in-process for much higher throughput.
+                    <span className="text-red-300 font-medium"> Warning:</span> managed mode can fatally crash the process on some systems (e.g. missing native drivers, or rare malformed files); switch back to external if you hit instability.
+                  </p>
+                </div>
+                <div>
+                  <CheckboxLabel
+                    label="Enable hardware acceleration (managed mode)"
+                    checked={draft.enableFfmpegHwAccel}
+                    onChange={(checked) => updateDraft((current) => ({ ...current, enableFfmpegHwAccel: checked }))}
+                  />
+                  <p className="mt-1 text-xs text-secondary">
+                    When using managed frame extraction, attempt hardware-accelerated decoding for phash and sprite generation.
+                    <span className="text-red-300 font-medium"> Warning:</span> In some Docker environments, this may cause a fatal process crash due to missing native drivers.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <NumberField
+                    label="Max transcode size"
+                    value={draft.maxTranscodeSize}
+                    min={0}
+                    onChange={(value) => updateDraft((d) => ({ ...d, maxTranscodeSize: value ?? d.maxTranscodeSize }))}
+                  />
+                  <NumberField
+                    label="Max streaming transcode size"
+                    value={draft.maxStreamingTranscodeSize}
+                    min={0}
+                    onChange={(value) => updateDraft((d) => ({ ...d, maxStreamingTranscodeSize: value ?? d.maxStreamingTranscodeSize }))}
+                  />
+                </div>
+                <SelectField
+                  label="Hardware acceleration"
+                  value={draft.transcodeHardwareAcceleration}
+                  onChange={(value) => updateDraft((d) => ({ ...d, transcodeHardwareAcceleration: value }))}
+                  options={[
+                    { value: "none", label: "None" },
+                    { value: "nvenc", label: "NVENC" },
+                    { value: "vaapi", label: "VAAPI" },
+                    { value: "qsv", label: "QSV" },
+                  ]}
+                />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    label="Transcode input args"
+                    value={draft.transcodeInputArgs ?? ""}
+                    onChange={(value) => updateDraft((d) => ({ ...d, transcodeInputArgs: value || undefined }))}
+                  />
+                  <TextField
+                    label="Transcode output args"
+                    value={draft.transcodeOutputArgs ?? ""}
+                    onChange={(value) => updateDraft((d) => ({ ...d, transcodeOutputArgs: value || undefined }))}
+                  />
+                  <TextField
+                    label="Live transcode input args"
+                    value={draft.liveTranscodeInputArgs ?? ""}
+                    onChange={(value) => updateDraft((d) => ({ ...d, liveTranscodeInputArgs: value || undefined }))}
+                  />
+                  <TextField
+                    label="Live transcode output args"
+                    value={draft.liveTranscodeOutputArgs ?? ""}
+                    onChange={(value) => updateDraft((d) => ({ ...d, liveTranscodeOutputArgs: value || undefined }))}
+                  />
+                </div>
+              </div>
+            </SectionCard>
             </>
             )}
 
@@ -2454,6 +2551,43 @@ export function SettingsPage() {
                       }}
                     />
                   </label>
+                </div>
+                <TextField
+                  label="Logo path"
+                  description="Path or uploaded asset shown as the app logo in the top-left navbar. Leave blank for the built-in Cove logo."
+                  value={draft.ui.logoPath ?? ""}
+                  onChange={(value) => updateDraft((current) => ({ ...current, ui: { ...current.ui, logoPath: value || undefined } }))}
+                  placeholder="Built-in Cove logo"
+                />
+                <div className="space-y-1">
+                  <span className="block text-xs font-medium text-secondary">Logo upload</span>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent">
+                    {uploadLogoMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    <span>{uploadLogoMutation.isPending ? "Uploading" : "Choose file"}</span>
+                    <input
+                      type="file"
+                      accept=".ico,image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      disabled={uploadLogoMutation.isPending}
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (file) uploadLogoMutation.mutate(file);
+                      }}
+                    />
+                  </label>
+                  {draft.ui.logoPath ? (
+                    <div className="flex items-center gap-2 pt-1">
+                      <img src={draft.ui.logoPath} alt="Logo preview" className="h-8 w-auto max-w-[160px] object-contain" />
+                      <button
+                        type="button"
+                        className="text-xs text-secondary hover:text-accent"
+                        onClick={() => updateDraft((current) => ({ ...current, ui: { ...current.ui, logoPath: undefined } }))}
+                      >
+                        Reset to default
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <CheckboxLabel
                   label="Troubleshooting mode"
@@ -3585,125 +3719,22 @@ export function SettingsPage() {
         {resolvedActiveTab === "share-links" && <ShareLinksTab />}
         {resolvedActiveTab === "audit" && <AuditTab />}
 
-        {(["server-host-network", "server-ffmpeg-transcoding"] as SettingsTab[]).includes(resolvedActiveTab) && (
-          <>
-            {resolvedActiveTab === "server-host-network" && (
-            <SectionCard title="Server" description="Host and port are persisted immediately but require a restart to rebind the listener.">
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  label="Host"
-                  value={draft.host}
-                  onChange={(value) => updateDraft((current) => ({ ...current, host: value }))}
-                />
-                <NumberField
-                  label="Port"
-                  value={draft.port}
-                  min={1}
-                  onChange={(value) => updateDraft((current) => ({ ...current, port: value ?? current.port }))}
-                />
-              </div>
-              <div className="mt-4">
-                <SelectField
-                  label="Frame extraction"
-                  value={draft.frameExtractionMode === "managed" ? "managed" : "external"}
-                  onChange={(value) => updateDraft((d) => ({ ...d, frameExtractionMode: value }))}
-                  options={[
-                    { value: "external", label: "External (ffmpeg CLI)" },
-                    { value: "managed", label: "Managed (in-process)" },
-                  ]}
-                />
-                <p className="mt-1 text-xs text-secondary">
-                  How Cove extracts frames for thumbnails, sprites, and phashes. <span className="font-medium">External</span> spawns the ffmpeg CLI — most compatible and crash-isolated. <span className="font-medium">Managed</span> decodes in-process for much higher throughput.
-                  <span className="text-red-300 font-medium"> Warning:</span> managed mode can fatally crash the process on some systems (e.g. missing native drivers, or rare malformed files); switch back to external if you hit instability.
-                </p>
-              </div>
-              <div className="mt-4">
-                <CheckboxLabel
-                  label="Enable hardware acceleration (managed mode)"
-                  checked={draft.enableFfmpegHwAccel}
-                  onChange={(checked) => updateDraft((current) => ({ ...current, enableFfmpegHwAccel: checked }))}
-                />
-                <p className="mt-1 text-xs text-secondary">
-                  When using managed frame extraction, attempt hardware-accelerated decoding for phash and sprite generation.
-                  <span className="text-red-300 font-medium"> Warning:</span> In some Docker environments, this may cause a fatal process crash due to missing native drivers.
-                </p>
-              </div>
-            </SectionCard>
-            )}
-
-            {resolvedActiveTab === "server-ffmpeg-transcoding" && (
-            <>
-            <SectionCard title="FFmpeg" description="Paths to FFmpeg and FFprobe binaries. Leave blank to use system PATH.">
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  label="FFmpeg path"
-                  value={draft.ffmpegPath ?? ""}
-                  onChange={(value) => updateDraft((d) => ({ ...d, ffmpegPath: value || undefined }))}
-                  placeholder="C:\\ffmpeg\\bin\\ffmpeg.exe"
-                />
-                <TextField
-                  label="FFprobe path"
-                  value={draft.ffprobePath ?? ""}
-                  onChange={(value) => updateDraft((d) => ({ ...d, ffprobePath: value || undefined }))}
-                  placeholder="C:\\ffmpeg\\bin\\ffprobe.exe"
-                />
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Transcoding" description="Hardware acceleration and transcode size limits. 0 means original resolution.">
-              <div className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <NumberField
-                    label="Max transcode size"
-                    value={draft.maxTranscodeSize}
-                    min={0}
-                    onChange={(value) => updateDraft((d) => ({ ...d, maxTranscodeSize: value ?? d.maxTranscodeSize }))}
-                  />
-                  <NumberField
-                    label="Max streaming transcode size"
-                    value={draft.maxStreamingTranscodeSize}
-                    min={0}
-                    onChange={(value) => updateDraft((d) => ({ ...d, maxStreamingTranscodeSize: value ?? d.maxStreamingTranscodeSize }))}
-                  />
-                </div>
-                <SelectField
-                  label="Hardware acceleration"
-                  value={draft.transcodeHardwareAcceleration}
-                  onChange={(value) => updateDraft((d) => ({ ...d, transcodeHardwareAcceleration: value }))}
-                  options={[
-                    { value: "none", label: "None" },
-                    { value: "nvenc", label: "NVENC" },
-                    { value: "vaapi", label: "VAAPI" },
-                    { value: "qsv", label: "QSV" },
-                  ]}
-                />
-                <div className="grid gap-4 md:grid-cols-2">
-                  <TextField
-                    label="Transcode input args"
-                    value={draft.transcodeInputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, transcodeInputArgs: value || undefined }))}
-                  />
-                  <TextField
-                    label="Transcode output args"
-                    value={draft.transcodeOutputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, transcodeOutputArgs: value || undefined }))}
-                  />
-                  <TextField
-                    label="Live transcode input args"
-                    value={draft.liveTranscodeInputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, liveTranscodeInputArgs: value || undefined }))}
-                  />
-                  <TextField
-                    label="Live transcode output args"
-                    value={draft.liveTranscodeOutputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, liveTranscodeOutputArgs: value || undefined }))}
-                  />
-                </div>
-              </div>
-            </SectionCard>
-            </>
-            )}
-          </>
+        {resolvedActiveTab === "server-host-network" && (
+          <SectionCard title="Server" description="Host and port are persisted immediately but require a restart to rebind the listener.">
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField
+                label="Host"
+                value={draft.host}
+                onChange={(value) => updateDraft((current) => ({ ...current, host: value }))}
+              />
+              <NumberField
+                label="Port"
+                value={draft.port}
+                min={1}
+                onChange={(value) => updateDraft((current) => ({ ...current, port: value ?? current.port }))}
+              />
+            </div>
+          </SectionCard>
         )}
 
         {resolvedActiveTab === "extensions-installed" && <ExtensionsPanel mode="installed" />}

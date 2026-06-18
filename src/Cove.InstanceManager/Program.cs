@@ -10,6 +10,11 @@ using Cove.Core.Interfaces;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 
+// Built as a GUI-subsystem exe (no console window on launch); when started from a terminal/script,
+// re-attach to that console so --help and CLI feedback still print.
+if (OperatingSystem.IsWindows())
+    NativeConsole.AttachToParentConsole();
+
 var options = ManagerOptions.Parse(args);
 if (options.ShowHelp)
 {
@@ -98,6 +103,32 @@ var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerA
 var managerUrl = ResolveBrowserUrl(addresses.FirstOrDefault(), options.Host, accessToken);
 Console.WriteLine($"Cove Instance Manager: {managerUrl}");
 Console.WriteLine($"Registry: {manager.RegistryPath}");
+
+// Auto-start instances requested on the command line (--start / --start-all) so a startup script can
+// bring up chosen Cove instances headlessly. Failures are reported but don't abort the others.
+var instancesToStart = options.StartAll
+    ? (await manager.ListAsync()).Select(instance => instance.Name).ToList()
+    : options.StartInstances;
+foreach (var target in instancesToStart)
+{
+    try
+    {
+        var started = await manager.StartAsync(target);
+        Console.WriteLine($"Started instance '{started.Name}' on port {started.Port}.");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Failed to start instance '{target}': {ex.Message}");
+    }
+}
+
+// For fire-and-forget startup scripts: the launched Cove instances are detached, so the manager can
+// exit immediately instead of staying resident in the tray.
+if (options.ExitAfterStart)
+{
+    await app.StopAsync();
+    return;
+}
 
 using var trayProcess = StartWindowsTrayIcon(managerUrl, accessToken);
 
@@ -229,18 +260,31 @@ internal sealed class ManagerOptions
     public string? CoveExecutablePath { get; private init; }
     public bool NoBrowser { get; private init; }
     public bool ShowHelp { get; private init; }
+    /// <summary>Instance names (or ids) to start on launch (from --start).</summary>
+    public IReadOnlyList<string> StartInstances { get; private init; } = [];
+    /// <summary>Start every registered instance on launch (from --start-all).</summary>
+    public bool StartAll { get; private init; }
+    /// <summary>Exit the manager after starting the requested instances instead of staying resident.</summary>
+    public bool ExitAfterStart { get; private init; }
 
     public static ManagerOptions Parse(string[] args)
     {
         if (args.Any(arg => arg is "--help" or "-h" or "help"))
             return new ManagerOptions { ShowHelp = true };
 
+        var startInstances = GetOptionValues(args, "--start");
+        var startAll = HasFlag(args, "--start-all");
+
         return new ManagerOptions
         {
             Host = HasFlag(args, "--lan") ? "0.0.0.0" : GetOption(args, "--host") ?? "127.0.0.1",
             Port = GetIntOption(args, "--port") ?? 0,
             CoveExecutablePath = GetOption(args, "--cove-exe") ?? Environment.GetEnvironmentVariable("COVE_MANAGER_COVE_EXE"),
-            NoBrowser = HasFlag(args, "--no-browser"),
+            // --start implies a non-interactive/script launch, so default to not popping the browser.
+            NoBrowser = HasFlag(args, "--no-browser") || startInstances.Count > 0 || startAll,
+            StartInstances = startInstances,
+            StartAll = startAll,
+            ExitAfterStart = HasFlag(args, "--exit-after-start"),
         };
     }
 
@@ -249,9 +293,24 @@ internal sealed class ManagerOptions
         Console.WriteLine("Cove Instance Manager");
         Console.WriteLine();
         Console.WriteLine("Usage:");
-        Console.WriteLine("  Cove.InstanceManager [--port <port>] [--host <host>] [--lan] [--no-browser] [--cove-exe <path>]");
+        Console.WriteLine("  Cove.InstanceManager [options]");
         Console.WriteLine();
-        Console.WriteLine("Defaults to a random localhost port and opens a tokenized local URL in the browser.");
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --port <port>        HTTP port for the manager UI (default: random localhost port)");
+        Console.WriteLine("  --host <host>        Bind address (default: 127.0.0.1)");
+        Console.WriteLine("  --lan                Bind on all interfaces (alias for --host 0.0.0.0)");
+        Console.WriteLine("  --no-browser         Do not open the manager UI in a browser");
+        Console.WriteLine("  --cove-exe <path>    Path to the Cove executable");
+        Console.WriteLine("  --start <names>      Start these instances on launch (by manager name or id;");
+        Console.WriteLine("                       comma-separated and/or repeatable). Implies --no-browser.");
+        Console.WriteLine("  --start-all          Start every registered instance on launch. Implies --no-browser.");
+        Console.WriteLine("  --exit-after-start   Exit once the requested instances have started (the launched");
+        Console.WriteLine("                       Cove instances keep running) instead of staying in the tray.");
+        Console.WriteLine();
+        Console.WriteLine("Examples:");
+        Console.WriteLine("  Cove.InstanceManager                         Open the manager UI");
+        Console.WriteLine("  Cove.InstanceManager --start media,work      Start two instances, keep the tray running");
+        Console.WriteLine("  Cove.InstanceManager --start-all --exit-after-start   Start all instances, then exit");
     }
 
     private static string? GetOption(string[] args, string name)
@@ -271,6 +330,52 @@ internal sealed class ManagerOptions
     private static int? GetIntOption(string[] args, string name) => int.TryParse(GetOption(args, name), out var value) ? value : null;
 
     private static bool HasFlag(string[] args, string name) => args.Any(arg => string.Equals(arg, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Collects every value supplied for a repeatable option, supporting both <c>--name a --name b</c>
+    /// and comma-separated <c>--name a,b</c> (and the <c>--name=a,b</c> form). Order-preserving, deduped.
+    /// </summary>
+    private static IReadOnlyList<string> GetOptionValues(string[] args, string name)
+    {
+        var values = new List<string>();
+        for (var index = 0; index < args.Length; index++)
+        {
+            var arg = args[index];
+            string? raw = null;
+            if (arg.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase))
+                raw = arg[(name.Length + 1)..];
+            else if (string.Equals(arg, name, StringComparison.OrdinalIgnoreCase) && index + 1 < args.Length)
+                raw = args[++index];
+
+            if (raw == null)
+                continue;
+
+            foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                if (!values.Contains(part, StringComparer.OrdinalIgnoreCase))
+                    values.Add(part);
+        }
+
+        return values;
+    }
+}
+
+internal static class NativeConsole
+{
+    private const int ATTACH_PARENT_PROCESS = -1;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(int dwProcessId);
+
+    /// <summary>
+    /// The manager ships as a GUI-subsystem exe so launching it (shortcut/startup script/double-click)
+    /// never opens a console window. When it is instead launched from an existing terminal, re-attach to
+    /// that parent console so --help and CLI output remain visible. No-op when there is no parent console.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static void AttachToParentConsole()
+    {
+        try { AttachConsole(ATTACH_PARENT_PROCESS); } catch { /* no parent console; GUI launch */ }
+    }
 }
 
 internal sealed class InstanceManagerService

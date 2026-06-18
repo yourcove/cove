@@ -185,6 +185,8 @@ public class UiConfig
 {
     public string? Title { get; set; }
     public string? FaviconPath { get; set; }
+    /// <summary>Path or uploaded asset used as the app logo in the top-left of the navbar. Null = built-in Cove logo.</summary>
+    public string? LogoPath { get; set; }
     public bool TroubleshootingModeEnabled { get; set; }
     public bool AbbreviateCounters { get; set; }
     public RatingSystemOptions RatingSystemOptions { get; set; } = new();

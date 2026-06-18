@@ -8,13 +8,14 @@ using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SegmentsRead)]
-public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver, IMemoryCache memoryCache, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<PaginatedResponse<SegmentRecordDto>>> List(
@@ -622,114 +623,55 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
         var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
 
-        // 1. Gather video IDs matching the scope filters.
-        List<(int Id, string? Title, DateTimeOffset UpdatedAt)> videoList;
-        if (request.VideoIds is { Length: > 0 })
-        {
-            var idSet = request.VideoIds.ToHashSet();
-            var excludeSet = request.ExcludeVideoIds?.ToHashSet() ?? [];
-            videoList = await db.Videos.AsNoTracking()
-                .Where(s => idSet.Contains(s.Id) && !excludeSet.Contains(s.Id))
-                .OrderBy(s => s.Id)
-                .Select(s => new { s.Id, s.Title, s.UpdatedAt })
-                .ToListAsync(ct)
-                .ContinueWith(t => t.Result.Select(s => (s.Id, (string?)s.Title, (DateTimeOffset)s.UpdatedAt)).ToList(), TaskContinuationOptions.ExecuteSynchronously);
-        }
-        else
-        {
-            var excludeSet = request.ExcludeVideoIds?.ToHashSet() ?? [];
-            var videoQuery = db.Videos.AsNoTracking()
-                .Where(s => !excludeSet.Contains(s.Id));
-
-            if (!string.IsNullOrWhiteSpace(request.VideoTitle))
-            {
-                var titleTerm = request.VideoTitle.Trim();
-                videoQuery = videoQuery.Where(s => s.Title != null && s.Title.Contains(titleTerm));
-            }
-
-            videoQuery = (sort, descending) switch
-            {
-                ("title", false) => videoQuery.OrderBy(s => s.Title),
-                ("title", true) => videoQuery.OrderByDescending(s => s.Title),
-                ("created_at", false) => videoQuery.OrderBy(s => s.CreatedAt),
-                ("created_at", true) => videoQuery.OrderByDescending(s => s.CreatedAt),
-                (_, false) => videoQuery.OrderBy(s => s.UpdatedAt),
-                _ => videoQuery.OrderByDescending(s => s.UpdatedAt),
-            };
-
-            videoList = await videoQuery
-                .Select(s => new { s.Id, s.Title, s.UpdatedAt })
-                .ToListAsync(ct)
-                .ContinueWith(t => t.Result.Select(s => (s.Id, (string?)s.Title, (DateTimeOffset)s.UpdatedAt)).ToList(), TaskContinuationOptions.ExecuteSynchronously);
-        }
-
-        // 2. Resolve the active profile ID once.
+        // 1. Gather the in-scope videos (ordered for the active sort) plus the profile/derived query.
+        var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
         var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
-
-        // 3. Build the derived query request if applicable.
-        var derivedQueryRequest = request.DerivedQuery is { } dq
-            ? new SegmentSpanQueryRequestDto(
-                profileId,
-                dq.Operator,
-                dq.Operands,
-                dq.MergeGapSec,
-                dq.MinDurationSec)
-            : null;
-
-        // 4. Determine whether we can terminate early — only when sort is video-level and
-        //    no segment-row-dependent filtering is needed. Video-level sorts mean the
-        //    video query already produces rows in the correct final order.
-        var canTerminateEarly = IsVideoLevelSort(sort) && !NeedsSegmentRows(request);
-        var neededCount = page * perPage;
-
-        var allItems = new List<SegmentSpanSearchResultItemDto>(videoList.Count * 2);
-        const int batchSize = 16;
+        var derivedQueryRequest = BuildDerivedQueryRequest(request, profileId);
         var videoMap = videoList.ToDictionary(v => v.Id);
 
-        for (var i = 0; i < videoList.Count; i += batchSize)
+        // 2. Fast path: for a video-level sort with no segment-row-dependent filter (the common browse
+        //    case) the videos are already in final order, so we resolve them in order and stop as soon
+        //    as the requested page is filled — paying only the current page's cost. The exact total is
+        //    fetched separately (spans/count, cached); here we report -1 (unknown) + HasMore. VideoIds
+        //    scoping is excluded because that branch is ordered by id rather than the sort.
+        var canTerminateEarly = request.VideoIds is not { Length: > 0 }
+            && IsVideoLevelSort(sort)
+            && !NeedsSegmentRows(request);
+
+        if (canTerminateEarly)
         {
-            var batch = videoList.Skip(i).Take(batchSize).ToList();
-            var batchVideoIds = batch.Select(v => v.Id).ToList();
+            var neededCount = page * perPage;
+            var pageStart = (page - 1) * perPage;
+            var pageItems = new List<SegmentSpanSearchResultItemDto>(perPage);
+            var collected = 0;
+            var earlyTerminated = false;
 
-            IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)> batchResults;
-            if (derivedQueryRequest is not null)
+            for (var i = 0; i < videoList.Count && !earlyTerminated; i += SpanResolveBatchSize)
             {
-                batchResults = await spanResolver.QueryVideosBatchAsync(batchVideoIds, derivedQueryRequest, ct);
-            }
-            else
-            {
-                batchResults = await spanResolver.ResolveVideosBatchAsync(batchVideoIds, profileId, ct);
-            }
-
-            foreach (var (videoId, spans) in batchResults)
-            {
-                if (!videoMap.TryGetValue(videoId, out var video))
-                    continue;
-
-                foreach (var span in spans)
-                    allItems.Add(new SegmentSpanSearchResultItemDto(span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+                var batchVideoIds = videoList.Skip(i).Take(SpanResolveBatchSize).Select(v => v.Id).ToList();
+                foreach (var (videoId, spans) in await ResolveSpanBatchAsync(batchVideoIds, profileId, derivedQueryRequest, ct))
+                {
+                    if (!videoMap.TryGetValue(videoId, out var video)) continue;
+                    foreach (var span in spans)
+                    {
+                        if (collected >= pageStart && pageItems.Count < perPage)
+                            pageItems.Add(new SegmentSpanSearchResultItemDto(span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+                        collected++;
+                        if (collected > neededCount) { earlyTerminated = true; break; }
+                    }
+                    if (earlyTerminated) break;
+                }
             }
 
-            if (canTerminateEarly && allItems.Count >= neededCount && (i + batch.Count) < videoList.Count)
-            {
-                // We have enough items for the requested page. Return a conservative
-                // totalCount so the frontend shows at least one more page when relevant.
-                var conservativeTotal = Math.Max(allItems.Count, neededCount + 1);
-                var offset = (page - 1) * perPage;
-                var pageItems = allItems.Skip(offset).Take(perPage).ToList();
-                return Ok(new SegmentSpanSearchResponseDto(pageItems, conservativeTotal, page, perPage));
-            }
+            // If we never crossed the page boundary we resolved the whole scope, so the count is exact and
+            // free; otherwise it's unknown here and the spans/count endpoint supplies it.
+            var exactTotal = earlyTerminated ? -1 : collected;
+            return Ok(new SegmentSpanSearchResponseDto(pageItems, exactTotal, page, perPage, HasMore: earlyTerminated));
         }
 
-        // 5. Full path: apply segment-level filtering and sorting.
-        IReadOnlyDictionary<int, SegmentSearchRow> segmentRows = new Dictionary<int, SegmentSearchRow>();
-        if (allItems.Count > 0 && NeedsSegmentRows(request))
-        {
-            segmentRows = await LoadSpanSegmentRowsAsync(allItems.SelectMany(item => item.Span.SegmentIds), ct);
-            allItems = allItems
-                .Where(item => MatchesSpanSearchRequest(item, request, segmentRows))
-                .ToList();
-        }
+        // 3. Full path (segment-row filters or span-level sort): resolve all in-scope spans, filter, sort,
+        //    and page. The total is exact here because the whole matching set is materialized.
+        var (allItems, segmentRows) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
 
         if (IsSpanLevelSort(sort))
             allItems = ApplySpanOrdering(allItems, sort, descending, segmentRows).ToList();
@@ -738,7 +680,155 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var finalOffset = (page - 1) * perPage;
         var finalPageItems = allItems.Skip(finalOffset).Take(perPage).ToList();
 
-        return Ok(new SegmentSpanSearchResponseDto(finalPageItems, totalCount, page, perPage));
+        return Ok(new SegmentSpanSearchResponseDto(finalPageItems, totalCount, page, perPage, HasMore: finalOffset + finalPageItems.Count < totalCount));
+    }
+
+    private const int SpanResolveBatchSize = 400;
+
+    /// <summary>
+    /// Exact span total for a filter set. Resolving every in-scope video is unavoidable for an exact
+    /// merged-span count, so the result is cached keyed by the filter set plus a cheap segments-table
+    /// fingerprint — it is computed at most once per filter set and auto-invalidates on any segment change.
+    /// </summary>
+    [HttpPost("spans/count")]
+    public async Task<ActionResult<SegmentSpanCountResponseDto>> CountSpans(
+        [FromBody] SegmentSpanSearchRequestDto request,
+        CancellationToken ct)
+    {
+        var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
+        var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
+
+        var version = await GetSegmentsVersionAsync(ct);
+        var cacheKey = $"spans-count:{version}:{BuildSpanCountKey(request)}";
+        if (memoryCache.TryGetValue<int>(cacheKey, out var cachedCount))
+            return Ok(new SegmentSpanCountResponseDto(cachedCount));
+
+        var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
+        var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
+        var derivedQueryRequest = BuildDerivedQueryRequest(request, profileId);
+        var videoMap = videoList.ToDictionary(v => v.Id);
+        var (allItems, _) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
+
+        var total = allItems.Count;
+        memoryCache.Set(cacheKey, total, TimeSpan.FromMinutes(30));
+        return Ok(new SegmentSpanCountResponseDto(total));
+    }
+
+    private static SegmentSpanQueryRequestDto? BuildDerivedQueryRequest(SegmentSpanSearchRequestDto request, int profileId)
+        => request.DerivedQuery is { } dq
+            ? new SegmentSpanQueryRequestDto(profileId, dq.Operator, dq.Operands, dq.MergeGapSec, dq.MinDurationSec)
+            : null;
+
+    private async Task<List<(int Id, string? Title, DateTimeOffset UpdatedAt)>> BuildSpanVideoListAsync(
+        SegmentSpanSearchRequestDto request, string sort, bool descending, CancellationToken ct)
+    {
+        if (request.VideoIds is { Length: > 0 })
+        {
+            var idSet = request.VideoIds.ToHashSet();
+            var excludeSet = request.ExcludeVideoIds?.ToHashSet() ?? [];
+            var rows = await db.Videos.AsNoTracking()
+                .Where(s => idSet.Contains(s.Id) && !excludeSet.Contains(s.Id))
+                .OrderBy(s => s.Id)
+                .Select(s => new { s.Id, s.Title, s.UpdatedAt })
+                .ToListAsync(ct);
+            return rows.Select(s => (s.Id, (string?)s.Title, (DateTimeOffset)s.UpdatedAt)).ToList();
+        }
+
+        var excludeIds = request.ExcludeVideoIds?.ToHashSet() ?? [];
+        var videoQuery = db.Videos.AsNoTracking()
+            .Where(s => !excludeIds.Contains(s.Id))
+            // Only videos that actually have video segments can produce spans. Restricting to them
+            // (loss-free — empty videos always resolve to zero spans) avoids walking and resolving every
+            // video in the library, which is the dominant cost when listing spans at scale.
+            .Where(s => db.Segments.Any(seg => seg.HostType == SegmentHostType.Video && seg.HostId == s.Id));
+
+        if (!string.IsNullOrWhiteSpace(request.VideoTitle))
+        {
+            var titleTerm = request.VideoTitle.Trim();
+            videoQuery = videoQuery.Where(s => s.Title != null && s.Title.Contains(titleTerm));
+        }
+
+        videoQuery = (sort, descending) switch
+        {
+            ("title", false) => videoQuery.OrderBy(s => s.Title),
+            ("title", true) => videoQuery.OrderByDescending(s => s.Title),
+            ("created_at", false) => videoQuery.OrderBy(s => s.CreatedAt),
+            ("created_at", true) => videoQuery.OrderByDescending(s => s.CreatedAt),
+            (_, false) => videoQuery.OrderBy(s => s.UpdatedAt),
+            _ => videoQuery.OrderByDescending(s => s.UpdatedAt),
+        };
+
+        var ordered = await videoQuery.Select(s => new { s.Id, s.Title, s.UpdatedAt }).ToListAsync(ct);
+        return ordered.Select(s => (s.Id, (string?)s.Title, (DateTimeOffset)s.UpdatedAt)).ToList();
+    }
+
+    private async Task<IReadOnlyList<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>> ResolveSpanBatchAsync(
+        IReadOnlyList<int> batchVideoIds, int profileId, SegmentSpanQueryRequestDto? derivedQueryRequest, CancellationToken ct)
+        => derivedQueryRequest is not null
+            ? await spanResolver.QueryVideosBatchAsync(batchVideoIds, derivedQueryRequest, ct)
+            : await spanResolver.ResolveVideosBatchAsync(batchVideoIds, profileId, ct);
+
+    private async Task<(List<SegmentSpanSearchResultItemDto> Items, IReadOnlyDictionary<int, SegmentSearchRow> SegmentRows)> ResolveAndFilterSpansAsync(
+        List<(int Id, string? Title, DateTimeOffset UpdatedAt)> videoList,
+        SegmentSpanSearchRequestDto request,
+        int profileId,
+        SegmentSpanQueryRequestDto? derivedQueryRequest,
+        Dictionary<int, (int Id, string? Title, DateTimeOffset UpdatedAt)> videoMap,
+        CancellationToken ct)
+    {
+        var allItems = new List<SegmentSpanSearchResultItemDto>(videoList.Count * 2);
+        for (var i = 0; i < videoList.Count; i += SpanResolveBatchSize)
+        {
+            var batchVideoIds = videoList.Skip(i).Take(SpanResolveBatchSize).Select(v => v.Id).ToList();
+            foreach (var (videoId, spans) in await ResolveSpanBatchAsync(batchVideoIds, profileId, derivedQueryRequest, ct))
+            {
+                if (!videoMap.TryGetValue(videoId, out var video)) continue;
+                foreach (var span in spans)
+                    allItems.Add(new SegmentSpanSearchResultItemDto(span, video.Id, video.Title, video.UpdatedAt.ToString("o"), profileId));
+            }
+        }
+
+        IReadOnlyDictionary<int, SegmentSearchRow> segmentRows = new Dictionary<int, SegmentSearchRow>();
+        if (allItems.Count > 0 && NeedsSegmentRows(request))
+        {
+            segmentRows = await LoadSpanSegmentRowsAsync(allItems.SelectMany(item => item.Span.SegmentIds), ct);
+            allItems = allItems.Where(item => MatchesSpanSearchRequest(item, request, segmentRows)).ToList();
+        }
+
+        return (allItems, segmentRows);
+    }
+
+    private async Task<string> GetSegmentsVersionAsync(CancellationToken ct)
+    {
+        // Cheap fingerprint of the segments table: count covers add/remove, max(updated_at) covers edits.
+        var count = await db.Segments.CountAsync(ct);
+        var maxUpdated = await db.Segments.MaxAsync(s => (DateTimeOffset?)s.UpdatedAt, ct);
+        return $"{count}:{maxUpdated?.UtcTicks ?? 0}";
+    }
+
+    private static string BuildSpanCountKey(SegmentSpanSearchRequestDto request)
+    {
+        // The count depends only on the filter set + profile + derived query — never on page/sort/direction.
+        var derived = request.DerivedQuery is { } dq
+            ? $"{dq.Operator}|{string.Join(",", dq.Operands ?? [])}|{dq.MergeGapSec}|{dq.MinDurationSec}"
+            : string.Empty;
+        return string.Join("|",
+            request.Profile, derived, request.Q, request.VideoTitle,
+            request.VideoIds is null ? "" : string.Join(",", request.VideoIds),
+            request.ExcludeVideoIds is null ? "" : string.Join(",", request.ExcludeVideoIds),
+            request.TagIds is null ? "" : string.Join(",", request.TagIds),
+            request.Kind, request.SourceKey, request.SourceCategory,
+            request.RefIds is null ? "" : string.Join(",", request.RefIds),
+            request.PerformerIds is null ? "" : string.Join(",", request.PerformerIds),
+            request.Confidence, request.Confidence2, request.ConfidenceModifier,
+            request.DurationSec, request.DurationSec2, request.DurationModifier,
+            request.Title, request.TitleModifier, request.HostType,
+            request.SourceRunId, request.SourceRunIdModifier,
+            request.ColorHint, request.ColorHintModifier, request.HasImage, request.HasPayload,
+            request.StartSec, request.StartSec2, request.StartSecModifier,
+            request.EndSec, request.EndSec2, request.EndSecModifier,
+            request.CreatedAt, request.CreatedAt2, request.CreatedAtModifier,
+            request.UpdatedAt, request.UpdatedAt2, request.UpdatedAtModifier);
     }
 
     private static bool IsVideoLevelSort(string? sort)

@@ -9,6 +9,7 @@ import { BookOpenText, Building2, FileText, Fingerprint, FolderOpen, GripVertica
 import { createRouteLinkProps, createNestedRouteLinkProps } from "./cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { faceDisplayName } from "../utils/faceDisplay";
 import { getAudioDisplayTitle, getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
 import { BookmarkButton } from "./BookmarkButton";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
@@ -1798,7 +1799,7 @@ export function TagTile({ tag, engagement, onClick, onNavigate, children, select
 }
 
 export function FaceTile({ face, onClick, selected, onSelect, selecting, children }: { face: Face; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean; children?: React.ReactNode }) {
-  const title = face.performerId && face.performerName ? face.performerName : face.label?.trim() || `Face #${face.id}`;
+  const title = faceDisplayName(face);
 
   return (
     <EntityTileFrame

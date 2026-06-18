@@ -280,7 +280,10 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
         var startSeconds = start.HasValue && double.IsFinite(start.Value) ? Math.Max(0, start.Value) : 0;
         var stream = await transcodeService.TranscodeToMp4Async(filePath, resolution, startSeconds, ct);
-        if (stream == null) return StatusCode(503, "Transcoding unavailable — FFmpeg not found");
+        // null = FFmpeg missing or the encode produced no output (e.g. a hardware-acceleration
+        // pipeline that can't run on this host). Either way the server log has the FFmpeg error;
+        // return a real failure status so the player doesn't sit on a dead 200 stream.
+        if (stream == null) return StatusCode(503, "Transcoding failed — check the server log and your hardware-acceleration setting");
 
         Response.Headers["Accept-Ranges"] = "none";
         return File(stream, "video/mp4");

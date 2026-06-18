@@ -35,7 +35,7 @@ import {
 } from "./segments/segmentCriteriaDefinitions";
 import { buildSpanTitle } from "./segments/segmentDisplayUtils";
 import { SegmentsPageList } from "./segments/SegmentsPageList";
-import { useDerivedSpansQuery } from "./segments/useDerivedSpansQuery";
+import { useDerivedSpansQuery, useDerivedSpansCountQuery } from "./segments/useDerivedSpansQuery";
 import { useRawSegmentsQuery } from "./segments/useRawSegmentsQuery";
 import type {
   AppliedDerivedQuery,
@@ -417,7 +417,12 @@ export function SegmentsPage({ onNavigate }: Props) {
         } : undefined,
         derivedQueryDescriptor,
       })),
-      totalCount: response.totalCount,
+      // The search endpoint reports totalCount=-1 when it served the page via early termination. Map it
+      // to a value that lets the infinite loader's getNextPageParam continue iff there's more (the exact
+      // total for display comes from the separate cached count query).
+      totalCount: response.totalCount >= 0
+        ? response.totalCount
+        : (response.hasMore ? page * pageSize + 1 : (page - 1) * pageSize + response.items.length),
       page: response.page,
       perPage: response.perPage,
     };
@@ -500,6 +505,24 @@ export function SegmentsPage({ onNavigate }: Props) {
     enabled: derivedQueryEnabled && !infinitePageSize,
   });
 
+  // Exact span total (cached, async). Kept independent of page/sort/direction so it's fetched once per
+  // filter set and reused while paging — the search response itself only carries -1 on the fast path.
+  const spansCountQuery = useDerivedSpansCountQuery({
+    activeProfileId,
+    pageNumber,
+    perPage,
+    q,
+    videoTitle,
+    sort,
+    direction,
+    includeVideoIds: videoSelection.includeIds,
+    excludeVideoIds: videoSelection.excludeIds,
+    appliedQuery,
+    derivedQueryDescriptor: appliedQuery != null ? derivedQueryDescriptor : undefined,
+    rawFilter: combinedRawSegmentFilter,
+    enabled: derivedQueryEnabled,
+  });
+
   const rawSegmentsQuery = useRawSegmentsQuery({
     pageNumber,
     perPage,
@@ -544,9 +567,16 @@ export function SegmentsPage({ onNavigate }: Props) {
   const spanItems = infinitePageSize ? derivedInfiniteQuery.items : segmentsWindowQuery.data?.items ?? [];
   const rawItems = infinitePageSize ? rawInfiniteQuery.items : rawSegmentsQuery.data?.items ?? [];
   const items = isRawView ? rawItems : spanItems;
+  // Spans: prefer the exact cached count; until it arrives, fall back to the page response's own total
+  // (exact when the whole scope was resolved, -1 on the fast path) and finally to a provisional total
+  // that keeps the pager's "next" enabled while there's more. The exact value replaces it on arrival.
+  const spansPageTotal = infinitePageSize ? derivedInfiniteQuery.totalCount : (segmentsWindowQuery.data?.totalCount ?? 0);
+  const spansHasMore = !infinitePageSize && (segmentsWindowQuery.data?.hasMore ?? false);
+  const spansTotalCount = spansCountQuery.data
+    ?? (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
   const totalCount = isRawView
     ? (infinitePageSize ? rawInfiniteQuery.totalCount : rawSegmentsQuery.data?.totalCount ?? 0)
-    : (infinitePageSize ? derivedInfiniteQuery.totalCount : segmentsWindowQuery.data?.totalCount ?? 0);
+    : spansTotalCount;
   const selectionItems: Array<{ id: string | number }> = items;
 
   const isLoading = (!isRawView && profilesQuery.isLoading)

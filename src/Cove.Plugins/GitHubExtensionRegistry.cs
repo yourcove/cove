@@ -161,7 +161,20 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         Changelog = meta.Changelog,
         MinCoveVersion = meta.SourceMinCoveVersion,
         Checksum = null,
+        Dependencies = meta.Dependencies != null ? new Dictionary<string, string>(meta.Dependencies, StringComparer.OrdinalIgnoreCase) : [],
     };
+
+    /// <summary>
+    /// The dependencies that apply to a specific version: its own per-version dependencies when declared,
+    /// otherwise the extension-level dependencies (older registry entries that predate per-version deps).
+    /// </summary>
+    private static Dictionary<string, string> EffectiveVersionDependencies(RegistryVersionEntry version, RegistryExtensionMetadata meta)
+    {
+        var source = version.Dependencies ?? meta.Dependencies;
+        return source != null
+            ? new Dictionary<string, string>(source, StringComparer.OrdinalIgnoreCase)
+            : [];
+    }
 
     public async Task<RegistrySearchResult> SearchAsync(RegistrySearchRequest request, CancellationToken ct = default)
     {
@@ -270,7 +283,9 @@ public class GitHubExtensionRegistry : IExtensionRegistry
             Categories = meta.Categories ?? [],
             UpdatedAt = validVersions.Max(v => v.ReleasedAt),
             MinCoveVersion = latestVersion.MinCoveVersion,
-            Dependencies = meta.Dependencies ?? [],
+            // Extension-level Dependencies reflects the latest version's effective deps (for display);
+            // dependency resolution uses each version's own deps via Versions[].Dependencies below.
+            Dependencies = EffectiveVersionDependencies(latestVersion, meta),
             ExternalDependencies = meta.ExternalDependencies ?? [],
             Settings = meta.Settings ?? [],
             Readme = readme,
@@ -283,6 +298,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
                 Changelog = v.Changelog,
                 MinCoveVersion = v.MinCoveVersion,
                 Checksum = v.Checksum,
+                Dependencies = EffectiveVersionDependencies(v, meta),
             }).ToList(),
         };
     }
@@ -804,5 +820,8 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         public string? MinCoveVersion { get; set; }
         public string? Checksum { get; set; }
         public string? DownloadUrl { get; set; }
+        /// <summary>Per-version extension dependencies. Falls back to the extension-level dependencies
+        /// (older registry entries) when a version doesn't declare its own.</summary>
+        public Dictionary<string, string>? Dependencies { get; set; }
     }
 }

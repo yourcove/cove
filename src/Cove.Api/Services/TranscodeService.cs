@@ -1,6 +1,7 @@
 using Cove.Core.Interfaces;
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 
 namespace Cove.Api.Services;
 
@@ -18,6 +19,14 @@ public class TranscodeService : ITranscodeService
     private readonly ILogger<TranscodeService> _logger;
     private readonly SemaphoreSlim _transcodeSemaphore = new(2); // Limit concurrent transcodes
     private string? _ffmpegPath;
+
+    // Probed H.264 encoder, cached and re-evaluated whenever the relevant settings change.
+    private string? _encoder;
+    private string? _encoderFingerprint;
+    private readonly object _encoderLock = new();
+
+    // How long to wait for the first byte of transcoded output before treating the encode as failed.
+    private static readonly TimeSpan FirstByteTimeout = TimeSpan.FromSeconds(25);
 
     private static readonly Dictionary<string, (int width, int height)> ResolutionProfiles = new()
     {
@@ -54,21 +63,12 @@ public class TranscodeService : ITranscodeService
             return null;
         }
 
-        var scaleFilter = "";
-        if (resolution != null && ResolutionProfiles.TryGetValue(resolution, out var res))
-        {
-            scaleFilter = $"-vf scale={res.width}:{res.height}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2";
-        }
-
-        var hwAccel = GetHwAccelArgs();
-        var outputArgs = _config.LiveTranscodeOutputArgs ?? "-c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k";
-        var seekArgs = startSeconds > 0
-            ? $"-ss {Math.Max(0, startSeconds).ToString("0.###", CultureInfo.InvariantCulture)}"
-            : "";
-
-        var args = $"{hwAccel} {seekArgs} -i \"{inputPath}\" {scaleFilter} {outputArgs} -movflags frag_keyframe+empty_moov -f mp4 pipe:1";
+        var encoder = GetH264Encoder(ffmpeg);
+        var args = BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, encoder,
+            $"-movflags frag_keyframe+empty_moov -f mp4 pipe:1");
 
         await _transcodeSemaphore.WaitAsync(ct);
+        var released = false;
         try
         {
             var psi = new ProcessStartInfo
@@ -88,23 +88,71 @@ public class TranscodeService : ITranscodeService
                 return null;
             }
 
-            // Read stderr in background for logging
+            // Drain stderr continuously into a capped buffer. This both prevents the stderr pipe
+            // from filling (which would deadlock ffmpeg) and lets us report the real error if the
+            // encode fails to produce output.
+            var stderr = new StringBuilder();
             _ = Task.Run(async () =>
             {
-                var stderr = await process.StandardError.ReadToEndAsync(ct);
-                if (!string.IsNullOrWhiteSpace(stderr))
-                    _logger.LogDebug("Transcode ffmpeg stderr: {Stderr}", stderr[..Math.Min(stderr.Length, 500)]);
+                try
+                {
+                    var buffer = new char[4096];
+                    int n;
+                    while ((n = await process.StandardError.ReadAsync(buffer, ct)) > 0)
+                        lock (stderr) { if (stderr.Length < 8192) stderr.Append(buffer, 0, n); }
+                }
+                catch { /* process exited / cancelled */ }
             }, ct);
 
-            ct.Register(() => { try { process.Kill(); } catch { } });
+            ct.Register(() => { try { process.Kill(true); } catch { } });
 
-            // Wrap the stdout stream so the semaphore is released when the caller
-            // finishes consuming the stream (after the HTTP response completes).
-            return new SemaphoreReleasingStream(process.StandardOutput.BaseStream, process, _transcodeSemaphore);
+            // Read the first chunk before handing the stream to the HTTP layer. A broken pipeline
+            // (the classic NVENC "Impossible to convert between formats" when GPU surfaces meet a
+            // software filter/encoder) exits immediately with no output — without this peek the
+            // controller would commit a 200 wrapping an already-dead stream, so playback silently
+            // fails with no diagnosable status. Surfacing it as null lets the controller return 5xx.
+            var stdout = process.StandardOutput.BaseStream;
+            var prefix = new byte[64 * 1024];
+            int read;
+            using (var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                readCts.CancelAfter(FirstByteTimeout);
+                try
+                {
+                    read = await stdout.ReadAsync(prefix, readCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    try { process.Kill(true); } catch { }
+                    _logger.LogWarning(
+                        "Transcode produced no output within {Timeout}s for {Input} (encoder {Encoder}). ffmpeg: {Error}",
+                        FirstByteTimeout.TotalSeconds, inputPath, encoder, Tail(stderr));
+                    _transcodeSemaphore.Release();
+                    return null;
+                }
+            }
+
+            if (read == 0)
+            {
+                try { await process.WaitForExitAsync(ct); } catch { }
+                var exit = process.HasExited ? process.ExitCode : -1;
+                _logger.LogWarning(
+                    "Transcode failed (exit {Code}) for {Input} (encoder {Encoder}). " +
+                    "If hardware acceleration is enabled, verify it works on this host. ffmpeg: {Error}",
+                    exit, inputPath, encoder, Tail(stderr));
+                try { process.Kill(true); } catch { }
+                _transcodeSemaphore.Release();
+                return null;
+            }
+
+            // Ownership of the semaphore passes to the stream wrapper, which releases it (and kills
+            // the process) when the HTTP response finishes consuming the stream.
+            released = true;
+            return new PrefixedReleasingStream(prefix, read, stdout, process, _transcodeSemaphore);
         }
         catch
         {
-            _transcodeSemaphore.Release();
+            if (!released) _transcodeSemaphore.Release();
             throw;
         }
     }
@@ -125,17 +173,10 @@ public class TranscodeService : ITranscodeService
             return await File.ReadAllTextAsync(manifestPath, ct);
         }
 
-        var scaleFilter = "";
-        if (resolution != null && ResolutionProfiles.TryGetValue(resolution, out var res))
-        {
-            scaleFilter = $"-vf scale={res.width}:{res.height}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2";
-        }
-
-        var hwAccel = GetHwAccelArgs();
+        var encoder = GetH264Encoder(ffmpeg);
         var segmentPath = Path.Combine(outputDir, $"{resolution ?? "original"}_%04d.ts");
-
-        var args = $"{hwAccel} -i \"{inputPath}\" {scaleFilter} -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k " +
-                   $"-f hls -hls_time 6 -hls_list_size 0 -hls_segment_filename \"{segmentPath}\" \"{manifestPath}\"";
+        var args = BuildEncodeArgs(ffmpeg, inputPath, resolution, 0, encoder,
+            $"-f hls -hls_time 6 -hls_list_size 0 -hls_segment_filename \"{segmentPath}\" \"{manifestPath}\"");
 
         await _transcodeSemaphore.WaitAsync(ct);
         try
@@ -144,7 +185,7 @@ public class TranscodeService : ITranscodeService
             {
                 FileName = ffmpeg,
                 Arguments = args,
-                RedirectStandardOutput = true,
+                RedirectStandardOutput = false,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
@@ -153,12 +194,16 @@ public class TranscodeService : ITranscodeService
             using var process = Process.Start(psi);
             if (process == null) return null;
 
+            // Drain stderr concurrently so a verbose/long encode can't fill the pipe buffer and
+            // deadlock against our WaitForExit.
+            var stderrTask = process.StandardError.ReadToEndAsync(ct);
             await process.WaitForExitAsync(ct);
+            var stderr = await stderrTask;
 
             if (process.ExitCode != 0)
             {
-                var stderr = await process.StandardError.ReadToEndAsync(ct);
-                _logger.LogWarning("HLS generation failed with exit code {Code}: {Stderr}", process.ExitCode, stderr[..Math.Min(stderr.Length, 500)]);
+                _logger.LogWarning("HLS generation failed (exit {Code}, encoder {Encoder}): {Stderr}",
+                    process.ExitCode, encoder, stderr[..Math.Min(stderr.Length, 500)]);
                 return null;
             }
 
@@ -183,15 +228,70 @@ public class TranscodeService : ITranscodeService
         return Task.FromResult<Stream?>(stream);
     }
 
-    private string GetHwAccelArgs()
+    /// <summary>
+    /// Builds a coherent ffmpeg command for a software-decode → (software scale) → hardware-encode
+    /// pipeline. Hardware <b>decode</b> is opt-in only (via LiveTranscodeInputArgs); the previous
+    /// design forced GPU surfaces for NVENC decode (<c>-hwaccel_output_format cuda</c>) but left the
+    /// scale filter and encoder in software, which cannot read GPU frames and aborted on every
+    /// resolution change. Hardware <b>encode</b> (the expensive half) is selected by probe with a
+    /// libx264 fallback, so a misconfigured GPU degrades gracefully instead of black-screening.
+    /// </summary>
+    private string BuildEncodeArgs(string ffmpeg, string inputPath, string? resolution, double startSeconds, string encoder, string outputContainerArgs)
     {
-        return _config.TranscodeHardwareAcceleration?.ToLowerInvariant() switch
+        var scaleChain = BuildScaleChain(resolution);
+        var videoFilter = FfmpegHwAccel.VideoFilterForEncoder(encoder, scaleChain);
+
+        // Input/decode args: software by default; honor an explicit override and add any encoder
+        // device setup (e.g. the VAAPI render node).
+        var decodeArgs = !string.IsNullOrWhiteSpace(_config.LiveTranscodeInputArgs)
+            ? _config.LiveTranscodeInputArgs!
+            : (!string.IsNullOrWhiteSpace(_config.TranscodeInputArgs) ? _config.TranscodeInputArgs! : string.Empty);
+        var inputArgs = Join(FfmpegHwAccel.InputArgsForEncoder(encoder), decodeArgs);
+
+        // Encode args: full user override if provided, else encoder-correct constant-quality args.
+        var encodeArgs = !string.IsNullOrWhiteSpace(_config.LiveTranscodeOutputArgs)
+            ? _config.LiveTranscodeOutputArgs!
+            : $"{FfmpegHwAccel.VideoEncodeArgs(encoder, 23, "veryfast")} -c:a aac -b:a 128k";
+
+        var seekArgs = startSeconds > 0
+            ? $"-ss {Math.Max(0, startSeconds).ToString("0.###", CultureInfo.InvariantCulture)}"
+            : string.Empty;
+
+        return Join(inputArgs, seekArgs, $"-i \"{inputPath}\"", videoFilter, encodeArgs, outputContainerArgs);
+    }
+
+    private static string BuildScaleChain(string? resolution)
+    {
+        if (resolution != null && ResolutionProfiles.TryGetValue(resolution, out var res))
+            return $"scale={res.width}:{res.height}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2";
+        return string.Empty;
+    }
+
+    private static string Join(params string[] parts) =>
+        string.Join(' ', parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+
+    private static string Tail(StringBuilder stderr)
+    {
+        lock (stderr)
         {
-            "nvenc" => "-hwaccel cuda -hwaccel_output_format cuda",
-            "vaapi" => "-hwaccel vaapi -hwaccel_device /dev/dri/renderD128",
-            "qsv" => "-hwaccel qsv",
-            _ => _config.LiveTranscodeInputArgs ?? ""
-        };
+            var text = stderr.ToString();
+            return text.Length > 500 ? text[^500..] : text;
+        }
+    }
+
+    /// <summary>Resolve the H.264 encoder for live transcoding, honoring the configured hardware
+    /// acceleration. Cached and re-probed only when ffmpeg path or the HW-accel setting changes, so
+    /// a Settings change takes effect without a restart and without re-probing on every request.</summary>
+    private string GetH264Encoder(string ffmpegPath)
+    {
+        var fingerprint = $"{ffmpegPath}|{_config.TranscodeHardwareAcceleration}";
+        lock (_encoderLock)
+        {
+            if (_encoder != null && _encoderFingerprint == fingerprint) return _encoder;
+            _encoder = FfmpegHwAccel.SelectH264Encoder(ffmpegPath, _config.TranscodeHardwareAcceleration, _logger);
+            _encoderFingerprint = fingerprint;
+            return _encoder;
+        }
     }
 
     private string? FindFfmpeg()
@@ -222,31 +322,58 @@ public class TranscodeService : ITranscodeService
 }
 
 /// <summary>
-/// Wraps a stream so that when it is disposed the associated FFmpeg process
-/// is killed and the transcode semaphore is released.  Without this, the
-/// semaphore leaks each time a transcode stream finishes.
+/// Wraps FFmpeg's stdout pipe, prepending a buffer of bytes already read for failure detection,
+/// and ensures the FFmpeg process is killed and the transcode semaphore released when the stream
+/// is disposed (i.e. after the HTTP response completes). Without the release the semaphore leaks.
 /// </summary>
-file sealed class SemaphoreReleasingStream(Stream inner, System.Diagnostics.Process process, SemaphoreSlim semaphore) : Stream
+file sealed class PrefixedReleasingStream(byte[] prefix, int prefixLen, Stream inner, System.Diagnostics.Process process, SemaphoreSlim semaphore) : Stream
 {
-    public override bool CanRead => inner.CanRead;
-    public override bool CanSeek => inner.CanSeek;
-    public override bool CanWrite => inner.CanWrite;
-    public override long Length => inner.Length;
-    public override long Position { get => inner.Position; set => inner.Position = value; }
+    private int _prefixPos;
+    private int _disposed;
 
-    public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
-    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) => inner.ReadAsync(buffer, offset, count, ct);
-    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) => inner.ReadAsync(buffer, ct);
-    public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
-    public override void Flush() => inner.Flush();
-    public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
-    public override void SetLength(long value) => inner.SetLength(value);
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        if (_prefixPos < prefixLen)
+        {
+            var n = Math.Min(count, prefixLen - _prefixPos);
+            Array.Copy(prefix, _prefixPos, buffer, offset, n);
+            _prefixPos += n;
+            return n;
+        }
+        return inner.Read(buffer, offset, count);
+    }
+
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+    {
+        if (_prefixPos < prefixLen)
+        {
+            var n = Math.Min(buffer.Length, prefixLen - _prefixPos);
+            prefix.AsSpan(_prefixPos, n).CopyTo(buffer.Span);
+            _prefixPos += n;
+            return n;
+        }
+        return await inner.ReadAsync(buffer, ct);
+    }
+
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+        => ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+
+    public override void Flush() { }
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            inner.Dispose();
+            try { inner.Dispose(); } catch { }
             try { if (!process.HasExited) process.Kill(true); } catch { }
             try { process.Dispose(); } catch { }
             semaphore.Release();
@@ -254,4 +381,3 @@ file sealed class SemaphoreReleasingStream(Stream inner, System.Diagnostics.Proc
         base.Dispose(disposing);
     }
 }
-

@@ -34,7 +34,11 @@ internal static class FfmpegProcessFrameExtractor
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = ffmpegPath,
-                    Arguments = $"-v error -ss {timestamp:F3} -i \"{videoPath}\" -vframes 1 -vf \"scale={scaleWidth}:-2\" -q:v 3 -y \"{framePath}\"",
+                    // -ss before -i = fast input-side seek (near-constant cost regardless of video length).
+                    // -threads 1 + -an keep each single-frame extraction to ~1 core so N parallel jobs (sized
+                    // by MaxParallelTasks) don't each fan out to all cores and thrash the CPU. -pix_fmt yuvj420p
+                    // forces full-range JPEG so the mjpeg encoder accepts limited-range YUV sources (exit 234).
+                    Arguments = $"-v error -threads 1 -ss {timestamp:F3} -i \"{videoPath}\" -an -vframes 1 -vf \"scale={scaleWidth}:-2\" -q:v 3 -pix_fmt yuvj420p -y \"{framePath}\"",
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     CreateNoWindow = true,

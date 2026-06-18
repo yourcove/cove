@@ -156,10 +156,13 @@ function StaticStars({ value, sizeClass }: { value: number; sizeClass: string })
       {Array.from({ length: 5 }, (_, index) => {
         const fill = Math.max(0, Math.min(1, value - index));
         return (
-          <span key={index} className="relative inline-flex">
+          // Wrapper sized exactly to the star (sizeClass) with both the outline and the clipped fill
+          // anchored at its top-left. Anchoring both to the same box keeps them aligned on iOS Safari,
+          // where the previous inline-flex wrapper + block overlay placed the fill star a few px off.
+          <span key={index} className={`relative inline-block shrink-0 ${sizeClass}`}>
             <Star className={`${sizeClass} text-muted`} />
             <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
-              <Star className={`${sizeClass} fill-current text-accent`} />
+              <Star className={`${sizeClass} max-w-none fill-current text-accent`} />
             </span>
           </span>
         );
@@ -355,7 +358,11 @@ export function InteractiveRating({ value, onChange, readOnly = false }: { value
     const activeValue = hoverValue ?? displayValue;
 
     const getValueFromPointer = (event: MouseEvent<HTMLButtonElement>, star: number) => {
-      const rect = event.currentTarget.getBoundingClientRect();
+      // Measure against the visible star box (the inner element), not the larger mobile tap target —
+      // otherwise a tap maps to a different value than what's shown, so "tap the same rating to clear
+      // it" never matches the stored value on touch devices (where the button is wider than the star).
+      const starBox = (event.currentTarget.querySelector("[data-rating-star]") as HTMLElement | null) ?? event.currentTarget;
+      const rect = starBox.getBoundingClientRect();
       const ratio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 1;
       const clampedRatio = Math.min(1, Math.max(0, ratio));
       const segments = Math.max(1, Math.ceil(clampedRatio / step));
@@ -376,16 +383,25 @@ export function InteractiveRating({ value, onChange, readOnly = false }: { value
               onClick={(event) => {
                 const nextDisplayValue = getValueFromPointer(event, star);
                 onChange?.(nextDisplayValue === displayValue ? undefined : convertFromRatingFormat(nextDisplayValue, options));
+                // Touch devices never fire mouseleave, so a lingering hoverValue would keep the stars
+                // showing the old (filled) rating after an unset until a refresh. Clear it so the display
+                // falls back to the freshly-updated value. (On desktop, mousemove re-sets it immediately.)
+                setHoverValue(null);
               }}
-              className="relative inline-flex h-9 w-9 items-center justify-center text-accent transition-transform hover:scale-110 sm:h-auto sm:w-auto"
+              className="inline-flex h-9 w-9 items-center justify-center text-accent transition-transform hover:scale-110 sm:h-auto sm:w-auto"
               title="Set rating"
             >
-              <Star className="h-5 w-5 text-muted" />
-              <span
-                className="absolute inset-y-0 left-0 overflow-hidden"
-                style={{ width: `${Math.max(0, Math.min(1, activeValue - (star - 1))) * 100}%` }}
-              >
-                <Star className="h-5 w-5 fill-current text-accent" />
+              {/* Inner box sized exactly to the star so the fill overlay aligns to the star, not the
+                  larger (h-9 w-9) mobile tap target — otherwise the fill is offset on touch devices.
+                  data-rating-star marks it as the geometry reference for pointer-to-value mapping. */}
+              <span data-rating-star className="relative inline-block h-5 w-5 shrink-0">
+                <Star className="h-5 w-5 text-muted" />
+                <span
+                  className="absolute inset-y-0 left-0 overflow-hidden"
+                  style={{ width: `${Math.max(0, Math.min(1, activeValue - (star - 1))) * 100}%` }}
+                >
+                  <Star className="h-5 w-5 max-w-none fill-current text-accent" />
+                </span>
               </span>
             </button>
           ))}

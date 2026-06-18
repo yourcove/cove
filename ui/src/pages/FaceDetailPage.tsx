@@ -12,6 +12,7 @@ import { DetailListToolbar } from "../components/DetailListToolbar";
 import { FaceSuggestionsPanel } from "../components/FaceSuggestionsPanel";
 import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";
 import { buildFaceCarouselSampleImageUrls, buildFaceHeroImageUrls } from "../components/faceComparisonImages";
+import { faceDisplayName } from "../utils/faceDisplay";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { EditModal } from "../components/EditModal";
 import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
@@ -318,7 +319,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     [carouselSampleImageUrls, face],
   );
   const [heroImageIndex, setHeroImageIndex] = useState(0);
-  const title = face?.label?.trim() || face?.performerName || `Face #${id}`;
+  const title = face ? faceDisplayName(face) : `Face #${id}`;
   const titleWithProvenance = face ? (
     <FieldProvenanceHover fieldProvenance={face.fieldProvenance} fieldKey={["label", "performer_id"]}>
       {title}
@@ -701,12 +702,12 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
               type="text"
               value={mergeSearch}
               onChange={(event) => setMergeSearch(event.target.value)}
-              placeholder="Search primary faces"
+              placeholder="Search by face label or linked performer"
               className="w-full rounded-lg border border-border bg-input py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:border-accent"
             />
           </div>
           {mergeSearchTerm.length < 2 ? (
-            <p className="text-sm text-secondary">Type at least two characters to search merge targets.</p>
+            <p className="text-sm text-secondary">Type at least two characters to search merge targets by face label or linked performer name.</p>
           ) : mergeMatchesQuery.isLoading ? (
             <p className="text-sm text-secondary">Searching faces...</p>
           ) : mergeCandidates.length === 0 ? (
@@ -839,7 +840,7 @@ function PerformerCandidateRow({ performer, onSelect, disabled }: { performer: P
 }
 
 function FaceCandidateRow({ face, onSelect, disabled }: { face: Face; onSelect: () => void; disabled: boolean }) {
-  const title = face.label?.trim() || face.performerName || `Face #${face.id}`;
+  const title = faceDisplayName(face);
 
   return (
     <button
@@ -859,9 +860,22 @@ function FaceCandidateRow({ face, onSelect, disabled }: { face: Face; onSelect: 
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-foreground">{title}</div>
-        <div className="mt-1 text-xs text-secondary">{face.detectionCount} detections</div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-secondary">
+          {face.performerId && face.performerName ? (
+            <span className="inline-flex items-center gap-1 text-accent">
+              <Link2 className="h-3 w-3" />
+              {face.performerName}
+            </span>
+          ) : (
+            <span className="text-muted">Unlinked</span>
+          )}
+          <span aria-hidden>·</span>
+          <span>{face.appearanceCount} appearance{face.appearanceCount === 1 ? "" : "s"}</span>
+          <span aria-hidden>·</span>
+          <span>{face.detectionCount} detection{face.detectionCount === 1 ? "" : "s"}</span>
+        </div>
       </div>
-      <span className="text-xs text-accent">Merge</span>
+      <span className="shrink-0 text-xs text-accent">Merge</span>
     </button>
   );
 }
@@ -939,6 +953,9 @@ function FaceTabPager({ filter, setFilter, totalCount }: { filter: FindFilter; s
   const perPage = filter.perPage ?? 1;
   const page = filter.page ?? 1;
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+  // Render from a clamped page so a stale out-of-range page (persisted from a longer list) shows the
+  // correct position and the Previous button stays usable instead of the pager vanishing entirely.
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
 
   if (totalPages <= 1) {
     return null;
@@ -948,17 +965,17 @@ function FaceTabPager({ filter, setFilter, totalCount }: { filter: FindFilter; s
     <div className="mx-auto mt-6 flex max-w-7xl items-center justify-center gap-4">
       <button
         type="button"
-        disabled={page <= 1}
-        onClick={() => setFilter({ ...filter, page: page - 1 })}
+        disabled={clampedPage <= 1}
+        onClick={() => setFilter({ ...filter, page: clampedPage - 1 })}
         className="rounded-lg border border-border px-3 py-2 text-sm text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
       >
         Previous
       </button>
-      <span className="text-sm text-secondary">Page {page} of {totalPages}</span>
+      <span className="text-sm text-secondary">Page {clampedPage} of {totalPages}</span>
       <button
         type="button"
-        disabled={page >= totalPages}
-        onClick={() => setFilter({ ...filter, page: page + 1 })}
+        disabled={clampedPage >= totalPages}
+        onClick={() => setFilter({ ...filter, page: clampedPage + 1 })}
         className="rounded-lg border border-border px-3 py-2 text-sm text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
       >
         Next

@@ -70,8 +70,12 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
   const totalPages = Math.max(1, Math.ceil(totalCount / effectivePerPage));
-  const start = totalCount > 0 ? (infinitePageSize ? 1 : (page - 1) * effectivePerPage + 1) : 0;
-  const end = infinitePageSize ? totalCount : Math.min(page * effectivePerPage, totalCount);
+  // A persisted page (URL/state) can outlive the list it belongs to — e.g. the list shrinks after a
+  // filter change, or a remembered page is restored for a shorter list. Clamp it for all rendering so
+  // the range label stays sane ("25–15 of 15") and the pager never disappears while stranded out of range.
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
+  const start = totalCount > 0 ? (infinitePageSize ? 1 : (clampedPage - 1) * effectivePerPage + 1) : 0;
+  const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   const [searchText, setSearchText] = useState(filter.q ?? "");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const sortedSortOptions = useMemo(
@@ -92,6 +96,16 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
     if (!inferredCardSizeEntityType || zoomLevel == null || !onZoomChange) return;
     if (Math.abs(storedZoomLevel - zoomLevel) > 0.001) onZoomChange(storedZoomLevel);
   }, [inferredCardSizeEntityType, onZoomChange, storedZoomLevel, zoomLevel]);
+
+  // Correct an out-of-range page back into the filter so the stale value doesn't persist (e.g. in the
+  // URL) and re-strand the user next time. Guarded on a loaded count so a transient 0 during fetch
+  // doesn't reset a deep-linked page before its data arrives.
+  useEffect(() => {
+    if (totalCount > 0 && clampedPage !== page) {
+      onFilterChange({ ...filter, page: clampedPage });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clampedPage, page, totalCount]);
 
   const handleZoomChange = (level: number) => {
     const nextLevel = clampEntityCardSizeLevel(inferredCardSizeEntityType, level);
@@ -241,20 +255,20 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
       {showPagingControls && !infinitePageSize && totalPages > 1 && (
         <div className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-center gap-1 py-1">
-          <button disabled={page <= 1} onClick={() => goTo(1)}
+          <button disabled={clampedPage <= 1} onClick={() => goTo(1)}
             className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
             <ChevronsLeft className="w-3.5 h-3.5" />
           </button>
-          <button disabled={page <= 1} onClick={() => goTo(page - 1)}
+          <button disabled={clampedPage <= 1} onClick={() => goTo(clampedPage - 1)}
             className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
-          <span className="px-2 text-xs text-muted">{page} / {totalPages}</span>
-          <button disabled={page >= totalPages} onClick={() => goTo(page + 1)}
+          <span className="px-2 text-xs text-muted">{clampedPage} / {totalPages}</span>
+          <button disabled={clampedPage >= totalPages} onClick={() => goTo(clampedPage + 1)}
             className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
-          <button disabled={page >= totalPages} onClick={() => goTo(totalPages)}
+          <button disabled={clampedPage >= totalPages} onClick={() => goTo(totalPages)}
             className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
             <ChevronsRight className="w-3.5 h-3.5" />
           </button>

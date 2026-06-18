@@ -599,6 +599,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             await ResolveDependencyPlanAsync(
                 registry,
                 detail,
+                selectedVersion,
                 installedVersions,
                 dependencyPlan,
                 dependencyInfos,
@@ -693,6 +694,12 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         var detail = await registry.GetExtensionAsync(extensionId, ct);
         if (detail == null) return NotFound();
 
+        // Resolve against the version that would actually be installed (latest host-compatible), so the
+        // reported dependencies match that version's requirements.
+        var resolveVersion = SelectRegistryVersion(detail, null, null, out _);
+        if (resolveVersion == null)
+            return Ok(new List<DependencyInfo>());
+
         var installedVersions = extensionManager.Installations.Values
             .Where(i => extensionManager.IsEffectivelyInstalled(i.ExtensionId))
             .ToDictionary(i => i.ExtensionId, i => i.Version, StringComparer.OrdinalIgnoreCase);
@@ -702,7 +709,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
         try
         {
-            await ResolveDependencyPlanAsync(registry, detail, installedVersions, plan, deps, missing, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), ct);
+            await ResolveDependencyPlanAsync(registry, detail, resolveVersion, installedVersions, plan, deps, missing, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -819,6 +826,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     private async Task ResolveDependencyPlanAsync(
         IExtensionRegistry registry,
         RegistryExtensionDetail detail,
+        RegistryVersionInfo version,
         Dictionary<string, string> installedVersions,
         List<RegistryInstallPlanItem> plan,
         List<DependencyInfo> dependencyInfos,
@@ -830,7 +838,10 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         if (!visiting.Add(detail.Id))
             throw new InvalidOperationException($"Extension dependency cycle detected at '{detail.Id}'.");
 
-        foreach (var (depId, versionConstraint) in detail.Dependencies)
+        // Resolve against the dependencies of the SPECIFIC version being installed — not the extension's
+        // latest — so installing an older, host-compatible version pulls that version's (older, compatible)
+        // dependency requirements rather than the newest version's.
+        foreach (var (depId, versionConstraint) in version.Dependencies)
         {
             if (installedVersions.TryGetValue(depId, out var installedVersion) && VersionSatisfies(installedVersion, versionConstraint))
                 continue;
@@ -852,7 +863,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             }
 
             if (!visited.Contains(depId))
-                await ResolveDependencyPlanAsync(registry, depDetail, installedVersions, plan, dependencyInfos, missingDependencies, visiting, visited, ct);
+                await ResolveDependencyPlanAsync(registry, depDetail, depVersion, installedVersions, plan, dependencyInfos, missingDependencies, visiting, visited, ct);
 
             if (!plan.Any(item => string.Equals(item.Id, depId, StringComparison.OrdinalIgnoreCase)))
                 plan.Add(new RegistryInstallPlanItem(depId, depVersion.Version, depDetail.Name, installedVersions.ContainsKey(depId)));

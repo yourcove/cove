@@ -144,6 +144,12 @@ public class ThumbnailService(
     private const int SpriteFrameCount = 81; // 9x9 grid
     private const int SpriteFrameSize = 160; // px
 
+    // The single-process fps-filter sprite path decodes the *entire* file to keep ~81 frames, so its
+    // cost scales with video length. On long videos it routinely exceeds its timeout and saturates CPU
+    // (worse under parallel generation) before falling through to seek-based extraction anyway. Past
+    // this duration we skip it and go straight to fast input-seek extraction, which is near-constant cost.
+    private const double FpsFilterSpriteMaxDurationSeconds = 600d; // 10 minutes
+
     // In-process (FFmpeg.AutoGen) extraction is much faster but a malformed file can crash the
     // process on some systems, so it is opt-in via the "managed" frame-extraction mode. The
     // default "external" mode keeps extraction out-of-process so failures stay isolated to ffmpeg.
@@ -490,7 +496,9 @@ public class ThumbnailService(
                 var scaleFilter = $"scale='min(iw,{maxDimension})':'min(ih,{maxDimension})':force_original_aspect_ratio=decrease";
                 var args = thumbnailOutput.ContentType == "image/png"
                     ? $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -f image2 \"{tempOutputPath}\""
-                    : $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -q:v 3 -f image2 \"{tempOutputPath}\"";
+                    // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
+                    // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
+                    : $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p -f image2 \"{tempOutputPath}\"";
                 if (!await TryRunFfmpegAsync(ffmpegPath, args, ImageThumbnailFfmpegTimeout, ct))
                     return false;
 
@@ -562,7 +570,9 @@ public class ThumbnailService(
                 var scaleFilter = $"scale='min(iw,{maxDimension})':'min(ih,{maxDimension})':force_original_aspect_ratio=decrease";
                 var args = thumbnailOutput.ContentType == "image/png"
                     ? $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 \"{tempOutputPath}\""
-                    : $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -q:v 3 \"{tempOutputPath}\"";
+                    // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
+                    // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
+                    : $"-v error -y -i \"{inputPath}\" -vf \"{scaleFilter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p \"{tempOutputPath}\"";
                 if (!await TryRunFfmpegAsync(ffmpegPath, args, ImageThumbnailFfmpegTimeout, ct) || !File.Exists(tempOutputPath))
                 {
                     await thumbnailStream.DisposeAsync();
@@ -1140,9 +1150,10 @@ public class ThumbnailService(
                 var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 -preset {preset} -crf {PreviewCrf} {audioArg} \"{previewPath}\"",
+                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{previewPath}\"",
                     previewPath,
                     TimeSpan.FromMinutes(5),
+                    preset,
                     ct);
                 return;
             }
@@ -1162,9 +1173,10 @@ public class ThumbnailService(
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y -ss {seekTime.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 -preset {preset} -crf {PreviewCrf} {audioArg} \"{chunkPath}\"",
+                    $"{decodeArgs} -v error -y -ss {seekTime.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
                     chunkPath,
                     TimeSpan.FromSeconds(60),
+                    preset,
                     ct);
             }
 
@@ -1199,10 +1211,14 @@ public class ThumbnailService(
     // '{' or '}' characters don't get misinterpreted as format placeholders (FormatException).
     private const string VideoCodecPlaceholder = "__COVE_VCODEC__";
 
-    private async Task RunPreviewEncodeAsync(string ffmpegPath, string argsTemplate, string outputPath, TimeSpan timeout, CancellationToken ct)
+    private async Task RunPreviewEncodeAsync(string ffmpegPath, string argsTemplate, string outputPath, TimeSpan timeout, string softwarePreset, CancellationToken ct)
     {
         var encoder = GetH264Encoder();
-        var args = argsTemplate.Replace(VideoCodecPlaceholder, $"-c:v {encoder}", StringComparison.Ordinal);
+        // Build the codec args per encoder family. libx264 honors -preset/-crf; the hardware encoders
+        // need their own constant-quality knobs (NVENC/QSV/AMF ignore -crf, and a libx264 preset name
+        // like "veryfast" is an invalid NVENC preset that aborts the encode).
+        var codecArgs = FfmpegHwAccel.VideoEncodeArgs(encoder, PreviewCrf, softwarePreset);
+        var args = argsTemplate.Replace(VideoCodecPlaceholder, codecArgs, StringComparison.Ordinal);
         await RunFfmpegAsync(ffmpegPath, args, timeout, ct);
     }
 
@@ -1268,12 +1284,22 @@ public class ThumbnailService(
             if (await TryGenerateVideoSpriteViaInProcessAsync(ffmpegPath, filePath, spritePath, vttPath, frameCount, cols, rows, interval, duration, ct))
                 return;
 
-            logger.LogDebug("Falling back to ffmpeg CLI sprite generation for video {VideoId}", videoId);
-
-            if (await TryGenerateVideoSpriteViaFfmpegAsync(ffmpegPath, filePath, spritePath, frameCount, cols, rows, duration, ct))
+            // The whole-file fps-filter decode is acceptable for short videos but pathological for long
+            // ones, so only attempt it under the duration threshold; otherwise drop straight to the fast
+            // seek-based extractor below instead of burning minutes (and CPU) on a doomed decode.
+            if (duration <= FpsFilterSpriteMaxDurationSeconds)
             {
-                await WriteSpriteVttAsync(spritePath, vttPath, frameCount, cols, rows, interval, ct, duration: duration);
-                return;
+                logger.LogDebug("Falling back to ffmpeg CLI sprite generation for video {VideoId}", videoId);
+
+                if (await TryGenerateVideoSpriteViaFfmpegAsync(ffmpegPath, filePath, spritePath, frameCount, cols, rows, duration, ct))
+                {
+                    await WriteSpriteVttAsync(spritePath, vttPath, frameCount, cols, rows, interval, ct, duration: duration);
+                    return;
+                }
+            }
+            else
+            {
+                logger.LogDebug("Skipping whole-file fps sprite path for long video {VideoId} ({Duration:F0}s); using seek-based extraction", videoId, duration);
             }
 
             logger.LogDebug("Falling back to ffmpeg process frame extraction for sprite generation of video {VideoId}", videoId);
@@ -1398,7 +1424,9 @@ public class ThumbnailService(
             var fpsText = fps.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture);
             var decodeArgs = GetFfmpegDecodeArgs();
             var filter = $"fps={fpsText},scale={SpriteFrameSize}:-2,tile={cols}x{rows}:margin=0:padding=0";
-            var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -i \"{filePath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -f image2 \"{tempPath}\"";
+            // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
+            // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
+            var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -i \"{filePath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p -f image2 \"{tempPath}\"";
             var timeout = TimeSpan.FromSeconds(Math.Clamp(duration / 2d, 45d, 300d));
             if (!await TryRunFfmpegAsync(ffmpegPath, args, timeout, ct) || !File.Exists(tempPath))
                 return false;
@@ -1678,122 +1706,10 @@ public class ThumbnailService(
         }
     }
 
-    /// <summary>Pick the H.264 encoder for the current configuration. When the user has pinned a
-    /// specific hardware acceleration in Settings, only that encoder is attempted (falling back
-    /// to software if it cannot open a session); otherwise the best available HW encoder is
-    /// auto-detected, falling back to libx264.</summary>
+    /// <summary>Pick the H.264 encoder for the current configuration, honoring a pinned hardware
+    /// acceleration and falling back to libx264 if it cannot open a session. Shared with the live
+    /// transcode path via <see cref="FfmpegHwAccel"/>.</summary>
     private string ProbeH264Encoder(string ffmpegPath)
-    {
-        try
-        {
-            var listed = ListFfmpegEncoders(ffmpegPath);
-
-            // If the user explicitly selected a hardware acceleration, honor that choice rather
-            // than silently substituting a different vendor's encoder.
-            var pinned = config.TranscodeHardwareAcceleration?.Trim().ToLowerInvariant() switch
-            {
-                "nvenc" => "h264_nvenc",
-                "qsv" => "h264_qsv",
-                "vaapi" => "h264_vaapi",
-                "amf" => "h264_amf",
-                _ => null,
-            };
-
-            if (pinned != null)
-            {
-                if (listed.Contains(pinned, StringComparer.OrdinalIgnoreCase)
-                    && ProbeEncoder(ffmpegPath, pinned, out var pinnedError))
-                {
-                    logger.LogInformation("Using configured HW-accelerated H.264 encoder: {Encoder}", pinned);
-                    return pinned;
-                }
-
-                logger.LogWarning(
-                    "Configured HW encoder {Encoder} is unavailable on this system; falling back to libx264", pinned);
-                return "libx264";
-            }
-
-            // Auto-detect: prefer NVENC > QSV > AMF > VideoToolbox. Verify each candidate with an
-            // actual test encode; presence in the encoder list does not guarantee the runtime can
-            // open a session (e.g. NVENC client-key mismatches with the installed driver).
-            string[] hwEncoders = ["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"];
-            foreach (var enc in hwEncoders)
-            {
-                if (!listed.Contains(enc, StringComparer.OrdinalIgnoreCase)) continue;
-                if (!ProbeEncoder(ffmpegPath, enc, out var probeError))
-                {
-                    logger.LogDebug("Skipping {Encoder}: probe failed ({Error})", enc, probeError);
-                    continue;
-                }
-
-                logger.LogInformation("Using HW-accelerated H.264 encoder: {Encoder}", enc);
-                return enc;
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to detect HW encoders, falling back to libx264");
-        }
-
-        logger.LogInformation("Using software H.264 encoder: libx264");
-        return "libx264";
-    }
-
-    private static IReadOnlyList<string> ListFfmpegEncoders(string ffmpegPath)
-    {
-        var process = new System.Diagnostics.Process
-        {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = "-hide_banner -encoders",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-        process.Start();
-        var output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit(5000);
-        return output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-    }
-
-    private static bool ProbeEncoder(string ffmpegPath, string encoder, out string error)
-    {
-        error = string.Empty;
-        var process = new System.Diagnostics.Process
-        {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = $"-hide_banner -v error -f lavfi -i color=size=64x64:rate=1:duration=0.1 -c:v {encoder} -frames:v 1 -f null -",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-        try
-        {
-            process.Start();
-            var stderr = process.StandardError.ReadToEnd();
-            if (!process.WaitForExit(10000))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                error = "timed out";
-                return false;
-            }
-            if (process.ExitCode == 0)
-                return true;
-            error = stderr.Length > 200 ? stderr[..200] : stderr;
-            return false;
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            return false;
-        }
-    }
+        => FfmpegHwAccel.SelectH264Encoder(ffmpegPath, config.TranscodeHardwareAcceleration, logger);
 }
 

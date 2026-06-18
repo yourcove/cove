@@ -4,9 +4,10 @@ import type { InfiniteData } from "@tanstack/react-query";
 import type { BoolCriterion, CriterionModifier, CustomFieldCriterion, FindFilter, FaceSuggestion, FaceTopSuggestion, IntCriterion, MultiIdCriterion, PaginatedResponse, StringCriterion } from "../api/types";
 import { faces } from "../api/client";
 import type { Face } from "../api/types";
+import { faceDisplayName } from "../utils/faceDisplay";
 import { Fingerprint, Link2, Trash2 } from "lucide-react";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import type { CriterionDefinition, FilterDialogCustomSection } from "../components/FilterDialog";
+import type { CriterionDefinition } from "../components/FilterDialog";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { createNestedRouteLinkProps } from "../components/cardNavigation";
 import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";
@@ -27,7 +28,6 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TriState = "all" | "yes" | "no";
 type FaceSort = string;
 
 const defaultFaceSort: FaceSort = "suggestion_confidence";
@@ -48,23 +48,17 @@ const FACE_SORT_OPTIONS = [
 ];
 
 const FACE_CRITERIA: CriterionDefinition[] = [
+  { id: "linked", label: "Linked", type: "bool", filterKey: "linkedCriterion" },
   { id: "label", label: "Label", type: "string", filterKey: "labelCriterion" },
   { id: "performers", label: "Linked Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
   { id: "topSuggestionPerformers", label: "Top Suggestion Performers", type: "multiId", entityType: "performers", filterKey: "topSuggestionPerformersCriterion" },
-  { id: "primarySourceKey", label: "Primary Source", type: "string", filterKey: "primarySourceKeyCriterion" },
-  { id: "hasCover", label: "Has Cover", type: "bool", filterKey: "hasCoverCriterion" },
   { id: "detectionCount", label: "Detection Count", type: "number", filterKey: "detectionCountCriterion" },
   { id: "appearanceCount", label: "Appearance Count", type: "number", filterKey: "appearanceCountCriterion" },
   { id: "frameSampleCount", label: "Frame Sample Count", type: "number", filterKey: "frameSampleCountCriterion" },
   { id: "videoCount", label: "Video Count", type: "number", filterKey: "videoCountCriterion" },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "mergedIntoFaceId", label: "Merged Into Face ID", type: "number", filterKey: "mergedIntoFaceIdCriterion" },
   { id: "suggestionConfidence", label: "Suggestion Confidence", type: "number", filterKey: "suggestionConfidenceCriterion" },
 ];
-
-function readTriState(value: unknown): TriState {
-  return value === "yes" || value === "no" ? value : "all";
-}
 
 function readFaceSort(value: unknown): FaceSort {
   return typeof value === "string" && FACE_SORT_OPTIONS.some((option) => option.value === value) ? value : defaultFaceSort;
@@ -198,23 +192,18 @@ function readSuggestionConfidenceLowerBound(value: unknown) {
 
 function sanitizeFaceFilters(filter: Record<string, unknown>) {
   const next: Record<string, unknown> = {};
-  const linked = readTriState(filter.linked);
+  const linkedCriterion = readBoolCriterion(filter.linkedCriterion);
   const minSuggestionConfidence = readMinSuggestionConfidence(filter.minSuggestionConfidence);
   const suggestionConfidenceCriterion = readNumberCriterion(filter.suggestionConfidenceCriterion);
   const labelCriterion = readStringCriterion(filter.labelCriterion);
-  const primarySourceKeyCriterion = readStringCriterion(filter.primarySourceKeyCriterion);
-  const hasCoverCriterion = readBoolCriterion(filter.hasCoverCriterion);
   const detectionCountCriterion = readCountCriterion(filter.detectionCountCriterion);
   const appearanceCountCriterion = readCountCriterion(filter.appearanceCountCriterion);
   const frameSampleCountCriterion = readCountCriterion(filter.frameSampleCountCriterion);
   const videoCountCriterion = readCountCriterion(filter.videoCountCriterion);
   const imageCountCriterion = readCountCriterion(filter.imageCountCriterion);
-  const mergedIntoFaceIdCriterion = readCountCriterion(filter.mergedIntoFaceIdCriterion);
   const customFieldCriteria = readCustomFieldCriteria(filter.customFieldCriteria);
 
-  if (linked !== "all") {
-    next.linked = linked;
-  }
+  if (linkedCriterion) next.linkedCriterion = linkedCriterion;
 
   if (minSuggestionConfidence != null) {
     next.minSuggestionConfidence = minSuggestionConfidence;
@@ -225,14 +214,11 @@ function sanitizeFaceFilters(filter: Record<string, unknown>) {
   }
 
   if (labelCriterion) next.labelCriterion = labelCriterion;
-  if (primarySourceKeyCriterion) next.primarySourceKeyCriterion = primarySourceKeyCriterion;
-  if (hasCoverCriterion) next.hasCoverCriterion = hasCoverCriterion;
   if (detectionCountCriterion) next.detectionCountCriterion = detectionCountCriterion;
   if (appearanceCountCriterion) next.appearanceCountCriterion = appearanceCountCriterion;
   if (frameSampleCountCriterion) next.frameSampleCountCriterion = frameSampleCountCriterion;
   if (videoCountCriterion) next.videoCountCriterion = videoCountCriterion;
   if (imageCountCriterion) next.imageCountCriterion = imageCountCriterion;
-  if (mergedIntoFaceIdCriterion) next.mergedIntoFaceIdCriterion = mergedIntoFaceIdCriterion;
   if (customFieldCriteria.length > 0) next.customFieldCriteria = customFieldCriteria;
 
   if (hasMultiIdIncludes(filter.performersCriterion)) {
@@ -332,33 +318,6 @@ function removeFacesFromListCache(data: unknown, deletedFaceIds: Set<number>) {
   return data;
 }
 
-function formatTriState(value: unknown, yesLabel: string, noLabel: string) {
-  const resolved = readTriState(value);
-  return resolved === "yes" ? yesLabel : resolved === "no" ? noLabel : "All";
-}
-
-function renderSelectFilter(
-  value: unknown,
-  onChange: (value: unknown) => void,
-  options: { value: string; label: string }[],
-  label: string,
-) {
-  return (
-    <label className="grid gap-1 text-xs text-secondary">
-      <span>{label}</span>
-      <select
-        value={String(value ?? options[0]?.value ?? "")}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-[32px] rounded border border-border bg-input px-2 py-1 text-xs text-foreground outline-none focus:border-accent"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 export function FacesPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
@@ -369,7 +328,7 @@ export function FacesPage({ onNavigate }: Props) {
     const savedFilter = getDefaultFilter("faces");
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter,
-      objectFilter: savedFilter?.objectFilter ?? { linked: "no" },
+      objectFilter: savedFilter?.objectFilter ?? { linkedCriterion: { value: false } },
       displayMode: "grid" as DisplayMode,
     };
   }, []);
@@ -381,37 +340,19 @@ export function FacesPage({ onNavigate }: Props) {
     allowedDisplayModes: ["grid", "list"] as const,
     allowInfinitePageSize: true,
   });
-  const linked = readTriState(objectFilter.linked);
+  const linkedCriterion = readBoolCriterion(objectFilter.linkedCriterion);
   const minSuggestionConfidence = readMinSuggestionConfidence(objectFilter.minSuggestionConfidence);
   const suggestionConfidenceCriterion = readNumberCriterion(objectFilter.suggestionConfidenceCriterion);
   const labelCriterion = readStringCriterion(objectFilter.labelCriterion);
-  const primarySourceKeyCriterion = readStringCriterion(objectFilter.primarySourceKeyCriterion);
-  const hasCoverCriterion = readBoolCriterion(objectFilter.hasCoverCriterion);
   const detectionCountCriterion = readCountCriterion(objectFilter.detectionCountCriterion);
   const appearanceCountCriterion = readCountCriterion(objectFilter.appearanceCountCriterion);
   const frameSampleCountCriterion = readCountCriterion(objectFilter.frameSampleCountCriterion);
   const videoCountCriterion = readCountCriterion(objectFilter.videoCountCriterion);
   const imageCountCriterion = readCountCriterion(objectFilter.imageCountCriterion);
-  const mergedIntoFaceIdCriterion = readCountCriterion(objectFilter.mergedIntoFaceIdCriterion);
   const linkedPerformerIds = useMemo(() => readMultiIdIncludes(objectFilter.performersCriterion), [objectFilter.performersCriterion]);
   const topSuggestionPerformerIds = useMemo(() => readMultiIdIncludes(objectFilter.topSuggestionPerformersCriterion), [objectFilter.topSuggestionPerformersCriterion]);
   const customFieldCriteria = useMemo(() => readCustomFieldCriteria(objectFilter.customFieldCriteria), [objectFilter.customFieldCriteria]);
   const sort = readFaceSort(filter.sort);
-  const faceFilterSections = useMemo<FilterDialogCustomSection[]>(() => [
-    {
-      id: "linked",
-      label: "Linked state",
-      filterKey: "linked",
-      defaultValue: "all",
-      isActive: (value) => readTriState(value) !== "all",
-      summarize: (value) => formatTriState(value, "Linked", "Unlinked"),
-      renderEditor: (value, onChange) => renderSelectFilter(value, onChange, [
-        { value: "all", label: "Linked and unlinked" },
-        { value: "no", label: "Unlinked" },
-        { value: "yes", label: "Linked" },
-      ], "Linked state"),
-    },
-  ], []);
   const [comparison, setComparison] = useState<{ face: Face; suggestion: FaceTopSuggestion } | null>(null);
   const [batchCompareFaceIds, setBatchCompareFaceIds] = useState<number[]>([]);
   const [batchCompareIndex, setBatchCompareIndex] = useState(0);
@@ -423,13 +364,9 @@ export function FacesPage({ onNavigate }: Props) {
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const query = useMemo(() => ({
     q: filter.q?.trim() || undefined,
-    linked: linked === "all" ? undefined : linked === "yes",
-    mergedIntoFaceId: mergedIntoFaceIdCriterion?.value,
+    linked: linkedCriterion?.value,
     label: labelCriterion?.value,
     labelModifier: labelCriterion?.modifier,
-    primarySourceKey: primarySourceKeyCriterion?.value,
-    primarySourceKeyModifier: primarySourceKeyCriterion?.modifier,
-    hasCover: hasCoverCriterion?.value,
     detectionCount: detectionCountCriterion?.value,
     detectionCount2: detectionCountCriterion?.value2,
     detectionCountModifier: detectionCountCriterion?.modifier,
@@ -456,7 +393,7 @@ export function FacesPage({ onNavigate }: Props) {
     customFieldCriteria,
     page: filter.page ?? 1,
     perPage: filter.perPage ?? 40,
-  }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, hasCoverCriterion?.value, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linked, linkedPerformerIds, mergedIntoFaceIdCriterion?.value, minSuggestionConfidence, primarySourceKeyCriterion?.modifier, primarySourceKeyCriterion?.value, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
+  }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linkedCriterion?.value, linkedPerformerIds, minSuggestionConfidence, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
   const listData = useInfiniteListData<Face>({
     queryKey: ["faces", query],
     filter,
@@ -608,8 +545,6 @@ export function FacesPage({ onNavigate }: Props) {
         criteriaDefinitions={FACE_CRITERIA}
         objectFilter={objectFilter}
         onObjectFilterChange={handleObjectFilterChange}
-        customFilterSections={faceFilterSections}
-        showCustomFilterDivider={false}
         selectedIds={selectedIds}
         onSelectAll={listData.infinitePageSize ? handleSelectAllMatching : selectAll}
         onSelectNone={selectNone}
@@ -972,7 +907,7 @@ function FaceListRow({
   selecting: boolean;
   density: FaceListDensity;
 }) {
-  const title = face.performerId && face.performerName ? face.performerName : face.label?.trim() || `Face #${face.id}`;
+  const title = faceDisplayName(face);
 
   return (
     <div

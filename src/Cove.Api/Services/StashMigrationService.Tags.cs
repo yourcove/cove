@@ -21,6 +21,20 @@ public partial class StashMigrationService
         }
         var aliases = await ReadAliasesAsync(conn, "tag_aliases", "tag_id", ct);
 
+        var tagStashIds = new Dictionary<int, List<(string Ep, string Rid)>>();
+        if (await TableExistsAsync(conn, "tag_stash_ids", ct))
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT tag_id, endpoint, stash_id FROM tag_stash_ids";
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                var tId = r.GetInt32(0);
+                if (!tagStashIds.TryGetValue(tId, out var list)) tagStashIds[tId] = list = [];
+                list.Add((r.GetString(1), r.GetString(2)));
+            }
+        }
+
         var tagParents = new Dictionary<int, List<int>>();
         if (await TableExistsAsync(conn, "tags_relations", ct))
         {
@@ -106,6 +120,10 @@ public partial class StashMigrationService
                 Favorite = row.Favorite,
                 ImageBlobId = GetBlobId(blobMap, row.ImageBlob),
                 Aliases = aliases.GetValueOrDefault(stashId, []).Select(a => new TagAlias { Alias = a }).ToList(),
+                RemoteIds = tagStashIds.GetValueOrDefault(stashId, [])
+                    .DistinctBy(s => (s.Ep, s.Rid))
+                    .Select(s => new TagRemoteId { Endpoint = s.Ep, RemoteId = s.Rid })
+                    .ToList(),
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
             };

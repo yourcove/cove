@@ -312,42 +312,60 @@ WHERE files.zip_file_id IS NOT NULL";
 
         if (sourceLinks.Count == 0) return;
 
-        var targetImageIds = sourceLinks
-            .Where(link => imageIdMap.ContainsKey(link.StashImageId))
-            .Select(link => imageIdMap[link.StashImageId])
-            .Distinct()
-            .ToList();
-
-        if (targetImageIds.Count == 0) return;
-
-        var imageFilesByKey = (await _db.ImageFiles
-            .Where(file => file.ImageId.HasValue && targetImageIds.Contains(file.ImageId.Value))
-            .ToListAsync(ct))
-            .ToDictionary(file => GetImportedImageFileKey(file.ImageId ?? 0, file.ParentFolderId, file.Basename));
-
+        // Reconcile in batches. Loading every imported ImageFile at once into a tracked dictionary and
+        // committing them in a single SaveChanges exhausts memory and stalls for hours on large libraries
+        // (millions of image files). Process the source links in fixed-size batches, loading/mutating/saving
+        // only a bounded set at a time and clearing the change tracker between batches so it never grows.
+        const int BatchSize = 2000;
         var updated = 0;
-        foreach (var (stashImageId, basename, stashParentFolderId, stashZipFileId) in sourceLinks)
+
+        for (var offset = 0; offset < sourceLinks.Count; offset += BatchSize)
         {
-            if (!imageIdMap.TryGetValue(stashImageId, out var coveImageId)
-                || !folderIdMap.TryGetValue(stashParentFolderId, out var coveParentFolderId)
-                || !galleryFileIdMap.TryGetValue(stashZipFileId, out var coveZipFileId))
+            ct.ThrowIfCancellationRequested();
+            var batch = sourceLinks.GetRange(offset, Math.Min(BatchSize, sourceLinks.Count - offset));
+
+            // Resolve this batch's links to Cove ids first, collecting only the image ids we must load.
+            var resolved = new List<(int CoveImageId, int CoveParentFolderId, string Basename, int CoveZipFileId)>(batch.Count);
+            foreach (var (stashImageId, basename, stashParentFolderId, stashZipFileId) in batch)
             {
-                continue;
+                if (imageIdMap.TryGetValue(stashImageId, out var coveImageId)
+                    && folderIdMap.TryGetValue(stashParentFolderId, out var coveParentFolderId)
+                    && galleryFileIdMap.TryGetValue(stashZipFileId, out var coveZipFileId))
+                {
+                    resolved.Add((coveImageId, coveParentFolderId, basename, coveZipFileId));
+                }
             }
 
-            var key = GetImportedImageFileKey(coveImageId, coveParentFolderId, basename);
-            if (!imageFilesByKey.TryGetValue(key, out var imageFile) || imageFile.ZipFileId == coveZipFileId)
+            if (resolved.Count == 0) continue;
+
+            var batchImageIds = resolved.Select(item => item.CoveImageId).Distinct().ToList();
+            var imageFilesByKey = (await _db.ImageFiles
+                .Where(file => file.ImageId.HasValue && batchImageIds.Contains(file.ImageId.Value))
+                .ToListAsync(ct))
+                .ToDictionary(file => GetImportedImageFileKey(file.ImageId ?? 0, file.ParentFolderId, file.Basename));
+
+            var batchUpdated = 0;
+            foreach (var (coveImageId, coveParentFolderId, basename, coveZipFileId) in resolved)
             {
-                continue;
+                var key = GetImportedImageFileKey(coveImageId, coveParentFolderId, basename);
+                if (imageFilesByKey.TryGetValue(key, out var imageFile) && imageFile.ZipFileId != coveZipFileId)
+                {
+                    imageFile.ZipFileId = coveZipFileId;
+                    batchUpdated++;
+                }
             }
 
-            imageFile.ZipFileId = coveZipFileId;
-            updated++;
+            if (batchUpdated > 0)
+            {
+                await _db.SaveChangesAsync(ct);
+                updated += batchUpdated;
+            }
+
+            _db.ChangeTracker.Clear();
         }
 
         if (updated > 0)
         {
-            await _db.SaveChangesAsync(ct);
             _logger.LogInformation("Reconciled {Count} imported image file zip links", updated);
         }
     }

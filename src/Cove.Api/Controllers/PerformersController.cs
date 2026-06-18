@@ -514,7 +514,10 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Performer, performer.Id, ct)).ToList();
-        return MapToDto(performer, usageCounts, customFieldValues, fieldProvenance);
+        var faceCount = await db.Faces
+            .AsNoTracking()
+            .CountAsync(face => face.PerformerId == performer.Id && face.MergedIntoFaceId == null, ct);
+        return MapToDto(performer, usageCounts, customFieldValues, fieldProvenance, faceCount);
     }
 
     private static IQueryable<Group> ApplyGroupSort(IQueryable<Group> query, string? sort, bool desc) => sort switch
@@ -560,7 +563,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             ? EntityImageUrls.GroupFront(ControllerContext.HttpContext, group.Id, group.UpdatedAt)
             : null;
 
-    private PerformerDto MapToDto(Performer p, PerformerUsageCounts? usageCounts = null, Dictionary<string, object>? customFieldValues = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private PerformerDto MapToDto(Performer p, PerformerUsageCounts? usageCounts = null, Dictionary<string, object>? customFieldValues = null, List<FieldProvenanceDto>? fieldProvenance = null, int faceCount = 0) => new(
         p.Id, p.Name, p.Disambiguation, p.Gender?.ToString(),
         p.Birthdate?.ToString("yyyy-MM-dd"), p.DeathDate?.ToString("yyyy-MM-dd"),
         p.Ethnicity, p.Country, p.EyeColor, p.HairColor, p.HeightCm, p.Weight,
@@ -580,7 +583,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, p),
         customFieldValues,
         p.CreatedAt.ToString("o"), p.UpdatedAt.ToString("o"),
-        fieldProvenance
+        fieldProvenance,
+        faceCount
     );
 
     private static Dictionary<string, object>? GetCustomFields(IReadOnlyDictionary<int, Dictionary<string, object>> lookup, int id)

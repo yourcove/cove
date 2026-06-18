@@ -91,6 +91,12 @@ public class RegistryVersionInfo
     public string? Changelog { get; set; }
     public string? MinCoveVersion { get; set; }
     public string? Checksum { get; set; }
+    /// <summary>
+    /// Extension dependencies required by THIS specific version (Key = extension id, Value = semver range).
+    /// Per-version so a newer release can raise its dependency requirements without making older releases —
+    /// which older Cove hosts must still be able to install — appear to require the newer dependency.
+    /// </summary>
+    public Dictionary<string, string> Dependencies { get; set; } = [];
 }
 
 /// <summary>Update availability info.</summary>

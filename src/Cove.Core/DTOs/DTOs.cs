@@ -65,7 +65,7 @@ public record PerformerDto(
     List<PerformerRemoteIdDto> RemoteIds,
     int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount,
     string? ImagePath, Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt,
-    List<FieldProvenanceDto>? FieldProvenance = null);
+    List<FieldProvenanceDto>? FieldProvenance = null, int FaceCount = 0);
 
 public record PerformerRemoteIdDto(string Endpoint, string RemoteId);
 
@@ -664,9 +664,15 @@ public record SegmentSpanSearchResultItemDto(
 
 public record SegmentSpanSearchResponseDto(
     IReadOnlyList<SegmentSpanSearchResultItemDto> Items,
+    // TotalCount is exact when known cheaply (the full result was materialized this request); it is -1
+    // when the page was served via early termination without resolving every video — in that case the
+    // caller should use HasMore for navigation and fetch the exact total from the spans/count endpoint.
     int TotalCount,
     int Page,
-    int PerPage);
+    int PerPage,
+    bool HasMore = false);
+
+public record SegmentSpanCountResponseDto(int TotalCount);
 
 public static class ResolvedSpanKeys
 {
@@ -904,7 +910,12 @@ public record FaceDto(
     int AppearanceCount = 0,
     int FrameSampleCount = 0,
     FaceTopSuggestionDto? TopSuggestion = null,
-    List<FieldProvenanceDto>? FieldProvenance = null);
+    List<FieldProvenanceDto>? FieldProvenance = null,
+    // 1-based position of this face among all (non-merged) faces linked to the same performer, with the
+    // total. Lets the UI disambiguate "<performer> 1/2/3…" when a performer has multiple linked faces.
+    // 0/0 when unlinked or when the ordinal wasn't computed for this response.
+    int PerformerFaceIndex = 0,
+    int PerformerFaceCount = 0);
 
 public record FaceCreateDto(
     string? Label,
@@ -1348,6 +1359,7 @@ public record UiConfigDto
 {
     public string? Title { get; init; }
     public string? FaviconPath { get; init; }
+    public string? LogoPath { get; init; }
     public bool TroubleshootingModeEnabled { get; init; }
     public bool AbbreviateCounters { get; init; }
     public RatingSystemOptionsDto RatingSystemOptions { get; init; } = new();

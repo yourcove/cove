@@ -920,6 +920,29 @@ export function VideoPlayer({
     };
   }, [clip, duration, effectiveResumeTime, effectiveStreamUrl, format, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec]);
 
+  // Release the media element's network connection when the player unmounts. Without this, leaving a
+  // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
+  // leaves the browser holding the open stream/transcode connection until GC. That pins a server-side
+  // transcode slot and, after several videos, can exhaust the browser's per-host connection pool so
+  // subsequent requests — including the next video's metadata fetch — stall, leaving a blank page.
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => {
+      if (!video) return;
+      try {
+        video.pause();
+        // Clear the <source> URLs and reload so the element aborts any in-flight download instead of
+        // re-selecting the same source. Removing the attribute (not the node) avoids fighting React's
+        // own unmount removal.
+        video.querySelectorAll("source").forEach((s) => s.removeAttribute("src"));
+        video.removeAttribute("src");
+        video.load();
+      } catch {
+        // Ignore — element may already be detached.
+      }
+    };
+  }, []);
+
   const togglePip = async () => {
     const v = videoRef.current;
     if (!v) return;
