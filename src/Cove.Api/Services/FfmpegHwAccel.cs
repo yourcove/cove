@@ -45,16 +45,24 @@ internal static class FfmpegHwAccel
             var pinned = PinnedH264Encoder(hwAccelPref);
             if (pinned != null)
             {
-                if (listed.Contains(pinned, StringComparer.OrdinalIgnoreCase)
-                    && ProbeEncoder(ffmpegPath, pinned, out _))
+                if (!listed.Contains(pinned, StringComparer.OrdinalIgnoreCase))
                 {
-                    logger.LogInformation("Using configured HW-accelerated H.264 encoder: {Encoder}", pinned);
-                    return pinned;
+                    logger.LogWarning(
+                        "Configured HW encoder {Encoder} is not built into this ffmpeg ({FfmpegPath}); falling back to libx264.",
+                        pinned, ffmpegPath);
+                    return "libx264";
                 }
 
-                logger.LogWarning(
-                    "Configured HW encoder {Encoder} is unavailable on this system; falling back to libx264", pinned);
-                return "libx264";
+                if (!ProbeEncoder(ffmpegPath, pinned, out var pinnedError))
+                {
+                    logger.LogWarning(
+                        "Configured HW encoder {Encoder} is present but a test encode failed ({Error}); falling back to libx264.",
+                        pinned, pinnedError);
+                    return "libx264";
+                }
+
+                logger.LogInformation("Using configured HW-accelerated H.264 encoder: {Encoder}", pinned);
+                return pinned;
             }
 
             // Auto-detect: prefer NVENC > QSV > AMF > VideoToolbox. Verify each candidate with an
@@ -124,7 +132,8 @@ internal static class FfmpegHwAccel
         return string.IsNullOrEmpty(chain) ? string.Empty : $"-vf \"{chain}\"";
     }
 
-    public static IReadOnlyList<string> ListEncoders(string ffmpegPath)
+    /// <summary>Returns the set of encoder NAMES available in this ffmpeg build.</summary>
+    public static IReadOnlyCollection<string> ListEncoders(string ffmpegPath)
     {
         var process = new System.Diagnostics.Process
         {
@@ -141,7 +150,21 @@ internal static class FfmpegHwAccel
         process.Start();
         var output = process.StandardOutput.ReadToEnd();
         process.WaitForExit(5000);
-        return output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+
+        // `ffmpeg -encoders` prints one encoder per row as: " V....D h264_nvenc   NVIDIA NVENC H.264 encoder".
+        // The encoder NAME is the second whitespace-delimited token on rows whose first token is the
+        // 6-character capability-flags column. Parse the names out so callers can do an exact-name
+        // membership test. (The earlier code kept whole lines and checked Contains(name), which never
+        // matched a bare name — so every hardware encoder looked "unavailable" and silently fell back
+        // to libx264 even when it worked.)
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in output.Split('\n'))
+        {
+            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && parts[0].Length == 6 && parts[1] != "=")
+                names.Add(parts[1]);
+        }
+        return names;
     }
 
     /// <summary>Verify an encoder can actually open a session by encoding a single synthetic frame.</summary>
@@ -153,7 +176,9 @@ internal static class FfmpegHwAccel
             StartInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-hide_banner -v error -f lavfi -i color=size=64x64:rate=1:duration=0.1 -c:v {encoder} -frames:v 1 -f null -",
+                // 256x256, not 64x64: some NVENC generations reject very small frames, which would make a
+                // perfectly working encoder fail the probe. This size is comfortably above all encoders' minimums.
+                Arguments = $"-hide_banner -v error -f lavfi -i color=size=256x256:rate=1:duration=0.1 -c:v {encoder} -frames:v 1 -f null -",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
