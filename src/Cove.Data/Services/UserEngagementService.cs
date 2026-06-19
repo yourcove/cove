@@ -428,16 +428,45 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
 
         if (session == null)
         {
-            session = new PlaybackSession
+            // Create the session atomically. A find-then-Add pattern races with concurrent keepalives for
+            // the same (UserId, SessionId) — both miss the lookup and both INSERT, violating the unique
+            // index IX_PlaybackSessions_UserId_SessionId. An ON CONFLICT DO NOTHING upsert (mirroring
+            // GetOrCreateAffinityAsync) makes creation idempotent, so the following SaveChanges only ever
+            // UPDATEs the row — no failed INSERT, no duplicate-key exception (and no EF error log noise).
+            if (db.Database.IsRelational())
             {
-                UserId = userId.Value,
-                HostType = hostType,
-                HostId = dto.HostId,
-                SessionId = dto.SessionId,
-                StartedAt = now,
-                LastSeenAt = now,
-            };
-            db.PlaybackSessions.Add(session);
+                await db.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO "PlaybackSessions"
+                        ("UserId", "HostType", "HostId", "SessionId", "StartedAt", "LastSeenAt", "State",
+                         "MediaDurationSec", "TotalWatchedSec", "IsCompleted", "CountsAsView", "DerivedLikeAwarded",
+                         "CreatedAt", "UpdatedAt")
+                    VALUES ({userId.Value}, {(int)hostType}, {dto.HostId}, {dto.SessionId}, {now}, {now}, {(int)PlaybackSessionState.Active},
+                         {0d}, {0d}, {false}, {false}, {false}, {now}, {now})
+                    ON CONFLICT ("UserId", "SessionId") DO NOTHING
+                    """, cancellationToken);
+
+                session = await db.PlaybackSessions
+                    .Include(s => s.Intervals)
+                    .FirstOrDefaultAsync(
+                        s => s.UserId == userId.Value && s.SessionId == dto.SessionId,
+                        cancellationToken);
+            }
+
+            // Non-relational providers (in-memory/SQLite tests) and the unexpected "still missing" case
+            // fall back to a tracked insert; those paths are single-threaded so the race doesn't apply.
+            if (session == null)
+            {
+                session = new PlaybackSession
+                {
+                    UserId = userId.Value,
+                    HostType = hostType,
+                    HostId = dto.HostId,
+                    SessionId = dto.SessionId,
+                    StartedAt = now,
+                    LastSeenAt = now,
+                };
+                db.PlaybackSessions.Add(session);
+            }
         }
 
         ApplyPlaybackContext(session, dto, parentHostType, itemHostType);

@@ -10,6 +10,8 @@ const defaultIdentifyDefaults = {
   createTags: true,
   createPerformers: true,
   createStudios: true,
+  autoApplyMinFingerprintMatches: 4,
+  autoApplyMaxDurationDifferenceSeconds: 5,
 };
 
 const defaultScrapeApplyDefaults = {
@@ -128,6 +130,7 @@ function normalizeConfig(config: CoveConfig, userKeybindingOverrides?: Record<st
         createTags: identifyDefaults.createTags ?? true,
         createPerformers: identifyDefaults.createPerformers ?? true,
         createStudios: identifyDefaults.createStudios ?? true,
+        autoApplyMinFingerprintMatches: identifyDefaults.autoApplyMinFingerprintMatches,
         autoApplyMaxDurationDifferenceSeconds: identifyDefaults.autoApplyMaxDurationDifferenceSeconds,
         autoApplyMaxPhashDistance: identifyDefaults.autoApplyMaxPhashDistance,
       },

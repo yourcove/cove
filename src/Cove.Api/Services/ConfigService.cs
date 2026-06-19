@@ -184,6 +184,7 @@ public class ConfigService
                     CreateTags = cfg.Scraping.IdentifyDefaults.CreateTags,
                     CreatePerformers = cfg.Scraping.IdentifyDefaults.CreatePerformers,
                     CreateStudios = cfg.Scraping.IdentifyDefaults.CreateStudios,
+                    AutoApplyMinFingerprintMatches = cfg.Scraping.IdentifyDefaults.AutoApplyMinFingerprintMatches,
                     AutoApplyMaxDurationDifferenceSeconds = cfg.Scraping.IdentifyDefaults.AutoApplyMaxDurationDifferenceSeconds,
                     AutoApplyMaxPhashDistance = cfg.Scraping.IdentifyDefaults.AutoApplyMaxPhashDistance,
                 },
@@ -440,6 +441,7 @@ public class ConfigService
             CreateTags = dto.Scraping.IdentifyDefaults.CreateTags,
             CreatePerformers = dto.Scraping.IdentifyDefaults.CreatePerformers,
             CreateStudios = dto.Scraping.IdentifyDefaults.CreateStudios,
+            AutoApplyMinFingerprintMatches = dto.Scraping.IdentifyDefaults.AutoApplyMinFingerprintMatches,
             AutoApplyMaxDurationDifferenceSeconds = dto.Scraping.IdentifyDefaults.AutoApplyMaxDurationDifferenceSeconds,
             AutoApplyMaxPhashDistance = dto.Scraping.IdentifyDefaults.AutoApplyMaxPhashDistance,
         };

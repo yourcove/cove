@@ -11,6 +11,8 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 ## [0.6.1] - 2026-06-19
 
 - External ffmpeg hwaccel fix
+- Improve identify matching logic
+- Make tagger view icons clearer
 
 ## [0.6.0] - 2026-06-18
 

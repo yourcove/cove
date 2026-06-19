@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Columns3, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Search, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Search, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
 import type { FindFilter } from "../api/types";
 import { isValidElement, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, useEntityCardSize } from "../hooks/useEntityCardSize";
@@ -14,7 +14,7 @@ const DISPLAY_MODE_BUTTONS: Array<{ mode: DetailListDisplayMode; title: string; 
   { mode: "grid", title: "Grid", icon: <LayoutGrid className="h-3.5 w-3.5" /> },
   { mode: "list", title: "List", icon: <List className="h-3.5 w-3.5" /> },
   { mode: "wall", title: "Wall", icon: <Grid3X3 className="h-3.5 w-3.5" /> },
-  { mode: "tagger", title: "Tagger", icon: <Columns3 className="h-3.5 w-3.5" /> },
+  { mode: "tagger", title: "Tagger", icon: <Tags className="h-3.5 w-3.5" /> },
   { mode: "graph", title: "Graph/Tree", icon: <Share2 className="h-3.5 w-3.5" /> },
   { mode: "byGroup", title: "By Group", icon: <FolderTree className="h-3.5 w-3.5" /> },
   { mode: "feed", title: "Feed", icon: <Rows3 className="h-3.5 w-3.5" /> },

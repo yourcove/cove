@@ -825,7 +825,8 @@ function defaultIdentifyDefaults(): IdentifyDefaultsConfig {
     createTags: true,
     createPerformers: true,
     createStudios: true,
-    autoApplyMaxDurationDifferenceSeconds: undefined,
+    autoApplyMinFingerprintMatches: 4,
+    autoApplyMaxDurationDifferenceSeconds: 5,
     autoApplyMaxPhashDistance: undefined,
   };
 }
@@ -3578,6 +3579,24 @@ export function SettingsPage() {
             <SectionCard title="Identify Defaults" description="Defaults used when opening Identify. Leave thresholds blank to disable that auto-apply requirement.">
               <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
+                  <NumberField
+                    label="Min auto-apply fingerprint matches"
+                    description="Matching fingerprint submissions (oshash, md5, or close phash) required to auto-apply."
+                    value={draft.scraping.identifyDefaults.autoApplyMinFingerprintMatches}
+                    min={0}
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        scraping: {
+                          ...current.scraping,
+                          identifyDefaults: {
+                            ...current.scraping.identifyDefaults,
+                            autoApplyMinFingerprintMatches: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
                   <NumberField
                     label="Max auto-apply duration difference (seconds)"
                     value={draft.scraping.identifyDefaults.autoApplyMaxDurationDifferenceSeconds}

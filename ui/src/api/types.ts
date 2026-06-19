@@ -1930,6 +1930,7 @@ export interface IdentifyDefaultsConfig {
   createTags: boolean;
   createPerformers: boolean;
   createStudios: boolean;
+  autoApplyMinFingerprintMatches?: number;
   autoApplyMaxDurationDifferenceSeconds?: number;
   autoApplyMaxPhashDistance?: number;
 }

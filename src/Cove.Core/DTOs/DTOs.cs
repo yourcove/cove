@@ -1447,7 +1447,8 @@ public record IdentifyDefaultsConfigDto
     public bool CreateTags { get; init; } = true;
     public bool CreatePerformers { get; init; } = true;
     public bool CreateStudios { get; init; } = true;
-    public int? AutoApplyMaxDurationDifferenceSeconds { get; init; }
+    public int? AutoApplyMinFingerprintMatches { get; init; } = 4;
+    public int? AutoApplyMaxDurationDifferenceSeconds { get; init; } = 5;
     public int? AutoApplyMaxPhashDistance { get; init; }
 }
 
@@ -2163,7 +2164,7 @@ public record IdentifyOptionsDto
     public bool? CreatePerformers { get; init; }
     public bool? CreateStudios { get; init; }
     public bool MarkOrganized { get; init; }
-    public bool SkipMultipleMatches { get; init; } = true;
+    public bool SkipMultipleMatches { get; init; }
     public bool SkipSingleNamePerformers { get; init; } = true;
     public Dictionary<string, string>? FieldStrategies { get; init; }
     public List<string>? PerformerGenders { get; init; }

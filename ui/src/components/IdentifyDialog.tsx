@@ -86,7 +86,7 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
   const [showOptions, setShowOptions] = useState(false);
   const [setCoverImage, setSetCoverImage] = useState(true);
   const [setOrganized, setSetOrganized] = useState(false);
-  const [skipMultipleMatches, setSkipMultipleMatches] = useState(true);
+  const [skipMultipleMatches, setSkipMultipleMatches] = useState(false);
   const [skipSingleNamePerformers, setSkipSingleNamePerformers] = useState(true);
   const [createTags, setCreateTags] = useState(identifyDefaults.createTags);
   const [createPerformers, setCreatePerformers] = useState(identifyDefaults.createPerformers);

@@ -53,7 +53,12 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         var contentType = MimeTypes.GetValueOrDefault(ext, "application/octet-stream");
         var fileInfo = new FileInfo(filePath);
 
-        var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        // FileShare.Delete lets the user delete the source file while the player still holds this stream
+        // open (e.g. "delete from the video detail page"). Without it, Windows raises a sharing violation
+        // ("being used by another process"). The audio stream already does this. On Windows the file is
+        // unlinked once the last handle closes (when the player connection ends); on POSIX it unlinks
+        // immediately and the open handle keeps serving until closed.
+        var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, useAsync: true);
         return (stream, contentType, fileInfo.Length);
     }
 

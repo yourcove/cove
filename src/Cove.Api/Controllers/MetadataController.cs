@@ -1141,7 +1141,7 @@ public class MetadataController(
                                     DurationDifferenceSeconds = GetDurationDifferenceSeconds(video, match),
                                     PhashDistance = GetBestPhashDistance(video, match),
                                 })
-                                .Where(candidate => MeetsIdentifyAutoApplyThresholds(candidate.DurationDifferenceSeconds, candidate.PhashDistance, identifyDefaults))
+                                .Where(candidate => MeetsIdentifyAutoApplyThresholds(candidate.Match.MatchCount, candidate.DurationDifferenceSeconds, candidate.PhashDistance, identifyDefaults))
                                 .OrderBy(candidate => sourceOrder != null && sourceOrder.TryGetValue(candidate.Match.Endpoint, out var index) ? index : int.MaxValue)
                                 .ThenByDescending(candidate => candidate.Match.MatchCount)
                                 .ThenBy(candidate => candidate.PhashDistance ?? int.MaxValue)
@@ -1152,8 +1152,9 @@ public class MetadataController(
                             if (rankedMatches.Count == 0)
                                 continue;
 
-                            // Skip multiple matches if configured
-                            if ((opts?.SkipMultipleMatches ?? true) && rankedMatches.Count > 1)
+                            // Skip multiple matches only when explicitly requested. By default we
+                            // apply the top-ranked candidate rather than skipping the whole video.
+                            if ((opts?.SkipMultipleMatches ?? false) && rankedMatches.Count > 1)
                                 continue;
 
                             var best = rankedMatches[0];
@@ -1197,17 +1198,29 @@ public class MetadataController(
         return endpoints;
     }
 
-    private static bool MeetsIdentifyAutoApplyThresholds(double? durationDifferenceSeconds, int? phashDistance, IdentifyDefaultsConfig identifyDefaults)
+    private static bool MeetsIdentifyAutoApplyThresholds(int matchCount, double? durationDifferenceSeconds, int? phashDistance, IdentifyDefaultsConfig identifyDefaults)
     {
-        if (identifyDefaults.AutoApplyMaxDurationDifferenceSeconds is int maxDurationDifferenceSeconds)
+        // Primary signal: require enough matching fingerprint submissions. MatchCount already
+        // counts oshash, md5, and phash (incl. close phash) matches, so this works for metadata
+        // servers that don't publish phashes.
+        if (identifyDefaults.AutoApplyMinFingerprintMatches is int minFingerprintMatches)
         {
-            if (!durationDifferenceSeconds.HasValue || durationDifferenceSeconds.Value > maxDurationDifferenceSeconds)
+            if (matchCount < minFingerprintMatches)
                 return false;
         }
 
+        // Secondary guard: only reject when both durations are known and disagree by more than the
+        // tolerance. A missing duration must never block a match that cleared the fingerprint bar.
+        if (identifyDefaults.AutoApplyMaxDurationDifferenceSeconds is int maxDurationDifferenceSeconds)
+        {
+            if (durationDifferenceSeconds.HasValue && durationDifferenceSeconds.Value > maxDurationDifferenceSeconds)
+                return false;
+        }
+
+        // Optional phash tightness guard: only applies when a phash distance is actually computable.
         if (identifyDefaults.AutoApplyMaxPhashDistance is int maxPhashDistance)
         {
-            if (!phashDistance.HasValue || phashDistance.Value > maxPhashDistance)
+            if (phashDistance.HasValue && phashDistance.Value > maxPhashDistance)
                 return false;
         }
 

@@ -273,7 +273,14 @@ public class IdentifyDefaultsConfig
     public bool CreateTags { get; set; } = true;
     public bool CreatePerformers { get; set; } = true;
     public bool CreateStudios { get; set; } = true;
-    public int? AutoApplyMaxDurationDifferenceSeconds { get; set; }
+    // Minimum number of matching fingerprint submissions (oshash, md5, or phash incl. close
+    // phash) required to auto-apply a match. Primary confidence signal; works for servers
+    // without phashes. Blank disables this requirement.
+    public int? AutoApplyMinFingerprintMatches { get; set; } = 4;
+    // Secondary guard: only rejects when both local and remote durations are known and
+    // disagree by more than this. A missing duration never blocks a fingerprint match.
+    public int? AutoApplyMaxDurationDifferenceSeconds { get; set; } = 5;
+    // Optional phash tightness guard: only applies when a phash distance is computable.
     public int? AutoApplyMaxPhashDistance { get; set; }
 }
 
