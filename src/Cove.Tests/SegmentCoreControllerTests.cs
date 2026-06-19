@@ -1002,9 +1002,15 @@ public class SegmentCoreControllerTests
         var page2 = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(page2Result.Result).Value);
         var page3 = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(page3Result.Result).Value);
 
-        Assert.Equal(3, page1.TotalCount);
-        Assert.Equal(3, page2.TotalCount);
+        // The fast browse path serves pages via early termination and defers the exact count: a page that
+        // stops early reports TotalCount -1 (unknown) with HasMore=true, while the final page resolves the
+        // whole sparse scope and reports the exact total with HasMore=false.
+        Assert.Equal(-1, page1.TotalCount);
+        Assert.True(page1.HasMore);
+        Assert.Equal(-1, page2.TotalCount);
+        Assert.True(page2.HasMore);
         Assert.Equal(3, page3.TotalCount);
+        Assert.False(page3.HasMore);
 
         Assert.Single(page1.Items);
         Assert.Single(page2.Items);
