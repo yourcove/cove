@@ -711,7 +711,8 @@ public class SegmentCoreControllerTests
 
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var listResult = await controller.List(q: "Opening", ids: null, videoId: null, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: null, sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: null, minConfidence: null, minDurationSec: null, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: null, direction: null, page: 1, perPage: 20, cancellationToken: CancellationToken.None);
         var listOk = Assert.IsType<OkObjectResult>(listResult.Result);
@@ -785,7 +786,8 @@ public class SegmentCoreControllerTests
 
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var filteredResult = await controller.List(q: null, ids: null, videoId: video.Id, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: "highlight", sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: true, minConfidence: 0.8f, minDurationSec: 5, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: "duration", direction: "desc", page: 1, perPage: 20, cancellationToken: CancellationToken.None);
         var filteredOk = Assert.IsType<OkObjectResult>(filteredResult.Result);
@@ -849,7 +851,8 @@ public class SegmentCoreControllerTests
 
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var result = await controller.RemoveTagFromSegments(new SegmentsController.SegmentTagBulkRemoveRequest(tag.Id, [targetSegment.Id, differentTagSegment.Id]), CancellationToken.None);
 
@@ -907,7 +910,8 @@ public class SegmentCoreControllerTests
 
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var sourceKeysResult = await controller.DistinctSourceKeys(CancellationToken.None);
         var sourceKeysOk = Assert.IsType<OkObjectResult>(sourceKeysResult.Result);
@@ -987,7 +991,8 @@ public class SegmentCoreControllerTests
         using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var page1Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 1, "title", "asc", null, null, null, null), CancellationToken.None);
         var page2Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 2, 1, "title", "asc", null, null, null, null), CancellationToken.None);
@@ -1074,7 +1079,8 @@ public class SegmentCoreControllerTests
         using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var sortedResult = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 10, "segment_created_at", "asc", null, null, null, null), CancellationToken.None);
         var sorted = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(sortedResult.Result).Value);
@@ -1193,7 +1199,8 @@ public class SegmentCoreControllerTests
         using var serviceProvider = CreateSegmentControllerServiceProvider(scope.Connection);
         var controller = new SegmentsController(
             context,
-            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var ascResult = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 10, "segment_updated_at", "asc", null, null, null, null), CancellationToken.None);
         var asc = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(ascResult.Result).Value);

@@ -128,7 +128,8 @@ describe("FaceDetailPage", () => {
 
     const { onNavigate } = renderPage();
 
-    expect(await screen.findByRole("heading", { name: "Jane Cluster" })).toBeInTheDocument();
+    // A linked face shows the performer's name (faceDisplayName prefers performerName over label).
+    expect(await screen.findByRole("heading", { name: "Jane Doe" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /Similar Faces/i }));
 

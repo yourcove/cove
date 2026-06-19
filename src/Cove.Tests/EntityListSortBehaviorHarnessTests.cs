@@ -6,6 +6,7 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -236,12 +237,16 @@ public class EntityListSortBehaviorHarnessTests
 
         yield return [new FilterProbe(
             "filter:faces:performerId/equals",
-            fixture => QueryFaceIdsAsync(fixture.Context, performerId: 302, linked: null, ignored: null, merged: null),
-            _ => [1102])];
+            // Performer 302 belongs to the merged face 1102, which is intentionally hidden from the list
+            // (a merged face is a tombstone). Target the non-merged 1101 (performer 301) so this still
+            // positively exercises the performerId filter.
+            fixture => QueryFaceIdsAsync(fixture.Context, performerId: 301, linked: null, ignored: null, merged: null),
+            _ => [1101])];
         yield return [new FilterProbe(
             "filter:faces:linked/true",
+            // 1102 is linked to a performer but merged, so it never surfaces.
             fixture => QueryFaceIdsAsync(fixture.Context, performerId: null, linked: true, ignored: null, merged: null),
-            _ => [1101, 1102, 1103])];
+            _ => [1101, 1103])];
         yield return [new FilterProbe(
             "filter:faces:label/includes",
             fixture => QueryFaceIdsAsync(fixture.Context, performerId: null, linked: null, ignored: null, merged: null, label: "Gamma", labelModifier: "INCLUDES"),
@@ -252,12 +257,16 @@ public class EntityListSortBehaviorHarnessTests
             _ => [1103])];
         yield return [new FilterProbe(
             "filter:faces:merged/true",
+            // The merged param is intentionally inert: merged faces are tombstones hidden from the list,
+            // so merged=true still returns only the non-merged visible faces (the merged 1102 never
+            // surfaces). This guards that the blanket exclusion overrides the merged param.
             fixture => QueryFaceIdsAsync(fixture.Context, performerId: null, linked: null, ignored: null, merged: true),
-            _ => [1102])];
+            _ => [1101, 1103])];
         yield return [new FilterProbe(
             "filter:faces:hasCover/true",
+            // 1102 has a cover but is merged (hidden); only the non-merged 1103 surfaces.
             fixture => QueryFaceIdsAsync(fixture.Context, performerId: null, linked: null, ignored: null, merged: null, hasCover: true),
-            _ => [1102, 1103])];
+            _ => [1103])];
         yield return [new FilterProbe(
             "filter:faces:detectionCount/greater_than",
             fixture => QueryFaceIdsAsync(fixture.Context, performerId: null, linked: null, ignored: null, merged: null, detectionCount: 4, detectionCountModifier: "GREATER_THAN"),
@@ -342,7 +351,8 @@ public class EntityListSortBehaviorHarnessTests
         Assert.Equal([1101, 1103], faceFilteredIds.OrderBy(id => id).ToArray());
 
         var faceSortedIds = await QueryFaceIdsAsync(fixture.Context, "custom:number:extension_score", CoveSortDirection.Desc);
-        Assert.Equal([1103, 1101, 1102], faceSortedIds);
+        // 1102 is merged and hidden from the list, so it never appears in the sorted result.
+        Assert.Equal([1103, 1101], faceSortedIds);
     }
 
     private static bool IsBehaviorTested(EntityListSortDefinition sort)
@@ -392,7 +402,7 @@ public class EntityListSortBehaviorHarnessTests
 
     private static async Task<IReadOnlyList<int>> QuerySegmentIdsAsync(CoveContext context, string sortKey, CoveSortDirection direction)
     {
-        var controller = new SegmentsController(context, null!, null!);
+        var controller = new SegmentsController(context, null!, new MemoryCache(new MemoryCacheOptions()));
         var response = await controller.List(
             q: null,
             ids: null,
@@ -448,7 +458,7 @@ public class EntityListSortBehaviorHarnessTests
         bool? hasImage = null,
         bool? hasPayload = null)
     {
-        var controller = new SegmentsController(context, null!, null!);
+        var controller = new SegmentsController(context, null!, new MemoryCache(new MemoryCacheOptions()));
         var response = await controller.List(
             q,
             ids,
@@ -879,25 +889,30 @@ public class EntityListSortBehaviorHarnessTests
         };
 
     private static IReadOnlyList<int> ProjectFaceIds(SortHarnessFixture fixture, string sortKey, bool descending)
-        => sortKey switch
+    {
+        // Merged faces are tombstones hidden from the list (see FacesController's blanket exclusion),
+        // so the expected ordering must exclude them too.
+        var faces = fixture.Faces.Where(face => face.MergedIntoFaceId == null).ToArray();
+        return sortKey switch
         {
             // Composite review ordering: direction-agnostic (ignores the toggle).
-            "suggestion_confidence" => fixture.Faces.OrderByDescending(face => face.UpdatedAt).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "created" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.CreatedAt, descending),
-            "updated" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.UpdatedAt, descending),
-            "label" => OrderWithDirectionalIdTieBreaker(fixture.Faces, FaceLabel, descending),
+            "suggestion_confidence" => faces.OrderByDescending(face => face.UpdatedAt).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
+            "created" => OrderWithDirectionalIdTieBreaker(faces, face => face.CreatedAt, descending),
+            "updated" => OrderWithDirectionalIdTieBreaker(faces, face => face.UpdatedAt, descending),
+            "label" => OrderWithDirectionalIdTieBreaker(faces, FaceLabel, descending),
             "performer_name" => descending
-                ? fixture.Faces.OrderByDescending(FacePerformerName).ThenByDescending(face => face.Label).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray()
-                : fixture.Faces.OrderBy(FacePerformerName).ThenBy(face => face.Label).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
-            "primary_source_key" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.PrimarySourceKey ?? string.Empty, descending),
-            "detection_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.DetectionCount, descending),
-            "appearance_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.AppearanceCount, descending),
-            "frame_sample_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.FrameSampleCount, descending),
-            "video_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.VideoCount, descending),
-            "image_count" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => face.ImageCount, descending),
-            "cover_present" => OrderWithDirectionalIdTieBreaker(fixture.Faces, face => !string.IsNullOrEmpty(face.CoverBlobId), descending),
+                ? faces.OrderByDescending(FacePerformerName).ThenByDescending(face => face.Label).ThenByDescending(face => face.Id).Select(face => face.Id).ToArray()
+                : faces.OrderBy(FacePerformerName).ThenBy(face => face.Label).ThenBy(face => face.Id).Select(face => face.Id).ToArray(),
+            "primary_source_key" => OrderWithDirectionalIdTieBreaker(faces, face => face.PrimarySourceKey ?? string.Empty, descending),
+            "detection_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.DetectionCount, descending),
+            "appearance_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.AppearanceCount, descending),
+            "frame_sample_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.FrameSampleCount, descending),
+            "video_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.VideoCount, descending),
+            "image_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.ImageCount, descending),
+            "cover_present" => OrderWithDirectionalIdTieBreaker(faces, face => !string.IsNullOrEmpty(face.CoverBlobId), descending),
             _ => throw new InvalidOperationException($"No face sort projection configured for '{sortKey}'."),
         };
+    }
 
     private static string FaceLabel(Face face)
         => face.Label ?? FacePerformerName(face);
