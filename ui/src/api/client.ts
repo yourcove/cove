@@ -34,7 +34,7 @@ import type {
   EntityEngagement, EntityFavorite, EntityEngagementBatchRequest, EntityRatings,
   EngagementInteraction, EngagementInteractionWrite,
   VideoHistory,
-  PaginatedResponse, Stats, SystemStatus, CoveConfig, JobInfo,
+  PaginatedResponse, Stats, SystemStatus, CoveConfig, FfmpegCapabilities, JobInfo,
   DatabaseMigrationResult,
   ScraperSummary,
   DownloaderDescriptor,
@@ -1032,6 +1032,8 @@ export const system = {
   getConfig: () => request<CoveConfig>("/system/config"),
   saveConfig: (config: CoveConfig) =>
     request<CoveConfig>("/system/config", { method: "PUT", body: JSON.stringify(config) }),
+  getFfmpegCapabilities: (refresh = false) =>
+    request<FfmpegCapabilities>(`/system/ffmpeg-capabilities${refresh ? "?refresh=true" : ""}`),
   setLogLevel: (level: string) =>
     request<{ level: string }>("/system/log-level", { method: "PATCH", body: JSON.stringify({ level }) }),
   uploadFavicon: async (file: File) => {

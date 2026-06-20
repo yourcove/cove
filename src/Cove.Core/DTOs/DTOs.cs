@@ -1228,18 +1228,27 @@ public record CoveConfigDto
     public int MaxConcurrentDownloads { get; init; } = 3;
     public List<DownloaderPathOverrideDto> DownloaderPathOverrides { get; init; } = [];
     public bool CalculateMd5 { get; init; }
-    public bool EnableFfmpegHwAccel { get; init; }
     public string FrameExtractionMode { get; init; } = "external";
     public string? FfmpegPath { get; init; }
     public string? FfprobePath { get; init; }
-    public int MaxTranscodeSize { get; init; }
     public int MaxStreamingTranscodeSize { get; init; }
-    public string TranscodeHardwareAcceleration { get; init; } = "none";
-    public string? TranscodeInputArgs { get; init; }
-    public string? TranscodeOutputArgs { get; init; }
-    public string? LiveTranscodeInputArgs { get; init; }
-    public string? LiveTranscodeOutputArgs { get; init; }
+    // Unified hardware-acceleration policy: "off" | "auto" | "nvenc" | "qsv" | "vaapi" | "amf" | "videotoolbox".
+    // Nullable so the server can tell a real value from "absent" (old config) and migrate the legacy fields below.
+    public string? HardwareAcceleration { get; init; }
+    public int HardwareEncodeSessionLimit { get; init; }
+    public string? FfmpegInputArgs { get; init; }
+    public string? FfmpegOutputArgs { get; init; }
     public string PreviewPreset { get; init; } = "slow";
+
+    // ---- Legacy ffmpeg fields (deserialized from older cove-config.json for one-time migration in
+    // ConfigService.ApplyToLive; never re-emitted by GetConfig, so they disappear after the next save). ----
+    [System.Obsolete("Migrated into HardwareAcceleration")] public bool? EnableFfmpegHwAccel { get; init; }
+    [System.Obsolete("Migrated into HardwareAcceleration")] public string? TranscodeHardwareAcceleration { get; init; }
+    [System.Obsolete("Migrated into FfmpegInputArgs")] public string? TranscodeInputArgs { get; init; }
+    [System.Obsolete("Migrated into FfmpegOutputArgs")] public string? TranscodeOutputArgs { get; init; }
+    [System.Obsolete("Migrated into FfmpegInputArgs")] public string? LiveTranscodeInputArgs { get; init; }
+    [System.Obsolete("Migrated into FfmpegOutputArgs")] public string? LiveTranscodeOutputArgs { get; init; }
+    [System.Obsolete("Removed; was never read")] public int? MaxTranscodeSize { get; init; }
     public string PreviewAudio { get; init; } = "false";
     public List<string> VideoExtensions { get; init; } = [];
     public List<string> ImageExtensions { get; init; } = [];

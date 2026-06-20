@@ -1974,7 +1974,6 @@ export interface CoveConfig {
   maxParallelTasks: number;
   maxConcurrentDownloads: number;
   calculateMd5: boolean;
-  enableFfmpegHwAccel: boolean;
   frameExtractionMode: string;
   videoExtensions: string[];
   imageExtensions: string[];
@@ -1989,13 +1988,12 @@ export interface CoveConfig {
   createImageClipsFromVideos: boolean;
   galleryCoverRegex: string;
   deleteGeneratedDefault: boolean;
-  maxTranscodeSize: number;
   maxStreamingTranscodeSize: number;
-  transcodeHardwareAcceleration: string;
-  transcodeInputArgs?: string;
-  transcodeOutputArgs?: string;
-  liveTranscodeInputArgs?: string;
-  liveTranscodeOutputArgs?: string;
+  // Unified hardware acceleration: "off" | "auto" | "nvenc" | "qsv" | "vaapi" | "amf" | "videotoolbox".
+  hardwareAcceleration: string;
+  hardwareEncodeSessionLimit: number;
+  ffmpegInputArgs?: string;
+  ffmpegOutputArgs?: string;
   previewPreset: string;
   previewAudio: string;
   logLevel: string;
@@ -2006,6 +2004,17 @@ export interface CoveConfig {
   security: SecurityConfig;
   scraping: ScrapingConfig;
   customFieldDefinitions: CustomFieldDefinition[];
+}
+
+/** Verified ffmpeg hardware capabilities reported by the server (GET /system/ffmpeg-capabilities). */
+export interface FfmpegCapabilities {
+  ffmpegFound: boolean;
+  ffmpegPath?: string | null;
+  /** Accelerators whose H.264 encoder is built in AND passed a real test-encode: nvenc/qsv/vaapi/amf/videotoolbox. */
+  accelerators: string[];
+  /** Informational `ffmpeg -hwaccels` decode methods. */
+  decoders: string[];
+  probedAtUtc: string;
 }
 
 export interface CovePathConfig {

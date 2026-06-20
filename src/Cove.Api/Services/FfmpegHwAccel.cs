@@ -18,30 +18,49 @@ namespace Cove.Api.Services;
 /// </summary>
 internal static class FfmpegHwAccel
 {
-    /// <summary>Map a configured hardware-acceleration preference to its H.264 encoder name,
-    /// or null when no hardware encoder is pinned.</summary>
-    public static string? PinnedH264Encoder(string? hwAccelPref) =>
-        hwAccelPref?.Trim().ToLowerInvariant() switch
-        {
-            "nvenc" => "h264_nvenc",
-            "qsv" => "h264_qsv",
-            "vaapi" => "h264_vaapi",
-            "amf" => "h264_amf",
-            _ => null,
-        };
+    /// <summary>The hardware accelerators Cove understands, paired with their H.264 encoder, in
+    /// auto-detect preference order. This single list is the source of truth for: the values the
+    /// settings UI can offer, capability detection, pinned-encoder lookup, and auto-detection.</summary>
+    public static readonly IReadOnlyList<(string Accelerator, string Encoder)> HardwareEncoders =
+    [
+        ("nvenc", "h264_nvenc"),
+        ("qsv", "h264_qsv"),
+        ("vaapi", "h264_vaapi"),
+        ("amf", "h264_amf"),
+        ("videotoolbox", "h264_videotoolbox"),
+    ];
 
-    /// <summary>Pick the H.264 encoder for the current configuration. When the user has pinned a
-    /// specific hardware acceleration, only that encoder is attempted (falling back to libx264 if
-    /// it cannot open a session); otherwise the best available HW encoder is auto-detected. Every
-    /// candidate is verified with a real test encode before being chosen.</summary>
+    /// <summary>Map a pinned accelerator name to its H.264 encoder, or null when not a specific
+    /// hardware accelerator (i.e. "off", "auto", "none", empty, or unknown).</summary>
+    public static string? PinnedH264Encoder(string? hwAccelPref)
+    {
+        var pref = hwAccelPref?.Trim().ToLowerInvariant();
+        foreach (var (accel, encoder) in HardwareEncoders)
+            if (accel == pref) return encoder;
+        return null;
+    }
+
+    /// <summary>True when the policy means "use no hardware acceleration at all".</summary>
+    public static bool IsHardwareAccelerationOff(string? hwAccelPref) =>
+        string.Equals(hwAccelPref?.Trim(), "off", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Pick the H.264 encoder for the current configuration. "off" forces libx264; a pinned
+    /// accelerator is honored (falling back to libx264 if it cannot open a session); "auto"/"none"/empty
+    /// auto-detects the best available. Every candidate is verified with a real test encode first.</summary>
     public static string SelectH264Encoder(string ffmpegPath, string? hwAccelPref, ILogger logger)
     {
+        if (IsHardwareAccelerationOff(hwAccelPref))
+        {
+            logger.LogInformation("Hardware acceleration is off; using software H.264 encoder: libx264");
+            return "libx264";
+        }
+
         try
         {
             var listed = ListEncoders(ffmpegPath);
 
-            // If the user explicitly selected a hardware acceleration, honor that choice rather
-            // than silently substituting a different vendor's encoder.
+            // If the user pinned a specific accelerator, honor that choice rather than silently
+            // substituting a different vendor's encoder.
             var pinned = PinnedH264Encoder(hwAccelPref);
             if (pinned != null)
             {
@@ -65,20 +84,19 @@ internal static class FfmpegHwAccel
                 return pinned;
             }
 
-            // Auto-detect: prefer NVENC > QSV > AMF > VideoToolbox. Verify each candidate with an
-            // actual test encode; presence in the encoder list does not guarantee the runtime can
-            // open a session (e.g. NVENC client-key mismatches with the installed driver).
-            string[] hwEncoders = ["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"];
-            foreach (var enc in hwEncoders)
+            // Auto-detect in preference order. Verify each candidate with an actual test encode;
+            // presence in the encoder list does not guarantee the runtime can open a session (e.g.
+            // an NVENC driver/library mismatch).
+            foreach (var (accel, enc) in HardwareEncoders)
             {
                 if (!listed.Contains(enc, StringComparer.OrdinalIgnoreCase)) continue;
                 if (!ProbeEncoder(ffmpegPath, enc, out var probeError))
                 {
-                    logger.LogDebug("Skipping {Encoder}: probe failed ({Error})", enc, probeError);
+                    logger.LogDebug("Skipping {Encoder} ({Accel}): probe failed ({Error})", enc, accel, probeError);
                     continue;
                 }
 
-                logger.LogInformation("Using HW-accelerated H.264 encoder: {Encoder}", enc);
+                logger.LogInformation("Auto-selected HW-accelerated H.264 encoder: {Encoder} ({Accel})", enc, accel);
                 return enc;
             }
         }
@@ -87,8 +105,54 @@ internal static class FfmpegHwAccel
             logger.LogWarning(ex, "Failed to detect HW encoders, falling back to libx264");
         }
 
-        logger.LogInformation("Using software H.264 encoder: libx264");
+        logger.LogInformation("No usable hardware encoder; using software H.264 encoder: libx264");
         return "libx264";
+    }
+
+    /// <summary>Returns the accelerator names (nvenc/qsv/vaapi/amf/videotoolbox) whose H.264 encoder is
+    /// both built into this ffmpeg AND passes a real test-encode. This is exactly what the settings UI
+    /// should offer the user — never a vendor option their hardware/build can't actually run.</summary>
+    public static IReadOnlyList<string> DetectAvailableAccelerators(string ffmpegPath, ILogger logger)
+    {
+        var available = new List<string>();
+        try
+        {
+            var listed = ListEncoders(ffmpegPath);
+            foreach (var (accel, encoder) in HardwareEncoders)
+            {
+                if (!listed.Contains(encoder, StringComparer.OrdinalIgnoreCase)) continue;
+                if (ProbeEncoder(ffmpegPath, encoder, out var err))
+                    available.Add(accel);
+                else
+                    logger.LogDebug("HW accelerator {Accel} ({Encoder}) present but test-encode failed: {Error}", accel, encoder, err);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to detect available hardware encoders");
+        }
+        return available;
+    }
+
+    /// <summary>Lists the hardware decode methods this ffmpeg build advertises via `ffmpeg -hwaccels`
+    /// (cuda, vaapi, qsv, dxva2, d3d11va, vulkan, videotoolbox, …). Informational — not test-verified.</summary>
+    public static IReadOnlyList<string> ListHwaccelDecoders(string ffmpegPath)
+    {
+        try
+        {
+            var output = RunFfmpegInfoQuery(ffmpegPath, "-hide_banner -hwaccels");
+
+            // Output is a header line "Hardware acceleration methods:" followed by one method per line.
+            return output
+                .Split('\n')
+                .Select(l => l.Trim())
+                .Where(l => l.Length > 0 && !l.EndsWith(':') && !l.Contains(' '))
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     /// <summary>Build the <c>-c:v ...</c> video-encode arguments for the chosen encoder at a given
@@ -132,15 +196,34 @@ internal static class FfmpegHwAccel
         return string.IsNullOrEmpty(chain) ? string.Empty : $"-vf \"{chain}\"";
     }
 
-    /// <summary>Returns the set of encoder NAMES available in this ffmpeg build.</summary>
-    public static IReadOnlyCollection<string> ListEncoders(string ffmpegPath)
+    /// <summary>Resolve the ffmpeg executable: the configured path if it exists, otherwise search PATH.
+    /// Centralizes the lookup that several services otherwise duplicate.</summary>
+    public static string? FindFfmpeg(string? configuredPath)
     {
-        var process = new System.Diagnostics.Process
+        if (!string.IsNullOrEmpty(configuredPath) && File.Exists(configuredPath))
+            return configuredPath;
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var dir in pathEnv.Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+            var candidate = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+
+    /// <summary>Runs a quick ffmpeg build-info query (e.g. <c>-encoders</c>/<c>-hwaccels</c>) and returns
+    /// stdout. The process is always disposed and is killed if it overruns the timeout, so a stuck child
+    /// is never orphaned (matching <see cref="ProbeEncoder"/>'s cleanup).</summary>
+    private static string RunFfmpegInfoQuery(string ffmpegPath, string arguments, int timeoutMs = 5000)
+    {
+        using var process = new System.Diagnostics.Process
         {
             StartInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = "-hide_banner -encoders",
+                Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -149,7 +232,17 @@ internal static class FfmpegHwAccel
         };
         process.Start();
         var output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit(5000);
+        if (!process.WaitForExit(timeoutMs))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+        }
+        return output;
+    }
+
+    /// <summary>Returns the set of encoder NAMES available in this ffmpeg build.</summary>
+    public static IReadOnlyCollection<string> ListEncoders(string ffmpegPath)
+    {
+        var output = RunFfmpegInfoQuery(ffmpegPath, "-hide_banner -encoders");
 
         // `ffmpeg -encoders` prints one encoder per row as: " V....D h264_nvenc   NVIDIA NVENC H.264 encoder".
         // The encoder NAME is the second whitespace-delimited token on rows whose first token is the

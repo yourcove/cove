@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -34,11 +35,7 @@ internal static class FfmpegProcessFrameExtractor
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = ffmpegPath,
-                    // -ss before -i = fast input-side seek (near-constant cost regardless of video length).
-                    // -threads 1 + -an keep each single-frame extraction to ~1 core so N parallel jobs (sized
-                    // by MaxParallelTasks) don't each fan out to all cores and thrash the CPU. -pix_fmt yuvj420p
-                    // forces full-range JPEG so the mjpeg encoder accepts limited-range YUV sources (exit 234).
-                    Arguments = $"-v error -threads 1 -ss {timestamp:F3} -i \"{videoPath}\" -an -vframes 1 -vf \"scale={scaleWidth}:-2\" -q:v 3 -pix_fmt yuvj420p -y \"{framePath}\"",
+                    Arguments = BuildExtractFrameArguments(videoPath, timestamp, scaleWidth, framePath),
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
@@ -91,6 +88,16 @@ internal static class FfmpegProcessFrameExtractor
             try { Directory.Delete(tmpDir, recursive: true); } catch { }
         }
     }
+
+    /// <summary>Builds the single-frame extraction ffmpeg arguments. The seek time MUST be formatted with
+    /// the invariant culture — on machines whose locale uses a comma decimal separator (de-DE, pt-BR, …) a
+    /// default <c>{timestamp:F3}</c> emits "697,910", which ffmpeg rejects ("Invalid duration for option ss",
+    /// exit -22), failing thumbnail/sprite generation for every video.
+    /// -ss before -i = fast input-side seek; -threads 1 + -an keep each extraction to ~1 core so N parallel
+    /// jobs don't each fan out and thrash the CPU; -pix_fmt yuvj420p forces full-range JPEG so the mjpeg
+    /// encoder accepts limited-range YUV sources (exit 234).</summary>
+    internal static string BuildExtractFrameArguments(string videoPath, double timestamp, int scaleWidth, string framePath)
+        => $"-v error -threads 1 -ss {timestamp.ToString("F3", CultureInfo.InvariantCulture)} -i \"{videoPath}\" -an -vframes 1 -vf \"scale={scaleWidth}:-2\" -q:v 3 -pix_fmt yuvj420p -y \"{framePath}\"";
 
     private static void DisposeFrames(Image<Rgba32>?[] frames)
     {

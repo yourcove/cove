@@ -514,9 +514,11 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
 }) {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("images");
-  // Honor the user's default "images" saved filter for this embedded list; the gallery constraint
-  // stays applied separately via the query params.
-  useDefaultSavedFilterOnMount("images", (findFilter, defaultObjectFilter) => {
+  // Honor the user's default filter for images-in-a-gallery. This is keyed separately from the standalone
+  // Images list ("gallery-images" vs "images") so the two views can have independent defaults — e.g. a
+  // random + resolution-filtered Images page, but filename-sorted full listings inside a gallery. The
+  // gallery constraint stays applied separately via the query params.
+  useDefaultSavedFilterOnMount("gallery-images", (findFilter, defaultObjectFilter) => {
     if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
     if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
   });
@@ -543,6 +545,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="images"
+      filterDefaultKey="gallery-images"
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}

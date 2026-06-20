@@ -1614,17 +1614,31 @@ public class GalleryRepository : IGalleryRepository
             // Performer tags criterion
             if (filter.PerformerTagsCriterion != null)
             {
-                var ptIds = filter.PerformerTagsCriterion.Value;
-                query = filter.PerformerTagsCriterion.Modifier switch
+                var ptCriterion = filter.PerformerTagsCriterion;
+                var ptIds = ptCriterion.Value.Where(id => id > 0).Distinct().ToArray();
+                var ptExcludes = ptCriterion.Excludes?.Where(id => id > 0).Distinct().ToArray() ?? [];
+
+                if (ptCriterion.Modifier == CriterionModifier.IsNull)
+                    query = query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any()));
+                else if (ptCriterion.Modifier == CriterionModifier.NotNull)
+                    query = query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any()));
+                else
                 {
-                    CriterionModifier.IsNull => query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any())),
-                    CriterionModifier.NotNull => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any())),
-                    CriterionModifier.Includes => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
-                    CriterionModifier.Excludes => query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
-                    CriterionModifier.IncludesAll => query.Where(g => ptIds.All(tid => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => pt.TagId == tid)))),
-                    _ when ptIds.Count == 0 => query,
-                    _ => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
-                };
+                    if (ptIds.Length > 0)
+                    {
+                        query = ptCriterion.Modifier switch
+                        {
+                            CriterionModifier.Excludes => query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                            CriterionModifier.IncludesAll => query.Where(g => ptIds.All(tid => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => pt.TagId == tid)))),
+                            _ => query.Where(g => g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptIds.Contains(pt.TagId)))),
+                        };
+                    }
+
+                    // Excludes arrive as a separate list alongside an Includes modifier (see the filter UI's
+                    // MultiIdEditor); apply them independently so an exclude-only filter still works.
+                    if (ptExcludes.Length > 0)
+                        query = query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.PerformerTags.Any(pt => ptExcludes.Contains(pt.TagId))));
+                }
             }
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Gallery, filter.CustomFieldCriterion, filter.CustomFieldCriteria);

@@ -20,7 +20,6 @@ public class CoveConfiguration
     public int MaxConcurrentDownloads { get; set; } = 3;
     public List<DownloaderPathOverride> DownloaderPathOverrides { get; set; } = [];
     public bool CalculateMd5 { get; set; }
-    public bool EnableFfmpegHwAccel { get; set; } // Default false to prevent instability during native probes
     // Frame-extraction engine for thumbnails, sprites, and pHash. "external" spawns the ffmpeg CLI
     // (most compatible, crash-isolated). "managed" decodes in-process via FFmpeg.AutoGen — much
     // faster, but a malformed file can crash the process on some systems, so it is opt-in.
@@ -38,14 +37,21 @@ public class CoveConfiguration
     public bool CreateImageClipsFromVideos { get; set; }
     public string GalleryCoverRegex { get; set; } = "(poster|cover|folder|board)\\.[^\\.]+$";
     public bool DeleteGeneratedDefault { get; set; } = true;
-    // Transcoding
-    public int MaxTranscodeSize { get; set; } // 0 = original
+    // Transcoding / hardware acceleration
     public int MaxStreamingTranscodeSize { get; set; } // 0 = original
-    public string TranscodeHardwareAcceleration { get; set; } = "none"; // none, nvenc, vaapi, qsv
-    public string? TranscodeInputArgs { get; set; }
-    public string? TranscodeOutputArgs { get; set; }
-    public string? LiveTranscodeInputArgs { get; set; }
-    public string? LiveTranscodeOutputArgs { get; set; }
+    // Unified hardware-acceleration policy. "off" = CPU only; "auto" = detect and use the best verified
+    // accelerator, always falling back to CPU; or a specific accelerator: "nvenc", "qsv", "vaapi", "amf",
+    // "videotoolbox". Drives BOTH the video encoder (live transcode + preview generation) AND in-process
+    // ("managed") hardware decode. Replaces the old EnableFfmpegHwAccel + TranscodeHardwareAcceleration split.
+    public string HardwareAcceleration { get; set; } = "auto";
+    // Max concurrent hardware-encode sessions. Consumer NVENC GPUs cap simultaneous encode sessions;
+    // 0 = use the built-in safe default. Software (libx264) encodes are never throttled.
+    public int HardwareEncodeSessionLimit { get; set; }
+    // Optional raw ffmpeg overrides for power users. FfmpegInputArgs = decode/input side (e.g. a specific
+    // -hwaccel); FfmpegOutputArgs = encode side for live transcode. Empty => Cove builds them automatically
+    // from HardwareAcceleration. Replaces the old Transcode/LiveTranscode Input/Output args quartet.
+    public string? FfmpegInputArgs { get; set; }
+    public string? FfmpegOutputArgs { get; set; }
     // Preview generation
     public string PreviewPreset { get; set; } = "slow"; // ultrafast, veryfast, fast, medium, slow, slower, veryslow
     public string PreviewAudio { get; set; } = "false"; // true, false

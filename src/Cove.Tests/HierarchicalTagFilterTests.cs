@@ -39,6 +39,77 @@ public class HierarchicalTagFilterTests
     }
 
     [Fact]
+    public async Task VideoTagsCriterion_ExcludesList_RemovesVideosWithExcludedTag()
+    {
+        // Repro for the reported bug: excluding a tag still returned videos that had it. The filter UI
+        // sends excluded ids in MultiIdCriterion.Excludes alongside an Includes modifier (not by flipping
+        // the modifier), so the exclude-only case must still filter the results.
+        await using var context = CreateContext();
+        var keep = new Tag { Name = "Keep" };
+        var excluded = new Tag { Name = "1F" };
+        context.Tags.AddRange(keep, excluded);
+        await context.SaveChangesAsync();
+
+        context.Videos.AddRange(
+            CreateVideo("has-excluded-tag", excluded.Id),
+            CreateVideo("has-excluded-and-keep", keep.Id, excluded.Id),
+            CreateVideo("clean", keep.Id),
+            CreateVideo("untagged"));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion
+            {
+                Value = [],
+                Modifier = CriterionModifier.Includes,
+                Excludes = [excluded.Id],
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var titles = items.Select(video => video.Title ?? string.Empty).OrderBy(title => title).ToArray();
+
+        Assert.Equal(2, totalCount);
+        Assert.Equal(["clean", "untagged"], titles);
+    }
+
+    [Fact]
+    public async Task VideoTagsCriterion_IncludeWithExclude_AppliesBothSides()
+    {
+        await using var context = CreateContext();
+        var keep = new Tag { Name = "Keep" };
+        var excluded = new Tag { Name = "1F" };
+        context.Tags.AddRange(keep, excluded);
+        await context.SaveChangesAsync();
+
+        context.Videos.AddRange(
+            CreateVideo("keep-only", keep.Id),
+            CreateVideo("keep-but-excluded", keep.Id, excluded.Id),
+            CreateVideo("excluded-only", excluded.Id),
+            CreateVideo("untagged"));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion
+            {
+                Value = [keep.Id],
+                Modifier = CriterionModifier.Includes,
+                Excludes = [excluded.Id],
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var titles = items.Select(video => video.Title ?? string.Empty).OrderBy(title => title).ToArray();
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["keep-only"], titles);
+    }
+
+    [Fact]
     public async Task ImageTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
     {
         await using var context = CreateContext();

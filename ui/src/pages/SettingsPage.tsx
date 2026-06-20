@@ -1235,6 +1235,32 @@ export function SettingsPage() {
     enabled: canWriteSystemSettings,
   });
 
+  // Verified hardware-acceleration capabilities of the host's ffmpeg — used to offer only accelerators
+  // that actually work in the FFmpeg settings panel.
+  const { data: ffmpegCapabilities } = useQuery({
+    queryKey: ["ffmpeg-capabilities"],
+    queryFn: () => system.getFfmpegCapabilities(),
+    enabled: canWriteSystemSettings,
+    staleTime: 5 * 60 * 1000,
+  });
+  const hardwareAccelerationOptions = useMemo(() => {
+    const labels: Record<string, string> = {
+      nvenc: "NVIDIA NVENC", qsv: "Intel QuickSync (QSV)", vaapi: "VAAPI", amf: "AMD AMF", videotoolbox: "Apple VideoToolbox",
+    };
+    const detected = ffmpegCapabilities?.accelerators ?? [];
+    const options = [
+      { value: "off", label: "Off (CPU only)" },
+      { value: "auto", label: "Auto (recommended)" },
+      ...detected.map((a) => ({ value: a, label: labels[a] ?? a.toUpperCase() })),
+    ];
+    // Keep the currently-saved value selectable even if the probe hasn't returned (or no longer detects it).
+    const current = draftState?.hardwareAcceleration;
+    if (current && !options.some((o) => o.value === current))
+      options.push({ value: current, label: (labels[current] ?? current.toUpperCase()) + " (not detected)" });
+    return options;
+  }, [ffmpegCapabilities, draftState?.hardwareAcceleration]);
+  const [ffmpegAdvancedOpen, setFfmpegAdvancedOpen] = useState(false);
+
   const scraperPreferenceGroups = useMemo(() => {
     const groups = new Map<string, ScraperSummary[]>();
 
@@ -2192,6 +2218,20 @@ export function SettingsPage() {
                 </div>
                 <div>
                   <SelectField
+                    label="Hardware acceleration"
+                    value={draft.hardwareAcceleration || "auto"}
+                    onChange={(value) => updateDraft((d) => ({ ...d, hardwareAcceleration: value }))}
+                    options={hardwareAccelerationOptions}
+                  />
+                  <p className="mt-1 text-xs text-secondary">
+                    GPU acceleration for transcoding and preview/thumbnail generation. <span className="font-medium">Auto</span> uses the best accelerator Cove can verify and always falls back to CPU if it fails — recommended. <span className="font-medium">Off</span> forces CPU (libx264). Only accelerators your ffmpeg build actually supports are listed.
+                    {ffmpegCapabilities && (ffmpegCapabilities.accelerators.length > 0
+                      ? <> Detected: <span className="font-medium">{ffmpegCapabilities.accelerators.join(", ")}</span>.</>
+                      : <> No hardware encoders were detected on this host — encoding will use the CPU.</>)}
+                  </p>
+                </div>
+                <div>
+                  <SelectField
                     label="Frame extraction"
                     value={draft.frameExtractionMode === "managed" ? "managed" : "external"}
                     onChange={(value) => updateDraft((d) => ({ ...d, frameExtractionMode: value }))}
@@ -2201,68 +2241,49 @@ export function SettingsPage() {
                     ]}
                   />
                   <p className="mt-1 text-xs text-secondary">
-                    How Cove extracts frames for thumbnails, sprites, and phashes. <span className="font-medium">External</span> spawns the ffmpeg CLI — most compatible and crash-isolated. <span className="font-medium">Managed</span> decodes in-process for much higher throughput.
+                    How Cove extracts frames for thumbnails, sprites, and phashes. <span className="font-medium">External</span> spawns the ffmpeg CLI — most compatible and crash-isolated. <span className="font-medium">Managed</span> decodes in-process for much higher throughput (and uses the hardware accelerator above for decode when not Off).
                     <span className="text-red-300 font-medium"> Warning:</span> managed mode can fatally crash the process on some systems (e.g. missing native drivers, or rare malformed files); switch back to external if you hit instability.
                   </p>
                 </div>
                 <div>
-                  <CheckboxLabel
-                    label="Enable hardware acceleration (managed mode)"
-                    checked={draft.enableFfmpegHwAccel}
-                    onChange={(checked) => updateDraft((current) => ({ ...current, enableFfmpegHwAccel: checked }))}
-                  />
-                  <p className="mt-1 text-xs text-secondary">
-                    When using managed frame extraction, attempt hardware-accelerated decoding for phash and sprite generation.
-                    <span className="text-red-300 font-medium"> Warning:</span> In some Docker environments, this may cause a fatal process crash due to missing native drivers.
-                  </p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <NumberField
-                    label="Max transcode size"
-                    value={draft.maxTranscodeSize}
-                    min={0}
-                    onChange={(value) => updateDraft((d) => ({ ...d, maxTranscodeSize: value ?? d.maxTranscodeSize }))}
-                  />
                   <NumberField
                     label="Max streaming transcode size"
                     value={draft.maxStreamingTranscodeSize}
                     min={0}
                     onChange={(value) => updateDraft((d) => ({ ...d, maxStreamingTranscodeSize: value ?? d.maxStreamingTranscodeSize }))}
                   />
+                  <p className="mt-1 text-xs text-secondary">Cap the resolution offered for live streaming transcodes. 0 = original resolution.</p>
                 </div>
-                <SelectField
-                  label="Hardware acceleration"
-                  value={draft.transcodeHardwareAcceleration}
-                  onChange={(value) => updateDraft((d) => ({ ...d, transcodeHardwareAcceleration: value }))}
-                  options={[
-                    { value: "none", label: "None" },
-                    { value: "nvenc", label: "NVENC" },
-                    { value: "vaapi", label: "VAAPI" },
-                    { value: "qsv", label: "QSV" },
-                  ]}
-                />
-                <div className="grid gap-4 md:grid-cols-2">
-                  <TextField
-                    label="Transcode input args"
-                    value={draft.transcodeInputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, transcodeInputArgs: value || undefined }))}
-                  />
-                  <TextField
-                    label="Transcode output args"
-                    value={draft.transcodeOutputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, transcodeOutputArgs: value || undefined }))}
-                  />
-                  <TextField
-                    label="Live transcode input args"
-                    value={draft.liveTranscodeInputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, liveTranscodeInputArgs: value || undefined }))}
-                  />
-                  <TextField
-                    label="Live transcode output args"
-                    value={draft.liveTranscodeOutputArgs ?? ""}
-                    onChange={(value) => updateDraft((d) => ({ ...d, liveTranscodeOutputArgs: value || undefined }))}
-                  />
-                </div>
+                <CollapsibleSection title="Advanced ffmpeg overrides" expanded={ffmpegAdvancedOpen} onToggle={() => setFfmpegAdvancedOpen((v) => !v)}>
+                  <div className="space-y-4">
+                    <p className="text-xs text-secondary">
+                      Power-user overrides. Leave blank to let Cove build commands automatically from the hardware-acceleration setting above.
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <TextField
+                        label="FFmpeg input args"
+                        value={draft.ffmpegInputArgs ?? ""}
+                        onChange={(value) => updateDraft((d) => ({ ...d, ffmpegInputArgs: value || undefined }))}
+                        placeholder="e.g. -hwaccel cuda"
+                      />
+                      <TextField
+                        label="FFmpeg output args (live transcode)"
+                        value={draft.ffmpegOutputArgs ?? ""}
+                        onChange={(value) => updateDraft((d) => ({ ...d, ffmpegOutputArgs: value || undefined }))}
+                        placeholder="e.g. -c:v libx264 -preset veryfast -crf 23 -c:a aac"
+                      />
+                    </div>
+                    <NumberField
+                      label="Max hardware encode sessions"
+                      value={draft.hardwareEncodeSessionLimit}
+                      min={0}
+                      onChange={(value) => updateDraft((d) => ({ ...d, hardwareEncodeSessionLimit: value ?? d.hardwareEncodeSessionLimit }))}
+                    />
+                    <p className="-mt-2 text-xs text-secondary">
+                      Caps simultaneous GPU encode sessions. Consumer NVIDIA cards limit these (often 2–3 on older drivers, up to 8 on newer). 0 = a safe default of 2. Raise it if your driver allows more.
+                    </p>
+                  </div>
+                </CollapsibleSection>
               </div>
             </SectionCard>
             </>

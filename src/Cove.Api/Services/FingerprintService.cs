@@ -287,7 +287,7 @@ public class FingerprintService(
         // the crash-isolated ffmpeg CLI path below.
         var useInProcess = string.Equals(config.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase);
         if (useInProcess)
-            FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
+            FfmpegInProcess.EnsureInitialized(ffmpegPath, !FfmpegHwAccel.IsHardwareAccelerationOff(config.HardwareAcceleration));
         logger.LogDebug("pHash FFmpeg setup: path={FfmpegPath}, managed={Managed}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
             ffmpegPath, useInProcess, FfmpegInProcess.IsAvailable, duration, path);
 
@@ -718,13 +718,8 @@ public class FingerprintService(
     {
         // These extraction pipelines use software filters (select/scale/tile/image encode),
         // so implicit hwaccel adds costly hwdownload/format bridging and can be slower than CPU.
-        if (!string.IsNullOrWhiteSpace(config.LiveTranscodeInputArgs))
-            return config.LiveTranscodeInputArgs;
-
-        if (!string.IsNullOrWhiteSpace(config.TranscodeInputArgs))
-            return config.TranscodeInputArgs;
-
-        return string.Empty;
+        // Only an explicit power-user override is applied.
+        return !string.IsNullOrWhiteSpace(config.FfmpegInputArgs) ? config.FfmpegInputArgs : string.Empty;
     }
 
     private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)

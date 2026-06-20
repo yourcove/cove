@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 import { playback } from "../api/client";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
+import { pushOverlay } from "../utils/overlayState";
+
+// Movement (px) past which a pointer gesture counts as a pan rather than a click. Below it, releasing
+// the pointer toggles zoom; above it the gesture is a drag and must not also toggle zoom on release.
+const DRAG_CLICK_THRESHOLD_PX = 5;
 
 export interface LightboxImage {
   id: number;
@@ -50,6 +55,10 @@ export function Lightbox({
 
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
+  // Whether the current pointer gesture moved far enough to count as a pan (vs. a click). Read by the
+  // image's onClick to decide if a release should toggle zoom. A ref, not state, so onClick sees the
+  // up-to-date value even though the click fires after pointerup has already reset `dragging`.
+  const pointerMoved = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const slideshowTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   const trackedOpen = useRef(false);
@@ -154,12 +163,14 @@ export function Lightbox({
     };
   }, [count, current?.id, index, open]);
 
-  // Lock body scroll
+  // Lock body scroll + claim keyboard ownership so background list/app shortcuts pause while open.
   useEffect(() => {
     if (!open) return;
+    const releaseOverlay = pushOverlay();
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      releaseOverlay();
       document.body.style.overflow = prev;
     };
   }, [open]);
@@ -322,6 +333,7 @@ export function Lightbox({
   // Pan handlers
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      pointerMoved.current = false;
       if (zoom <= 1) return;
       setDragging(true);
       dragStart.current = { x: e.clientX, y: e.clientY };
@@ -334,10 +346,12 @@ export function Lightbox({
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragging) return;
-      setPan({
-        x: panStart.current.x + (e.clientX - dragStart.current.x),
-        y: panStart.current.y + (e.clientY - dragStart.current.y),
-      });
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      if (!pointerMoved.current && Math.hypot(dx, dy) > DRAG_CLICK_THRESHOLD_PX) {
+        pointerMoved.current = true;
+      }
+      setPan({ x: panStart.current.x + dx, y: panStart.current.y + dy });
     },
     [dragging],
   );
@@ -491,10 +505,10 @@ export function Lightbox({
           alt={current?.title ?? ""}
           draggable={false}
           onClick={(e) => {
-            if (!dragging) {
-              e.stopPropagation();
-              toggleZoom();
-            }
+            // A pan (drag past the threshold) must not also toggle zoom when the pointer is released.
+            if (pointerMoved.current) return;
+            e.stopPropagation();
+            toggleZoom();
           }}
           onLoad={() => setLoading(false)}
           className="max-h-full max-w-full object-contain transition-transform duration-200 ease-out"

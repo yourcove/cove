@@ -52,9 +52,12 @@ interface DetailListToolbarProps {
   // When set (e.g. "videos"), shows the saved-filter menu so embedded lists inside detail pages
   // (a performer's videos, a studio's galleries, …) can save, apply and default-pin filters too.
   filterMode?: string;
+  // Optional separate storage key for the auto-applied default filter (defaults to filterMode). Lets an
+  // embedded list keep its own default while still sharing filterMode's named-filter library.
+  filterDefaultKey?: string;
 }
 
-export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode }: DetailListToolbarProps) {
+export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode, filterDefaultKey }: DetailListToolbarProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
   // Random sort with no seed (e.g. a default saved filter, or a re-mounted detail-page list) would
@@ -188,6 +191,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         {filterMode ? (
           <SavedFilterMenu
             mode={filterMode}
+            defaultFilterKey={filterDefaultKey}
             currentFilter={filter}
             currentObjectFilter={activeObjectFilter}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, { ...nextFilter, page: 1 }))}

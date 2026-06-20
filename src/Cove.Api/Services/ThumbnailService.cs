@@ -940,7 +940,7 @@ public class ThumbnailService(
                 if (!await TryGenerateVideoThumbnailViaInProcessAsync(ffmpegPath, filePath, thumbPath, tempPath, seekSeconds, ct))
                 {
                     var decodeArgs = GetFfmpegDecodeArgs();
-                    var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds:F2} -i \"{filePath}\" -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
+                    var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {seekSeconds.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -vframes 1 -q:v 2 -f image2 \"{tempPath}\"";
                     if (!await TryRunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(20), ct))
                     {
                         logger.LogWarning("FFmpeg failed for video {VideoId} thumbnail generation", videoId);
@@ -974,7 +974,7 @@ public class ThumbnailService(
         if (!UseInProcessVideoFrameExtraction)
             return false;
 
-        FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
+        FfmpegInProcess.EnsureInitialized(ffmpegPath, !FfmpegHwAccel.IsHardwareAccelerationOff(config.HardwareAcceleration));
         if (!FfmpegInProcess.IsAvailable)
             return false;
 
@@ -1079,7 +1079,7 @@ public class ThumbnailService(
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
-                var args = $"{decodeArgs} -v error -y -ss {clampedStart:F2} -i \"{filePath}\" -t {previewDuration:F2} -vf \"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
+                var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
                 await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
 
                 if (File.Exists(tempPath))
@@ -1180,11 +1180,21 @@ public class ThumbnailService(
                     ct);
             }
 
+            // Only concat chunks that actually exist AND are non-empty. A chunk encode that failed can
+            // leave a missing or 0-byte file; feeding that to the concat demuxer fails the whole preview
+            // with "moov atom not found / Invalid data found when processing input".
+            var validChunks = chunkFiles
+                .Where(f => File.Exists(f) && new FileInfo(f).Length > 0)
+                .ToList();
+            if (validChunks.Count == 0)
+            {
+                logger.LogWarning("Preview generation for video {VideoId} produced no usable chunks", videoId);
+                return;
+            }
+
             // Create concat file — use forward slashes for FFmpeg compatibility on all platforms
             var concatListPath = Path.Combine(tmpDir, "concat.txt");
-            var concatLines = chunkFiles
-                .Where(File.Exists)
-                .Select(f => $"file '{Path.GetFullPath(f).Replace('\\', '/')}'");
+            var concatLines = validChunks.Select(f => $"file '{Path.GetFullPath(f).Replace('\\', '/')}'");
             await File.WriteAllTextAsync(concatListPath, string.Join("\n", concatLines), ct);
 
             // Concatenate chunks into final preview
@@ -1211,15 +1221,56 @@ public class ThumbnailService(
     // '{' or '}' characters don't get misinterpreted as format placeholders (FormatException).
     private const string VideoCodecPlaceholder = "__COVE_VCODEC__";
 
+    // Caps concurrent hardware-encode sessions. Consumer GeForce GPUs limit simultaneous NVENC encode
+    // sessions (historically 2-3, raised to 5 then 8 on recent drivers); spawning one per parallel
+    // generation task can overrun that, and ffmpeg then fails with
+    // "nvEncOpenEncodeSessionEx failed: 10 (NV_ENC_ERR_OUT_OF_MEMORY) / Too many concurrent sessions".
+    // The limit comes from config.HardwareEncodeSessionLimit (0 = a safe default of 2, the floor across
+    // consumer drivers); users on newer drivers (5-8) or pro cards can raise it. Software (libx264)
+    // encodes are not throttled. (This does NOT address NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY (21), a
+    // driver/NVENC library mismatch — the libx264 fallback below handles that instead.)
+    private SemaphoreSlim? _hwEncodeSessionGate;
+    private int _hwEncodeSessionGateCapacity;
+    private readonly object _hwEncodeSessionGateLock = new();
+    private SemaphoreSlim HwEncodeSessionGate()
+    {
+        var desired = config.HardwareEncodeSessionLimit > 0 ? config.HardwareEncodeSessionLimit : 2;
+        lock (_hwEncodeSessionGateLock)
+        {
+            // Recreate when the configured limit changes so a Settings change takes effect without a
+            // restart (mirrors GetFfmpegSemaphore). The old gate is GC'd once its waiters release.
+            if (_hwEncodeSessionGate != null && _hwEncodeSessionGateCapacity == desired) return _hwEncodeSessionGate;
+            _hwEncodeSessionGateCapacity = desired;
+            return _hwEncodeSessionGate = new SemaphoreSlim(desired);
+        }
+    }
+
     private async Task RunPreviewEncodeAsync(string ffmpegPath, string argsTemplate, string outputPath, TimeSpan timeout, string softwarePreset, CancellationToken ct)
     {
         var encoder = GetH264Encoder();
         // Build the codec args per encoder family. libx264 honors -preset/-crf; the hardware encoders
         // need their own constant-quality knobs (NVENC/QSV/AMF ignore -crf, and a libx264 preset name
         // like "veryfast" is an invalid NVENC preset that aborts the encode).
-        var codecArgs = FfmpegHwAccel.VideoEncodeArgs(encoder, PreviewCrf, softwarePreset);
-        var args = argsTemplate.Replace(VideoCodecPlaceholder, codecArgs, StringComparison.Ordinal);
-        await RunFfmpegAsync(ffmpegPath, args, timeout, ct);
+        if (encoder != "libx264")
+        {
+            var hwArgs = argsTemplate.Replace(VideoCodecPlaceholder, FfmpegHwAccel.VideoEncodeArgs(encoder, PreviewCrf, softwarePreset), StringComparison.Ordinal);
+            bool ok;
+            var gate = HwEncodeSessionGate();
+            await gate.WaitAsync(ct);
+            try { ok = await TryRunFfmpegAsync(ffmpegPath, hwArgs, timeout, ct); }
+            finally { gate.Release(); }
+
+            if (ok || ct.IsCancellationRequested)
+                return;
+
+            // A hardware encode that still fails (session exhaustion, driver/SDK mismatch, etc.) must not
+            // leave a missing/empty chunk that later breaks the concat — fall back to the CPU encoder so
+            // generation degrades gracefully instead of producing a broken preview.
+            logger.LogWarning("Hardware encode ({Encoder}) failed for {Output}; falling back to libx264.", encoder, Path.GetFileName(outputPath));
+        }
+
+        var swArgs = argsTemplate.Replace(VideoCodecPlaceholder, FfmpegHwAccel.VideoEncodeArgs("libx264", PreviewCrf, softwarePreset), StringComparison.Ordinal);
+        await RunFfmpegAsync(ffmpegPath, swArgs, timeout, ct);
     }
 
     private static double ParsePreviewExclusion(string? value, double duration)
@@ -1361,7 +1412,7 @@ public class ThumbnailService(
         if (!UseInProcessVideoFrameExtraction)
             return false;
 
-        FfmpegInProcess.EnsureInitialized(ffmpegPath, config.EnableFfmpegHwAccel);
+        FfmpegInProcess.EnsureInitialized(ffmpegPath, !FfmpegHwAccel.IsHardwareAccelerationOff(config.HardwareAcceleration));
         if (!FfmpegInProcess.IsAvailable)
             return false;
 
@@ -1672,14 +1723,9 @@ public class ThumbnailService(
     private string GetFfmpegDecodeArgs()
     {
         // These extraction pipelines use software filters/output, so implicit hwaccel adds
-        // costly hwdownload/format bridging and can be slower than plain CPU decode.
-        if (!string.IsNullOrWhiteSpace(config.LiveTranscodeInputArgs))
-            return config.LiveTranscodeInputArgs;
-
-        if (!string.IsNullOrWhiteSpace(config.TranscodeInputArgs))
-            return config.TranscodeInputArgs;
-
-        return string.Empty;
+        // costly hwdownload/format bridging and can be slower than plain CPU decode. Only an
+        // explicit power-user override is applied.
+        return !string.IsNullOrWhiteSpace(config.FfmpegInputArgs) ? config.FfmpegInputArgs : string.Empty;
     }
 
     /// <summary>Get the H.264 encoder to use for generation, honoring the configured hardware
@@ -1692,7 +1738,7 @@ public class ThumbnailService(
         if (ffmpegPath == null) return "libx264";
 
         // Re-probe whenever a setting that can change the outcome changes.
-        var fingerprint = $"{ffmpegPath}|{config.TranscodeHardwareAcceleration}|{config.EnableFfmpegHwAccel}";
+        var fingerprint = $"{ffmpegPath}|{config.HardwareAcceleration}";
 
         lock (_hwEncoderLock)
         {
@@ -1710,6 +1756,6 @@ public class ThumbnailService(
     /// acceleration and falling back to libx264 if it cannot open a session. Shared with the live
     /// transcode path via <see cref="FfmpegHwAccel"/>.</summary>
     private string ProbeH264Encoder(string ffmpegPath)
-        => FfmpegHwAccel.SelectH264Encoder(ffmpegPath, config.TranscodeHardwareAcceleration, logger);
+        => FfmpegHwAccel.SelectH264Encoder(ffmpegPath, config.HardwareAcceleration, logger);
 }
 

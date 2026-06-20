@@ -266,7 +266,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const { availableThemes, activeThemeId, setActiveTheme } = useExtensions();
   const importPathMappings = pathMappings
     .map((mapping) => ({ source: mapping.source.trim(), target: mapping.target.trim() }))
-    .filter((mapping) => mapping.source !== "" || mapping.target !== "");
+    // Only send rows where BOTH sides are filled. An OR here would forward a half-typed row, which the
+    // backend rejects ("requires both a source and a target path") — failing the entire import over a
+    // stray empty field rather than just skipping that row.
+    .filter((mapping) => mapping.source !== "" && mapping.target !== "");
   const stashImportOptions: StashImportOptions = {
     coveGeneratedPath: coveGeneratedPath.trim() || undefined,
     migrateGeneratedContent,

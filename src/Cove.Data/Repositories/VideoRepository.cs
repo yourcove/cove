@@ -883,17 +883,26 @@ public class VideoRepository : IVideoRepository
 
         var groups = valueGroups?.Where(group => group.Length > 0).ToArray()
             ?? criterion.Value.Where(tagId => tagId > 0).Select(tagId => new[] { tagId }).ToArray();
-        if (groups.Length == 0)
-            return query;
-
-        var ids = groups.SelectMany(group => group).Distinct().ToArray();
-        return criterion.Modifier switch
+        if (groups.Length > 0)
         {
-            CriterionModifier.Excludes => ApplyVideoTagNone(query, ids),
-            CriterionModifier.ExcludesAll => ApplyVideoTagExcludesAll(query, groups),
-            CriterionModifier.IncludesAll => ApplyVideoTagIncludesAll(query, groups),
-            _ => ApplyVideoTagAny(query, ids),
-        };
+            var ids = groups.SelectMany(group => group).Distinct().ToArray();
+            query = criterion.Modifier switch
+            {
+                CriterionModifier.Excludes => ApplyVideoTagNone(query, ids),
+                CriterionModifier.ExcludesAll => ApplyVideoTagExcludesAll(query, groups),
+                CriterionModifier.IncludesAll => ApplyVideoTagIncludesAll(query, groups),
+                _ => ApplyVideoTagAny(query, ids),
+            };
+        }
+
+        // Excluded tags arrive in a separate list (the filter UI emits `excludes` alongside an Includes
+        // modifier rather than flipping the modifier), so apply them independently of the include set —
+        // including the exclude-only case where there are no included tags at all. Mirrors the
+        // include/exclude split used by ApplyPerformerOccurrenceTagCriterion and the shared MultiId helper.
+        if (criterion.Excludes is { Count: > 0 })
+            query = ApplyVideoTagNone(query, criterion.Excludes);
+
+        return query;
     }
 
     private IQueryable<Video> ApplyVideoTagIncludesAll(IQueryable<Video> query, IReadOnlyList<int[]> groups)

@@ -36,6 +36,36 @@ public class ConfigService
 
     public string ConfigPath => _configPath;
 
+    private static readonly HashSet<string> ValidHardwareAccelerations = new(StringComparer.OrdinalIgnoreCase)
+    { "off", "auto", "nvenc", "qsv", "vaapi", "amf", "videotoolbox" };
+
+    private static string NormalizeHardwareAcceleration(string? value)
+    {
+        var v = value?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(v)) return "auto";
+        // Back-compat: the old encoder setting used "none" to mean "auto-detect a hardware encoder".
+        if (v == "none") return "auto";
+        return ValidHardwareAccelerations.Contains(v) ? v : "auto";
+    }
+
+    /// <summary>Derive the unified HardwareAcceleration value from a legacy saved config. The old model
+    /// pinned an encoder via TranscodeHardwareAcceleration ("none" meant auto-detect) and toggled in-process
+    /// decode separately via EnableFfmpegHwAccel; the unified "auto" covers both (and always falls back to
+    /// CPU), so a legacy pin maps straight across and everything else becomes "auto".</summary>
+    private static string? MigrateLegacyHardwareAcceleration(CoveConfigDto dto)
+    {
+#pragma warning disable CS0618 // legacy fields read only for one-time migration
+        return string.IsNullOrWhiteSpace(dto.TranscodeHardwareAcceleration) ? null : dto.TranscodeHardwareAcceleration;
+#pragma warning restore CS0618
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+    {
+        foreach (var v in values)
+            if (!string.IsNullOrWhiteSpace(v)) return v;
+        return null;
+    }
+
     /// <summary>Get the current effective configuration as a DTO.</summary>
     public CoveConfigDto GetConfig()
     {
@@ -65,17 +95,14 @@ public class ConfigService
                 })
                 .ToList(),
             CalculateMd5 = cfg.CalculateMd5,
-            EnableFfmpegHwAccel = cfg.EnableFfmpegHwAccel,
             FrameExtractionMode = cfg.FrameExtractionMode,
             FfmpegPath = cfg.FfmpegPath,
             FfprobePath = cfg.FfprobePath,
-            MaxTranscodeSize = cfg.MaxTranscodeSize,
             MaxStreamingTranscodeSize = cfg.MaxStreamingTranscodeSize,
-            TranscodeHardwareAcceleration = cfg.TranscodeHardwareAcceleration,
-            TranscodeInputArgs = cfg.TranscodeInputArgs,
-            TranscodeOutputArgs = cfg.TranscodeOutputArgs,
-            LiveTranscodeInputArgs = cfg.LiveTranscodeInputArgs,
-            LiveTranscodeOutputArgs = cfg.LiveTranscodeOutputArgs,
+            HardwareAcceleration = cfg.HardwareAcceleration,
+            HardwareEncodeSessionLimit = cfg.HardwareEncodeSessionLimit,
+            FfmpegInputArgs = cfg.FfmpegInputArgs,
+            FfmpegOutputArgs = cfg.FfmpegOutputArgs,
             PreviewPreset = cfg.PreviewPreset,
             PreviewAudio = cfg.PreviewAudio,
             VideoExtensions = cfg.VideoExtensions,
@@ -266,8 +293,9 @@ public class ConfigService
         }
     }
 
-    /// <summary>Apply DTO values to the live CoveConfiguration singleton.</summary>
-    private void ApplyToLive(CoveConfigDto dto)
+    /// <summary>Apply DTO values to the live CoveConfiguration singleton. Internal for testing the
+    /// legacy-config migration without touching disk.</summary>
+    internal void ApplyToLive(CoveConfigDto dto)
     {
         var cfg = _config;
         cfg.CovePaths = dto.CovePaths.Select(p => new CovePath
@@ -298,18 +326,18 @@ public class ConfigService
             })
             .ToList();
         cfg.CalculateMd5 = dto.CalculateMd5;
-        cfg.EnableFfmpegHwAccel = dto.EnableFfmpegHwAccel;
         cfg.FrameExtractionMode = string.Equals(dto.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase) ? "managed" : "external";
         cfg.FfmpegPath = string.IsNullOrWhiteSpace(dto.FfmpegPath) ? null : dto.FfmpegPath;
         cfg.FfprobePath = string.IsNullOrWhiteSpace(dto.FfprobePath) ? null : dto.FfprobePath;
-        cfg.MaxTranscodeSize = dto.MaxTranscodeSize;
         cfg.MaxStreamingTranscodeSize = dto.MaxStreamingTranscodeSize;
-        if (!string.IsNullOrWhiteSpace(dto.TranscodeHardwareAcceleration))
-            cfg.TranscodeHardwareAcceleration = dto.TranscodeHardwareAcceleration;
-        cfg.TranscodeInputArgs = string.IsNullOrWhiteSpace(dto.TranscodeInputArgs) ? null : dto.TranscodeInputArgs;
-        cfg.TranscodeOutputArgs = string.IsNullOrWhiteSpace(dto.TranscodeOutputArgs) ? null : dto.TranscodeOutputArgs;
-        cfg.LiveTranscodeInputArgs = string.IsNullOrWhiteSpace(dto.LiveTranscodeInputArgs) ? null : dto.LiveTranscodeInputArgs;
-        cfg.LiveTranscodeOutputArgs = string.IsNullOrWhiteSpace(dto.LiveTranscodeOutputArgs) ? null : dto.LiveTranscodeOutputArgs;
+        // Unified hardware acceleration. Use the new field when present; otherwise migrate the legacy
+        // EnableFfmpegHwAccel + TranscodeHardwareAcceleration pair from an older saved config.
+        cfg.HardwareAcceleration = NormalizeHardwareAcceleration(dto.HardwareAcceleration ?? MigrateLegacyHardwareAcceleration(dto));
+        cfg.HardwareEncodeSessionLimit = Math.Max(0, dto.HardwareEncodeSessionLimit);
+#pragma warning disable CS0618 // legacy fields read only for one-time migration
+        cfg.FfmpegInputArgs = FirstNonBlank(dto.FfmpegInputArgs, dto.LiveTranscodeInputArgs, dto.TranscodeInputArgs);
+        cfg.FfmpegOutputArgs = FirstNonBlank(dto.FfmpegOutputArgs, dto.LiveTranscodeOutputArgs, dto.TranscodeOutputArgs);
+#pragma warning restore CS0618
         if (!string.IsNullOrWhiteSpace(dto.PreviewPreset))
             cfg.PreviewPreset = dto.PreviewPreset;
         if (!string.IsNullOrWhiteSpace(dto.PreviewAudio))

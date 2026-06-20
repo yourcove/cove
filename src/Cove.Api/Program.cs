@@ -293,6 +293,7 @@ try
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddSingleton<IBlobService, BlobService>();
     builder.Services.AddSingleton<ConfigService>();
+    builder.Services.AddSingleton<IFfmpegCapabilities, FfmpegCapabilitiesService>();
     builder.Services.AddSingleton<AuthBypassPrincipalProvider>();
     builder.Services.AddSingleton<ScraperService>();
     builder.Services.AddSingleton<IVideoCoverService, VideoCoverService>();

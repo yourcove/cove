@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useCallback } from "react";
 import { normalizeShortcutEvent, normalizeShortcutSequence } from "../keyboard/keybindings";
+import { isOverlayOpen } from "../utils/overlayState";
 
 type KeyBinding = {
   keys: string; // e.g. "g s", "d d", "r 5", "e", "Space"
@@ -33,6 +34,10 @@ export function useKeySequence(bindings: KeyBinding[], enabled = true) {
     if (!enabled) return;
 
     const handler = (e: KeyboardEvent) => {
+      // While a full-screen overlay (e.g. the lightbox) owns the keyboard, don't also run page/app
+      // shortcuts — otherwise a lightbox arrow key would advance the image AND page the list behind it.
+      if (isOverlayOpen()) return;
+
       const tag = (e.target as HTMLElement)?.tagName;
       const inInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 

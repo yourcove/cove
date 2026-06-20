@@ -96,6 +96,12 @@ function clearDefaultFilter(mode: string) {
 
 interface SavedFilterMenuProps {
   mode: string;
+  /**
+   * Storage key for the *default* (auto-applied) filter. Defaults to `mode`. Pass a distinct value to
+   * give a view its own default that doesn't collide with another view sharing the same `mode` — e.g.
+   * the images list inside a gallery shares the "images" named-filter library but wants its own default.
+   */
+  defaultFilterKey?: string;
   currentFilter: FindFilter;
   currentObjectFilter?: Record<string, unknown>;
   currentUIOptions?: Record<string, unknown>;
@@ -106,6 +112,7 @@ interface SavedFilterMenuProps {
 
 export function SavedFilterMenu({
   mode,
+  defaultFilterKey,
   currentFilter,
   currentObjectFilter,
   currentUIOptions,
@@ -117,7 +124,10 @@ export function SavedFilterMenu({
   const [open, setOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [showSave, setShowSave] = useState(false);
-  const hasDefault = !!getDefaultFilter(mode);
+  // Named saved filters are keyed by `mode` (server-side, enum-validated); the auto-applied default
+  // is keyed separately so views sharing a `mode` can still keep independent defaults.
+  const defaultKey = defaultFilterKey ?? mode;
+  const hasDefault = !!getDefaultFilter(defaultKey);
 
   const { data: filters } = useQuery({
     queryKey: ["saved-filters", mode],
@@ -228,7 +238,7 @@ export function SavedFilterMenu({
           <div className="border-t border-border p-2 space-y-1.5">
             {/* Set/clear default filter */}
             <button
-              onClick={() => { setDefaultFilter(mode, currentFilter, currentObjectFilter, currentUIOptions); setOpen(false); }}
+              onClick={() => { setDefaultFilter(defaultKey, currentFilter, currentObjectFilter, currentUIOptions); setOpen(false); }}
               className="flex items-center gap-1.5 text-xs text-secondary hover:text-yellow-400 w-full"
               title="Apply the current filter state automatically when opening this page"
             >
@@ -237,7 +247,7 @@ export function SavedFilterMenu({
             </button>
             {hasDefault && (
               <button
-                onClick={() => { clearDefaultFilter(mode); setOpen(false); }}
+                onClick={() => { clearDefaultFilter(defaultKey); setOpen(false); }}
                 className="flex items-center gap-1.5 text-xs text-muted hover:text-red-400 w-full"
               >
                 <Star className="w-3 h-3" />

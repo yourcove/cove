@@ -20,6 +20,7 @@ namespace Cove.Api.Controllers;
 [RequiresPermission(Permissions.SystemRead)]
 public class SystemController(
     ConfigService configService,
+    IFfmpegCapabilities ffmpegCapabilities,
     ScraperService scraperService, MetadataServerService metadataServerService,
     CoveConfiguration coveConfiguration,
     CoveContext db,
@@ -249,6 +250,16 @@ public class SystemController(
     {
         await configService.SaveConfigAsync(config);
         return Ok(configService.GetConfig());
+    }
+
+    /// <summary>Returns the host ffmpeg's verified hardware-acceleration capabilities so the settings UI
+    /// can offer only accelerators that actually work. Probed once per ffmpeg binary and cached; pass
+    /// ?refresh=true to re-probe (e.g. after changing the ffmpeg path).</summary>
+    [HttpGet("ffmpeg-capabilities")]
+    [RequiresPermission(Permissions.SystemRead)]
+    public ActionResult<FfmpegCapabilities> GetFfmpegCapabilities([FromQuery] bool refresh = false)
+    {
+        return Ok(ffmpegCapabilities.Get(refresh));
     }
 
     [HttpPatch("log-level")]

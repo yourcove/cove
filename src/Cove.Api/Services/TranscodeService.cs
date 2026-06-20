@@ -64,97 +64,118 @@ public class TranscodeService : ITranscodeService
         }
 
         var encoder = GetH264Encoder(ffmpeg);
-        var args = BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, encoder,
-            $"-movflags frag_keyframe+empty_moov -f mp4 pipe:1");
+        const string outputContainer = "-movflags frag_keyframe+empty_moov -f mp4 pipe:1";
 
         await _transcodeSemaphore.WaitAsync(ct);
-        var released = false;
+        var ownedByStream = false;
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = ffmpeg,
-                Arguments = args,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var stream = await TrySpawnTranscodeAsync(
+                ffmpeg, BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, encoder, outputContainer), encoder, inputPath, ct);
 
-            var process = Process.Start(psi);
-            if (process == null)
+            // A hardware-encoder pipeline can fail at runtime even after probing OK — e.g. an NVENC
+            // session-limit exhaustion (NV_ENC_ERR_OUT_OF_MEMORY) when previews are generating on the
+            // same GPU, or a driver/NVENC-library mismatch (NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY). Whatever
+            // the cause, fall back to libx264 so playback still works instead of returning an error.
+            if (stream == null && encoder != "libx264" && !ct.IsCancellationRequested)
             {
-                _transcodeSemaphore.Release();
-                return null;
+                _logger.LogWarning("Live transcode with {Encoder} failed for {Input}; retrying with libx264.", encoder, inputPath);
+                stream = await TrySpawnTranscodeAsync(
+                    ffmpeg, BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, "libx264", outputContainer), "libx264", inputPath, ct);
             }
 
-            // Drain stderr continuously into a capped buffer. This both prevents the stderr pipe
-            // from filling (which would deadlock ffmpeg) and lets us report the real error if the
-            // encode fails to produce output.
-            var stderr = new StringBuilder();
-            _ = Task.Run(async () =>
+            if (stream != null)
             {
-                try
-                {
-                    var buffer = new char[4096];
-                    int n;
-                    while ((n = await process.StandardError.ReadAsync(buffer, ct)) > 0)
-                        lock (stderr) { if (stderr.Length < 8192) stderr.Append(buffer, 0, n); }
-                }
-                catch { /* process exited / cancelled */ }
-            }, ct);
-
-            ct.Register(() => { try { process.Kill(true); } catch { } });
-
-            // Read the first chunk before handing the stream to the HTTP layer. A broken pipeline
-            // (the classic NVENC "Impossible to convert between formats" when GPU surfaces meet a
-            // software filter/encoder) exits immediately with no output — without this peek the
-            // controller would commit a 200 wrapping an already-dead stream, so playback silently
-            // fails with no diagnosable status. Surfacing it as null lets the controller return 5xx.
-            var stdout = process.StandardOutput.BaseStream;
-            var prefix = new byte[64 * 1024];
-            int read;
-            using (var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-            {
-                readCts.CancelAfter(FirstByteTimeout);
-                try
-                {
-                    read = await stdout.ReadAsync(prefix, readCts.Token);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    try { process.Kill(true); } catch { }
-                    _logger.LogWarning(
-                        "Transcode produced no output within {Timeout}s for {Input} (encoder {Encoder}). ffmpeg: {Error}",
-                        FirstByteTimeout.TotalSeconds, inputPath, encoder, Tail(stderr));
-                    _transcodeSemaphore.Release();
-                    return null;
-                }
+                // Ownership of the semaphore passes to the stream wrapper, which releases it (and kills
+                // the process) when the HTTP response finishes consuming the stream.
+                ownedByStream = true;
+                return stream;
             }
 
-            if (read == 0)
-            {
-                try { await process.WaitForExitAsync(ct); } catch { }
-                var exit = process.HasExited ? process.ExitCode : -1;
-                _logger.LogWarning(
-                    "Transcode failed (exit {Code}) for {Input} (encoder {Encoder}). " +
-                    "If hardware acceleration is enabled, verify it works on this host. ffmpeg: {Error}",
-                    exit, inputPath, encoder, Tail(stderr));
-                try { process.Kill(true); } catch { }
-                _transcodeSemaphore.Release();
-                return null;
-            }
-
-            // Ownership of the semaphore passes to the stream wrapper, which releases it (and kills
-            // the process) when the HTTP response finishes consuming the stream.
-            released = true;
-            return new PrefixedReleasingStream(prefix, read, stdout, process, _transcodeSemaphore);
+            _transcodeSemaphore.Release();
+            return null;
         }
         catch
         {
-            if (!released) _transcodeSemaphore.Release();
+            if (!ownedByStream) _transcodeSemaphore.Release();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Spawns an ffmpeg transcode and reads the first output chunk to confirm the pipeline actually
+    /// produces data. A broken pipeline (e.g. the old NVENC "Impossible to convert between formats" when
+    /// GPU surfaces meet a software filter, or an NVENC session-limit failure) exits immediately with no
+    /// output; reading the first chunk catches that before the controller commits a 200 wrapping a dead
+    /// stream. Returns a stream that owns the process + transcode semaphore (releasing both on dispose)
+    /// on success, or null on failure — the caller decides whether to retry, release the semaphore, or
+    /// surface the error. This method never releases the semaphore itself.
+    /// </summary>
+    private async Task<Stream?> TrySpawnTranscodeAsync(string ffmpeg, string args, string encoder, string inputPath, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            Arguments = args,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var process = Process.Start(psi);
+        if (process == null)
+            return null;
+
+        // Drain stderr continuously into a capped buffer. This both prevents the stderr pipe from
+        // filling (which would deadlock ffmpeg) and lets us report the real error if the encode fails.
+        var stderr = new StringBuilder();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var buffer = new char[4096];
+                int n;
+                while ((n = await process.StandardError.ReadAsync(buffer, ct)) > 0)
+                    lock (stderr) { if (stderr.Length < 8192) stderr.Append(buffer, 0, n); }
+            }
+            catch { /* process exited / cancelled */ }
+        }, ct);
+
+        ct.Register(() => { try { process.Kill(true); } catch { } });
+
+        var stdout = process.StandardOutput.BaseStream;
+        var prefix = new byte[64 * 1024];
+        int read;
+        using (var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            readCts.CancelAfter(FirstByteTimeout);
+            try
+            {
+                read = await stdout.ReadAsync(prefix, readCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                try { process.Kill(true); } catch { }
+                _logger.LogWarning(
+                    "Transcode produced no output within {Timeout}s for {Input} (encoder {Encoder}). ffmpeg: {Error}",
+                    FirstByteTimeout.TotalSeconds, inputPath, encoder, Tail(stderr));
+                return null;
+            }
+        }
+
+        if (read == 0)
+        {
+            try { await process.WaitForExitAsync(ct); } catch { }
+            var exit = process.HasExited ? process.ExitCode : -1;
+            _logger.LogWarning(
+                "Transcode failed (exit {Code}) for {Input} (encoder {Encoder}). ffmpeg: {Error}",
+                exit, inputPath, encoder, Tail(stderr));
+            try { process.Kill(true); } catch { }
+            return null;
+        }
+
+        return new PrefixedReleasingStream(prefix, read, stdout, process, _transcodeSemaphore);
     }
 
     public async Task<string?> GenerateHlsManifestAsync(int videoId, string inputPath, string? resolution, CancellationToken ct = default)
@@ -243,14 +264,12 @@ public class TranscodeService : ITranscodeService
 
         // Input/decode args: software by default; honor an explicit override and add any encoder
         // device setup (e.g. the VAAPI render node).
-        var decodeArgs = !string.IsNullOrWhiteSpace(_config.LiveTranscodeInputArgs)
-            ? _config.LiveTranscodeInputArgs!
-            : (!string.IsNullOrWhiteSpace(_config.TranscodeInputArgs) ? _config.TranscodeInputArgs! : string.Empty);
+        var decodeArgs = !string.IsNullOrWhiteSpace(_config.FfmpegInputArgs) ? _config.FfmpegInputArgs! : string.Empty;
         var inputArgs = Join(FfmpegHwAccel.InputArgsForEncoder(encoder), decodeArgs);
 
         // Encode args: full user override if provided, else encoder-correct constant-quality args.
-        var encodeArgs = !string.IsNullOrWhiteSpace(_config.LiveTranscodeOutputArgs)
-            ? _config.LiveTranscodeOutputArgs!
+        var encodeArgs = !string.IsNullOrWhiteSpace(_config.FfmpegOutputArgs)
+            ? _config.FfmpegOutputArgs!
             : $"{FfmpegHwAccel.VideoEncodeArgs(encoder, 23, "veryfast")} -c:a aac -b:a 128k";
 
         var seekArgs = startSeconds > 0
@@ -284,11 +303,11 @@ public class TranscodeService : ITranscodeService
     /// a Settings change takes effect without a restart and without re-probing on every request.</summary>
     private string GetH264Encoder(string ffmpegPath)
     {
-        var fingerprint = $"{ffmpegPath}|{_config.TranscodeHardwareAcceleration}";
+        var fingerprint = $"{ffmpegPath}|{_config.HardwareAcceleration}";
         lock (_encoderLock)
         {
             if (_encoder != null && _encoderFingerprint == fingerprint) return _encoder;
-            _encoder = FfmpegHwAccel.SelectH264Encoder(ffmpegPath, _config.TranscodeHardwareAcceleration, _logger);
+            _encoder = FfmpegHwAccel.SelectH264Encoder(ffmpegPath, _config.HardwareAcceleration, _logger);
             _encoderFingerprint = fingerprint;
             return _encoder;
         }
