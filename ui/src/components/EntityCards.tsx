@@ -9,6 +9,7 @@ import { BookOpenText, Building2, FileText, Fingerprint, FolderOpen, GripVertica
 import { createRouteLinkProps, createNestedRouteLinkProps } from "./cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { faceDisplayName } from "../utils/faceDisplay";
 import { getAudioDisplayTitle, getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
 import { BookmarkButton } from "./BookmarkButton";
@@ -1317,7 +1318,7 @@ interface GalleryTileProps {
 
 export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting, bookmarkInitiallySaved }: GalleryTileProps & { engagement?: EntityEngagement }) {
   const hasFooter = gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
-  const title = gallery.title || "Untitled";
+  const title = getGalleryDisplayTitle(gallery);
   const galleryCoverSrc = gallery.coverPath ?? galleries.coverUrl(gallery.id, gallery.updatedAt, 960);
 
   return (

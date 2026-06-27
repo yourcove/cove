@@ -697,6 +697,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
             posterUrl={videos.screenshotUrl(video.id, video.updatedAt)}
             format={file.format}
             duration={file.duration}
+            audioCodec={file.audioCodec}
             resumeTime={effectiveResumeTime}
             videoId={video.id}
             detections={detections}
@@ -2128,8 +2129,8 @@ function VideoEditPanel({ video, onSaved }: { video: Video; onSaved: () => void 
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
-    mutation.mutate({ title: title || undefined, code: code || undefined, details: details || undefined,
-      director: director || undefined, date: date || undefined, isVr, rating, studioId,
+    mutation.mutate({ title: title, code: code, details: details,
+      director: director, date: date || undefined, isVr, rating, studioId,
       urls: urlList, remoteIds: normalizeRemoteIds(remoteIds), customFields,
       tagIds: selectedTagIds, performerIds: selectedPerformerIds, galleryIds: selectedGalleryIds, groups: selectedGroups });
   };

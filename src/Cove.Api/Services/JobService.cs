@@ -209,8 +209,11 @@ public class JobService : IJobService, IHostedService
 
                 _logger.LogInformation("Job {JobId} completed with status {Status}", entry.Id, entry.Status);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (entry.Cts?.IsCancellationRequested == true)
             {
+                // Cancellation triggered by this job's own token (user cancel or host shutdown). This is a
+                // normal, graceful stop — mark the job cancelled rather than letting the exception bubble out
+                // of the queue processor (which would tear down the background processor loop / host).
                 entry.Status = JobStatus.Cancelled;
                 entry.CompletedAt = DateTime.UtcNow;
                 _logger.LogInformation("Job {JobId} cancelled", entry.Id);
@@ -245,8 +248,9 @@ public class JobService : IJobService, IHostedService
             FinalizeSuccessfulWork(entry);
             _logger.LogInformation("Concurrent job {JobId} completed", entry.Id);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (entry.Cts?.IsCancellationRequested == true)
         {
+            // Graceful cancellation via this job's own token; mark cancelled instead of failing.
             entry.Status = JobStatus.Cancelled;
             entry.CompletedAt = DateTime.UtcNow;
             _logger.LogInformation("Concurrent job {JobId} cancelled", entry.Id);

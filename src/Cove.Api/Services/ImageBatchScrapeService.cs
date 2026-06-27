@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
@@ -93,10 +94,18 @@ public class ImageBatchScrapeService(
                             null),
                         token);
 
-                    if (string.Equals(attempt.Status, "Failure", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(attempt.Status, ScrapeAttemptStatuses.NoMatch, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Expected "title isn't on this site" outcome - report as skipped, not failed.
+                        Interlocked.Increment(ref skipped);
+                        issues.Enqueue($"{label}: {attempt.Error ?? "no match found."}");
+                        return;
+                    }
+
+                    if (string.Equals(attempt.Status, ScrapeAttemptStatuses.Failure, StringComparison.OrdinalIgnoreCase))
                     {
                         Interlocked.Increment(ref failed);
-                        issues.Enqueue($"{label}: {attempt.Error ?? "scrape returned no results."}");
+                        issues.Enqueue($"{label}: {attempt.Error ?? "scrape failed."}");
                         return;
                     }
 
@@ -123,7 +132,7 @@ public class ImageBatchScrapeService(
                         return;
                     }
 
-                    if (string.Equals(appliedAttempt.Status, "AppliedPartial", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(appliedAttempt.Status, ScrapeAttemptStatuses.AppliedPartial, StringComparison.OrdinalIgnoreCase))
                         Interlocked.Increment(ref partialApplied);
                     else
                         Interlocked.Increment(ref applied);

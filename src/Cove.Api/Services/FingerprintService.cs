@@ -511,34 +511,45 @@ public class FingerprintService(
 
             await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (item, token) =>
             {
-                logger.LogDebug("Computing pHash for file {FileId}: {Path} (duration={Duration:F1}s)",
-                    item.FileId, item.Path, item.Duration);
-
-                var phash = await ComputeVideoPhashAsync(item.Path, item.Duration, token);
-
-                if (!string.IsNullOrWhiteSpace(phash))
+                try
                 {
-                    logger.LogDebug("Computed pHash for file {FileId}: {Phash}", item.FileId, phash);
-                    using var innerScope = scopeFactory.CreateScope();
-                    var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                    var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
-                    if (existing == null)
+                    logger.LogDebug("Computing pHash for file {FileId}: {Path} (duration={Duration:F1}s)",
+                        item.FileId, item.Path, item.Duration);
+
+                    var phash = await ComputeVideoPhashAsync(item.Path, item.Duration, token);
+
+                    if (!string.IsNullOrWhiteSpace(phash))
                     {
-                        innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
-                        await innerDb.SaveChangesAsync(token);
-                        logger.LogDebug("Saved pHash for file {FileId}", item.FileId);
+                        logger.LogDebug("Computed pHash for file {FileId}: {Phash}", item.FileId, phash);
+                        using var innerScope = scopeFactory.CreateScope();
+                        var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                        var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
+                        if (existing == null)
+                        {
+                            innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
+                            await innerDb.SaveChangesAsync(token);
+                            logger.LogDebug("Saved pHash for file {FileId}", item.FileId);
+                        }
                     }
-                }
-                else
-                {
-                    Interlocked.Increment(ref failed);
-                    logger.LogWarning("No pHash produced for file {FileId}: {Path}", item.FileId, item.Path);
-                }
+                    else
+                    {
+                        Interlocked.Increment(ref failed);
+                        logger.LogWarning("No pHash produced for file {FileId}: {Path}", item.FileId, item.Path);
+                    }
 
-                var done = Interlocked.Increment(ref completed);
-                if (done % milestoneEvery == 0 || done == workItems.Count)
-                    logger.LogInformation("Video pHash progress: {Done}/{Total} files processed", done, workItems.Count);
-                progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
+                    var done = Interlocked.Increment(ref completed);
+                    if (done % milestoneEvery == 0 || done == workItems.Count)
+                        logger.LogInformation("Video pHash progress: {Done}/{Total} files processed", done, workItems.Count);
+                    progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    // Job was cancelled mid-item. Swallow quietly so Parallel.ForEachAsync ends the loop via
+                    // its own CancellationToken (raising a single OperationCanceledException) rather than
+                    // surfacing this as an unobserved per-worker exception. The inner scope/DbContext above is
+                    // disposed by its `using` even on this path.
+                    logger.LogDebug("Video pHash computation cancelled for file {FileId}", item.FileId);
+                }
             });
 
             logger.LogInformation("Video pHash generation finished: {Total} files processed, {Failed} without a pHash",
@@ -583,23 +594,33 @@ public class FingerprintService(
 
             await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (item, token) =>
             {
-                var phash = await ComputeImagePhashAsync(item.Path, token);
-                if (!string.IsNullOrWhiteSpace(phash))
+                try
                 {
-                    using var innerScope = scopeFactory.CreateScope();
-                    var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
-                    var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
-                    if (existing == null)
+                    var phash = await ComputeImagePhashAsync(item.Path, token);
+                    if (!string.IsNullOrWhiteSpace(phash))
                     {
-                        innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
-                        await innerDb.SaveChangesAsync(token);
+                        using var innerScope = scopeFactory.CreateScope();
+                        var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                        var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
+                        if (existing == null)
+                        {
+                            innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
+                            await innerDb.SaveChangesAsync(token);
+                        }
                     }
-                }
 
-                var done = Interlocked.Increment(ref completed);
-                if (done % milestoneEvery == 0 || done == workItems.Count)
-                    logger.LogInformation("Image pHash progress: {Done}/{Total} files processed", done, workItems.Count);
-                progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
+                    var done = Interlocked.Increment(ref completed);
+                    if (done % milestoneEvery == 0 || done == workItems.Count)
+                        logger.LogInformation("Image pHash progress: {Done}/{Total} files processed", done, workItems.Count);
+                    progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    // Job cancelled mid-item: swallow so the loop ends via its own CancellationToken rather
+                    // than as an unobserved per-worker exception. The inner scope/DbContext is disposed by
+                    // its `using` even on this path.
+                    logger.LogDebug("Image pHash computation cancelled for file {FileId}", item.FileId);
+                }
             });
 
             logger.LogInformation("Finished generating image pHashes for {Count} files", workItems.Count);

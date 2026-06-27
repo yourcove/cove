@@ -139,11 +139,11 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (gallery == null) return NotFound();
         var previousTagIds = dto.TagIds != null ? gallery.GalleryTags.Select(galleryTag => galleryTag.TagId).ToArray() : [];
 
-        if (dto.Title != null) gallery.Title = dto.Title;
-        if (dto.Code != null) gallery.Code = dto.Code;
+        if (dto.Title != null) gallery.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
+        if (dto.Code != null) gallery.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
         if (dto.Date != null) gallery.Date = ParseDate(dto.Date);
-        if (dto.Details != null) gallery.Details = dto.Details;
-        if (dto.Photographer != null) gallery.Photographer = dto.Photographer;
+        if (dto.Details != null) gallery.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
+        if (dto.Photographer != null) gallery.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
         if (dto.Organized.HasValue) gallery.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) gallery.StudioId = dto.StudioId;
 
@@ -249,7 +249,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             fieldProvenance);
     }
 
-    private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null, string? displayName = null) => new(
         g.Id, g.Title, g.Code, g.Date?.ToString("yyyy-MM-dd"), g.Details, g.Photographer,
         g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
@@ -266,8 +266,35 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         ResolveCoverPath(g, imageCount, videoCount),
         g.CoverImageId,
         g.BackImageBlobId != null ? EntityImageUrls.GalleryBackCover(ControllerContext.HttpContext, g.Id, g.UpdatedAt) : null,
-        fieldProvenance
+        fieldProvenance,
+        displayName ?? ResolveGalleryDisplayName(g)
     );
+
+    /// <summary>
+    /// Filename/folder-name fallback used when a gallery has no Title (scan no longer stores the
+    /// filename). Prefers a loaded zip-gallery file basename, else the folder name. Returns null when
+    /// the gallery has neither files nor a folder loaded (e.g. list view, where the caller supplies a
+    /// precomputed value instead). Only the leaf name is returned, never a full path.
+    /// </summary>
+    private static string? ResolveGalleryDisplayName(Gallery g)
+    {
+        var fileBasename = g.Files?
+            .Select(f => string.IsNullOrWhiteSpace(f.Basename) ? LeafName(f.Path) : f.Basename)
+            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+        if (!string.IsNullOrWhiteSpace(fileBasename))
+            return fileBasename;
+
+        var folderPath = g.Folder?.Path;
+        return string.IsNullOrWhiteSpace(folderPath) ? null : LeafName(folderPath);
+    }
+
+    private static string? LeafName(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var normalized = path.Replace('\\', '/').TrimEnd('/');
+        var idx = normalized.LastIndexOf('/');
+        return idx >= 0 ? normalized[(idx + 1)..] : normalized;
+    }
 
     /// <summary>Resolve cover image URL through the unified gallery cover endpoint.</summary>
     private string? ResolveCoverPath(Gallery g, int? imageCount = null, int? videoCount = null)
@@ -292,11 +319,13 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var ids = items.Select(item => item.Id).ToArray();
         var customFieldValues = await _customFields.GetValuesAsync(CustomFieldEntityTypes.Gallery, ids, ct);
         var relationshipCounts = await GetRelationshipCountsAsync(ids, ct);
+        var displayNames = await GetDisplayNameFallbacksAsync(ids, ct);
         return items.Select(g => MapToDto(
             g,
             GetCustomFields(customFieldValues, g.Id),
             GetRelationshipCount(relationshipCounts.ImageCounts, g.Id),
-            GetRelationshipCount(relationshipCounts.VideoCounts, g.Id))).ToList();
+            GetRelationshipCount(relationshipCounts.VideoCounts, g.Id),
+            displayName: displayNames.GetValueOrDefault(g.Id))).ToList();
     }
 
     private async Task<GalleryRelationshipCounts> GetRelationshipCountsAsync(IReadOnlyCollection<int> galleryIds, CancellationToken ct)
@@ -323,6 +352,57 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
     private static int GetRelationshipCount(IReadOnlyDictionary<int, int> counts, int galleryId)
         => counts.TryGetValue(galleryId, out var count) ? count : 0;
+
+    /// <summary>
+    /// Lightweight per-gallery display fallback for the list view, which does not load the Files or
+    /// Folder navigations. Loads only one file basename/path and the folder path per gallery (not the
+    /// whole file graph), preferring a zip-gallery file basename, else the folder name.
+    /// </summary>
+    private async Task<Dictionary<int, string>> GetDisplayNameFallbacksAsync(IReadOnlyCollection<int> galleryIds, CancellationToken ct)
+    {
+        var result = new Dictionary<int, string>();
+        if (galleryIds.Count == 0)
+            return result;
+
+        // First file (by id) per gallery — just basename/path, not the file graph. Fetch the minimal
+        // ordered rows and pick the first per gallery client-side (EF can't translate a grouped First
+        // projection here), so each gallery contributes only its earliest file.
+        var fileRows = await db.Set<GalleryFile>()
+            .AsNoTracking()
+            .Where(f => f.GalleryId != null && galleryIds.Contains(f.GalleryId.Value))
+            .OrderBy(f => f.Id)
+            .Select(f => new { GalleryId = f.GalleryId!.Value, f.Basename, f.Path })
+            .ToListAsync(ct);
+
+        foreach (var row in fileRows)
+        {
+            if (result.ContainsKey(row.GalleryId))
+                continue;
+            var name = string.IsNullOrWhiteSpace(row.Basename) ? LeafName(row.Path) : row.Basename;
+            if (!string.IsNullOrWhiteSpace(name))
+                result[row.GalleryId] = name!;
+        }
+
+        // Folder-based galleries with no files: fall back to the folder name.
+        var missingIds = galleryIds.Where(id => !result.ContainsKey(id)).ToArray();
+        if (missingIds.Length > 0)
+        {
+            var folderRows = await db.Galleries
+                .AsNoTracking()
+                .Where(g => missingIds.Contains(g.Id) && g.Folder != null)
+                .Select(g => new { g.Id, FolderPath = g.Folder!.Path })
+                .ToListAsync(ct);
+
+            foreach (var row in folderRows)
+            {
+                var name = LeafName(row.FolderPath);
+                if (!string.IsNullOrWhiteSpace(name))
+                    result[row.Id] = name!;
+            }
+        }
+
+        return result;
+    }
 
     private static Dictionary<string, object>? GetCustomFields(IReadOnlyDictionary<int, Dictionary<string, object>> lookup, int id)
         => lookup.TryGetValue(id, out var values) && values.Count > 0 ? values : null;
@@ -444,9 +524,9 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             if (dto.Organized.HasValue) gallery.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) gallery.StudioId = dto.StudioId;
             if (dto.Date != null) gallery.Date = ParseDate(dto.Date);
-            if (dto.Code != null) gallery.Code = dto.Code;
-            if (dto.Details != null) gallery.Details = dto.Details;
-            if (dto.Photographer != null) gallery.Photographer = dto.Photographer;
+            if (dto.Code != null) gallery.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
+            if (dto.Details != null) gallery.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
+            if (dto.Photographer != null) gallery.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
 
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {

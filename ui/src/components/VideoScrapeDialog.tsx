@@ -58,6 +58,20 @@ function statusTone(status: string) {
   }
 }
 
+// An attempt only carries a reviewable result when it succeeded (or was already
+// applied). "failure" and "nomatch" (404 / no result) attempts must never be
+// auto-selected as if they were a usable scrape result.
+function isUsableAttempt(status: string) {
+  switch (status.toLowerCase()) {
+    case "success":
+    case "applied":
+    case "appliedpartial":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function upsertReplaceField(current: string[], field: string, enabled: boolean) {
   if (enabled) {
     return current.includes(field) ? current : [...current, field];
@@ -180,14 +194,24 @@ export function VideoScrapeDialog({ open, onClose, video, initialScraperId, init
       return;
     }
 
-    if (autoRunKey != null && autoRunConsumedKey !== autoRunKey) {
+    // Batch review (autoRunKey present) always runs a fresh title-scrape per
+    // video. Auto-selecting a previous attempt here is what blocked the fresh
+    // scrape from running and surfaced a stale/failed/empty result, so skip it
+    // entirely in the batch context and let the autoRun effect drive selection.
+    if (autoRunKey != null) {
       return;
     }
 
-    if (!selectedAttempt && recentAttempts.length > 0) {
-      setSelectedAttempt(recentAttempts[0] ?? null);
+    // Single-video review: pre-select the most recent attempt on open, but only
+    // if it actually carries a reviewable result. A failure/nomatch attempt
+    // would otherwise show the empty state instead of an actionable review.
+    if (!selectedAttempt) {
+      const usable = recentAttempts.find((attempt) => isUsableAttempt(attempt.status));
+      if (usable) {
+        setSelectedAttempt(usable);
+      }
     }
-  }, [autoRunConsumedKey, autoRunKey, open, recentAttempts, selectedAttempt]);
+  }, [autoRunKey, open, recentAttempts, selectedAttempt]);
 
   useEffect(() => {
     if (!open) {

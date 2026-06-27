@@ -288,6 +288,7 @@ export function CompilationPlayer({
             streamUrl={videos.streamUrl(currentVideoId)}
             posterUrl={item.posterPath ?? videos.screenshotUrl(currentVideoId)}
             format={currentFile.format}
+            audioCodec={currentFile.audioCodec}
             duration={currentFile.duration}
             resumeTime={item.startSec}
             videoId={currentVideoId}

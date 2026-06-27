@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Buildin
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { readAuthenticatedUserHomePageContent, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
+import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -624,7 +625,7 @@ function GalleryRecommendationCard({ gallery, engagement, onNavigate }: { galler
         <RatingBanner rating={rating} />
       </div>
       <div className="px-2 py-1.5">
-        <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{gallery.title || "Untitled"}</p>
+        <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{getGalleryDisplayTitle(gallery)}</p>
         {gallery.date && <p className="text-xs text-muted">{gallery.date}</p>}
       </div>
     </a>

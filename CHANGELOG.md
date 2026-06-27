@@ -8,6 +8,18 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.7.0] - 2026-06-27
+
+- Scan title fix
+- Batch scrape fixes
+- Generate cancel fix
+- Timeout error resilience
+- Orphaned file fix/improvements
+- Face thumbnail fixes
+- Audio playback fixes 
+- Player cursor goes invisible on inactivity in full screen
+- Video buffering fix
+
 ## [0.6.2] - 2026-06-20
 
 - More ffmpeg fixes

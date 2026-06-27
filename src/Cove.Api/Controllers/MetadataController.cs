@@ -1132,32 +1132,89 @@ public class MetadataController(
                             matches = orderedMatches;
                         }
 
+                        logger.LogDebug(
+                            "Identify video {VideoId}: metadata servers returned {MatchCount} candidate match(es)",
+                            video.Id, matches.Count);
+
                         if (matches.Count > 0)
                         {
-                            var rankedMatches = matches
-                                .Select(match => new
+                            // Evaluate every candidate once, capturing its scores and whether it cleared
+                            // the auto-apply thresholds (and which guard rejected it). This is purely for
+                            // diagnostics; the ranking/selection below is unchanged.
+                            var evaluatedCandidates = matches
+                                .Select(match =>
                                 {
-                                    Match = match,
-                                    DurationDifferenceSeconds = GetDurationDifferenceSeconds(video, match),
-                                    PhashDistance = GetBestPhashDistance(video, match),
+                                    var durationDifferenceSeconds = GetDurationDifferenceSeconds(video, match);
+                                    var phashDistance = GetBestPhashDistance(video, match);
+                                    var passed = MeetsIdentifyAutoApplyThresholds(match.MatchCount, durationDifferenceSeconds, phashDistance, identifyDefaults, out var failureReason);
+                                    return new
+                                    {
+                                        Match = match,
+                                        DurationDifferenceSeconds = durationDifferenceSeconds,
+                                        PhashDistance = phashDistance,
+                                        Passed = passed,
+                                        FailureReason = failureReason,
+                                    };
                                 })
-                                .Where(candidate => MeetsIdentifyAutoApplyThresholds(candidate.Match.MatchCount, candidate.DurationDifferenceSeconds, candidate.PhashDistance, identifyDefaults))
+                                .ToList();
+
+                            foreach (var candidate in evaluatedCandidates)
+                            {
+                                logger.LogDebug(
+                                    "Identify video {VideoId}: candidate {CandidateId} '{CandidateTitle}' from {Endpoint} ({ServerName}) - matchCount={MatchCount}, durationDiff={DurationDiff}, phashDistance={PhashDistance} => {Result}{FailureSuffix}",
+                                    video.Id,
+                                    candidate.Match.Id,
+                                    candidate.Match.Title,
+                                    candidate.Match.Endpoint,
+                                    candidate.Match.MetadataServerName,
+                                    candidate.Match.MatchCount,
+                                    candidate.DurationDifferenceSeconds,
+                                    candidate.PhashDistance,
+                                    candidate.Passed ? "PASSED" : "FAILED",
+                                    candidate.Passed ? string.Empty : $" ({candidate.FailureReason})");
+                            }
+
+                            var rankedMatches = evaluatedCandidates
+                                .Where(candidate => candidate.Passed)
                                 .OrderBy(candidate => sourceOrder != null && sourceOrder.TryGetValue(candidate.Match.Endpoint, out var index) ? index : int.MaxValue)
                                 .ThenByDescending(candidate => candidate.Match.MatchCount)
                                 .ThenBy(candidate => candidate.PhashDistance ?? int.MaxValue)
                                 .ThenBy(candidate => candidate.DurationDifferenceSeconds ?? double.MaxValue)
-                                .Select(candidate => candidate.Match)
                                 .ToList();
 
                             if (rankedMatches.Count == 0)
+                            {
+                                logger.LogDebug(
+                                    "Identify video {VideoId}: {MatchCount} candidate(s) returned, 0 passed thresholds",
+                                    video.Id, matches.Count);
                                 continue;
+                            }
 
                             // Skip multiple matches only when explicitly requested. By default we
                             // apply the top-ranked candidate rather than skipping the whole video.
                             if ((opts?.SkipMultipleMatches ?? false) && rankedMatches.Count > 1)
+                            {
+                                logger.LogDebug(
+                                    "Identify video {VideoId}: skipping because {PassedCount} candidates passed thresholds and SkipMultipleMatches is enabled",
+                                    video.Id, rankedMatches.Count);
                                 continue;
+                            }
 
-                            var best = rankedMatches[0];
+                            var bestCandidate = rankedMatches[0];
+                            var best = bestCandidate.Match;
+                            logger.LogInformation(
+                                "Identify video {VideoId}: selected candidate {CandidateId} '{CandidateTitle}' from {Endpoint} ({ServerName}) - matchCount={MatchCount}, durationDiff={DurationDiff}, phashDistance={PhashDistance} (best of {PassedCount} passing of {TotalCount} returned)",
+                                video.Id,
+                                best.Id,
+                                best.Title,
+                                best.Endpoint,
+                                best.MetadataServerName,
+                                best.MatchCount,
+                                bestCandidate.DurationDifferenceSeconds,
+                                bestCandidate.PhashDistance,
+                                rankedMatches.Count,
+                                matches.Count);
+
                             await metadataServerSvc.MergeVideoAsync(video, best.Endpoint, best.Id, importConfig, ct);
                             await dbCtx.SaveChangesAsync(ct);
                         }
@@ -1199,14 +1256,24 @@ public class MetadataController(
     }
 
     private static bool MeetsIdentifyAutoApplyThresholds(int matchCount, double? durationDifferenceSeconds, int? phashDistance, IdentifyDefaultsConfig identifyDefaults)
+        => MeetsIdentifyAutoApplyThresholds(matchCount, durationDifferenceSeconds, phashDistance, identifyDefaults, out _);
+
+    // Same threshold logic, but also reports which specific guard rejected the candidate so the
+    // identify loop can log it. The boolean result is identical to the parameterless overload.
+    private static bool MeetsIdentifyAutoApplyThresholds(int matchCount, double? durationDifferenceSeconds, int? phashDistance, IdentifyDefaultsConfig identifyDefaults, out string? failureReason)
     {
+        failureReason = null;
+
         // Primary signal: require enough matching fingerprint submissions. MatchCount already
         // counts oshash, md5, and phash (incl. close phash) matches, so this works for metadata
         // servers that don't publish phashes.
         if (identifyDefaults.AutoApplyMinFingerprintMatches is int minFingerprintMatches)
         {
             if (matchCount < minFingerprintMatches)
+            {
+                failureReason = $"matchCount {matchCount} < AutoApplyMinFingerprintMatches {minFingerprintMatches}";
                 return false;
+            }
         }
 
         // Secondary guard: only reject when both durations are known and disagree by more than the
@@ -1214,14 +1281,20 @@ public class MetadataController(
         if (identifyDefaults.AutoApplyMaxDurationDifferenceSeconds is int maxDurationDifferenceSeconds)
         {
             if (durationDifferenceSeconds.HasValue && durationDifferenceSeconds.Value > maxDurationDifferenceSeconds)
+            {
+                failureReason = $"durationDiff {durationDifferenceSeconds.Value:0.##}s > AutoApplyMaxDurationDifferenceSeconds {maxDurationDifferenceSeconds}";
                 return false;
+            }
         }
 
         // Optional phash tightness guard: only applies when a phash distance is actually computable.
         if (identifyDefaults.AutoApplyMaxPhashDistance is int maxPhashDistance)
         {
             if (phashDistance.HasValue && phashDistance.Value > maxPhashDistance)
+            {
+                failureReason = $"phashDistance {phashDistance.Value} > AutoApplyMaxPhashDistance {maxPhashDistance}";
                 return false;
+            }
         }
 
         return true;

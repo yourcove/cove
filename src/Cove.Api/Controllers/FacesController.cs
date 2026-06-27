@@ -212,13 +212,15 @@ public class FacesController(
             logger.LogDebug("Faces.List (filtered) DB query: {Ms}ms (page={Count}, total={TotalMs}ms)", phaseSw.ElapsedMilliseconds, filteredPage.Count, totalSw.ElapsedMilliseconds);
             var filteredComputedCounts = await LoadComputedCountsAsync(filteredPage.Select(face => face.Id).ToArray(), cancellationToken);
             var filteredOrdinals = await LoadPerformerFaceOrdinalsAsync(filteredPage, cancellationToken);
+            var filteredCoverFallbacks = await LoadFaceCoverFallbackUrlsAsync(filteredPage, cancellationToken);
 
             return Ok(new PaginatedResponse<FaceDto>(
                 filteredPage.Select(face => MapToDto(
                     face,
                     filteredComputedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
                     MapStoredTopSuggestion(face),
-                    performerFaceOrdinal: filteredOrdinals.TryGetValue(face.Id, out var ord) ? ord : null)).ToList(),
+                    performerFaceOrdinal: filteredOrdinals.TryGetValue(face.Id, out var ord) ? ord : null,
+                    coverFallbackUrl: filteredCoverFallbacks.GetValueOrDefault(face.Id))).ToList(),
                 totalFilteredCount,
                 page,
                 perPage));
@@ -238,6 +240,7 @@ public class FacesController(
 
         var computedCounts = await LoadComputedCountsAsync(items.Select(face => face.Id).ToArray(), cancellationToken);
         var ordinals = await LoadPerformerFaceOrdinalsAsync(items, cancellationToken);
+        var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(items, cancellationToken);
         logger.LogDebug("Faces.List total: {Ms}ms", totalSw.ElapsedMilliseconds);
 
         return Ok(new PaginatedResponse<FaceDto>(
@@ -245,7 +248,8 @@ public class FacesController(
                 face,
                 computedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
                 MapStoredTopSuggestion(face),
-                performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null)).ToList(),
+                performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null,
+                coverFallbackUrl: coverFallbacks.GetValueOrDefault(face.Id))).ToList(),
             totalCount,
             page,
             perPage));
@@ -462,10 +466,12 @@ public class FacesController(
 
         var computedCounts = await LoadComputedCountsAsync(faces.Select(face => face.Id).ToArray(), cancellationToken);
         var ordinals = await LoadPerformerFaceOrdinalsAsync(faces, cancellationToken);
+        var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(faces, cancellationToken);
         return Ok(faces.Select(face => MapToDto(
             face,
             computedCounts.GetValueOrDefault(face.Id),
-            performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null)).ToList());
+            performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null,
+            coverFallbackUrl: coverFallbacks.GetValueOrDefault(face.Id))).ToList());
     }
 
     [HttpGet("review/unlinked")]
@@ -486,10 +492,12 @@ public class FacesController(
 
         var computedCounts = await LoadComputedCountsAsync(faces.Select(face => face.Id).ToArray(), cancellationToken);
         var topSuggestions = await BuildTopSuggestionsAsync(faces, cancellationToken);
+        var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(faces, cancellationToken);
         return Ok(faces.Select(face => MapToDto(
             face,
             computedCounts.GetValueOrDefault(face.Id),
-            topSuggestions.GetValueOrDefault(face.Id))).ToList());
+            topSuggestions.GetValueOrDefault(face.Id),
+            coverFallbackUrl: coverFallbacks.GetValueOrDefault(face.Id))).ToList());
     }
 
     [HttpGet("review/ai-run")]
@@ -1444,12 +1452,13 @@ public class FacesController(
 
         var computedCounts = await LoadComputedCountsAsync(faces.Select(face => face.Id).ToArray(), cancellationToken);
         var topSuggestions = await BuildTopSuggestionsAsync(faces, cancellationToken);
+        var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(faces, cancellationToken);
         return faces
             .Where(face => topSuggestions.ContainsKey(face.Id))
             .OrderByDescending(face => topSuggestions[face.Id].Confidence)
             .ThenByDescending(face => face.AppearanceCount)
             .Take(take)
-            .Select(face => MapToDto(face, computedCounts.GetValueOrDefault(face.Id), topSuggestions.GetValueOrDefault(face.Id)))
+            .Select(face => MapToDto(face, computedCounts.GetValueOrDefault(face.Id), topSuggestions.GetValueOrDefault(face.Id), coverFallbackUrl: coverFallbacks.GetValueOrDefault(face.Id)))
             .ToList();
     }
 
@@ -1870,12 +1879,14 @@ public class FacesController(
         performer.ImageBlobId = await blobService.StoreBlobAsync(stream, blob.Value.ContentType, cancellationToken);
     }
 
-    private FaceDto MapToDto(Face face, FaceComputedCounts? computedCounts = null, FaceTopSuggestionDto? topSuggestion = null, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null, (int Index, int Count)? performerFaceOrdinal = null) => new(
+    private FaceDto MapToDto(Face face, FaceComputedCounts? computedCounts = null, FaceTopSuggestionDto? topSuggestion = null, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null, (int Index, int Count)? performerFaceOrdinal = null, string? coverFallbackUrl = null) => new(
         face.Id,
         face.Label,
         face.PerformerId,
         face.Performer?.Name,
-        face.CoverBlobId is null ? null : EntityImageUrls.Face(ControllerContext.HttpContext, face.Id, face.UpdatedAt),
+        face.CoverBlobId is null
+            ? coverFallbackUrl
+            : EntityImageUrls.Face(ControllerContext.HttpContext, face.Id, face.UpdatedAt),
         face.Ignored,
         face.MergedIntoFaceId,
         computedCounts?.DetectionCount ?? face.DetectionCount,
@@ -2045,6 +2056,92 @@ public class FacesController(
         }
 
         return computedCounts;
+    }
+
+    // A face with no stored CoverBlobId still shows an image on its detail page, because the detail hero
+    // falls back to a crop of the face's best detection (see ui buildFaceHeroImageUrls). The faces LIST
+    // only had the cover blob, so those same faces showed the fingerprint placeholder. Mirror the detail
+    // fallback here: for each cover-less face, pick the representative detection (best role, then highest
+    // cover-quality, then score) and expose its crop URL so the list and detail agree. One batched query.
+    private async Task<Dictionary<int, string>> LoadFaceCoverFallbackUrlsAsync(IReadOnlyCollection<Face> faces, CancellationToken cancellationToken)
+    {
+        var coverlessFaceIds = faces
+            .Where(face => string.IsNullOrEmpty(face.CoverBlobId))
+            .Select(face => face.Id)
+            .Distinct()
+            .ToArray();
+        if (coverlessFaceIds.Length == 0)
+            return [];
+
+        var coverlessFaceIdLongs = coverlessFaceIds.Select(static id => (long)id).ToArray();
+        var detections = await db.Detections
+            .AsNoTracking()
+            .Where(detection =>
+                detection.RefId.HasValue &&
+                coverlessFaceIdLongs.Contains(detection.RefId.Value) &&
+                detection.RefKind != null &&
+                detection.RefKind.ToLower() == "face" &&
+                detection.W > 0 &&
+                detection.H > 0 &&
+                detection.Score >= 0.5f)
+            .Select(detection => new
+            {
+                FaceId = (int)detection.RefId!.Value,
+                detection.Id,
+                detection.Score,
+                detection.W,
+                detection.H,
+                detection.FrameWidth,
+                detection.FrameHeight,
+                detection.Extra,
+            })
+            .ToListAsync(cancellationToken);
+
+        var result = new Dictionary<int, string>(coverlessFaceIds.Length);
+        foreach (var group in detections.GroupBy(detection => detection.FaceId))
+        {
+            var best = group
+                .Where(detection =>
+                {
+                    var aspect = detection.H == 0 ? 0f : detection.W / detection.H;
+                    if (aspect < 0.45f || aspect > 1.8f)
+                        return false;
+                    if (detection.FrameWidth <= 0 || detection.FrameHeight <= 0)
+                        return true;
+                    var area = (detection.W * detection.H) / (float)(detection.FrameWidth * detection.FrameHeight);
+                    return area >= 0.005f;
+                })
+                .OrderByDescending(detection => ReadDetectionRoleIsBest(detection.Extra) ? 1 : 0)
+                .ThenByDescending(detection => ReadDetectionCoverQualityScore(detection.Extra))
+                .ThenByDescending(detection => detection.Score)
+                .ThenBy(detection => detection.Id)
+                .FirstOrDefault();
+
+            if (best is not null)
+                result[group.Key] = EntityImageUrls.DetectionCrop(ControllerContext.HttpContext, best.Id);
+        }
+
+        return result;
+    }
+
+    private static bool ReadDetectionRoleIsBest(JsonDocument? extra)
+        => extra is not null
+            && extra.RootElement.ValueKind == JsonValueKind.Object
+            && extra.RootElement.TryGetProperty("role", out var role)
+            && role.ValueKind == JsonValueKind.String
+            && string.Equals(role.GetString(), "best", StringComparison.OrdinalIgnoreCase);
+
+    private static double ReadDetectionCoverQualityScore(JsonDocument? extra)
+    {
+        if (extra is null || extra.RootElement.ValueKind != JsonValueKind.Object || !extra.RootElement.TryGetProperty("coverQualityScore", out var value))
+            return 0;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number => value.GetDouble(),
+            JsonValueKind.String => double.TryParse(value.GetString(), out var parsed) ? parsed : 0,
+            _ => 0,
+        };
     }
 
     private async Task<List<FaceAppearanceDto>> BuildFallbackAppearanceItemsAsync(int faceId, CancellationToken cancellationToken)

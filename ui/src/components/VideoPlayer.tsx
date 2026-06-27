@@ -63,6 +63,21 @@ function getVideoSourceMimeType(format?: string) {
 // smaller transcode-ladder entries are available (e.g. a sub-360p source).
 const SOURCE_TRANSCODE_QUALITY = "Source";
 
+// Audio codecs that browsers generally cannot decode in a direct <video> playback. Files with
+// these codecs play with video but NO audio in Direct mode, and because playback does not error
+// the onError->transcode fallback never fires — so we proactively avoid defaulting to Direct.
+const INCOMPATIBLE_AUDIO_CODECS = new Set(["ac3", "eac3", "ec-3", "dts", "dts-hd", "truehd", "mlp"]);
+
+function isBrowserCompatibleAudio(codec?: string) {
+  const normalized = codec?.trim().toLowerCase();
+  if (!normalized) {
+    // Unknown codec — assume compatible and let the existing onError fallback handle real failures.
+    return true;
+  }
+
+  return !INCOMPATIBLE_AUDIO_CODECS.has(normalized);
+}
+
 function usePersistedFlag(key: string, defaultValue: boolean): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
   const [value, setValue] = useState<boolean>(() => {
     if (typeof window === "undefined") return defaultValue;
@@ -107,6 +122,7 @@ export function VideoPlayer({
   streamUrl,
   posterUrl,
   format,
+  audioCodec,
   duration,
   resumeTime,
   videoId,
@@ -131,6 +147,7 @@ export function VideoPlayer({
   streamUrl: string;
   posterUrl?: string;
   format: string;
+  audioCodec?: string;
   duration: number;
   resumeTime?: number;
   videoId: number;
@@ -171,6 +188,8 @@ export function VideoPlayer({
   const [muted, setMuted] = useState(() => localStorage.getItem(MUTED_KEY) === "true");
   const [fullscreen, setFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [showCursor, setShowCursor] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [showSpeed, setShowSpeed] = useState(false);
   const [rate, setRate] = useState(1);
   const [pip, setPip] = useState(false);
@@ -181,8 +200,13 @@ export function VideoPlayer({
   const [selectedQuality, setSelectedQuality] = useState<string>("Direct");
   const [transcodeStartSec, setTranscodeStartSec] = useState(0);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
+  // Set when we avoid Direct play because the audio codec is browser-incompatible, so we can surface
+  // a subtle note explaining why a transcoded stream was chosen. Reset per video.
+  const [audioFallbackActive, setAudioFallbackActive] = useState(false);
   // Guards the one-shot automatic transcode fallback (on direct-play error). Reset per video.
   const autoTranscodeTriedRef = useRef(false);
+  // Guards the one-shot incompatible-audio default selection so a user can still pick Direct later.
+  const audioFallbackAppliedRef = useRef(false);
   const [faceOverlayEnabled, setFaceOverlayEnabled] = usePersistedFlag(FACE_OVERLAY_KEY, false);
   const playbackTracker = useRef(createPlaybackTracker());
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -234,6 +258,8 @@ export function VideoPlayer({
     playTriggered.current = false;
     pendingAutostartRef.current = false;
     autoTranscodeTriedRef.current = false;
+    audioFallbackAppliedRef.current = false;
+    setAudioFallbackActive(false);
     setSelectedQuality("Direct");
     setTranscodeStartSec(0);
   }, [videoId]);
@@ -688,16 +714,27 @@ export function VideoPlayer({
   }, [flushIntervalKeepalive, playbackTrackingTarget]);
 
   useEffect(() => {
-    const handler = () => setFullscreen(!!document.fullscreenElement);
+    const handler = () => {
+      const isFullscreen = !!document.fullscreenElement;
+      setFullscreen(isFullscreen);
+      // Leaving fullscreen always restores the cursor (windowed mode never hides it).
+      if (!isFullscreen) setShowCursor(true);
+    };
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
+    setShowCursor(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
-      if (videoRef.current && !videoRef.current.paused) setShowControls(false);
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        setShowControls(false);
+        // Only hide the cursor in fullscreen; windowed mode keeps the pointer visible.
+        if (document.fullscreenElement) setShowCursor(false);
+      }
     }, 3000);
   }, []);
 
@@ -710,8 +747,24 @@ export function VideoPlayer({
   }, [showCaptions]);
 
   useEffect(() => {
-    videos.getResolutions(videoId).then((res) => setAvailableQualities(res ?? [])).catch(() => {});
-  }, [videoId]);
+    videos.getResolutions(videoId).then((res) => {
+      const resolutions = res ?? [];
+      setAvailableQualities(resolutions);
+
+      // If the source audio codec can't be decoded by the browser, Direct play would yield video
+      // with no audio (and no error to trigger the onError fallback). Proactively default to the
+      // best available transcode instead. Only applied once per video so the user can still
+      // explicitly choose Direct afterward.
+      if (!audioFallbackAppliedRef.current && !isBrowserCompatibleAudio(audioCodec)) {
+        audioFallbackAppliedRef.current = true;
+        const target = resolutions.length > 0
+          ? resolutions[resolutions.length - 1]
+          : SOURCE_TRANSCODE_QUALITY;
+        setSelectedQuality((prev) => (prev === "Direct" ? target : prev));
+        setAudioFallbackActive(true);
+      }
+    }).catch(() => {});
+  }, [audioCodec, videoId]);
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -862,6 +915,8 @@ export function VideoPlayer({
     sourceRestoreRef.current = { time: curTime, shouldPlay: wasPlaying };
     if (quality === "Direct") {
       setTranscodeStartSec(0);
+      // User explicitly chose Direct — dismiss the incompatible-audio note.
+      setAudioFallbackActive(false);
     } else {
       setTranscodeStartSec(curTime);
     }
@@ -898,10 +953,20 @@ export function VideoPlayer({
     sourceRestoreRef.current = null;
     const shouldAutoplayAfterLoad = pendingRestore?.shouldPlay || pendingAutostartRef.current;
 
+    // Capture the current absolute playback position BEFORE video.load() resets the element. If a
+    // source reload happens mid-playback (e.g. a transient src refresh) with no explicit restore /
+    // clip / resume target, we restore to this position instead of letting the element seek to 0.
+    // Only treat it as a real position when the video had already started playing.
+    const positionBeforeLoad = video.currentTime > 0.01
+      ? (selectedQuality === "Direct" ? video.currentTime : transcodeStartSec + video.currentTime)
+      : undefined;
+
     const handleLoadedMetadata = () => {
       const mediaDuration = selectedQuality === "Direct" && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration;
       const configuredStartTime = getConfiguredPlaybackStartTime(mediaDuration, playerVideoStartPercent, playerVideoStartMinDuration);
-      const targetTime = pendingRestore?.time ?? (clip ? clip.start : effectiveResumeTime ?? configuredStartTime);
+      const targetTime = pendingRestore?.time
+        ?? (clip ? clip.start : effectiveResumeTime ?? configuredStartTime)
+        ?? positionBeforeLoad;
       if (targetTime != null && Number.isFinite(targetTime)) {
         video.currentTime = selectedQuality === "Direct" ? targetTime : Math.max(0, targetTime - transcodeStartSec);
         setCurTime(roundPlaybackTime(targetTime));
@@ -985,13 +1050,14 @@ export function VideoPlayer({
     <div
       ref={containerRef}
       className="relative group w-full h-full flex items-center justify-center bg-black"
+      style={{ cursor: showCursor ? undefined : "none" }}
       onMouseMove={resetHideTimer}
       onMouseLeave={() => playing && setShowControls(false)}
     >
       <video
         ref={videoRef}
         className="w-full h-full object-contain cursor-pointer"
-        style={videoStyle}
+        style={showCursor ? videoStyle : { ...videoStyle, cursor: "none" }}
         preload="metadata"
         poster={posterUrl}
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
@@ -1003,6 +1069,10 @@ export function VideoPlayer({
         }}
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
+        onWaiting={() => setIsBuffering(true)}
+        onStalled={() => setIsBuffering(true)}
+        onCanPlay={() => setIsBuffering(false)}
+        onPlaying={() => setIsBuffering(false)}
         onPlay={() => {
           setPlaying(true);
           pendingAutostartRef.current = false;
@@ -1028,6 +1098,7 @@ export function VideoPlayer({
           });
         }}
         onSeeked={() => {
+          setIsBuffering(false);
           const video = videoRef.current;
           if (video && !video.paused) {
             const time = roundPlaybackTime(toAbsoluteTime(video.currentTime));
@@ -1292,7 +1363,19 @@ export function VideoPlayer({
         </div>
       </div>
 
-      {!playing && (
+      {isBuffering && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[3]">
+          <div className="h-12 w-12 rounded-full border-4 border-white/30 border-t-white animate-spin" />
+        </div>
+      )}
+
+      {audioFallbackActive && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[3] pointer-events-none rounded bg-black/70 px-3 py-1 text-xs text-white/90">
+          Direct play unavailable: unsupported audio codec — using transcoded stream
+        </div>
+      )}
+
+      {!playing && !isBuffering && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="bg-black/40 rounded-full p-4">
             <Play className="w-12 h-12 text-white" />

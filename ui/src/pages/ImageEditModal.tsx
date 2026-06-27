@@ -141,11 +141,18 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
 
   const buildPayload = (): ImageCreate => {
     const urlList = form.urls.map((url) => url.trim()).filter(Boolean);
+    // On edit, send raw (trimmed) strings including "" so cleared fields persist.
+    // On create, omit empties to avoid sending empty noise.
+    const isEdit = Boolean(image);
+    const text = (value: string) => {
+      const trimmed = value.trim();
+      return isEdit ? trimmed : trimmed || undefined;
+    };
     return {
-      title: form.title.trim() || undefined,
-      code: form.code.trim() || undefined,
-      details: form.details.trim() || undefined,
-      photographer: form.photographer.trim() || undefined,
+      title: text(form.title),
+      code: text(form.code),
+      details: text(form.details),
+      photographer: text(form.photographer),
       date: form.date || undefined,
       ...(showRating ? { rating: form.rating } : {}),
       studioId: form.studioId,

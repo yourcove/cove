@@ -120,10 +120,10 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         if (image == null) return NotFound();
         var previousTagIds = dto.TagIds != null ? image.ImageTags.Select(imageTag => imageTag.TagId).ToArray() : [];
 
-        if (dto.Title != null) image.Title = dto.Title;
-        if (dto.Code != null) image.Code = dto.Code;
-        if (dto.Details != null) image.Details = dto.Details;
-        if (dto.Photographer != null) image.Photographer = dto.Photographer;
+        if (dto.Title != null) image.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
+        if (dto.Code != null) image.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
+        if (dto.Details != null) image.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
+        if (dto.Photographer != null) image.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
         if (dto.Organized.HasValue) image.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) image.StudioId = dto.StudioId;
         if (dto.Date != null) image.Date = ParseDate(dto.Date);

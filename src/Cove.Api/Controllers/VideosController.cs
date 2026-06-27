@@ -341,15 +341,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (video == null) return NotFound();
         var previousTagIds = dto.TagIds != null ? video.VideoTags.Select(videoTag => videoTag.TagId).ToArray() : [];
 
-        if (dto.Title != null) video.Title = dto.Title;
-        if (dto.Code != null) video.Code = dto.Code;
-        if (dto.Details != null) video.Details = dto.Details;
-        if (dto.Director != null) video.Director = dto.Director;
+        if (dto.Title != null) video.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
+        if (dto.Code != null) video.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
+        if (dto.Details != null) video.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
+        if (dto.Director != null) video.Director = string.IsNullOrWhiteSpace(dto.Director) ? null : dto.Director;
         if (dto.Date != null) video.Date = ParseDate(dto.Date);
         if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
-        if (dto.Captions != null) video.Captions = dto.Captions;
+        if (dto.Captions != null) video.Captions = string.IsNullOrWhiteSpace(dto.Captions) ? null : dto.Captions;
         if (video.ParentVideoId.HasValue && (dto.ClipStartSec.HasValue || dto.ClipEndSec.HasValue))
         {
             var parentResolution = await ResolveSubVideoParentAsync(video.ParentVideoId.Value, dto.ClipStartSec ?? video.ClipStartSec, dto.ClipEndSec ?? video.ClipEndSec, ct);

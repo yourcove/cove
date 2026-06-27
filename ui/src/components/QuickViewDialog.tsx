@@ -89,6 +89,7 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             streamUrl={videos.streamUrl(video.id)}
             posterUrl={videos.screenshotUrl(video.id, video.updatedAt)}
             format={file.format}
+            audioCodec={file.audioCodec}
             duration={duration}
             videoId={video.id}
             playbackTracking={{

@@ -299,7 +299,11 @@ public record GalleryDto(int Id, string? Title, string? Code, string? Date, stri
     Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt,
     string? CoverPath = null, int? CoverImageId = null,
     string? BackCoverPath = null,
-    List<FieldProvenanceDto>? FieldProvenance = null);
+    List<FieldProvenanceDto>? FieldProvenance = null,
+    // Filename/folder-name fallback for display when Title is null (scan no longer stores the
+    // filename as Title). Prefers a zip-gallery file basename, else the folder name. Null when neither
+    // is available; the UI falls back to "Gallery {id}".
+    string? DisplayName = null);
 
 public record GalleryFileInfoDto(int Id, string Path, long Size, string ModTime, List<FingerprintDto> Fingerprints);
 

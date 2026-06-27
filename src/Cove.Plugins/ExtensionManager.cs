@@ -1286,11 +1286,16 @@ public class ExtensionManager
                 return manifest.Version;
         }
 
-        if (!string.IsNullOrWhiteSpace(runtimeVersion))
-            return runtimeVersion;
-
+        // The manifest is the authoritative declared version (it is what the registry
+        // publishes), so prefer it over the compiled-in runtime Version property. A
+        // code/manifest drift (runtime reporting an older version than the manifest)
+        // must not be re-stamped onto the persisted installation on every restart,
+        // otherwise the "update available" check never clears after updating.
         if (!string.IsNullOrWhiteSpace(manifest?.Version))
             return manifest.Version;
+
+        if (!string.IsNullOrWhiteSpace(runtimeVersion))
+            return runtimeVersion;
 
         return install?.Version ?? "0.0.0";
     }

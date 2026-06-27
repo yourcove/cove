@@ -17,6 +17,7 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { CardSelectionToggle } from "../components/RouteCardLinkOverlay";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
+import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { WallMediaCard } from "../components/WallMediaCard";
 import { BatchDownloadOptionsDialog } from "../components/BatchDownloadOptionsDialog";
 import { GalleryDownloadDialog } from "../components/GalleryDownloadDialog";
@@ -205,7 +206,7 @@ export function GalleriesPage({ onNavigate }: Props) {
           selectedIds={selectedIds}
           selecting={selecting}
           onSelect={toggle}
-          getTitle={(gallery) => gallery.title || `Gallery #${gallery.id}`}
+          getTitle={(gallery) => getGalleryDisplayTitle(gallery)}
           getImageUrl={(gallery) => gallery.coverPath ?? galleries.coverUrl(gallery.id, gallery.updatedAt, 640)}
           getRoute={(gallery) => ({ page: "gallery", id: gallery.id })}
           queryKey="galleries"
@@ -276,7 +277,7 @@ function GalleryWallCard({ gallery, engagement, onClick, onNavigate, selected, o
   return (
     <WallMediaCard
       onClick={onClick}
-      title={gallery.title || "Untitled"}
+      title={getGalleryDisplayTitle(gallery)}
       imageSrc={galleryCoverSrc}
       aspectRatio="1 / 1"
       fallback={<FolderOpen className="w-10 h-10 text-muted opacity-30" />}
@@ -346,7 +347,7 @@ function GalleryListTable({ galleries: items, engagementById, onNavigate, select
         {items.map((g) => (
           <tr key={g.id} onClick={() => selecting ? onToggle?.(g.id) : onNavigate({ page: "gallery", id: g.id })} className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(g.id) ? "bg-accent/10" : ""}`}>
             {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(g.id)} onChange={() => onToggle?.(g.id)} onClick={(e) => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
-            <td className="py-2 px-3 text-foreground">{g.title || "Untitled"}</td>
+            <td className="py-2 px-3 text-foreground">{getGalleryDisplayTitle(g)}</td>
             <td className="py-2 px-3 text-secondary">{g.studioName ?? ""}</td>
             <td className="py-2 px-3 text-secondary">{g.date ?? ""}</td>
             <td className="py-2 px-3 text-secondary text-right">{g.imageCount}</td>

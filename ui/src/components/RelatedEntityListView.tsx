@@ -6,6 +6,7 @@ import type { Audio, Face, Gallery, Group, Image, Performer, Video, SegmentRecor
 import type { Route } from "../router/location";
 import { getAudioDisplayTitle, getTextDisplayTitle } from "../utils/audioTextDisplay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
@@ -631,7 +632,7 @@ function RelatedPortraitWallCard({ entityType, item, selected, selecting, onSele
 }
 
 function RelatedGalleryWallCard({ gallery, selected, selecting, onSelect, onClick }: { gallery: Gallery; selected?: boolean; selecting?: boolean; onSelect?: () => void; onClick: () => void }) {
-  const title = gallery.title || `Gallery ${gallery.id}`;
+  const title = getGalleryDisplayTitle(gallery);
   const imageSrc = gallery.coverPath ?? galleryApi.coverUrl(gallery.id, gallery.updatedAt, 960);
 
   return (

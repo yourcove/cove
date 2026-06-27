@@ -29,7 +29,11 @@ public class CleanService(
             // ParentFolder is not required), untracked and projected. Loading full tracked entities for
             // every video/image/gallery + their files exhausts memory and can OOM the job on large
             // libraries (hundreds of thousands of rows), leaving orphans uncleaned.
+            // Only top-level videos are file-backed. Sub-videos/clips (ParentVideoId != null) have no
+            // files of their own — they reference the parent's file via a clip range — so they would
+            // always look "fileless" and must NOT be treated as orphans, or clean would delete every clip.
             var videos = await db.Videos.AsNoTracking()
+                .Where(v => v.ParentVideoId == null)
                 .Select(v => new CleanEntity(v.Id, v.Files.Select(f => new CleanFileInfo(f.Path, f.ZipFileId)).ToList()))
                 .ToListAsync(ct);
 
@@ -185,6 +189,32 @@ public class CleanService(
                 await db.GalleryFiles.Where(f => f.GalleryId != null && orphanGalleryIds.Contains(f.GalleryId.Value)).ExecuteDeleteAsync(ct);
                 await db.Galleries.Where(g => orphanGalleryIds.Contains(g.Id)).ExecuteDeleteAsync(ct);
                 logger.LogInformation("Removed {Count} orphaned galleries", orphanGalleryIds.Count);
+            }
+
+            var deletedAny = orphanVideoIds.Count > 0 || orphanImageIds.Count > 0 || orphanGalleryIds.Count > 0;
+
+            // Sweep file rows that were detached from their parent by historical SetNull cascades
+            // (parent row deleted, file row left behind with a null FK). These accumulate invisibly,
+            // are never matched by the FK-scoped deletes above, and keep stale entries around.
+            var danglingFiles = 0;
+            danglingFiles += await db.VideoFiles.Where(f => f.VideoId == null).ExecuteDeleteAsync(ct);
+            danglingFiles += await db.ImageFiles.Where(f => f.ImageId == null).ExecuteDeleteAsync(ct);
+            danglingFiles += await db.GalleryFiles.Where(f => f.GalleryId == null).ExecuteDeleteAsync(ct);
+            if (danglingFiles > 0)
+            {
+                deletedAny = true;
+                logger.LogInformation("Removed {Count} dangling file rows with no parent", danglingFiles);
+            }
+
+            // ExecuteDeleteAsync bypasses EF's per-SaveChanges count maintenance, so the bulk deletes
+            // above leave denormalized rollups stale (studio/performer/tag counts, per-entity FileCount).
+            // That is what makes stats and the "0 files" filter keep reporting removed entries. Repair
+            // every denormalized count so the library totals match reality after a clean.
+            if (deletedAny)
+            {
+                progress.Report(1.0, "Recomputing library counts");
+                var recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
+                logger.LogInformation("Recomputed denormalized counts for {Count} entities after clean", recomputed);
             }
         }, exclusive: false);
     }

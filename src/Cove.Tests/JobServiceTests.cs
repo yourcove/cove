@@ -89,6 +89,52 @@ public class JobServiceTests
         }
     }
 
+    [Fact]
+    public async Task CancellingJob_MarksCancelled_AndProcessorKeepsRunning()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            // A job that signals it has started, then blocks on its own cancellation token and throws
+            // OperationCanceledException (the shape a cancelled SaveChangesAsync / Parallel.ForEachAsync
+            // produces). This must be treated as a graceful cancel, not an unhandled crash.
+            var jobId = service.Enqueue(
+                "generate_video_phashes",
+                "Generating pHashes",
+                async (_, ct) =>
+                {
+                    started.SetResult();
+                    await Task.Delay(Timeout.Infinite, ct);
+                });
+
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(service.Cancel(jobId));
+
+            var cancelled = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+            Assert.NotNull(cancelled);
+            Assert.Equal(JobStatus.Cancelled, cancelled.Status);
+
+            // The queue processor must still be alive and able to run a subsequent job — i.e. the
+            // cancellation did not bubble out and tear down the processor loop / host.
+            var nextId = service.Enqueue(
+                "generate",
+                "Follow-up",
+                static (_, _) => Task.CompletedTask);
+
+            var next = await WaitForTerminalStateAsync(service, nextId, TimeSpan.FromSeconds(5));
+            Assert.NotNull(next);
+            Assert.Equal(JobStatus.Completed, next.Status);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static async Task<JobInfo?> WaitForTerminalStateAsync(IJobService service, string jobId, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

@@ -22,6 +22,7 @@ import { QuickViewDialog } from "../components/QuickViewDialog";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
+import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
@@ -105,7 +106,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     fileinfo: "galleries.read",
   }, hasPermission);
 
-  useDocumentTitle(gallery ? gallery.title || `Gallery ${id}` : null);
+  useDocumentTitle(gallery ? getGalleryDisplayTitle(gallery) : null);
 
   // Close ops menu on outside click
   useEffect(() => {
@@ -228,6 +229,8 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     return <div className="py-16 text-center text-secondary">Gallery not found</div>;
   }
 
+  const galleryTitle = getGalleryDisplayTitle(gallery);
+
   const activeContent =
     activeTab === "images"
       ? (
@@ -277,7 +280,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       <ConfirmDialog
         open={confirmDelete}
         title="Delete Gallery"
-        message={`Delete "${gallery.title || "Untitled"}"? This cannot be undone.`}
+        message={`Delete "${galleryTitle}"? This cannot be undone.`}
         onConfirm={() => deleteMut.mutate()}
         onCancel={() => setConfirmDelete(false)}
       />
@@ -286,13 +289,13 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         backLabel={backLabel}
         onGoBack={goBack}
         imageUrl={gallery.coverPath}
-        imageAlt={gallery.title || "Gallery cover"}
+        imageAlt={galleryTitle}
         imageContainerClassName="relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-black/35"
         imageClassName="h-auto w-auto max-h-96 max-w-[22rem] object-contain md:max-h-[34rem] md:max-w-[28rem]"
         imageFallbackClassName="h-96 w-72 items-center justify-center bg-card text-muted md:h-[34rem] md:w-[25rem]"
         onImageClick={canWriteGallery ? () => setCoverOpen(true) : undefined}
         imageFallback={<ImageIcon className="h-14 w-14" />}
-        title={<FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="title">{gallery.title || "Untitled Gallery"}</FieldProvenanceHover>}
+        title={<FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="title">{galleryTitle}</FieldProvenanceHover>}
         subtitle={
           <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
             {gallery.date ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="date"><span>{formatDate(gallery.date)}</span></FieldProvenanceHover> : null}

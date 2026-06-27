@@ -16,6 +16,7 @@ import { FieldProvenanceHover, formatDate, ProvenanceBadge, TagBadge } from "../
 import { EntityReferenceSelector } from "../components/EntityReferenceSelector";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useAppConfig } from "../state/AppConfigContext";
 import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 
@@ -1057,6 +1058,7 @@ function SegmentPlaybackPanel({
   onTimeUpdate?: (time: number) => void;
   embedded?: boolean;
 }) {
+  const { config } = useAppConfig();
   const file = video?.files[0];
   const clipDuration = getSegmentDuration(segment.startSec, segment.endSec);
   const containerClassName = embedded
@@ -1131,6 +1133,7 @@ function SegmentPlaybackPanel({
               captions={file.captions}
               onPlay={() => {}}
               onTimeUpdate={onTimeUpdate}
+              autostart={config?.ui.autostartVideo}
               trackingEnabled
               playbackTracking={{
                 hostType: "segment",

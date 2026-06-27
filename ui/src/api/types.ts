@@ -455,6 +455,9 @@ export interface Gallery {
   createdAt: string;
   updatedAt: string;
   fieldProvenance?: FieldProvenance[];
+  // Filename/folder-name fallback for display when title is null (scan no longer stores the filename
+  // as the title). Prefers a zip-gallery file basename, else the folder name.
+  displayName?: string;
 }
 
 export interface GalleryFileInfo {

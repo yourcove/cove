@@ -901,8 +901,8 @@ public class ScraperService
             var targetUrl = BuildNameTargetUrl(nameDef.QueryUrl, searchTerm);
             var result = action switch
             {
-                "scrapeXPath" => await ScrapeXPathAsync(manifest, scraperName, entityType, targetUrl, ct, preserveCollections: true),
-                "scrapeJson" => await ScrapeJsonAsync(manifest, scraperName, entityType, targetUrl, ct, preserveCollections: true),
+                "scrapeXPath" => await ScrapeXPathAsync(manifest, scraperName, entityType, targetUrl, ct, preserveCollections: true, isNameSearch: true),
+                "scrapeJson" => await ScrapeJsonAsync(manifest, scraperName, entityType, targetUrl, ct, preserveCollections: true, isNameSearch: true),
                 _ => null
             };
 
@@ -1221,7 +1221,8 @@ public class ScraperService
         string entityType,
         string url,
         CancellationToken ct,
-        bool preserveCollections = false)
+        bool preserveCollections = false,
+        bool isNameSearch = false)
     {
         if (string.IsNullOrEmpty(scraperName) || !manifest.XPathScrapers.TryGetValue(scraperName, out var scraperDef))
         {
@@ -1238,7 +1239,9 @@ public class ScraperService
         try
         {
             _logger.LogDebug("Fetching URL for XPath scrape: {Url}", url);
-            var html = await FetchContentAsync(manifest, url, ct);
+            var html = await FetchContentAsync(manifest, url, ct, isNameSearch);
+            if (html == null)
+                return null; // No match (e.g. 404 during a title search).
 
             var doc = new HtmlDocument();
             doc.LoadHtml(html);
@@ -1288,7 +1291,8 @@ public class ScraperService
         string entityType,
         string url,
         CancellationToken ct,
-        bool preserveCollections = false)
+        bool preserveCollections = false,
+        bool isNameSearch = false)
     {
         if (string.IsNullOrEmpty(scraperName) || !manifest.JsonScrapers.TryGetValue(scraperName, out var scraperDef))
         {
@@ -1304,7 +1308,9 @@ public class ScraperService
         try
         {
             _logger.LogDebug("Fetching URL for JSON scrape: {Url}", url);
-            var jsonStr = await FetchContentAsync(manifest, url, ct);
+            var jsonStr = await FetchContentAsync(manifest, url, ct, isNameSearch);
+            if (jsonStr == null)
+                return null; // No match (e.g. 404 during a title search).
             var jsonDoc = JsonDocument.Parse(jsonStr);
 
             var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -1887,7 +1893,18 @@ public class ScraperService
         return result.Count > 0 ? result : null;
     }
 
-    private async Task<string> FetchContentAsync(ScraperManifest manifest, string url, CancellationToken ct)
+    /// <summary>
+    /// Fetches raw scraper content for <paramref name="url"/>.
+    /// </summary>
+    /// <param name="isNameSearch">
+    /// When true the fetch is part of a title/name search. In that mode an upstream non-success
+    /// status with an empty body (notably HTTP 404, but also e.g. 500/empty that some sites
+    /// return for unknown titles) means "no match on this site" rather than an error, so it is
+    /// logged at Debug and surfaced as <c>null</c> instead of throwing. For direct-URL scrapes a
+    /// 404 is meaningful, so the original throwing behavior is preserved. Genuine transport
+    /// failures (connection reset / timeout / DNS) still throw in both modes.
+    /// </param>
+    private async Task<string?> FetchContentAsync(ScraperManifest manifest, string url, CancellationToken ct, bool isNameSearch = false)
     {
         var requestUrl = NormalizeRequestUrl(url);
         var cookieHeader = BuildCookieHeader(manifest, requestUrl);
@@ -1920,6 +1937,17 @@ public class ScraperService
                             requestUrl,
                             (int)response.StatusCode);
                         return content;
+                    }
+
+                    // For a title/name search an empty non-success body just means the title isn't
+                    // on this site. Treat it as "no match" instead of throwing a noisy stack trace.
+                    if (isNameSearch)
+                    {
+                        _logger.LogDebug(
+                            "Scraper: HTTP {StatusCode} for title search '{Url}', treating as no match.",
+                            (int)response.StatusCode,
+                            requestUrl);
+                        return null;
                     }
 
                     response.EnsureSuccessStatusCode();

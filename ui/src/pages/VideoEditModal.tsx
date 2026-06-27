@@ -79,11 +79,11 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   const handleSave = () => {
     const urlList = urls.map((u) => u.trim()).filter(Boolean);
     mutation.mutate({
-      title: title || undefined,
-      code: code || undefined,
-      details: details || undefined,
-      captions: captions || undefined,
-      director: director || undefined,
+      title: title,
+      code: code,
+      details: details,
+      captions: captions,
+      director: director,
       date: date || undefined,
       isVr,
       rating,

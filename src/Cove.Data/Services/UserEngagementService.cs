@@ -426,14 +426,23 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 s => s.UserId == userId.Value && s.SessionId == dto.SessionId,
                 cancellationToken);
 
+        var isRelational = db.Database.IsRelational();
         if (session == null)
         {
             // Create the session atomically. A find-then-Add pattern races with concurrent keepalives for
             // the same (UserId, SessionId) — both miss the lookup and both INSERT, violating the unique
-            // index IX_PlaybackSessions_UserId_SessionId. An ON CONFLICT DO NOTHING upsert (mirroring
-            // GetOrCreateAffinityAsync) makes creation idempotent, so the following SaveChanges only ever
-            // UPDATEs the row — no failed INSERT, no duplicate-key exception (and no EF error log noise).
-            if (db.Database.IsRelational())
+            // index IX_PlaybackSessions_UserId_SessionId.
+            //
+            // We use ON CONFLICT DO UPDATE (not DO NOTHING). DO NOTHING leaves a window: when a concurrent
+            // transaction has inserted the conflicting row but not yet committed, our INSERT's conflict
+            // resolution does nothing and the immediately following SELECT can run on a snapshot that does
+            // not yet see that uncommitted row — returning null and dropping us into the unprotected tracked
+            // Add below, which then throws 23505 on SaveChanges. DO UPDATE forces a row lock on the
+            // conflicting tuple: our statement blocks until the concurrent inserter commits, after which the
+            // (no-op) UPDATE succeeds and the row is guaranteed visible to the re-query. Net effect: creation
+            // is idempotent and the following SaveChanges only ever UPDATEs the row — no failed INSERT, no
+            // duplicate-key exception (and no EF error log noise).
+            if (isRelational)
             {
                 await db.Database.ExecuteSqlInterpolatedAsync($"""
                     INSERT INTO "PlaybackSessions"
@@ -442,7 +451,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                          "CreatedAt", "UpdatedAt")
                     VALUES ({userId.Value}, {(int)hostType}, {dto.HostId}, {dto.SessionId}, {now}, {now}, {(int)PlaybackSessionState.Active},
                          {0d}, {0d}, {false}, {false}, {false}, {now}, {now})
-                    ON CONFLICT ("UserId", "SessionId") DO NOTHING
+                    ON CONFLICT ("UserId", "SessionId") DO UPDATE SET "LastSeenAt" = EXCLUDED."LastSeenAt"
                     """, cancellationToken);
 
                 session = await db.PlaybackSessions
@@ -452,8 +461,13 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                         cancellationToken);
             }
 
-            // Non-relational providers (in-memory/SQLite tests) and the unexpected "still missing" case
-            // fall back to a tracked insert; those paths are single-threaded so the race doesn't apply.
+            // Tracked-Add fallback. This is the ONLY non-idempotent create path, so we must never reach it on
+            // a relational provider under concurrency: the upsert above guarantees the row exists and the
+            // re-query returns it, so a relational miss here can only mean a genuine, unexpected SELECT
+            // failure — in which case the outer RecordPlaybackIntervalsAsync retry (which catches the unique
+            // violation, clears the change tracker and re-runs the whole flow) is the safety net. For
+            // non-relational providers (in-memory/SQLite tests) there is no ON CONFLICT support and those
+            // paths are single-threaded, so the race does not apply.
             if (session == null)
             {
                 session = new PlaybackSession

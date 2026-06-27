@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { InteractiveRating } from "./Rating";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useEntityRatings } from "../hooks/useEntityRatings";
@@ -11,6 +12,28 @@ interface Props {
   className?: string;
   showHeading?: boolean;
   variant?: "grid" | "inline";
+  /** When true (and a heading is shown) the panel can be collapsed; preference is remembered per entity type. */
+  collapsible?: boolean;
+}
+
+// Per-entity-type persisted collapse preference for the rating breakdown.
+function useCollapsedFlag(key: string): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(key) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem(key, next ? "true" : "false"); } catch { /* ignore */ }
+      return next;
+    });
+  }, [key]);
+  return [collapsed, toggle];
 }
 
 interface AspectDefinition {
@@ -41,9 +64,12 @@ const DEFAULT_ASPECTS: Partial<Record<AffinityHostType, AspectDefinition[]>> = {
   ],
 };
 
-export function AspectRatingsPanel({ hostType, hostId, canRate, className, showHeading = true, variant = "grid" }: Props) {
+export function AspectRatingsPanel({ hostType, hostId, canRate, className, showHeading = true, variant = "grid", collapsible = true }: Props) {
   const { ratings, isLoading } = useEntityRatings(hostType, hostId, { enabled: hostId > 0 });
   const { setRating } = useEntityEngagement(hostType, hostId, { enabled: false });
+  const [collapsed, toggleCollapsed] = useCollapsedFlag(`cove.ratingBreakdownCollapsed.${hostType}`);
+  const canCollapse = collapsible && showHeading;
+  const isCollapsed = canCollapse && collapsed;
 
   const aspects = useMemo(() => {
     const defaults = DEFAULT_ASPECTS[hostType] ?? [];
@@ -63,11 +89,23 @@ export function AspectRatingsPanel({ hostType, hostId, canRate, className, showH
     <section className={className}>
       {showHeading ? (
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Rating Breakdown</h3>
+          {canCollapse ? (
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              aria-expanded={!isCollapsed}
+              className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:text-secondary"
+            >
+              <ChevronDown size={14} className={`transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+              Rating Breakdown
+            </button>
+          ) : (
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Rating Breakdown</h3>
+          )}
           {isLoading ? <span className="text-xs text-muted">Loading...</span> : null}
         </div>
       ) : null}
-      {variant === "inline" ? (
+      {isCollapsed ? null : variant === "inline" ? (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           {aspects.map((aspect) => (
             <div key={aspect.key} className="inline-flex items-center gap-2">

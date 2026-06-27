@@ -41,11 +41,11 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
 
   const save = () => {
     mutation.mutate({
-      title: form.title || undefined,
-      code: form.code || undefined,
+      title: form.title,
+      code: form.code,
       date: form.date || undefined,
-      details: form.details || undefined,
-      photographer: form.photographer || undefined,
+      details: form.details,
+      photographer: form.photographer,
       studioId: form.studioId,
       urls: form.urls.map((url) => url.trim()).filter(Boolean),
       tagIds: form.tagIds,

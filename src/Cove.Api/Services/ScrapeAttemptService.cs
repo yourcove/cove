@@ -70,8 +70,14 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
             if (result == null || result.Count == 0)
             {
-                attempt.Status = "Failure";
-                attempt.Error = "Scrape returned no results.";
+                // No results is an expected outcome (e.g. the title isn't on this site), not an
+                // error. Use a distinct "NoMatch" status and log without a stack trace so batch
+                // scrape-by-title doesn't surface scary failures.
+                attempt.Status = ScrapeAttemptStatuses.NoMatch;
+                attempt.Error = "No match found.";
+                logger.LogInformation(
+                    "Scrape attempt found no match for {ScraperId} {EntityType} {EntityId}",
+                    dto.ScraperId, dto.EntityType, dto.EntityId);
             }
             else
             {
@@ -84,6 +90,8 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         }
         catch (Exception ex)
         {
+            // Genuine errors (transport failures, parse errors, etc.) are still logged at Warning
+            // with the exception so real problems remain diagnosable.
             logger.LogWarning(ex, "Scrape attempt failed for {ScraperId} {EntityType} {EntityId}", dto.ScraperId, dto.EntityType, dto.EntityId);
             attempt.Status = "Failure";
             attempt.Error = ex.Message;

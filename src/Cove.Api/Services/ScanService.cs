@@ -45,6 +45,11 @@ public class ScanService(
     // that cost; a failed batch falls back to per-file saves so one bad row can't poison its neighbours.
     private const int ScanSaveBatchSize = 50;
 
+    // The default Npgsql command timeout (30s) is too tight for a full library scan's index loads and
+    // batched saves on large/busy databases; exceeding it cascades into RetryLimitExceeded and aborts
+    // the whole scan. Scan runs as a background job, so a generous per-command timeout is appropriate.
+    private static readonly TimeSpan ScanCommandTimeout = TimeSpan.FromMinutes(5);
+
     // Resolving ffprobe walks PATH doing a File.Exists per entry. That is cheap once but was being
     // repeated for every single file (millions of redundant syscalls on a large scan). The resolved
     // path cannot change within a scan, so cache it after the first lookup.
@@ -307,6 +312,13 @@ public class ScanService(
                 // Phase 2: Process files
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                // The default 30s Npgsql command timeout is too tight for a full library scan: loading
+                // the existing file index and the large batched saves below can exceed it on big/busy
+                // libraries, surfacing as RetryLimitExceeded -> TimeoutException and aborting the scan.
+                // Scan is a background job, so allow generous time per command. Guarded because the
+                // in-memory provider used by tests is non-relational and would throw here.
+                if (db.Database.IsRelational())
+                    db.Database.SetCommandTimeout(ScanCommandTimeout);
                 progress.Report(0.10, $"Loading existing file index for {files.Count:N0} media files...");
                 var indexStopwatch = Stopwatch.StartNew();
                 var existingFiles = await LoadExistingFileScanIndexAsync(db, files, videoExts, imageExts, galleryExts, audioExts, textExts, progress, logger, ct);
@@ -462,6 +474,10 @@ public class ScanService(
                     {
                         using var workerScope = scopeFactory.CreateScope();
                         var workerDb = workerScope.ServiceProvider.GetRequiredService<CoveContext>();
+                        // Batched commits can exceed the default 30s command timeout on large/busy
+                        // libraries; give scan workers a generous timeout to avoid spurious abort.
+                        if (workerDb.Database.IsRelational())
+                            workerDb.Database.SetCommandTimeout(ScanCommandTimeout);
 
                         // The current un-committed batch, plus the entity events to publish once it commits.
                         var batchItems = new List<(DiscoveredFile File, bool IsKnownFile)>(ScanSaveBatchSize);
@@ -1370,9 +1386,11 @@ public class ScanService(
         {
             if (!folders.TryGetValue(group.FolderId, out var folder)) continue;
 
+            // Intentionally leave Title null on scan. Storing the folder name as the title makes it
+            // impossible to filter for galleries that have no real title; the UI falls back to the
+            // folder name for display when Title is null.
             var gallery = new Gallery
             {
-                Title = Path.GetFileName(folder.Path) ?? folder.Path,
                 FolderId = folder.Id,
             };
 
@@ -1649,9 +1667,11 @@ public class ScanService(
 
         if (targetVideo == null)
         {
+            // Intentionally leave Title null on scan. Storing the filename as the title makes it
+            // impossible to filter for entities that have no real title; the UI falls back to the
+            // file basename for display when Title is null.
             var video = new Video
             {
-                Title = Path.GetFileNameWithoutExtension(path),
                 Files = [videoFile]
             };
 
@@ -1855,9 +1875,11 @@ public class ScanService(
         }
         else
         {
+            // Intentionally leave Title null on scan. Storing the filename as the title makes it
+            // impossible to filter for entities that have no real title; the UI falls back to the
+            // file basename for display when Title is null.
             image = new Image
             {
-                Title = Path.GetFileNameWithoutExtension(path),
                 Files = [imageFile]
             };
 
@@ -1949,9 +1971,11 @@ public class ScanService(
             }
             else
             {
+                // Intentionally leave Title null on scan. Storing the filename as the title makes it
+                // impossible to filter for galleries that have no real title; the UI falls back to the
+                // file basename for display when Title is null.
                 gallery = new Gallery
                 {
-                    Title = Path.GetFileNameWithoutExtension(path),
                     Files = [galleryFile]
                 };
 

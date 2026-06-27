@@ -103,6 +103,19 @@ internal static class EntityImageUrls
     public static string GalleryBackCover(HttpContext? context, int id, DateTime updatedAt, int maxDimension = DefaultGalleryCoverMaxDimension)
         => Build(context, $"/api/galleries/{id}/image/back", updatedAt, maxDimension);
 
+    // A face with no cover blob falls back to a crop of its best detection (mirrors the detail-page hero).
+    // The crop endpoint takes only `max` (no cache-busting `v`); auth is appended like every other image URL.
+    public static string DetectionCrop(HttpContext? context, int detectionId, int maxDimension = DefaultEntityImageMaxDimension)
+    {
+        var query = new List<KeyValuePair<string, string?>>
+        {
+            new("max", maxDimension.ToString(CultureInfo.InvariantCulture)),
+        };
+
+        AppendAuthQuery(context, query);
+        return $"/api/stream/detection/{detectionId}/crop" + QueryString.Create(query);
+    }
+
     private static string Build(HttpContext? context, string path, DateTime updatedAt, int maxDimension)
     {
         var query = new List<KeyValuePair<string, string?>>
