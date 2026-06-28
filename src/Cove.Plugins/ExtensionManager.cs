@@ -189,6 +189,12 @@ public class ExtensionManager
                         {
                             if (Activator.CreateInstance(type) is IExtension ext)
                             {
+                                // Hand the parsed manifest to the instance before any metadata is read,
+                                // so manifest-backed extensions (CoveExtensionBase) surface Id/Name/
+                                // Version/etc from extension.json instead of duplicating them in code.
+                                if (manifestFile != null && ext is IManifestAware manifestAware)
+                                    manifestAware.ApplyManifest(manifestFile);
+
                                 if (_extensionMap.TryGetValue(ext.Id, out var existing))
                                 {
                                     var existingSource = _installations.GetValueOrDefault(existing.Id)?.Source;

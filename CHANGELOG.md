@@ -8,6 +8,10 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.7.1] - 2026-06-27
+
+- Extension library updates to simplify extension version declarations
+
 ## [0.7.0] - 2026-06-27
 
 - Scan title fix

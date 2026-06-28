@@ -57,6 +57,19 @@ public interface IExtension
 }
 
 /// <summary>
+/// Implemented by extension base classes that source their metadata (Id, Name, Version, Description,
+/// Author, Url, Categories, dependencies, …) from the loaded <c>extension.json</c> manifest instead of
+/// re-declaring it in code. The host calls <see cref="ApplyManifest"/> immediately after constructing
+/// the extension instance and before any metadata property is read, so the manifest is the single
+/// source of truth and nothing is duplicated between code and manifest.
+/// </summary>
+public interface IManifestAware
+{
+    /// <summary>Provide the parsed extension.json manifest for this extension instance.</summary>
+    void ApplyManifest(ExtensionManifestFile manifest);
+}
+
+/// <summary>
 /// Well-known extension categories. Extensions can also declare custom categories.
 /// </summary>
 public static class ExtensionCategories

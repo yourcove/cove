@@ -7,18 +7,35 @@ namespace Cove.Sdk;
 /// Convenient base class for Cove extensions that provides sensible defaults
 /// and reduces boilerplate. Override only the methods you need.
 /// </summary>
-public abstract class CoveExtensionBase : IUIExtension
+public abstract class CoveExtensionBase : IUIExtension, IManifestAware
 {
-    public abstract string Id { get; }
-    public abstract string Name { get; }
-    public abstract string Version { get; }
-    public virtual string? Description => null;
-    public virtual string? Author => null;
-    public virtual string? Url => null;
-    public virtual string? IconUrl => null;
-    public virtual IReadOnlyList<string> Categories => [];
-    public virtual string? MinCoveVersion => null;
-    public virtual IReadOnlyDictionary<string, string> Dependencies => new Dictionary<string, string>();
+    private ExtensionManifestFile? _manifest;
+
+    /// <summary>
+    /// The parsed <c>extension.json</c> manifest, injected by the host immediately after construction.
+    /// This is the single source of truth for the extension's identity and metadata so it never has to
+    /// be duplicated in code. Available from <see cref="ConfigureServices"/> onward.
+    /// </summary>
+    protected ExtensionManifestFile Manifest => _manifest
+        ?? throw new InvalidOperationException(
+            "Extension metadata is unavailable. Manifest-backed extensions read it from extension.json " +
+            "(ensure the file ships next to the DLL); code-registered/built-in extensions must override " +
+            "Id, Name and Version.");
+
+    void IManifestAware.ApplyManifest(ExtensionManifestFile manifest) => _manifest = manifest;
+
+    // Metadata is sourced from extension.json by default. Override any of these only for code-registered
+    // (built-in) extensions that have no manifest, or to intentionally diverge from it.
+    public virtual string Id => Manifest.Id;
+    public virtual string Name => Manifest.Name;
+    public virtual string Version => Manifest.Version;
+    public virtual string? Description => _manifest?.Description;
+    public virtual string? Author => _manifest?.Author;
+    public virtual string? Url => _manifest?.Url;
+    public virtual string? IconUrl => _manifest?.IconUrl;
+    public virtual IReadOnlyList<string> Categories => _manifest?.Categories ?? [];
+    public virtual string? MinCoveVersion => _manifest?.MinCoveVersion;
+    public virtual IReadOnlyDictionary<string, string> Dependencies => _manifest?.Dependencies ?? new Dictionary<string, string>();
 
     /// <summary>
     /// Override to register services. Base implementation does nothing.
