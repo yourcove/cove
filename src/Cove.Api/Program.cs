@@ -290,6 +290,7 @@ try
     builder.Services.AddScoped<IScanService, ScanService>();
     builder.Services.AddScoped<IStreamService, StreamService>();
     builder.Services.AddScoped<ICleanService, CleanService>();
+    builder.Services.AddSingleton<Cove.Api.Services.MaintenanceState>();
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddSingleton<IBlobService, BlobService>();
     builder.Services.AddSingleton<ConfigService>();

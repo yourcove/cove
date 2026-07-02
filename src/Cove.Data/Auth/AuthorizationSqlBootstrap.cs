@@ -81,30 +81,6 @@ public static class AuthorizationSqlDefinitions
                 END;
             $$;
 
-            CREATE OR REPLACE FUNCTION public.cove_authz_entity_matches_identifier(
-                p_kind text,
-                p_entity_id integer,
-                p_scope_value jsonb
-            ) RETURNS boolean
-            LANGUAGE sql
-            STABLE
-            AS $$
-                SELECT
-                    (p_scope_value ? 'value' OR p_scope_value ? 'normalizedValue')
-                    AND EXISTS (
-                        SELECT 1
-                        FROM entity_identifiers ei
-                        WHERE lower(ei."EntityKind") = lower(p_kind)
-                          AND ei."EntityId" = p_entity_id
-                          AND (NOT (p_scope_value ? 'scheme') OR ei."Scheme" = p_scope_value ->> 'scheme')
-                          AND (NOT (p_scope_value ? 'source') OR ei."Source" = p_scope_value ->> 'source')
-                          AND (
-                              (p_scope_value ? 'normalizedValue' AND ei."NormalizedValue" = p_scope_value ->> 'normalizedValue')
-                              OR (NOT (p_scope_value ? 'normalizedValue') AND p_scope_value ? 'value' AND ei."Value" = p_scope_value ->> 'value')
-                          )
-                    );
-            $$;
-
             CREATE OR REPLACE FUNCTION public.cove_authz_entity_json(
                 p_kind text,
                 p_entity_id integer
@@ -321,8 +297,6 @@ public static class AuthorizationSqlDefinitions
                         RETURN public.cove_authz_entity_has_tag(p_kind, p_entity_id, NULLIF(v_scope_value ->> 'tagId', '')::integer);
                     WHEN 'studio' THEN
                         RETURN public.cove_authz_entity_has_studio(p_kind, p_entity_id, NULLIF(v_scope_value ->> 'studioId', '')::integer);
-                    WHEN 'identifier' THEN
-                        RETURN public.cove_authz_entity_matches_identifier(p_kind, p_entity_id, v_scope_value);
                     WHEN 'attribute' THEN
                         RETURN public.cove_authz_entity_matches_attribute(p_kind, p_entity_id, v_scope_value);
                     WHEN 'expression' THEN
@@ -384,7 +358,6 @@ public static class AuthorizationSqlDefinitions
                     WHEN 'all' THEN true
                     WHEN 'tag' THEN public.cove_authz_entity_has_tag(p_kind, p_entity_id, NULLIF(p_scope_value ->> 'tagId', '')::integer)
                     WHEN 'studio' THEN public.cove_authz_entity_has_studio(p_kind, p_entity_id, NULLIF(p_scope_value ->> 'studioId', '')::integer)
-                    WHEN 'identifier' THEN public.cove_authz_entity_matches_identifier(p_kind, p_entity_id, p_scope_value)
                     WHEN 'attribute' THEN public.cove_authz_entity_matches_attribute(p_kind, p_entity_id, p_scope_value)
                     WHEN 'expression' THEN public.cove_authz_entity_matches_expression(p_kind, p_entity_id, p_scope_value)
                     ELSE false

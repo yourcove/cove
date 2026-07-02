@@ -21,6 +21,7 @@ public class MetadataController(
     IJobService jobService,
     IThumbnailService thumbnailService,
     IFingerprintService fingerprintService,
+    ICleanService cleanService,
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     CoveConfiguration config,
@@ -776,51 +777,14 @@ public class MetadataController(
     [RequiresPermission(Permissions.LibraryClean)]
     public ActionResult<object> StartClean([FromBody] CleanOptionsDto? opts)
     {
-        var jobId = jobService.Enqueue("clean", "Cleaning library", async (progress, ct) =>
-        {
-            using var scope = scopeFactory.CreateScope();
-            var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-            var files = await dbCtx.Set<BaseFileEntity>()
-                .Include(f => f.ParentFolder)
-                .ToListAsync(ct);
-
-            var total = files.Count;
-            var cleaned = 0;
-            var filterPaths = opts?.Paths?.Count > 0 ? NormalizeFilterPaths(opts.Paths) : [];
-
-            for (var i = 0; i < files.Count; i++)
-            {
-                ct.ThrowIfCancellationRequested();
-                progress.Report((double)(i + 1) / total, $"Checking files ({i + 1}/{total})");
-
-                var file = files[i];
-                var filePath = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
-
-                if (filterPaths.Count > 0 && !IsUnderAnyPath(filePath, filterPaths))
-                    continue;
-
-                if (!System.IO.File.Exists(filePath))
-                {
-                    if (opts?.DryRun != true)
-                    {
-                        dbCtx.Set<BaseFileEntity>().Remove(file);
-                        cleaned++;
-                    }
-                    else
-                    {
-                        logger.LogDebug("Dry run: would remove missing file {Path}", filePath);
-                        cleaned++;
-                    }
-                }
-            }
-
-            if (opts?.DryRun != true)
-                await dbCtx.SaveChangesAsync(ct);
-
-            logger.LogInformation("Clean completed. {Cleaned} missing files {Action}", cleaned, opts?.DryRun == true ? "found" : "removed");
-        }, exclusive: false);
-
+        // Delegate to the zip-aware CleanService. The previous inline implementation flat-listed
+        // BaseFileEntity rows and removed any whose Path did not exist on disk — but zip-gallery
+        // images have a synthetic Path (".../foo.zip#virtual/img.jpg") that never exists as a
+        // standalone file, so it deleted every zip-internal image (the "757479 missing files
+        // removed" reports) while leaving orphaned parent entities that scan then skipped.
+        // CleanService resolves each file's containing archive via ZipFileId, so zip contents are
+        // only removed when the archive itself is gone.
+        var jobId = cleanService.StartClean(opts?.DryRun == true);
         return Ok(new { jobId });
     }
 
@@ -1028,8 +992,21 @@ public class MetadataController(
                 return;
             }
 
-            var dirs = new[] { "screenshots", "thumbnails", "previews", "sprites", "transcodes", "vtt" };
+            using var scope = scopeFactory.CreateScope();
+            var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
+
+            // Only delete generated artifacts whose owning entity no longer exists. A blind directory
+            // wipe permanently destroys in-use video covers/previews/sprites/VTT — those are NOT
+            // regenerated on demand (unlike image thumbnails), so wiping them left users with missing
+            // video thumbnails for videos that still exist. Load the live entity ids and keep any file
+            // that still belongs to one.
+            var liveVideoIds = new HashSet<int>(await dbCtx.Videos.Select(v => v.Id).ToListAsync(ct));
+            var liveImageIds = new HashSet<int>(await dbCtx.Images.Select(i => i.Id).ToListAsync(ct));
+
+            var dirs = new[] { "screenshots", "thumbnails", "previews", "sprites", "transcodes", "vtt", "segment-previews" };
             var totalCleared = 0L;
+            var deleted = 0;
+            var kept = 0;
 
             for (var i = 0; i < dirs.Length; i++)
             {
@@ -1039,18 +1016,58 @@ public class MetadataController(
                 var dir = Path.Combine(generatedPath, dirs[i]);
                 if (!Directory.Exists(dir)) continue;
 
-                foreach (var file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+                foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
                 {
-                    var fi = new FileInfo(file);
-                    totalCleared += fi.Length;
-                    fi.Delete();
+                    ct.ThrowIfCancellationRequested();
+
+                    // Generated filenames are prefixed with the owning entity's integer id, delimited by
+                    // '.', '_' or '-' (e.g. "<videoId>.jpg", "<videoId>_sprite.jpg", "<imageId>_m320_3").
+                    // Files with no leading integer id (e.g. blob-keyed thumbnails under entity-blobs/)
+                    // are kept — deleting them is harmless (they regenerate on demand) but they can't be
+                    // matched to a live entity here, so err toward keeping. Only delete when the parsed id
+                    // is absent from every live entity set.
+                    var id = ParseLeadingEntityId(Path.GetFileName(file));
+                    if (id is int entityId && !liveVideoIds.Contains(entityId) && !liveImageIds.Contains(entityId))
+                    {
+                        try
+                        {
+                            var fi = new FileInfo(file);
+                            var len = fi.Length;
+                            fi.Delete();
+                            totalCleared += len;
+                            deleted++;
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "Failed to delete orphaned generated file {File}", file);
+                        }
+                    }
+                    else
+                    {
+                        kept++;
+                    }
                 }
             }
 
-            logger.LogInformation("Cleaned generated files. Freed {Size} bytes", totalCleared);
+            logger.LogInformation("Cleaned generated files. Deleted {Deleted} orphaned files ({Size} bytes); kept {Kept} in-use files", deleted, totalCleared, kept);
         }, exclusive: false);
 
         return Ok(new { jobId });
+    }
+
+    // Parses the leading integer entity id from a generated filename, requiring the digits to be
+    // followed by a '.', '_' or '-' delimiter (or end of name) so partial/hex-prefixed names like
+    // "12ab.jpg" or a hex blob id are not misread as an entity id.
+    private static int? ParseLeadingEntityId(string fileName)
+    {
+        var end = 0;
+        while (end < fileName.Length && char.IsAsciiDigit(fileName[end]))
+            end++;
+        if (end == 0)
+            return null;
+        if (end < fileName.Length && fileName[end] is not ('.' or '_' or '-'))
+            return null;
+        return int.TryParse(fileName.AsSpan(0, end), out var id) ? id : null;
     }
 
     [HttpPost("identify")]

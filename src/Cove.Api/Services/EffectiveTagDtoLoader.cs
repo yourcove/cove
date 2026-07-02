@@ -86,6 +86,10 @@ internal static class EffectiveTagDtoLoader
                     {
                         IsDerived = isDerived && !canRemove,
                         CanRemove = canRemove,
+                        // A locked, AI-derived chip is the only thing a user can "report as wrong":
+                        // it has no editable manual source, so the global threshold is their only
+                        // other lever. This flag tells the UI to surface the per-video correction.
+                        CanReportIncorrect = isDerived && !canRemove,
                         EffectiveDurationSec = durationSec > 0d ? durationSec : null,
                         EffectiveDurationPercent = durationPercent > 0d ? durationPercent : null,
                     };

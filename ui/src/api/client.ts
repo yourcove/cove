@@ -367,6 +367,7 @@ export const videos = {
   resetLike: (id: number) => request<void>(`/videos/${id}/like/reset`, { method: "POST" }),
   deletePlay: (id: number) => request<void>(`/videos/${id}/play`, { method: "DELETE" }),
   resetPlay: (id: number) => request<void>(`/videos/${id}/play/reset`, { method: "POST" }),
+  resetActivity: (id: number) => request<void>(`/videos/${id}/activity/reset`, { method: "POST" }),
   getHistory: (id: number) => request<VideoHistory>(`/videos/${id}/history`),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
     request<MetadataServerVideoMatch[]>(`/videos/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`),
@@ -613,6 +614,8 @@ export const entityEngagement = {
     request<void>("/engagement/interactions", { method: "POST", body: JSON.stringify(data) }),
   getInteractions: (options?: { hostType?: string; hostId?: number; limit?: number }) =>
     request<EngagementInteraction[]>(`/engagement/interactions${buildQuery(undefined, options)}`),
+  resetAllActivity: () => request<{ reset: number }>("/engagement/activity/reset-all", { method: "POST" }),
+  wipeAll: () => request<{ wiped: number }>("/engagement/wipe-all", { method: "POST" }),
 };
 
 // ===== Performers =====
@@ -692,6 +695,10 @@ export const tagApplications = {
     request<TagApplication[]>(`/tagapplications${buildQuery(undefined, params)}`),
   create: (data: TagApplicationCreate) => request<TagApplication>("/tagapplications", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/tagapplications/${id}`, { method: "DELETE" }),
+  // "Report incorrect detection": drop the AI's host-level applications for one (host, tag) so a
+  // wrongly-derived tag falls off this host. Does not touch the tag's global threshold or segments.
+  reportIncorrect: (hostType: string, hostId: number, tagId: number) =>
+    request<void>(`/tagapplications/host/${hostType}/${hostId}/tag/${tagId}`, { method: "DELETE" }),
 };
 
 export const aiData = {
@@ -1471,7 +1478,7 @@ export interface ContentRuleRow {
   roleName: string;
   entityKind: string;
   effect: "allow" | "deny";
-  scopeKind: "all" | "tag" | "studio" | "identifier" | "attribute" | "expression";
+  scopeKind: "all" | "tag" | "studio" | "attribute" | "expression";
   scopeValue: string;
   appliesTo: "read" | "write" | "delete" | "all";
   createdAt: string;

@@ -365,6 +365,7 @@ export function AudioPlayer({
   const intervalStart = useRef<number | null>(null);
   const lastSeenTime = useRef(0);
   const lastKeepaliveSentAt = useRef(0);
+  const lastTickAt = useRef(0);
   const resumeAppliedRef = useRef<string | null>(null);
   const pendingAutostartRef = useRef(false);
   const lastLoadedSourceRef = useRef<string | null>(null);
@@ -531,6 +532,7 @@ export function AudioPlayer({
     intervalStart.current = time;
     lastSeenTime.current = time;
     lastKeepaliveSentAt.current = Date.now();
+    lastTickAt.current = Date.now();
   }, []);
 
   useEffect(() => {
@@ -541,21 +543,34 @@ export function AudioPlayer({
   }, [trackingTargetSignature]);
 
   useEffect(() => {
+    // Flush the OPEN interval AND any already-queued intervals (e.g. one a pause put on the batch timer)
+    // via keepalive, so a refresh/close/navigation never drops the last watched span.
+    const flushAllKeepalive = () => {
+      flushInterval("paused", "keepalive");
+      void playbackTracker.current.flush("paused", "keepalive");
+    };
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        flushInterval("paused", "keepalive");
+        flushAllKeepalive();
+        intervalStart.current = null;
+      } else if (document.visibilityState === "visible") {
+        const audio = audioRef.current;
+        if (audio && !audio.paused) {
+          startTrackedInterval(roundTime(audio.currentTime));
+        }
       }
     };
-    const handlePageHide = () => flushInterval("paused", "keepalive");
+    const handlePageHide = () => flushAllKeepalive();
 
     window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      flushInterval("paused", "keepalive");
+      flushAllKeepalive();
     };
-  }, [flushInterval]);
+  }, [flushInterval, startTrackedInterval]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -802,15 +817,31 @@ export function AudioPlayer({
           const audio = audioRef.current;
           const time = roundTime(audio?.currentTime ?? 0);
           setCurrentTime(time);
-          lastSeenTime.current = time;
+          // Don't accrue watch time while the tab is backgrounded (see VideoPlayer for rationale).
+          if (document.hidden) return;
+          const now = Date.now();
           if (trackingEnabled && intervalStart.current != null) {
-            const now = Date.now();
-            if (now - lastKeepaliveSentAt.current >= 10000) {
-              lastKeepaliveSentAt.current = now;
+            const wallDt = lastTickAt.current > 0 ? (now - lastTickAt.current) / 1000 : 0;
+            const rate = audio?.playbackRate ?? 1;
+            const maxAdvance = Math.max(1, wallDt * rate + 1);
+            const advance = time - lastSeenTime.current;
+            if (advance >= -0.5 && advance <= maxAdvance) {
+              // Contiguous playback → extend the watched interval.
+              lastSeenTime.current = time;
+              if (now - lastKeepaliveSentAt.current >= 10000) {
+                lastKeepaliveSentAt.current = now;
+                flushInterval("active");
+                intervalStart.current = time;
+              }
+            } else {
+              // Discontinuity (a seek): close at the real last-watched position, reopen at the new one.
               flushInterval("active");
-              intervalStart.current = time;
+              startTrackedInterval(time);
             }
+          } else {
+            lastSeenTime.current = time;
           }
+          lastTickAt.current = now;
           if (audio && clip?.end != null && time >= clipEnd && !clipEndedHandled.current) {
             clipEndedHandled.current = true;
             audio.pause();

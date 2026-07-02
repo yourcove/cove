@@ -12,6 +12,10 @@ public sealed class EmbeddingSearchOptions
     public EmbeddingModality? Modality { get; init; }
     public bool? IsSemantic { get; init; }
     public string? SourceKey { get; init; }
+
+    /// <summary>Restrict the search to a single section index (e.g. 0 = asset-level only). Greatly reduces
+    /// the rows scanned when only whole-item similarity is wanted and section-level rows exist.</summary>
+    public int? SectionIndex { get; init; }
 }
 
 public sealed record EmbeddingSearchResult(Embedding Embedding, float Distance);

@@ -15,7 +15,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.PerformersRead)]
-public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IEntityIdentifierService entityIdentifiers, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private sealed record PerformerUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -222,10 +222,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, performer.Id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Performer, performer.Id, dto.Rating, cancellationToken: ct);
-        if (dto.Urls?.Count > 0)
-            await entityIdentifiers.SyncAsync(EntityKinds.Performer, performer.Id, IdentifierSchemes.Url, dto.Urls, null, ct);
-        if (dto.Aliases?.Count > 0)
-            await entityIdentifiers.SyncAsync(EntityKinds.Performer, performer.Id, IdentifierSchemes.Alias, dto.Aliases, null, ct);
         var result = await performerRepo.GetByIdWithRelationsAsync(performer.Id, ct);
         return CreatedAtAction(nameof(GetById), new { id = performer.Id }, await MapToDetailDtoAsync(result!, ct));
     }
@@ -285,10 +281,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Performer, id, dto.Rating, cancellationToken: ct);
-        if (dto.Urls != null)
-            await entityIdentifiers.SyncAsync(EntityKinds.Performer, id, IdentifierSchemes.Url, dto.Urls, null, ct);
-        if (dto.Aliases != null)
-            await entityIdentifiers.SyncAsync(EntityKinds.Performer, id, IdentifierSchemes.Alias, dto.Aliases, null, ct);
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }

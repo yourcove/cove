@@ -104,22 +104,6 @@ public class PerformerRepository : IPerformerRepository
             : sortQuery.OrderBy(item => item.HasHeight ? 0 : 1).ThenBy(item => item.Height).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
     }
 
-    private static IQueryable<Performer> ApplyLastFavoriteSort(IQueryable<Performer> query, bool desc)
-    {
-        var sortQuery = query.Select(performer => new
-        {
-            Performer = performer,
-            LastFavoriteAt = performer.VideoPerformers
-                .SelectMany(videoPerformer => videoPerformer.Video!.LikeHistory)
-                .Select(history => (DateTime?)history.OccurredAt)
-                .Max(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenByDescending(item => item.LastFavoriteAt).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
-            : sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenBy(item => item.LastFavoriteAt).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
-    }
-
     private IQueryable<Performer> ApplyLastPlayedAtSort(IQueryable<Performer> query, bool desc)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
@@ -611,7 +595,7 @@ public class PerformerRepository : IPerformerRepository
             "tag_count" => desc ? query.OrderByDescending(p => p.TagCount) : query.OrderBy(p => p.TagCount),
             "like_counter" => ApplyVideoAffinityIntSumSort(query, nameof(UserEntityAffinity.LikeCount), desc),
             "play_count" => ApplyPlayCountSort(query, desc),
-            "last_like_at" => ApplyLastFavoriteSort(query, desc),
+            "last_like_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Performer, nameof(UserEntityAffinity.FavoritedAt), desc),
             "last_played_at" => ApplyLastPlayedAtSort(query, desc),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id, desc),
             _ => desc ? query.OrderByDescending(p => p.UpdatedAt) : query.OrderBy(p => p.UpdatedAt),
@@ -796,6 +780,12 @@ public class TagRepository : ITagRepository
             if (filter.Favorite.HasValue)
                 query = query.Where(t => t.Favorite == filter.Favorite.Value);
 
+            // Rating (overall) — minimum + advanced criterion, joined from the per-user Rating table.
+            var currentUserId = EngagementQueryHelpers.CurrentUserId(_db);
+            if (filter.Rating.HasValue)
+                query = EngagementQueryHelpers.ApplyRatingMinimum(_db, query, currentUserId, RatingHostType.Tag, filter.Rating.Value);
+            query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, currentUserId, RatingHostType.Tag, filter.RatingCriterion);
+
             // Advanced criteria
             if (filter.FavoriteCriterion != null)
                 query = query.Where(t => t.Favorite == filter.FavoriteCriterion.Value);
@@ -895,6 +885,7 @@ public class TagRepository : ITagRepository
             : sort switch
             {
             "name" => desc ? query.OrderByDescending(t => t.Name) : query.OrderBy(t => t.Name),
+            "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Tag, desc),
             "tag_group" => ApplyTagGroupSort(query, desc),
             "video_count" => desc ? query.OrderByDescending(t => t.VideoCount) : query.OrderBy(t => t.VideoCount),
             "gallery_count" => desc ? query.OrderByDescending(t => t.GalleryCount) : query.OrderBy(t => t.GalleryCount),

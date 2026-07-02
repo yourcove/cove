@@ -288,8 +288,6 @@ internal static class ReadScopeListOptimization
                 return TryGetIntProperty(scopeValue, "studioId", out var studioId)
                     ? BuildScalarEqualsPredicate<TEntity>("StudioId", studioId)
                     : null;
-            case "identifier":
-                return TryCompileIdentifierRule<TEntity>(db, entityKind, scopeValue);
             case "attribute":
                 return TryCompileAttributeRule<TEntity>(scopeValue);
             case "expression":
@@ -297,37 +295,6 @@ internal static class ReadScopeListOptimization
             default:
                 return null;
         }
-    }
-
-    private static Expression<Func<TEntity, bool>>? TryCompileIdentifierRule<TEntity>(
-        CoveContext db,
-        string entityKind,
-        JsonElement scopeValue)
-        where TEntity : BaseEntity
-    {
-        var scheme = TryGetStringProperty(scopeValue, "scheme");
-        var source = TryGetStringProperty(scopeValue, "source");
-        var normalizedValue = TryGetStringProperty(scopeValue, "normalizedValue");
-        var rawValue = TryGetStringProperty(scopeValue, "value");
-
-        if (string.IsNullOrWhiteSpace(normalizedValue) && string.IsNullOrWhiteSpace(rawValue))
-        {
-            return null;
-        }
-
-        normalizedValue = string.IsNullOrWhiteSpace(normalizedValue) ? null : normalizedValue;
-        rawValue = string.IsNullOrWhiteSpace(rawValue) ? null : rawValue;
-        scheme = string.IsNullOrWhiteSpace(scheme) ? null : scheme;
-        source = string.IsNullOrWhiteSpace(source) ? null : source;
-
-        return entity => db.EntityIdentifiers.Any(identifier =>
-            identifier.EntityKind == entityKind
-            && identifier.EntityId == entity.Id
-            && (scheme == null || identifier.Scheme == scheme)
-            && (source == null || identifier.Source == source)
-            && (normalizedValue != null
-                ? identifier.NormalizedValue == normalizedValue
-                : identifier.Value == rawValue));
     }
 
     private static Expression<Func<TEntity, bool>>? TryCompileExpressionRule<TEntity>(

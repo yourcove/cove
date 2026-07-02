@@ -447,6 +447,7 @@ export const TEXT_BULK_FIELDS: BulkEditField[] = [
 ];
 
 export const TAG_BULK_FIELDS: BulkEditField[] = [
+  { key: "rating", label: "Rating", type: "rating" },
   { key: "description", label: "Description", type: "string" },
   { key: "color", label: "Badge Color", type: "string" },
   { key: "tagGroupId", label: "Tag Group", type: "select", entityType: "tagGroups", nullable: true },

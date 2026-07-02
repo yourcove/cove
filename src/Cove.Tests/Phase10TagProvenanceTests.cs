@@ -47,7 +47,6 @@ public sealed class Phase10TagProvenanceTests
             new MemoryCache(new MemoryCacheOptions()),
             null!,
             null!,
-            null!,
             new NoOpUserEngagementService(),
             new CustomFieldService(context),
             new TagProvenanceService(context));

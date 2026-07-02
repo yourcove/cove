@@ -140,6 +140,18 @@ public sealed class BootstrapAuthService : IHostedService
 
     private async Task<IReadOnlyList<PermissionDefinition>> UpsertPermissionsAsync(CoveContext db, CancellationToken ct)
     {
+        // Defensive: permissions.Key is the table's primary key, so duplicates should be impossible.
+        // But a database that drifted from the EF model (e.g. an older import / a restore of a schema
+        // that never established PK_permissions) can carry duplicate rows for a key such as "*". They
+        // crash the ToDictionary below ("An item with the same key has already been added"), so collapse
+        // them first — keep one row per key (lowest physical ctid). No-op when there are no duplicates.
+        if (db.Database.IsNpgsql())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "DELETE FROM permissions a USING permissions b WHERE a.ctid > b.ctid AND a.\"Key\" = b.\"Key\"",
+                ct);
+        }
+
         var existing = await db.Permissions.ToDictionaryAsync(p => p.Key, ct);
         var livePermissions = _registry.All;
         var live = livePermissions.ToDictionary(p => p.Key);

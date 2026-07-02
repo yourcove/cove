@@ -14,7 +14,7 @@ public sealed class ContentRuleService : IContentRuleService
     private static readonly HashSet<string> ValidEffects = new(StringComparer.OrdinalIgnoreCase) { "allow", "deny" };
     private static readonly HashSet<string> ValidScopeKinds = new(StringComparer.OrdinalIgnoreCase)
     {
-        "all", "tag", "studio", "identifier", "attribute", "expression",
+        "all", "tag", "studio", "attribute", "expression",
     };
 
     private static readonly HashSet<string> ValidAppliesTo = new(StringComparer.OrdinalIgnoreCase)

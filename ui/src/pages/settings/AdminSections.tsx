@@ -25,16 +25,10 @@ import { buildRoutePath } from "../../router/location";
 import { EntityReferenceSelector } from "../../components/EntityReferenceSelector";
 
 const ENTITY_KINDS = ["video", "performer", "tag", "studio", "gallery", "image", "group", "segment"] as const;
-const SCOPE_KINDS = ["all", "tag", "studio", "identifier", "attribute", "expression"] as const;
+const SCOPE_KINDS = ["all", "tag", "studio", "attribute", "expression"] as const;
 const APPLIES_TO = ["read", "write", "delete", "all"] as const;
 const EFFECTS = ["deny", "allow"] as const;
-const SIMPLE_SCOPE_KINDS = ["all", "tag", "studio", "identifier", "attribute"] as const;
-const IDENTIFIER_SCHEMES = [
-  { value: "", label: "Any scheme" },
-  { value: "url", label: "URL" },
-  { value: "alias", label: "Alias" },
-  { value: "remote_id", label: "Remote ID" },
-] as const;
+const SIMPLE_SCOPE_KINDS = ["all", "tag", "studio", "attribute"] as const;
 const ATTRIBUTE_OPERATORS = [
   { value: "exists", label: "Exists" },
   { value: "notExists", label: "Does not exist" },
@@ -71,16 +65,12 @@ function formatEntityKind(entityKind: string) {
 }
 
 type SimpleScopeKind = (typeof SIMPLE_SCOPE_KINDS)[number];
-type IdentifierScheme = (typeof IDENTIFIER_SCHEMES)[number]["value"];
 type AttributeOperator = (typeof ATTRIBUTE_OPERATORS)[number]["value"];
 type ExpressionOperator = "and" | "or" | "not";
 
 interface ContentRuleScopeDraft {
   tagId?: number;
   studioId?: number;
-  identifierScheme: IdentifierScheme;
-  identifierSource: string;
-  identifierValue: string;
   attributePath: string;
   attributeOperator: AttributeOperator;
   attributeValue: string;
@@ -104,9 +94,6 @@ function nextContentRuleDraftId() {
 
 function createEmptyScopeDraft(): ContentRuleScopeDraft {
   return {
-    identifierScheme: "",
-    identifierSource: "",
-    identifierValue: "",
     attributePath: "",
     attributeOperator: "equals",
     attributeValue: "",
@@ -154,21 +141,6 @@ function buildSimpleScopeValue(scopeKind: SimpleScopeKind, draft: ContentRuleSco
       return typeof draft.studioId === "number"
         ? { ok: true, value: { studioId: draft.studioId } }
         : { ok: false, error: "Select a studio for this rule." };
-    case "identifier": {
-      const value = draft.identifierValue.trim();
-      if (!value) {
-        return { ok: false, error: "Enter an identifier value to match." };
-      }
-
-      return {
-        ok: true,
-        value: {
-          ...(draft.identifierScheme ? { scheme: draft.identifierScheme } : {}),
-          ...(draft.identifierSource.trim() ? { source: draft.identifierSource.trim() } : {}),
-          value,
-        },
-      };
-    }
     case "attribute": {
       const path = draft.attributePath.trim();
       if (!path) {
@@ -287,14 +259,6 @@ function formatParsedScopeSummary(scopeKind: string, scopeValue: Record<string, 
       return `tag #${scopeValue.tagId ?? "?"}`;
     case "studio":
       return `studio #${scopeValue.studioId ?? "?"}`;
-    case "identifier": {
-      const parts = [
-        scopeValue.scheme ? String(scopeValue.scheme) : "any scheme",
-        scopeValue.source ? `from ${scopeValue.source}` : null,
-        scopeValue.normalizedValue ? `matches ${scopeValue.normalizedValue}` : scopeValue.value ? `matches ${scopeValue.value}` : null,
-      ].filter(Boolean);
-      return parts.join(" · ") || "identifier rule";
-    }
     case "attribute": {
       const path = String(scopeValue.path ?? scopeValue.field ?? "attribute");
       if (Object.prototype.hasOwnProperty.call(scopeValue, "exists")) {
@@ -351,24 +315,6 @@ function ContentRuleScopeFields({ scopeKind, draft, onChange }: { scopeKind: Sim
 
   if (scopeKind === "studio") {
     return <SingleEntitySelector entityType="studios" value={draft.studioId} onChange={(value) => onChange({ studioId: value })} placeholder="Search studios..." />;
-  }
-
-  if (scopeKind === "identifier") {
-    return (
-      <div className="space-y-3">
-        <Field label="Identifier scheme">
-          <select className={inputClassName} value={draft.identifierScheme} onChange={(event) => onChange({ identifierScheme: event.target.value as IdentifierScheme })}>
-            {IDENTIFIER_SCHEMES.map((scheme) => <option key={scheme.value || "any"} value={scheme.value}>{scheme.label}</option>)}
-          </select>
-        </Field>
-        <Field label="Identifier value">
-          <input className={inputClassName} value={draft.identifierValue} onChange={(event) => onChange({ identifierValue: event.target.value })} placeholder="https://example.com/item/123" />
-        </Field>
-        <Field label="Source (optional)">
-          <input className={inputClassName} value={draft.identifierSource} onChange={(event) => onChange({ identifierSource: event.target.value })} placeholder="Useful for remote IDs" />
-        </Field>
-      </div>
-    );
   }
 
   return (

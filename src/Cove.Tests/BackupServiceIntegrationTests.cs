@@ -60,7 +60,7 @@ public class BackupServiceIntegrationTests
     public async Task RestoreDatabase_CreatesPreRestoreBackupBeforeRestore()
     {
         var backupService = new RecordingBackupService();
-        var controller = new DatabaseController(null!, backupService, NullLogger<DatabaseController>.Instance);
+        var controller = new DatabaseController(null!, backupService, new CoveConfiguration(), NullLogger<DatabaseController>.Instance);
 
         var action = await controller.RestoreDatabase(new RestoreBackupRequestDto("restore.sql"), CancellationToken.None);
 
@@ -131,6 +131,89 @@ public class BackupServiceIntegrationTests
                 await conn.OpenAsync();
                 var namesAfterRestore = await ReadProbeNamesAsync(conn);
                 Assert.Equal(["before backup"], namesAfterRestore);
+            }
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(backupPath) && File.Exists(backupPath))
+                File.Delete(backupPath);
+
+            await manager.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreDatabase_WithCrossTableForeignKeys_DropsAndRecreatesCleanly()
+    {
+        // Repro for the reported restore failure ("cannot drop constraint PK_tags ... because other
+        // objects depend on it"). A plain `pg_dump --clean` script drops constraints by their *current*
+        // name. When the live database carries differently-named legacy constraints (e.g. a Stash import
+        // left `FK_scene_tags_tags_TagId` where the model now expects `FK_video_tags_tags_TagId`), the
+        // dump's `DROP CONSTRAINT IF EXISTS "FK_video_..."` is a no-op, the legacy FK survives, and the
+        // later `DROP CONSTRAINT "PK_tags"` then fails. The restore must reset the schema first so every
+        // constraint is removed regardless of its name. We simulate the mismatch by renaming the FK on
+        // the live DB after the backup is taken.
+        var managedRoot = ResolveManagedPostgresRoot();
+        if (managedRoot == null)
+            return;
+
+        var databaseName = $"backup_fk_verify_{Guid.NewGuid():N}";
+        var postgresConfig = new PostgresConfig
+        {
+            Managed = true,
+            DataPath = managedRoot,
+            Port = 5547,
+            Database = databaseName,
+        };
+        var config = new CoveConfiguration { Postgres = postgresConfig };
+
+        var manager = new PostgresManagerService(Options.Create(postgresConfig), NullLogger<PostgresManagerService>.Instance);
+        await manager.StartAsync(CancellationToken.None);
+
+        string? backupPath = null;
+
+        try
+        {
+            var connectionString = $"Host=127.0.0.1;Port={postgresConfig.Port};Database={databaseName};Username=postgres;Trust Server Certificate=true;Timeout=15;Command Timeout=30";
+
+            await using (var conn = new NpgsqlConnection(connectionString))
+            {
+                await conn.OpenAsync();
+                // A parent table whose PK is referenced by FKs on other tables — mirrors tags <- video_tags.
+                await ExecuteNonQueryAsync(conn, "CREATE TABLE tags (id integer GENERATED ALWAYS AS IDENTITY CONSTRAINT \"PK_tags\" PRIMARY KEY, name text NOT NULL);");
+                await ExecuteNonQueryAsync(conn, "CREATE TABLE video_tags (video_id integer NOT NULL, tag_id integer NOT NULL CONSTRAINT \"FK_video_tags_tags_TagId\" REFERENCES tags (id));");
+                await ExecuteNonQueryAsync(conn, "INSERT INTO tags (name) VALUES ('keep');");
+                await ExecuteNonQueryAsync(conn, "INSERT INTO video_tags (video_id, tag_id) VALUES (1, 1);");
+            }
+
+            var service = new BackupService(new NullJobService(), config, NullLogger<BackupService>.Instance);
+            var backup = await service.CreateBackupAsync("fk_integration_test");
+            backupPath = backup.BackupPath;
+            Assert.True(File.Exists(backupPath));
+
+            await using (var conn = new NpgsqlConnection(connectionString))
+            {
+                await conn.OpenAsync();
+                // Rename the FK to a legacy name the backup script won't know to drop, reproducing the
+                // live-vs-dump constraint-name mismatch from the bug report.
+                await ExecuteNonQueryAsync(conn, "ALTER TABLE video_tags RENAME CONSTRAINT \"FK_video_tags_tags_TagId\" TO \"FK_scene_tags_tags_TagId\";");
+                // Mutate after the backup so we can confirm the restore actually replaced the data.
+                await ExecuteNonQueryAsync(conn, "INSERT INTO tags (name) VALUES ('added after backup');");
+            }
+
+            // Without the schema reset this throws ("cannot drop constraint PK_tags ...").
+            await service.RestoreBackupAsync(backupPath);
+
+            await using (var conn = new NpgsqlConnection(connectionString))
+            {
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT name FROM tags ORDER BY id";
+                var names = new List<string>();
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                    names.Add(reader.GetString(0));
+                Assert.Equal(["keep"], names);
             }
         }
         finally

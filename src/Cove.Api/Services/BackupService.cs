@@ -12,7 +12,8 @@ public class BackupService(
     IJobService jobService,
     CoveConfiguration config,
     ILogger<BackupService> logger,
-    string? dataRootOverride = null) : IBackupService
+    string? dataRootOverride = null,
+    MaintenanceState? maintenance = null) : IBackupService
 {
     private enum BackupFormat
     {
@@ -99,6 +100,10 @@ public class BackupService(
 
         var format = await DetectBackupFormatAsync(backupPath, ct);
         var builder = new NpgsqlConnectionStringBuilder(GetConfiguredConnectionString());
+
+        // Signal maintenance for the whole restore: the schema is dropped and rebuilt, so concurrent
+        // requests would otherwise hit missing tables. Middleware short-circuits them to 503 instead.
+        using var maintenanceScope = maintenance?.BeginRestore();
 
         NpgsqlConnection.ClearAllPools();
         await TerminateDatabaseConnectionsAsync(builder, ct);
@@ -230,6 +235,16 @@ public class BackupService(
 
     private async Task RunPsqlRestoreAsync(NpgsqlConnectionStringBuilder builder, string backupPath, CancellationToken ct)
     {
+        // A plain `pg_dump --clean` script emits each object's DROP next to its CREATE, in creation
+        // order. That means a primary key (PK_tags) is dropped early — alongside its table — while the
+        // foreign keys that depend on it are dropped much later (FKs are added after all tables exist).
+        // Restoring into a populated database then fails with "cannot drop constraint ... because other
+        // objects depend on it". Resetting the schema first gives the restore an empty target, so the
+        // script's DROP ... IF EXISTS lines become harmless no-ops and every object is recreated cleanly
+        // regardless of drop order. (pg_restore on custom-format dumps computes a correct drop order on
+        // its own, so this only applies to the plain-SQL path.)
+        await ResetPublicSchemaAsync(builder, ct);
+
         var startInfo = CreateToolStartInfo("psql", builder.Password);
 
         startInfo.ArgumentList.Add("-v");
@@ -237,6 +252,19 @@ public class BackupService(
         AddConnectionArguments(startInfo, builder);
         startInfo.ArgumentList.Add("--file");
         startInfo.ArgumentList.Add(backupPath);
+
+        await RunToolAsync(startInfo, ct);
+    }
+
+    private async Task ResetPublicSchemaAsync(NpgsqlConnectionStringBuilder builder, CancellationToken ct)
+    {
+        var startInfo = CreateToolStartInfo("psql", builder.Password);
+
+        startInfo.ArgumentList.Add("-v");
+        startInfo.ArgumentList.Add("ON_ERROR_STOP=1");
+        AddConnectionArguments(startInfo, builder);
+        startInfo.ArgumentList.Add("--command");
+        startInfo.ArgumentList.Add("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;");
 
         await RunToolAsync(startInfo, ct);
     }

@@ -445,6 +445,7 @@ public sealed class Phase11PlaybackTests
         scope.PrincipalAccessor.Set(CreatePrincipal(24));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
 
+        // Watch 65s and end the player.
         Assert.IsType<NoContentResult>(await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
             "video",
             videoId,
@@ -453,6 +454,26 @@ public sealed class Phase11PlaybackTests
             65.0,
             "ended",
             [new PlaybackIntervalInputDto(0.0, 65.0)]), CancellationToken.None));
+
+        // Under the user-global session model the derived like is awarded when the session FINALIZES (a new
+        // session begins after the idle timeout), not on the per-player "ended" — so none yet.
+        Assert.Equal(0, (await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync()).DerivedLikeCount);
+
+        // Simulate a 20-minute-long session that then went idle past the 30-min timeout, so the next activity
+        // rolls over and finalizes it (awarding the derived like to the last entity).
+        var userSession = await scope.Context.UserSessions.IgnoreQueryFilters().SingleAsync();
+        userSession.StartedAt = DateTime.UtcNow.AddMinutes(-51);
+        userSession.LastSeenAt = DateTime.UtcNow.AddMinutes(-31);
+        await scope.Context.SaveChangesAsync();
+
+        Assert.IsType<NoContentResult>(await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
+            "video",
+            videoId,
+            Guid.NewGuid(),
+            180.0,
+            70.0,
+            "active",
+            [new PlaybackIntervalInputDto(65.0, 70.0)]), CancellationToken.None));
 
         var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync();
         var derivedLike = await scope.Context.Interactions.IgnoreQueryFilters().SingleAsync(interaction => interaction.Kind == InteractionKind.DerivedLike);

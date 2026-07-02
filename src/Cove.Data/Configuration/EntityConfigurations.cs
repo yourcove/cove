@@ -26,7 +26,6 @@ public class VideoConfiguration : IEntityTypeConfiguration<Video>
         builder.HasMany(s => s.VideoMarkers).WithOne(m => m.Video).HasForeignKey(m => m.VideoId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(s => s.RemoteIds).WithOne(si => si.Video).HasForeignKey(si => si.VideoId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(s => s.PlayHistory).WithOne(h => h.Video).HasForeignKey(h => h.VideoId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasMany(s => s.LikeHistory).WithOne(h => h.Video).HasForeignKey(h => h.VideoId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(s => s.Title);
         builder.HasIndex(s => s.StudioId);
@@ -99,7 +98,7 @@ public class VideoRemoteIdConfiguration : IEntityTypeConfiguration<VideoRemoteId
 {
     public void Configure(EntityTypeBuilder<VideoRemoteId> builder)
     {
-        builder.ToTable("VideoRemoteId");
+        builder.ToTable("video_remote_ids");
         builder.HasKey(remoteId => remoteId.Id);
         builder.Property(remoteId => remoteId.Endpoint).IsRequired();
         builder.Property(remoteId => remoteId.RemoteId).IsRequired();
@@ -358,7 +357,7 @@ public class PerformerRemoteIdConfiguration : IEntityTypeConfiguration<Performer
 {
     public void Configure(EntityTypeBuilder<PerformerRemoteId> builder)
     {
-        builder.ToTable("PerformerRemoteId");
+        builder.ToTable("performer_remote_ids");
         builder.HasKey(remoteId => remoteId.Id);
         builder.Property(remoteId => remoteId.Endpoint).IsRequired();
         builder.Property(remoteId => remoteId.RemoteId).IsRequired();
@@ -415,7 +414,7 @@ public class TagRemoteIdConfiguration : IEntityTypeConfiguration<TagRemoteId>
 {
     public void Configure(EntityTypeBuilder<TagRemoteId> builder)
     {
-        builder.ToTable("TagRemoteId");
+        builder.ToTable("tag_remote_ids");
         builder.HasKey(remoteId => remoteId.Id);
         builder.Property(remoteId => remoteId.Endpoint).IsRequired();
         builder.Property(remoteId => remoteId.RemoteId).IsRequired();
@@ -472,7 +471,7 @@ public class StudioRemoteIdConfiguration : IEntityTypeConfiguration<StudioRemote
 {
     public void Configure(EntityTypeBuilder<StudioRemoteId> builder)
     {
-        builder.ToTable("StudioRemoteId");
+        builder.ToTable("studio_remote_ids");
         builder.HasKey(remoteId => remoteId.Id);
         builder.Property(remoteId => remoteId.Endpoint).IsRequired();
         builder.Property(remoteId => remoteId.RemoteId).IsRequired();
@@ -871,6 +870,10 @@ public class EmbeddingConfiguration : IEntityTypeConfiguration<Embedding>
         builder.Property(embedding => embedding.Meta).HasColumnType("jsonb");
 
         builder.HasIndex(embedding => new { embedding.HostType, embedding.HostId });
+        // Fetch-by-ids for scoring (GetVisualPairAsync etc.) filters HostType + HostId IN + Modality +
+        // SectionIndex; this composite lets the planner seek straight to the asset-level rows instead of
+        // reading every section/modality embedding for each host and filtering in the heap.
+        builder.HasIndex(embedding => new { embedding.HostType, embedding.HostId, embedding.Modality, embedding.SectionIndex });
         builder.HasIndex(embedding => new { embedding.KindFamily, embedding.Modality });
         builder.HasIndex(embedding => new { embedding.Kind, embedding.Dim });
         builder.HasIndex(embedding => embedding.SourceKey);
@@ -951,9 +954,10 @@ public class UserEntityAffinityConfiguration : IEntityTypeConfiguration<UserEnti
         builder.Property(affinity => affinity.PlayerControlCount).HasDefaultValue(0);
         builder.Property(affinity => affinity.SearchInteractionCount).HasDefaultValue(0);
         builder.Property(affinity => affinity.FilterInteractionCount).HasDefaultValue(0);
-        builder.Property(affinity => affinity.ShareCount).HasDefaultValue(0);
-        builder.Property(affinity => affinity.HideCount).HasDefaultValue(0);
         builder.Property(affinity => affinity.ZoomCount).HasDefaultValue(0);
+        builder.Property(affinity => affinity.IsBookmarked).HasDefaultValue(false);
+        builder.Property(affinity => affinity.MaxDwellSec).HasDefaultValue(0d);
+        builder.Property(affinity => affinity.MaxDwellStartSec).HasDefaultValue(0d);
     }
 }
 
@@ -1096,6 +1100,11 @@ public class ImageFileConfiguration : IEntityTypeConfiguration<ImageFile>
     public void Configure(EntityTypeBuilder<ImageFile> builder)
     {
         builder.HasIndex(i => new { i.ImageId, i.Path });
+        // The image-list "title" sort falls back to MIN/MAX(Basename) WHERE ImageId = ? (images have no
+        // denormalized title). Without this, that correlated subquery scans files per row and the list times
+        // out. (ImageId, Basename) lets it be answered by an index seek. ImageId is null for non-image files,
+        // so this effectively only indexes image files.
+        builder.HasIndex(i => new { i.ImageId, i.Basename });
     }
 }
 

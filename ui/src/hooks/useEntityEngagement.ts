@@ -24,7 +24,7 @@ export function useEntityEngagement(hostType: AffinityHostType, hostId: number, 
   const setFavoriteMutation = useMutation({
     mutationFn: (isFavorite: boolean) => entityEngagement.setFavorite(hostType, hostId, { isFavorite }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(queryKey, updated);
+      queryClient.setQueryData(queryKey, (prev?: EntityEngagement) => mergePreservingResume(prev, updated));
       queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
     },
   });
@@ -32,7 +32,7 @@ export function useEntityEngagement(hostType: AffinityHostType, hostId: number, 
   const setRatingMutation = useMutation({
     mutationFn: (payload: { value: number | null; aspect?: string }) => entityEngagement.setRating(hostType, hostId, payload),
     onSuccess: (updated, variables) => {
-      queryClient.setQueryData(queryKey, updated);
+      queryClient.setQueryData(queryKey, (prev?: EntityEngagement) => mergePreservingResume(prev, updated));
       queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
       queryClient.setQueryData(ratingsQueryKey, (current: EntityRatings | undefined) => syncRatings(current, hostId, variables.aspect ?? "overall", variables.value));
     },
@@ -55,6 +55,14 @@ export function useEntityEngagement(hostType: AffinityHostType, hostId: number, 
     favoritePending: setFavoriteMutation.isPending,
     ratingPending: setRatingMutation.isPending,
   };
+}
+
+function mergePreservingResume(prev: EntityEngagement | undefined, updated: EntityEngagement): EntityEngagement {
+  // A rating/favorite change must not move the player's resume target. The server snapshot carries a
+  // resumeTime (= last-persisted LastPositionSec) that lags your live playback position; writing it into the
+  // engagement cache makes the detail page's player seek mid-watch. Keep the previously-known resumeTime —
+  // the live player owns the playback position, not a rating action.
+  return prev ? { ...updated, resumeTime: prev.resumeTime } : updated;
 }
 
 function syncBatchEngagement(current: unknown, updated: EntityEngagement) {

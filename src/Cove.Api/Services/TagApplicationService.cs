@@ -90,6 +90,38 @@ public sealed class TagApplicationService(CoveContext db)
         return application;
     }
 
+    /// <summary>
+    /// Deletes the host-level (non-contextual) tag applications for a single (host, tag) pair —
+    /// the rows that drive whether a derived tag appears on the host. This is the "the AI is wrong
+    /// about this video" correction: it removes the model's finding for one host without touching
+    /// the global tag threshold or the underlying timeline segments. A re-run of the extension under
+    /// a new model version may re-derive it, which is acceptable. Deleting through the tracked context
+    /// lets CoveContext refresh the affected tag's denormalized counts on save.
+    /// </summary>
+    public async Task<int> DeleteHostTagApplicationsAsync(string hostType, int hostId, int tagId, CancellationToken ct)
+    {
+        if (!TryParseHostType(hostType, out var parsedHostType))
+            throw new TagApplicationValidationException(StatusCodes.Status400BadRequest, "Host type is invalid.");
+
+        if (hostId <= 0 || tagId <= 0)
+            throw new TagApplicationValidationException(StatusCodes.Status400BadRequest, "Host id and tag id are required.");
+
+        var applications = await db.TagApplications
+            .Where(application => application.HostType == parsedHostType
+                && application.HostId == hostId
+                && application.TagId == tagId
+                && application.ContextType == null
+                && application.ContextId == null)
+            .ToListAsync(ct);
+
+        if (applications.Count == 0)
+            return 0;
+
+        db.TagApplications.RemoveRange(applications);
+        await db.SaveChangesAsync(ct);
+        return applications.Count;
+    }
+
     public IQueryable<TagApplication> BuildQuery(string? hostType, int? hostId, string? contextType, int? contextId)
     {
         var query = db.TagApplications

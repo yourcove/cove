@@ -13,8 +13,13 @@ export function buildFaceHeroImageUrls(face: Face | null | undefined, carouselSa
 }
 
 function selectFaceSampleDetections(detections: Detection[]) {
-  return [...detections]
-    .filter(isPlausibleFaceDetection)
+  // Prefer detections that pass the quality/aspect gate (good, roughly-frontal crops)...
+  const plausible = detections.filter(isPlausibleFaceDetection);
+  // ...but if a face only ever appears in side-view/low-quality shots, still show its best available
+  // detection rather than nothing — a face with no image at all is useless. When a better frontal image
+  // is later matched, it's promoted to the face's cover and takes precedence over this fallback.
+  const base = plausible.length > 0 ? plausible : detections.filter((detection) => detection.w > 0 && detection.h > 0);
+  return [...base]
     .sort((left, right) => {
       const roleLeft = extractDetectionRole(left) === "best" ? 1 : 0;
       const roleRight = extractDetectionRole(right) === "best" ? 1 : 0;

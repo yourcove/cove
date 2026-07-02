@@ -76,6 +76,7 @@ public partial class CoveContext : DbContext
     public DbSet<UserEntityAffinity> UserEntityAffinities => Set<UserEntityAffinity>();
     public DbSet<Interaction> Interactions => Set<Interaction>();
     public DbSet<PlaybackSession> PlaybackSessions => Set<PlaybackSession>();
+    public DbSet<UserSession> UserSessions => Set<UserSession>();
     public DbSet<PlaybackInterval> PlaybackIntervals => Set<PlaybackInterval>();
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<UserBookmark> UserBookmarks => Set<UserBookmark>();
@@ -96,9 +97,6 @@ public partial class CoveContext : DbContext
     public DbSet<UserInviteToken> UserInviteTokens => Set<UserInviteToken>();
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-
-    // Schema C Stage 1: universal identifier table (dual-write with *Url/*Alias/*RemoteId)
-    public DbSet<EntityIdentifier> EntityIdentifiers => Set<EntityIdentifier>();
 
     // Extensions
     public DbSet<ExtensionData> ExtensionData => Set<ExtensionData>();
@@ -138,12 +136,26 @@ public partial class CoveContext : DbContext
 
         modelBuilder.Entity<FileFingerprint>(entity =>
         {
+            entity.ToTable("file_fingerprints");
             entity.HasIndex(fp => new { fp.Type, fp.Value });
             entity.HasIndex(fp => fp.FileId);
         });
 
         modelBuilder.Entity<VideoCaption>()
-            .ToTable("VideoCaptions");
+            .ToTable("video_captions");
+
+        // Secondary tables that historically defaulted to their CLR type name (PascalCase). Map them to
+        // snake_case so every table follows one convention. (The 20260707 migration renames them in the DB.)
+        modelBuilder.Entity<VideoUrl>().ToTable("video_urls");
+        modelBuilder.Entity<GalleryUrl>().ToTable("gallery_urls");
+        modelBuilder.Entity<GroupUrl>().ToTable("group_urls");
+        modelBuilder.Entity<ImageUrl>().ToTable("image_urls");
+        modelBuilder.Entity<PerformerUrl>().ToTable("performer_urls");
+        modelBuilder.Entity<StudioUrl>().ToTable("studio_urls");
+        modelBuilder.Entity<PerformerAlias>().ToTable("performer_aliases");
+        modelBuilder.Entity<StudioAlias>().ToTable("studio_aliases");
+        modelBuilder.Entity<TagAlias>().ToTable("tag_aliases");
+        modelBuilder.Entity<VideoPlayHistory>().ToTable("video_play_history");
 
         modelBuilder.Entity<VideoFile>()
             .HasMany(v => v.Captions)
@@ -151,10 +163,19 @@ public partial class CoveContext : DbContext
             .HasForeignKey(c => c.FileId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<UserSession>(entity =>
+        {
+            entity.ToTable("user_sessions");
+            entity.HasIndex(session => new { session.UserId, session.LastSeenAt });
+        });
+
         modelBuilder.Entity<PlaybackSession>(entity =>
         {
+            entity.ToTable("playback_sessions");
             entity.HasIndex(session => new { session.UserId, session.HostType, session.HostId, session.StartedAt });
-            entity.HasIndex(session => new { session.UserId, session.SessionId }).IsUnique();
+            // The per-entity session within a user-global session. This is the lookup + concurrency key now;
+            // a reload reuses the same UserSession (within the idle timeout) so it merges into one row.
+            entity.HasIndex(session => new { session.UserId, session.HostType, session.HostId, session.UserSessionId }).IsUnique();
             entity.HasIndex(session => new { session.UserId, session.Surface, session.LastSeenAt });
             entity.Property(session => session.Surface).HasMaxLength(64);
             entity.Property(session => session.ScopeKey).HasMaxLength(256);
@@ -170,6 +191,7 @@ public partial class CoveContext : DbContext
 
         modelBuilder.Entity<PlaybackInterval>(entity =>
         {
+            entity.ToTable("playback_intervals");
             entity.HasIndex(interval => new { interval.UserId, interval.HostType, interval.HostId });
             entity.HasIndex(interval => new { interval.PlaybackSessionId, interval.StartSec });
             entity.HasIndex(interval => new { interval.UserId, interval.Surface, interval.RecordedAt });
@@ -473,6 +495,7 @@ public partial class CoveContext : DbContext
             UserEntityAffinities.RemoveRange(UserEntityAffinities.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
             Interactions.RemoveRange(Interactions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
             PlaybackSessions.RemoveRange(PlaybackSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            UserSessions.RemoveRange(UserSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
             Ratings.RemoveRange(Ratings.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
             UserBookmarks.RemoveRange(UserBookmarks.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
         }
@@ -499,6 +522,7 @@ public partial class CoveContext : DbContext
             UserEntityAffinities.RemoveRange(await UserEntityAffinities.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
             Interactions.RemoveRange(await Interactions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
             PlaybackSessions.RemoveRange(await PlaybackSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            UserSessions.RemoveRange(await UserSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
             Ratings.RemoveRange(await Ratings.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
             UserBookmarks.RemoveRange(await UserBookmarks.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
         }

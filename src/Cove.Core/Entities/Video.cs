@@ -53,7 +53,6 @@ public class Video : BaseEntity
     public ICollection<GroupItem> GroupItems { get; set; } = [];
     public ICollection<VideoRemoteId> RemoteIds { get; set; } = [];
     public ICollection<VideoPlayHistory> PlayHistory { get; set; } = [];
-    public ICollection<VideoLikeHistory> LikeHistory { get; set; } = [];
 }
 
 public class VideoUrl
@@ -102,14 +101,6 @@ public class VideoPlayHistory
     public int Id { get; set; }
     public int VideoId { get; set; }
     public DateTime PlayedAt { get; set; }
-    public Video? Video { get; set; }
-}
-
-public class VideoLikeHistory
-{
-    public int Id { get; set; }
-    public int VideoId { get; set; }
-    public DateTime OccurredAt { get; set; }
     public Video? Video { get; set; }
 }
 

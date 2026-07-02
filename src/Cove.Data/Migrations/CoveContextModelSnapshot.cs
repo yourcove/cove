@@ -1222,59 +1222,13 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("HostType", "HostId");
 
+                    b.HasIndex("HostType", "HostId", "Modality", "SectionIndex");
+
                     b.HasIndex("Kind", "Dim");
 
                     b.HasIndex("KindFamily", "Modality");
 
                     b.ToTable("embeddings", (string)null);
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.EntityIdentifier", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("EntityId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("EntityKind")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("NormalizedValue")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Scheme")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Source")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Scheme", "NormalizedValue");
-
-                    b.HasIndex("EntityKind", "EntityId", "Scheme", "NormalizedValue")
-                        .IsUnique();
-
-                    b.ToTable("entity_identifiers", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.ExtensionData", b =>
@@ -1631,7 +1585,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("Type", "Value");
 
-                    b.ToTable("FileFingerprints");
+                    b.ToTable("file_fingerprints");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Folder", b =>
@@ -1873,7 +1827,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("GalleryId");
 
-                    b.ToTable("GalleryUrl");
+                    b.ToTable("gallery_urls");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Group", b =>
@@ -2110,7 +2064,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("GroupId");
 
-                    b.ToTable("GroupUrl");
+                    b.ToTable("group_urls");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Image", b =>
@@ -2343,7 +2297,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("ImageId");
 
-                    b.ToTable("ImageUrl");
+                    b.ToTable("image_urls");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Interaction", b =>
@@ -2538,7 +2492,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("PerformerId");
 
-                    b.ToTable("PerformerAlias");
+                    b.ToTable("performer_aliases");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PerformerRemoteId", b =>
@@ -2564,7 +2518,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("PerformerId");
 
-                    b.ToTable("PerformerRemoteId", (string)null);
+                    b.ToTable("performer_remote_ids", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PerformerTag", b =>
@@ -2601,7 +2555,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("PerformerId");
 
-                    b.ToTable("PerformerUrl");
+                    b.ToTable("performer_urls");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PlaybackInterval", b =>
@@ -2685,7 +2639,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("UserId", "Surface", "RecordedAt");
 
-                    b.ToTable("PlaybackIntervals");
+                    b.ToTable("playback_intervals");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PlaybackSession", b =>
@@ -2803,16 +2757,19 @@ namespace Cove.Data.Migrations
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
 
-                    b.HasKey("Id");
+                    b.Property<int?>("UserSessionId")
+                        .HasColumnType("integer");
 
-                    b.HasIndex("UserId", "SessionId")
-                        .IsUnique();
+                    b.HasKey("Id");
 
                     b.HasIndex("UserId", "Surface", "LastSeenAt");
 
                     b.HasIndex("UserId", "HostType", "HostId", "StartedAt");
 
-                    b.ToTable("PlaybackSessions");
+                    b.HasIndex("UserId", "HostType", "HostId", "UserSessionId")
+                        .IsUnique();
+
+                    b.ToTable("playback_sessions");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Rating", b =>
@@ -3285,7 +3242,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("StudioId");
 
-                    b.ToTable("StudioAlias");
+                    b.ToTable("studio_aliases");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.StudioRemoteId", b =>
@@ -3311,7 +3268,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("StudioId");
 
-                    b.ToTable("StudioRemoteId", (string)null);
+                    b.ToTable("studio_remote_ids", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.StudioTag", b =>
@@ -3348,7 +3305,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("StudioId");
 
-                    b.ToTable("StudioUrl");
+                    b.ToTable("studio_urls");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Tag", b =>
@@ -3504,7 +3461,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("TagId");
 
-                    b.ToTable("TagAlias");
+                    b.ToTable("tag_aliases");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.TagApplication", b =>
@@ -3660,7 +3617,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("TagId");
 
-                    b.ToTable("TagRemoteId", (string)null);
+                    b.ToTable("tag_remote_ids", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.TextDocument", b =>
@@ -3871,11 +3828,6 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<int>("HideCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<int>("HostId")
                         .HasColumnType("integer");
 
@@ -3886,6 +3838,11 @@ namespace Cove.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
+
+                    b.Property<bool>("IsBookmarked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("IsFavorite")
                         .HasColumnType("boolean");
@@ -3944,12 +3901,17 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<int>("ShareCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<double>("TotalConsumedSec")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double precision")
+                        .HasDefaultValue(0.0);
+
+                    b.Property<double>("MaxDwellSec")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double precision")
+                        .HasDefaultValue(0.0);
+
+                    b.Property<double>("MaxDwellStartSec")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("double precision")
                         .HasDefaultValue(0.0);
@@ -3980,6 +3942,45 @@ namespace Cove.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("user_entity_affinities", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.UserSession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("DerivedLikeAwarded")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("LastHostId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("LastHostType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "LastSeenAt");
+
+                    b.ToTable("user_sessions");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Video", b =>
@@ -4208,7 +4209,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("FileId");
 
-                    b.ToTable("VideoCaptions", (string)null);
+                    b.ToTable("video_captions", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoGallery", b =>
@@ -4224,27 +4225,6 @@ namespace Cove.Data.Migrations
                     b.HasIndex("GalleryId");
 
                     b.ToTable("video_galleries", (string)null);
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.VideoLikeHistory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("VideoId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("VideoId");
-
-                    b.ToTable("VideoLikeHistory");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoMarker", b =>
@@ -4334,7 +4314,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("VideoId");
 
-                    b.ToTable("VideoPlayHistory");
+                    b.ToTable("video_play_history");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoRemoteId", b =>
@@ -4360,7 +4340,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("VideoId");
 
-                    b.ToTable("VideoRemoteId", (string)null);
+                    b.ToTable("video_remote_ids", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoTag", b =>
@@ -4397,7 +4377,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("VideoId");
 
-                    b.ToTable("VideoUrl");
+                    b.ToTable("video_urls");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.AudioFile", b =>
@@ -4465,6 +4445,8 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer");
 
                     b.HasIndex("ImageId", "Path");
+
+                    b.HasIndex("ImageId", "Basename");
 
                     b.ToTable("files", t =>
                         {
@@ -5426,17 +5408,6 @@ namespace Cove.Data.Migrations
                     b.Navigation("Video");
                 });
 
-            modelBuilder.Entity("Cove.Core.Entities.VideoLikeHistory", b =>
-                {
-                    b.HasOne("Cove.Core.Entities.Video", "Video")
-                        .WithMany("LikeHistory")
-                        .HasForeignKey("VideoId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Video");
-                });
-
             modelBuilder.Entity("Cove.Core.Entities.VideoMarker", b =>
                 {
                     b.HasOne("Cove.Core.Entities.Tag", "PrimaryTag")
@@ -5790,8 +5761,6 @@ namespace Cove.Data.Migrations
                     b.Navigation("Files");
 
                     b.Navigation("GroupItems");
-
-                    b.Navigation("LikeHistory");
 
                     b.Navigation("PlayHistory");
 

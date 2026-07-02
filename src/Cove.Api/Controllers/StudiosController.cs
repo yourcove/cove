@@ -15,7 +15,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StudiosRead)]
-public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IEntityIdentifierService entityIdentifiers, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private sealed record StudioUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int PerformerCount, int ChildStudioCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -84,10 +84,6 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, studio.Id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Studio, studio.Id, dto.Rating, cancellationToken: ct);
-        if (dto.Urls?.Count > 0)
-            await entityIdentifiers.SyncAsync(EntityKinds.Studio, studio.Id, IdentifierSchemes.Url, dto.Urls, null, ct);
-        if (dto.Aliases?.Count > 0)
-            await entityIdentifiers.SyncAsync(EntityKinds.Studio, studio.Id, IdentifierSchemes.Alias, dto.Aliases, null, ct);
         var result = await studioRepo.GetByIdWithRelationsAsync(studio.Id, ct);
         return CreatedAtAction(nameof(GetById), new { id = studio.Id }, await MapToDetailDtoAsync(result!, ct));
     }
@@ -131,10 +127,6 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Studio, id, dto.Rating, cancellationToken: ct);
-        if (dto.Urls != null)
-            await entityIdentifiers.SyncAsync(EntityKinds.Studio, id, IdentifierSchemes.Url, dto.Urls, null, ct);
-        if (dto.Aliases != null)
-            await entityIdentifiers.SyncAsync(EntityKinds.Studio, id, IdentifierSchemes.Alias, dto.Aliases, null, ct);
         var updated = await studioRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }

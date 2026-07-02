@@ -133,7 +133,8 @@ public record TagDto(
     bool CanRemove = true,
     double? EffectiveDurationSec = null,
     double? EffectiveDurationPercent = null,
-    bool Organized = false);
+    bool Organized = false,
+    bool CanReportIncorrect = false);
 
 public record TagListDto(
     int Id,
@@ -2040,6 +2041,7 @@ public record BulkTagUpdateDto
     public double? MinOccurrencePercent { get; init; }
     public bool? Organized { get; init; }
     public bool? Favorite { get; init; }
+    public int? Rating { get; init; }
     public List<int>? ParentIds { get; init; }
     public BulkUpdateMode ParentMode { get; init; } = BulkUpdateMode.Add;
     public List<int>? ChildIds { get; init; }

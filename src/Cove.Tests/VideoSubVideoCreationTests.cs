@@ -63,7 +63,6 @@ public class VideoSubVideoCreationTests
             new MemoryCache(new MemoryCacheOptions()),
             null!,
             null!,
-            null!,
             new NoOpUserEngagementService(),
             new CustomFieldService(context),
             null,

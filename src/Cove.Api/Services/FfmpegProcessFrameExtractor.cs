@@ -50,11 +50,19 @@ internal static class FfmpegProcessFrameExtractor
                 {
                     await proc.WaitForExitAsync(timeoutCts.Token);
                 }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                catch (OperationCanceledException)
                 {
+                    // Timeout OR outer cancellation (e.g. the batch was aborted). In BOTH cases the ffmpeg
+                    // process is still running — Process.Dispose() does not stop it, so failing to Kill here
+                    // leaks orphaned ffmpeg processes that keep pegging the CPU after the job ends (exactly
+                    // the "lots of ffmpeg processes throttling my cpu" report). Always kill the tree and
+                    // observe stderr so the reader task isn't left unobserved.
                     try { proc.Kill(entireProcessTree: true); } catch { }
-                    logger.LogWarning("FFmpeg timed out extracting frame {Index} from {Path}", index, videoPath);
+                    try { await stderrTask; } catch { }
                     DisposeFrames(frames);
+                    if (ct.IsCancellationRequested)
+                        throw;
+                    logger.LogWarning("FFmpeg timed out extracting frame {Index} from {Path}", index, videoPath);
                     return null;
                 }
 

@@ -12,7 +12,10 @@ namespace Cove.Data.Services;
 public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAccessor principalAccessor) : IUserEngagementService
 {
     private static readonly UserEngagementSnapshot EmptySnapshot = new(false, null, 0d, 0d, 0, null, 0, 0, 0, 0);
-    private static readonly TrackingSettings DefaultTrackingSettings = new(true, 30, 0.9d, 5, 60, 120);
+    // ..., MinDerivedLikeSessionSeconds = 1200 (a session must be ≥20 min long to earn its derived like),
+    // SessionIdleTimeoutSec = 1800 (a ≥30 min gap between events starts a new session),
+    // DwellPositiveSec = 25 (a contiguous watch ≥ this counts as a "settled in" positive for the recommenders).
+    private static readonly TrackingSettings DefaultTrackingSettings = new(true, 30, 0.45d, 5, 1200, 1800, 25);
 
     private sealed record TrackingSettings(
         bool Enabled,
@@ -20,7 +23,8 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         double ViewCompletionRatio,
         int MinImageDetailViewSeconds,
         int MinDerivedLikeSessionSeconds,
-        int SessionIdleTimeoutSec);
+        int SessionIdleTimeoutSec,
+        int DwellPositiveSec);
 
     public async Task<UserEngagementSnapshot?> GetSnapshotAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
@@ -65,13 +69,23 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             return ids.ToDictionary(id => id, _ => EmptySnapshot);
 
         var ratingHostType = ToRatingHostType(hostType);
-        var affinities = await db.UserEntityAffinities
+        // Group rather than ToDictionaryAsync-by-HostId: a database seeded by a Stash import or a plain-SQL
+        // restore can be missing the user_entity_affinities (UserId,HostType,HostId) unique index and carry
+        // DUPLICATE rows (which would make a keyed dictionary throw "same key already added"). The
+        // AffinityDuplicateRepair migration cleans those up + (re)creates the index, but this read must never
+        // 500 if it runs against a still-drifted DB. Keep the oldest row per host (matches the dedup's
+        // keep-lowest-Id), newest rating per host.
+        var affinities = (await db.UserEntityAffinities
             .Where(affinity => affinity.UserId == userId.Value && affinity.HostType == hostType && visibleIds.Contains(affinity.HostId))
-            .ToDictionaryAsync(affinity => affinity.HostId, cancellationToken);
+            .ToListAsync(cancellationToken))
+            .GroupBy(affinity => affinity.HostId)
+            .ToDictionary(group => group.Key, group => group.OrderBy(affinity => affinity.Id).First());
 
-        var ratings = await db.Ratings
+        var ratings = (await db.Ratings
             .Where(rating => rating.UserId == userId.Value && rating.HostType == ratingHostType && rating.Aspect == "overall" && visibleIds.Contains(rating.HostId))
-            .ToDictionaryAsync(rating => rating.HostId, cancellationToken);
+            .ToListAsync(cancellationToken))
+            .GroupBy(rating => rating.HostId)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(rating => rating.Id).First());
 
         return ids.ToDictionary(id => id, id => visibleIdSet.Contains(id)
             ? ToSnapshot(affinities.GetValueOrDefault(id), ratings.GetValueOrDefault(id))
@@ -94,6 +108,19 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         }
 
         await MirrorLegacyFavoriteAsync(hostType, hostId, isFavorite, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
+    }
+
+    public async Task<UserEngagementSnapshot?> SetBookmarkedAsync(AffinityHostType hostType, int hostId, bool saved, CancellationToken cancellationToken = default)
+    {
+        if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
+            return null;
+
+        var affinity = await GetOrCreateAffinityAsync(hostType, hostId, cancellationToken);
+        if (affinity != null)
+            affinity.IsBookmarked = saved;
+
         await db.SaveChangesAsync(cancellationToken);
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
@@ -164,6 +191,11 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 ApplyInteractionAggregate(affinity, kind, now);
             }
         }
+
+        // A page visit means the user is now looking at this entity — make it the user-global session's
+        // most-recent ("finished on") entity, so a derived like can land on an image/text, not just played media.
+        if (kind == InteractionKind.PageVisit && InteractionValueMapper.RequiresConcreteHost(hostType) && normalizedHostId > 0)
+            await ResolveUserSessionAsync(userId.Value, hostType, normalizedHostId, now, tracking.MinDerivedLikeSessionSeconds, tracking.SessionIdleTimeoutSec, cancellationToken);
 
         db.Interactions.Add(new Interaction
         {
@@ -382,6 +414,74 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
     /// Also updates UserEntityAffinity.TotalConsumedSec, LastPositionSec, and LastConsumedAt,
     /// and marks IsCompleted / CompleteCount when the session ends near the media tail.
     /// </summary>
+    /// <summary>
+    /// Resolve the user-global session this activity belongs to. A reload or a second device starts a fresh
+    /// client SessionId, but if the user's last activity (any entity) was within the idle timeout this reuses
+    /// the same server-resolved session (so reloads/devices don't fragment it); otherwise it finalizes the
+    /// previous session (awarding its one derived like to the last entity) and starts a new one. Also records
+    /// this entity as the session's most-recent ("finished on") entity.
+    /// </summary>
+    private async Task<UserSession> ResolveUserSessionAsync(int userId, InteractionHostType hostType, int hostId, DateTime now, double minDerivedLikeSeconds, int idleTimeoutSec, CancellationToken ct)
+    {
+        var recent = await db.UserSessions
+            .Where(s => s.UserId == userId)
+            .OrderByDescending(s => s.LastSeenAt)
+            .FirstOrDefaultAsync(ct);
+
+        UserSession current;
+        if (recent != null && now - recent.LastSeenAt <= TimeSpan.FromSeconds(idleTimeoutSec))
+        {
+            current = recent;
+        }
+        else
+        {
+            if (recent != null)
+                await FinalizeUserSessionAsync(recent, minDerivedLikeSeconds, now, ct);
+            current = new UserSession { UserId = userId, StartedAt = now, LastSeenAt = now };
+            db.UserSessions.Add(current);
+            await db.SaveChangesAsync(ct); // assign Id so PlaybackSession can key off it
+        }
+
+        current.LastSeenAt = now;
+        if (InteractionValueMapper.RequiresConcreteHost(hostType) && hostId > 0)
+        {
+            current.LastHostType = hostType;
+            current.LastHostId = hostId;
+        }
+        return current;
+    }
+
+    /// <summary>Award the single derived like for a finished user-session to the last entity the user engaged
+    /// with (of any type), provided the session was long enough (its start-to-last-activity span ≥ the
+    /// derived-like session-length threshold). Idempotent via <see cref="UserSession.DerivedLikeAwarded"/>.</summary>
+    private async Task FinalizeUserSessionAsync(UserSession session, double minDerivedLikeSeconds, DateTime now, CancellationToken ct)
+    {
+        if (session.DerivedLikeAwarded || session.LastHostType is not { } lastHostType || session.LastHostId is not { } lastHostId)
+            return;
+
+        // The session must have lasted long enough (active span, gaps under the idle timeout) to earn a like.
+        if ((session.LastSeenAt - session.StartedAt).TotalSeconds < minDerivedLikeSeconds)
+            return;
+
+        if (!TryMapAffinityHostType(lastHostType, out var affinityHostType))
+            return;
+        var affinity = await GetOrCreateAffinityAsync(affinityHostType, lastHostId, ct);
+        if (affinity == null)
+            return;
+
+        affinity.DerivedLikeCount++;
+        affinity.LastConsumedAt = now;
+        session.DerivedLikeAwarded = true;
+        db.Interactions.Add(new Interaction
+        {
+            UserId = session.UserId,
+            HostType = lastHostType,
+            HostId = lastHostId,
+            Kind = InteractionKind.DerivedLike,
+            At = now,
+        });
+    }
+
     public async Task<bool> RecordPlaybackIntervalsAsync(PlaybackIntervalsRequestDto dto, CancellationToken cancellationToken = default)
     {
         for (var attempt = 0; attempt < 2; attempt++)
@@ -420,10 +520,15 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         var parentHostType = ParseOptionalHostType(dto.ParentHostType);
         var itemHostType = ParseOptionalHostType(dto.ItemHostType);
 
+        // Resolve the user-global session this activity belongs to (server-authoritative, idle-timeout based,
+        // cross-device). Reloads/devices reuse it instead of fragmenting; rollover finalizes the prior session
+        // (awarding its one derived-like to the last entity the user engaged with).
+        var userSession = await ResolveUserSessionAsync(userId.Value, hostType, dto.HostId, now, tracking.MinDerivedLikeSessionSeconds, tracking.SessionIdleTimeoutSec, cancellationToken);
+
         var session = await db.PlaybackSessions
             .Include(s => s.Intervals)
             .FirstOrDefaultAsync(
-                s => s.UserId == userId.Value && s.SessionId == dto.SessionId,
+                s => s.UserId == userId.Value && s.HostType == hostType && s.HostId == dto.HostId && s.UserSessionId == userSession.Id,
                 cancellationToken);
 
         var isRelational = db.Database.IsRelational();
@@ -445,19 +550,19 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             if (isRelational)
             {
                 await db.Database.ExecuteSqlInterpolatedAsync($"""
-                    INSERT INTO "PlaybackSessions"
-                        ("UserId", "HostType", "HostId", "SessionId", "StartedAt", "LastSeenAt", "State",
+                    INSERT INTO playback_sessions
+                        ("UserId", "HostType", "HostId", "SessionId", "UserSessionId", "StartedAt", "LastSeenAt", "State",
                          "MediaDurationSec", "TotalWatchedSec", "IsCompleted", "CountsAsView", "DerivedLikeAwarded",
                          "CreatedAt", "UpdatedAt")
-                    VALUES ({userId.Value}, {(int)hostType}, {dto.HostId}, {dto.SessionId}, {now}, {now}, {(int)PlaybackSessionState.Active},
+                    VALUES ({userId.Value}, {(int)hostType}, {dto.HostId}, {dto.SessionId}, {userSession.Id}, {now}, {now}, {(int)PlaybackSessionState.Active},
                          {0d}, {0d}, {false}, {false}, {false}, {now}, {now})
-                    ON CONFLICT ("UserId", "SessionId") DO UPDATE SET "LastSeenAt" = EXCLUDED."LastSeenAt"
+                    ON CONFLICT ("UserId", "HostType", "HostId", "UserSessionId") DO UPDATE SET "LastSeenAt" = EXCLUDED."LastSeenAt"
                     """, cancellationToken);
 
                 session = await db.PlaybackSessions
                     .Include(s => s.Intervals)
                     .FirstOrDefaultAsync(
-                        s => s.UserId == userId.Value && s.SessionId == dto.SessionId,
+                        s => s.UserId == userId.Value && s.HostType == hostType && s.HostId == dto.HostId && s.UserSessionId == userSession.Id,
                         cancellationToken);
             }
 
@@ -476,6 +581,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                     HostType = hostType,
                     HostId = dto.HostId,
                     SessionId = dto.SessionId,
+                    UserSessionId = userSession.Id,
                     StartedAt = now,
                     LastSeenAt = now,
                 };
@@ -526,6 +632,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 .Select(e => e.Entity));
         var prevTotal = session.TotalWatchedSec;
         session.TotalWatchedSec = ComputeMergedWatchedSec(allIntervals);
+        var (dwellLen, dwellStart) = ComputeMaxDwell(allIntervals);
 
         // Update session state fields
         session.State = state;
@@ -539,14 +646,14 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         var clipDuration = dto.ClipStartSec.HasValue && dto.ClipEndSec.HasValue && dto.ClipEndSec.Value > dto.ClipStartSec.Value
             ? dto.ClipEndSec.Value - dto.ClipStartSec.Value
             : (double?)null;
-        var completedByPosition = isFinalState
+        var completedByCoverage = isFinalState
             && ((hostType == InteractionHostType.Video || hostType == InteractionHostType.Audio)
                 && mediaDuration > 0
-                && dto.CurrentPositionSec >= mediaDuration * tracking.ViewCompletionRatio
+                && session.TotalWatchedSec >= mediaDuration * tracking.ViewCompletionRatio
                 || hostType == InteractionHostType.Segment
                 && clipDuration.HasValue
                 && session.TotalWatchedSec >= clipDuration.Value * tracking.ViewCompletionRatio);
-        if (completedByPosition)
+        if (completedByCoverage)
         {
             session.IsCompleted = true;
             session.EndedAt ??= now;
@@ -560,9 +667,9 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         {
             InteractionHostType.Image => session.TotalWatchedSec >= tracking.MinImageDetailViewSeconds,
             InteractionHostType.Text => session.TotalWatchedSec >= tracking.MinImageDetailViewSeconds,
-            InteractionHostType.Video => session.TotalWatchedSec >= tracking.MinViewSeconds || completedByPosition,
-            InteractionHostType.Audio => session.TotalWatchedSec >= tracking.MinViewSeconds || completedByPosition,
-            InteractionHostType.Segment => session.TotalWatchedSec >= tracking.MinViewSeconds || completedByPosition,
+            InteractionHostType.Video => session.TotalWatchedSec >= tracking.MinViewSeconds || completedByCoverage,
+            InteractionHostType.Audio => session.TotalWatchedSec >= tracking.MinViewSeconds || completedByCoverage,
+            InteractionHostType.Segment => session.TotalWatchedSec >= tracking.MinViewSeconds || completedByCoverage,
             _ => false,
         };
 
@@ -581,6 +688,14 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 if (delta > 0d)
                     affinity.TotalConsumedSec = Math.Max(0d, affinity.TotalConsumedSec + delta);
 
+                // Track the user's deepest single dwell on this entity (longest contiguous watched run) and
+                // where it occurred — accumulated as the max across all their sessions on it.
+                if (dwellLen > affinity.MaxDwellSec)
+                {
+                    affinity.MaxDwellSec = dwellLen;
+                    affinity.MaxDwellStartSec = dwellStart;
+                }
+
                 if ((hostType == InteractionHostType.Video || hostType == InteractionHostType.Audio) && dto.CurrentPositionSec >= 0)
                     affinity.LastPositionSec = dto.CurrentPositionSec;
                 else if (hostType == InteractionHostType.Segment && dto.CurrentPositionSec >= 0)
@@ -594,34 +709,6 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
 
                 if (!wasCountsAsView && session.CountsAsView)
                     affinity.ViewCount++;
-
-                // Update video-level resume/duration cache
-                if (hostType == InteractionHostType.Video)
-                {
-                    var video = await db.Videos.FirstOrDefaultAsync(sc => sc.Id == dto.HostId, cancellationToken);
-                    if (video != null)
-                    {
-                    }
-                }
-
-                if (isFinalState
-                    && !session.DerivedLikeAwarded
-                    && session.TotalWatchedSec >= tracking.MinDerivedLikeSessionSeconds
-                    && !await db.PlaybackSessions.AnyAsync(
-                        other => other.UserId == userId.Value && other.Id != session.Id && other.StartedAt > session.StartedAt,
-                        cancellationToken))
-                {
-                    affinity.DerivedLikeCount++;
-                    session.DerivedLikeAwarded = true;
-                    db.Interactions.Add(new Interaction
-                    {
-                        UserId = userId.Value,
-                        HostType = hostType,
-                        HostId = dto.HostId,
-                        Kind = InteractionKind.DerivedLike,
-                        At = now,
-                    });
-                }
             }
         }
 
@@ -698,6 +785,37 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         return total;
     }
 
+    /// <summary>The longest single contiguous watched run (merged) and where it starts — the user's deepest
+    /// dwell. A long run is a strong "found a part worth staying on" signal; its start anchors future
+    /// section-level attribution (the embeddings/tags/faces/audio present at that point in the media).</summary>
+    private static (double lengthSec, double startSec) ComputeMaxDwell(IEnumerable<PlaybackInterval> intervals)
+    {
+        var sorted = intervals.OrderBy(i => i.StartSec).ThenBy(i => i.EndSec).ToList();
+        double bestLen = 0d, bestStart = 0d;
+        var curStart = double.MinValue;
+        var curEnd = double.MinValue;
+        void Close()
+        {
+            if (curEnd - curStart > bestLen) { bestLen = curEnd - curStart; bestStart = curStart; }
+        }
+        foreach (var iv in sorted)
+        {
+            if (iv.EndSec <= iv.StartSec) continue;
+            if (iv.StartSec > curEnd)
+            {
+                Close();
+                curStart = iv.StartSec;
+                curEnd = iv.EndSec;
+            }
+            else
+            {
+                curEnd = Math.Max(curEnd, iv.EndSec);
+            }
+        }
+        Close();
+        return (Math.Max(0d, bestLen), bestLen > 0d ? bestStart : 0d);
+    }
+
     private static bool TryParseSessionState(string? state, out PlaybackSessionState parsed)
     {
         parsed = PlaybackSessionState.Active;
@@ -737,6 +855,80 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         await db.SaveChangesAsync(cancellationToken);
 
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
+    }
+
+    public async Task<int> ResetAllActivityAsync(CancellationToken cancellationToken = default)
+    {
+        var userId = principalAccessor.Current?.UserId;
+        if (!userId.HasValue)
+            return 0;
+
+        // Remove every playback session + interval + user-global session for this user.
+        await db.Set<PlaybackInterval>().Where(i => i.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        await db.PlaybackSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        await db.UserSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        // continued below: clear watch-derived affinity metrics (ratings/likes/favorites kept)
+
+        // Clear watch-derived metrics on every affinity row. Ratings/likes/favorites/interactions are kept.
+        return await db.UserEntityAffinities
+            .IgnoreQueryFilters()
+            .Where(a => a.UserId == userId.Value)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(a => a.TotalConsumedSec, 0d)
+                .SetProperty(a => a.LastPositionSec, (double?)null)
+                .SetProperty(a => a.LastConsumedAt, (DateTime?)null)
+                .SetProperty(a => a.ViewCount, 0)
+                .SetProperty(a => a.CompleteCount, 0)
+                .SetProperty(a => a.MaxDwellSec, 0d)
+                .SetProperty(a => a.MaxDwellStartSec, 0d),
+                cancellationToken);
+    }
+
+    public async Task<int> WipeAllEngagementAsync(CancellationToken cancellationToken = default)
+    {
+        var userId = principalAccessor.Current?.UserId;
+        if (!userId.HasValue)
+            return 0;
+
+        // Wipe ONLY system-collected (implicit) engagement: playback sessions/intervals, user-global
+        // sessions, behavioral interactions, derived likes, watch time, view/complete counts, dwell, and
+        // page visits. Explicit signals the user set deliberately — ratings, likes ("orgasm count"),
+        // favorites, and bookmarks/save-for-later — are PRESERVED. Used to clear data poisoned by a bug.
+        await db.Set<PlaybackInterval>().Where(i => i.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        await db.PlaybackSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        await db.UserSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+
+        // Delete every behavioral interaction except the explicit LikeCount ("orgasm count") events.
+        await db.Interactions
+            .Where(i => i.UserId == userId.Value && i.Kind != InteractionKind.LikeCount)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        // Clear system-derived metrics on each affinity row; keep IsFavorite/FavoritedAt/IsBookmarked/LikeCount.
+        return await db.UserEntityAffinities
+            .IgnoreQueryFilters()
+            .Where(a => a.UserId == userId.Value)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(a => a.ViewCount, 0)
+                .SetProperty(a => a.CompleteCount, 0)
+                .SetProperty(a => a.TotalConsumedSec, 0d)
+                .SetProperty(a => a.LastPositionSec, (double?)null)
+                .SetProperty(a => a.LastConsumedAt, (DateTime?)null)
+                .SetProperty(a => a.MaxDwellSec, 0d)
+                .SetProperty(a => a.MaxDwellStartSec, 0d)
+                .SetProperty(a => a.DerivedLikeCount, 0)
+                .SetProperty(a => a.PageVisitCount, 0)
+                .SetProperty(a => a.InteractionCount, 0)
+                .SetProperty(a => a.LastInteractedAt, (DateTime?)null)
+                .SetProperty(a => a.OpenDetailCount, 0)
+                .SetProperty(a => a.OpenLightboxCount, 0)
+                .SetProperty(a => a.NavigateCount, 0)
+                .SetProperty(a => a.PauseCount, 0)
+                .SetProperty(a => a.SeekCount, 0)
+                .SetProperty(a => a.PlayerControlCount, 0)
+                .SetProperty(a => a.SearchInteractionCount, 0)
+                .SetProperty(a => a.FilterInteractionCount, 0)
+                .SetProperty(a => a.ZoomCount, 0),
+                cancellationToken);
     }
 
     public async Task<UserEngagementSnapshot?> SetVideoRatingAsync(int videoId, int? value, string aspect = "overall", CancellationToken cancellationToken = default)
@@ -800,20 +992,12 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                     .Select(history => history.PlayedAt.ToString("o"))
                     .ToListAsync(cancellationToken)
                 : new List<string>();
-            var likeHistory = hostType == AffinityHostType.Video
-                ? await db.Set<VideoLikeHistory>()
-                    .Where(history => history.VideoId == hostId)
-                    .OrderByDescending(history => history.OccurredAt)
-                    .Select(history => history.OccurredAt.ToString("o"))
-                    .ToListAsync(cancellationToken)
-                : new List<string>();
+            // Anonymous callers have no per-user like history; the legacy global (Stash-imported) like log
+            // was removed, so only play history is available here.
             var events = playHistory
-                .Select(date => (At: date, Event: new InteractionEventDto("playStart", date)))
-                .Concat(likeHistory.Select(date => (At: date, Event: new InteractionEventDto("likeCount", date))))
-                .OrderByDescending(item => item.At, StringComparer.Ordinal)
-                .Select(item => item.Event)
+                .Select(date => new InteractionEventDto("playStart", date))
                 .ToList();
-            return new VideoHistoryDto(playHistory, likeHistory, events);
+            return new VideoHistoryDto(playHistory, [], events);
         }
 
         var interactions = await db.Interactions
@@ -844,9 +1028,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             .SelectMany(session => session.Intervals)
             .OrderBy(iv => iv.StartSec)
             .ToList();
-        var allTimeWatchedIntervals = allIntervals
-            .Select(ToPlaybackIntervalDto)
-            .ToList();
+        var allTimeWatchedIntervals = MergeIntervalsForDisplay(allIntervals);
         var totalDistinctWatchedSec = ComputeMergedWatchedSec(allIntervals);
         var sessionsForUser = playbackSessions
             .Select(ToVideoPlaybackSessionDto)
@@ -923,7 +1105,8 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             Math.Clamp(preferences.ViewCompletionRatio ?? DefaultTrackingSettings.ViewCompletionRatio, 0.01d, 1d),
             Math.Clamp(preferences.MinImageDetailViewSeconds ?? DefaultTrackingSettings.MinImageDetailViewSeconds, 0, 86_400),
             Math.Clamp(preferences.MinDerivedLikeSessionSeconds ?? DefaultTrackingSettings.MinDerivedLikeSessionSeconds, 0, 86_400),
-            Math.Clamp(preferences.SessionIdleTimeoutSec ?? DefaultTrackingSettings.SessionIdleTimeoutSec, 10, 86_400));
+            Math.Clamp(preferences.SessionIdleTimeoutSec ?? DefaultTrackingSettings.SessionIdleTimeoutSec, 10, 86_400),
+            Math.Clamp(preferences.DwellPositiveSec ?? DefaultTrackingSettings.DwellPositiveSec, 1, 86_400));
     }
 
     private static bool TryMapAffinityHostType(InteractionHostType hostType, out AffinityHostType affinityHostType)
@@ -984,12 +1167,6 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             case InteractionKind.FilterApply:
             case InteractionKind.FilterClear:
                 affinity.FilterInteractionCount++;
-                break;
-            case InteractionKind.Share:
-                affinity.ShareCount++;
-                break;
-            case InteractionKind.Hide:
-                affinity.HideCount++;
                 break;
             case InteractionKind.Zoom:
                 affinity.ZoomCount++;
@@ -1149,13 +1326,38 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             session.TotalWatchedSec,
             session.LastPositionSec,
             session.IsCompleted,
-            session.Intervals
-                .OrderBy(iv => iv.StartSec)
-                .Select(ToPlaybackIntervalDto)
-                .ToList());
+            MergeIntervalsForDisplay(session.Intervals));
 
-    private static PlaybackIntervalDto ToPlaybackIntervalDto(PlaybackInterval iv)
-        => new(iv.StartSec, iv.EndSec, iv.RecordedAt.ToString("o"));
+    /// <summary>Coalesce raw stored intervals into contiguous runs FOR DISPLAY only. Storage stays
+    /// append-only/raw (the recording contract: each keepalive checkpoint writes a fresh ~10s row), so a single
+    /// uninterrupted watch lands as many exactly-touching rows. Merging touching/overlapping rows here makes
+    /// the playback history show one section per real watch run instead of 10s confetti (and drops the
+    /// duplicate rows a keepalive+close double-flush can leave). Purely presentational — TotalWatchedSec and
+    /// MaxDwellSec already merge on read. A small join tolerance absorbs rounding between adjacent chunks
+    /// without bridging a real seek gap.</summary>
+    private static List<PlaybackIntervalDto> MergeIntervalsForDisplay(IEnumerable<PlaybackInterval> intervals)
+    {
+        const double joinGapSec = 0.5;
+        var sorted = intervals.Where(iv => iv.EndSec > iv.StartSec)
+            .OrderBy(iv => iv.StartSec).ThenBy(iv => iv.EndSec).ToList();
+        var merged = new List<PlaybackIntervalDto>();
+        double curStart = 0, curEnd = 0; DateTime curRecorded = default; var open = false;
+        foreach (var iv in sorted)
+        {
+            if (open && iv.StartSec <= curEnd + joinGapSec)
+            {
+                curEnd = Math.Max(curEnd, iv.EndSec);
+                if (iv.RecordedAt > curRecorded) curRecorded = iv.RecordedAt;
+            }
+            else
+            {
+                if (open) merged.Add(new PlaybackIntervalDto(curStart, curEnd, curRecorded.ToString("o")));
+                curStart = iv.StartSec; curEnd = iv.EndSec; curRecorded = iv.RecordedAt; open = true;
+            }
+        }
+        if (open) merged.Add(new PlaybackIntervalDto(curStart, curEnd, curRecorded.ToString("o")));
+        return merged;
+    }
 
     private static JsonDocument? CloneJsonDocument(JsonElement? element)
         => element.HasValue ? JsonDocument.Parse(element.Value.GetRawText()) : null;

@@ -15,7 +15,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TagsRead)]
-public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntityIdentifierService entityIdentifiers, CustomFieldService customFields, SegmentSpanResolver? spanResolver = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomFieldService customFields, IUserEngagementService engagementService, SegmentSpanResolver? spanResolver = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private sealed record TagUsageCounts(
         int VideoCount,
@@ -59,9 +59,10 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
         [FromQuery] int? seed = null,
         [FromQuery] string? name = null, [FromQuery] bool? favorite = null,
+        [FromQuery] int? rating = null,
         CancellationToken ct = default)
     {
-        var filter = new TagFilter { Name = name, Favorite = favorite };
+        var filter = new TagFilter { Name = name, Favorite = favorite, Rating = rating };
         var findFilter = new FindFilter
         {
             Q = q, Page = page, PerPage = perPage, Sort = sort,
@@ -236,8 +237,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
         tag = await tagRepo.AddAsync(tag, ct);
         if (dto.CustomFields != null)
             await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, tag.Id, dto.CustomFields, ct);
-        if (dto.Aliases?.Count > 0)
-            await entityIdentifiers.SyncAsync(EntityKinds.Tag, tag.Id, IdentifierSchemes.Alias, dto.Aliases, null, ct);
         var result = await tagRepo.GetByIdWithRelationsAsync(tag.Id, ct);
         return CreatedAtAction(nameof(GetById), new { id = tag.Id }, await MapToDetailDtoAsync(result!, ct));
     }
@@ -304,8 +303,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
         }
         if (dto.CustomFields != null)
             await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, id, dto.CustomFields, ct);
-        if (dto.Aliases != null)
-            await entityIdentifiers.SyncAsync(EntityKinds.Tag, id, IdentifierSchemes.Alias, dto.Aliases, null, ct);
         await EvictSegmentSpanCachesForTagsAsync([id], ct);
         var updated = tagRepo != null
             ? await tagRepo.GetByIdWithRelationsAsync(id, ct)
@@ -794,6 +791,12 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
         }
 
         await db.SaveChangesAsync(ct);
+
+        // Rating is per-user (Rating table), not a tag entity field — set it through the engagement service.
+        if (dto.Rating.HasValue)
+            foreach (var tag in tags)
+                await engagementService.SetRatingAsync(AffinityHostType.Tag, tag.Id, dto.Rating, cancellationToken: ct);
+
         await EvictSegmentSpanCachesForTagsAsync(tags.Select(tag => tag.Id), ct);
         return Ok(new { updated = tags.Count });
     }
@@ -829,25 +832,42 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, IEntity
             .Include(t => t.ImageTags)
             .Include(t => t.GalleryTags)
             .AsSplitQuery()
-            .Where(t => dto.SourceIds.Contains(t.Id))
+            .Where(t => dto.SourceIds.Contains(t.Id) && t.Id != target.Id)
             .ToListAsync(ct);
+
+        // Seed dedup sets from the target's *actual* associations in the database. target was loaded
+        // without its join-table collections, and entries we add during the loop never land in its
+        // navigation collections — so checking target.VideoTags/ImageTags/etc. would miss both
+        // pre-existing duplicates and duplicates contributed by another source in the same merge,
+        // violating the join-table primary keys. Adding to the HashSet as we go dedups across sources.
+        var targetVideoIds = (await db.Set<VideoTag>().Where(t => t.TagId == target.Id).Select(t => t.VideoId).ToListAsync(ct)).ToHashSet();
+        var targetPerformerIds = (await db.Set<PerformerTag>().Where(t => t.TagId == target.Id).Select(t => t.PerformerId).ToListAsync(ct)).ToHashSet();
+        var targetImageIds = (await db.Set<ImageTag>().Where(t => t.TagId == target.Id).Select(t => t.ImageId).ToListAsync(ct)).ToHashSet();
+        var targetGalleryIds = (await db.Set<GalleryTag>().Where(t => t.TagId == target.Id).Select(t => t.GalleryId).ToListAsync(ct)).ToHashSet();
+        var targetAliases = target.Aliases.Select(alias => alias.Alias).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var source in sources)
         {
             // Move video associations
             foreach (var st in source.VideoTags)
-                if (!target.VideoTags.Any(t => t.VideoId == st.VideoId))
+                if (targetVideoIds.Add(st.VideoId))
                     db.Set<VideoTag>().Add(new VideoTag { VideoId = st.VideoId, TagId = target.Id });
             // Move performer associations
             foreach (var pt in source.PerformerTags)
-                if (!target.PerformerTags.Any(t => t.PerformerId == pt.PerformerId))
+                if (targetPerformerIds.Add(pt.PerformerId))
                     db.Set<PerformerTag>().Add(new PerformerTag { PerformerId = pt.PerformerId, TagId = target.Id });
             // Move image associations
             foreach (var it in source.ImageTags)
-                if (!target.ImageTags.Any(t => t.ImageId == it.ImageId))
+                if (targetImageIds.Add(it.ImageId))
                     db.Set<ImageTag>().Add(new ImageTag { ImageId = it.ImageId, TagId = target.Id });
+            // Move gallery associations
+            foreach (var gt in source.GalleryTags)
+                if (targetGalleryIds.Add(gt.GalleryId))
+                    db.Set<GalleryTag>().Add(new GalleryTag { GalleryId = gt.GalleryId, TagId = target.Id });
             // Add source name as alias
-            if (!target.Aliases.Any(a => a.Alias == source.Name))
+            if (!string.IsNullOrWhiteSpace(source.Name)
+                && !string.Equals(source.Name, target.Name, StringComparison.OrdinalIgnoreCase)
+                && targetAliases.Add(source.Name))
                 target.Aliases.Add(new TagAlias { Alias = source.Name, TagId = target.Id });
             // Delete source
             await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, source.Id, ct);

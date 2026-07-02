@@ -8,6 +8,20 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.8.0] - 2026-07-01
+
+- Add rating support for tags
+- Fix video engagement tracking bugs
+- Add engagement clear button in settings
+- Fix Video buffering jumpt to start issues
+- Fix clean job issues
+- Fix optimize/wipe issues
+- Fix generation issues preventing the run completing from a single bad file under specific cases
+- Improve ffmpeg cleanup after finishing
+- Improve ffmpeg support with foreign languages
+- For faces allow a non-ideal face cover image when its the only image present
+- DB cleanup
+
 ## [0.7.1] - 2026-06-27
 
 - Extension library updates to simplify extension version declarations

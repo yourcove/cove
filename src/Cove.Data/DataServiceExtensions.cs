@@ -82,6 +82,7 @@ public static class DataServiceExtensions
         services.AddScoped<ICustomFieldRepository, CustomFieldRepository>();
         services.AddScoped<IFacePerformerPropagationService>(sp => sp.GetRequiredService<FacePerformerPropagationService>());
         services.AddScoped<IUserEngagementService, UserEngagementService>();
+        services.AddScoped<IUserEngagementReadService, UserEngagementReadService>();
         services.AddScoped<IEmbeddingService>(sp => sp.GetRequiredService<EmbeddingService>());
 services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingService>());
         // Materialized face top-suggestion projection. The list reads the stored Face.TopSuggestion*
@@ -91,9 +92,6 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
         services.AddScoped<FaceTopSuggestionService>();
         services.AddScoped<IFaceTopSuggestionMaintenance>(sp => sp.GetRequiredService<FaceTopSuggestionService>());
         services.AddHostedService<FaceTopSuggestionMaterializerService>();
-
-        // Schema C Stage 1 dual-write
-        services.AddScoped<IEntityIdentifierService, EntityIdentifierService>();
 
         // Auth / RBAC services
         services.AddSingleton<IPermissionRegistry, PermissionRegistry>();

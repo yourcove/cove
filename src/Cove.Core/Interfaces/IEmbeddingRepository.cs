@@ -16,6 +16,9 @@ public sealed class EmbeddingFilter
     public EmbeddingModality? Modality { get; init; }
     public bool? IsSemantic { get; init; }
     public int? SectionIndexGreaterThan { get; init; }
+    /// <summary>Restrict to a single section index (e.g. 0 = asset-level only). Pushed into the query so we
+    /// don't fetch + deserialize every section-level embedding just to keep the whole-item one.</summary>
+    public int? SectionIndex { get; init; }
 }
 
 /// <summary>

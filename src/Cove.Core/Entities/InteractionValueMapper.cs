@@ -49,11 +49,7 @@ public static class InteractionValueMapper
         {
             "pause" => Assign(InteractionKind.Pause, out parsed),
             "seek" => Assign(InteractionKind.Seek, out parsed),
-            "like" => Assign(InteractionKind.Like, out parsed),
-            "dislike" => Assign(InteractionKind.Dislike, out parsed),
             "likecount" => Assign(InteractionKind.LikeCount, out parsed),
-            "share" => Assign(InteractionKind.Share, out parsed),
-            "hide" => Assign(InteractionKind.Hide, out parsed),
             "opendetail" => Assign(InteractionKind.OpenDetail, out parsed),
             "openlightbox" => Assign(InteractionKind.OpenLightbox, out parsed),
             "closelightbox" => Assign(InteractionKind.CloseLightbox, out parsed),
@@ -75,11 +71,7 @@ public static class InteractionValueMapper
     {
         InteractionKind.Pause => "pause",
         InteractionKind.Seek => "seek",
-        InteractionKind.Like => "like",
-        InteractionKind.Dislike => "dislike",
         InteractionKind.LikeCount => "likeCount",
-        InteractionKind.Share => "share",
-        InteractionKind.Hide => "hide",
         InteractionKind.OpenDetail => "openDetail",
         InteractionKind.OpenLightbox => "openLightbox",
         InteractionKind.CloseLightbox => "closeLightbox",

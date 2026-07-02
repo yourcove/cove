@@ -2082,8 +2082,7 @@ public class FacesController(
                 detection.RefKind != null &&
                 detection.RefKind.ToLower() == "face" &&
                 detection.W > 0 &&
-                detection.H > 0 &&
-                detection.Score >= 0.5f)
+                detection.H > 0)
             .Select(detection => new
             {
                 FaceId = (int)detection.RefId!.Value,
@@ -2100,17 +2099,24 @@ public class FacesController(
         var result = new Dictionary<int, string>(coverlessFaceIds.Length);
         foreach (var group in detections.GroupBy(detection => detection.FaceId))
         {
-            var best = group
-                .Where(detection =>
-                {
-                    var aspect = detection.H == 0 ? 0f : detection.W / detection.H;
-                    if (aspect < 0.45f || aspect > 1.8f)
-                        return false;
-                    if (detection.FrameWidth <= 0 || detection.FrameHeight <= 0)
-                        return true;
-                    var area = (detection.W * detection.H) / (float)(detection.FrameWidth * detection.FrameHeight);
-                    return area >= 0.005f;
-                })
+            // Prefer detections that pass the quality/aspect gate (good, roughly-frontal crops).
+            var plausible = group.Where(detection =>
+            {
+                var aspect = detection.H == 0 ? 0f : detection.W / detection.H;
+                if (aspect < 0.45f || aspect > 1.8f)
+                    return false;
+                if (detection.FrameWidth <= 0 || detection.FrameHeight <= 0)
+                    return true;
+                var area = (detection.W * detection.H) / (float)(detection.FrameWidth * detection.FrameHeight);
+                return area >= 0.005f;
+            });
+
+            // But if a face only ever appears in side-view/low-quality shots, still show its best available
+            // detection rather than nothing — a face with no cover at all is useless. When a better, more
+            // frontal image is later matched, AI.Extensions promotes it to a real CoverBlobId which
+            // supersedes this fallback, so this never blocks a future upgrade.
+            var candidates = plausible.Any() ? plausible : group;
+            var best = candidates
                 .OrderByDescending(detection => ReadDetectionRoleIsBest(detection.Extra) ? 1 : 0)
                 .ThenByDescending(detection => ReadDetectionCoverQualityScore(detection.Extra))
                 .ThenByDescending(detection => detection.Score)

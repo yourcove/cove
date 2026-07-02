@@ -329,11 +329,6 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                 ],
             };
 
-            if (index % 4 == 0)
-            {
-                video.LikeHistory.Add(new VideoLikeHistory { OccurredAt = baseDate.AddDays(-index) });
-            }
-
             videos.Add(video);
         }
         db.Videos.AddRange(videos);

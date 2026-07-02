@@ -11,7 +11,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SystemRead)]
-public class DatabaseController(CoveContext db, IBackupService backupService, ILogger<DatabaseController> logger) : ControllerBase
+public class DatabaseController(CoveContext db, IBackupService backupService, CoveConfiguration config, ILogger<DatabaseController> logger) : ControllerBase
 {
     [HttpPost("backup")]
     [RequiresPermission(Permissions.SystemBackup)]
@@ -79,12 +79,20 @@ public class DatabaseController(CoveContext db, IBackupService backupService, IL
             MigrationRequired: remainingMigrations.Length > 0));
     }
 
+    // Build a fresh, non-pooled connection string for maintenance statements (VACUUM/TRUNCATE)
+    // that must run outside a transaction and outside the EF pool. Use the configured connection
+    // string (password intact) rather than db.Database.GetConnectionString(): EF is backed by an
+    // NpgsqlDataSource, so GetConnectionString() returns a password-REDACTED string, which throws
+    // "No password has been provided (SASL/SCRAM-SHA-256)" against a password-protected server.
+    private string BuildMaintenanceConnectionString()
+        => new NpgsqlConnectionStringBuilder(config.DatabaseConnectionString) { Pooling = false }.ConnectionString;
+
     [HttpPost("optimize")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
     public async Task<IActionResult> OptimizeDatabase(CancellationToken ct)
     {
         // VACUUM cannot run inside a transaction — use a raw connection
-        var connStr = db.Database.GetConnectionString()!;
+        var connStr = BuildMaintenanceConnectionString();
         await using var conn = new NpgsqlConnection(connStr);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
@@ -102,7 +110,7 @@ public class DatabaseController(CoveContext db, IBackupService backupService, IL
         var backup = await backupService.CreateBackupAsync("pre_wipe", ct);
         var configBackup = await backupService.CreateConfigBackupAsync("pre_wipe", ct);
 
-        var connStr = db.Database.GetConnectionString()!;
+        var connStr = BuildMaintenanceConnectionString();
         await using var conn = new NpgsqlConnection(connStr);
         await conn.OpenAsync(ct);
 
@@ -110,7 +118,7 @@ public class DatabaseController(CoveContext db, IBackupService backupService, IL
         // TRUNCATE root tables with CASCADE clears all dependent junction tables
         cmd.CommandText = @"
             TRUNCATE TABLE videos, performers, tags, studios, galleries, images, groups,
-                           folders, files, saved_filters, entity_identifiers,
+                           folders, files, saved_filters,
                            ai_runs, embeddings, detections, segments, segment_display_profiles,
                            faces, tag_applications, extension_data
             RESTART IDENTITY CASCADE;";

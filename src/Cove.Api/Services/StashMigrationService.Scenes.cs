@@ -8,7 +8,6 @@ using Scene = Cove.Core.Entities.Video;
 using SceneUrl = Cove.Core.Entities.VideoUrl;
 using SceneTag = Cove.Core.Entities.VideoTag;
 using ScenePerformer = Cove.Core.Entities.VideoPerformer;
-using SceneLikeHistory = Cove.Core.Entities.VideoLikeHistory;
 using ScenePlayHistory = Cove.Core.Entities.VideoPlayHistory;
 using SceneRemoteId = Cove.Core.Entities.VideoRemoteId;
 
@@ -226,7 +225,6 @@ public partial class StashMigrationService
 
         foreach (var row in sceneRows)
         {
-            var oHistory = sceneODates.GetValueOrDefault(row.Id, []);
             var viewHistory = sceneViewDates.GetValueOrDefault(row.Id, []);
             var importedLastPlayedAt = ParseDateTimeOrNull(row.LastPlayedAt);
 
@@ -265,7 +263,6 @@ public partial class StashMigrationService
                         OrderIndex = g.Index,
                         Kind = GroupItemKind.Video,
                     }).ToList(),
-                LikeHistory = oHistory.Select(d => new SceneLikeHistory { OccurredAt = d }).ToList(),
                 PlayHistory = viewHistory.Select(d => new ScenePlayHistory { PlayedAt = d }).ToList(),
                 RemoteIds = sceneStashIds.GetValueOrDefault(row.Id, [])
                     .Select(s => new SceneRemoteId { Endpoint = s.Ep, RemoteId = s.Rid }).ToList(),

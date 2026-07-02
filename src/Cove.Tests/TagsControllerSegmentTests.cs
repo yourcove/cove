@@ -65,7 +65,7 @@ public class TagsControllerSegmentTests
             });
         await context.SaveChangesAsync();
 
-        var controller = new TagsController(null!, context, null!, new CustomFieldService(context));
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
         var detailResult = await controller.GetById(tag.Id, CancellationToken.None);
         var detail = Assert.IsType<OkObjectResult>(detailResult.Result).Value as TagDetailDto;
@@ -126,7 +126,7 @@ public class TagsControllerSegmentTests
         storedTag.StudioCount = 0;
         await context.SaveChangesAsync();
 
-        var controller = new TagsController(null!, context, null!, new CustomFieldService(context));
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
         var detailResult = await controller.GetById(tag.Id, CancellationToken.None);
         var detail = Assert.IsType<OkObjectResult>(detailResult.Result).Value as TagDetailDto;
@@ -187,7 +187,7 @@ public class TagsControllerSegmentTests
         context.Tags.Add(tag);
         await context.SaveChangesAsync();
 
-        var controller = new TagsController(null!, context, null!, new CustomFieldService(context));
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
         var detailResult = await controller.GetById(tag.Id, CancellationToken.None);
         var detailOk = Assert.IsType<OkObjectResult>(detailResult.Result);
@@ -262,7 +262,7 @@ public class TagsControllerSegmentTests
             });
         await context.SaveChangesAsync();
 
-        var controller = new TagsController(null!, context, null!, new CustomFieldService(context));
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
         var alphabeticalResult = await controller.GetMarkerStrings(null, null, CancellationToken.None);
         var alphabetical = Assert.IsType<OkObjectResult>(alphabeticalResult.Result).Value as List<string>;

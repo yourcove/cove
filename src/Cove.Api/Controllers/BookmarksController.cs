@@ -1,6 +1,7 @@
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +12,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/me/bookmarks")]
 [AllowWithoutPermission]
-public class BookmarksController(CoveContext db, ICurrentPrincipalAccessor principalAccessor) : ControllerBase
+public class BookmarksController(CoveContext db, ICurrentPrincipalAccessor principalAccessor, IUserEngagementService engagement) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<BookmarkDto>>> List(CancellationToken ct)
@@ -89,6 +90,8 @@ public class BookmarksController(CoveContext db, ICurrentPrincipalAccessor princ
         }
 
         await db.SaveChangesAsync(ct);
+        // Reflect the bookmark as a soft-positive engagement signal (creates the affinity row if needed).
+        await engagement.SetBookmarkedAsync(dto.HostType, dto.HostId, dto.Saved, ct);
         return Ok(new BookmarkStateDto(dto.HostType, dto.HostId, dto.Saved, dto.Saved ? existing?.CreatedAt.ToString("o") : null));
     }
 

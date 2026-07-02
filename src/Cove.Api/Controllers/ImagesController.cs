@@ -28,11 +28,12 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         [FromQuery] string? title = null, [FromQuery] int? rating = null,
         [FromQuery] bool? organized = null, [FromQuery] int? studioId = null,
         [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
-        [FromQuery] int? galleryId = null,
+        [FromQuery] int? galleryId = null, [FromQuery] string? ids = null,
         CancellationToken ct = default)
     {
         var filter = new ImageFilter
         {
+            Ids = QueryParsing.ParseIntList(ids)?.ToList(),
             Title = title, Rating = rating, Organized = organized, StudioId = studioId,
             TagIds = QueryParsing.ParseIntList(tagIds)?.ToList(), PerformerIds = QueryParsing.ParseIntList(performerIds)?.ToList(),
             GalleryId = galleryId

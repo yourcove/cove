@@ -53,6 +53,27 @@ public sealed class TagApplicationsController(TagApplicationService service) : C
         return application == null ? NotFound() : NoContent();
     }
 
+    /// <summary>
+    /// "Report incorrect detection": removes the AI's host-level tag applications for one (host, tag)
+    /// so a wrongly-derived tag drops off this host. Leaves the global threshold and timeline segments
+    /// untouched. Use this only for genuine AI mistakes — the "tag is correct but too minor" case is a
+    /// threshold adjustment, not a deletion.
+    /// </summary>
+    [HttpDelete("host/{hostType}/{hostId:int}/tag/{tagId:int}")]
+    [RequiresPermission(Permissions.TagsWrite)]
+    public async Task<IActionResult> DeleteForHostTag(string hostType, int hostId, int tagId, CancellationToken ct)
+    {
+        try
+        {
+            var deleted = await service.DeleteHostTagApplicationsAsync(hostType, hostId, tagId, ct);
+            return deleted == 0 ? NotFound() : NoContent();
+        }
+        catch (TagApplicationValidationException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+    }
+
     public static TagApplicationDto Map(TagApplication application)
     {
         var tag = application.Tag ?? new Tag { Id = application.TagId, Name = $"Tag #{application.TagId}" };

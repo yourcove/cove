@@ -333,21 +333,18 @@ public class RepositorySortBehaviorTests
             Title = "leader-video",
         };
         leaderVideo.VideoPerformers.Add(new VideoPerformer { Video = leaderVideo, Performer = leader });
-        leaderVideo.LikeHistory.Add(new VideoLikeHistory { OccurredAt = new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc) });
 
         var middleVideo = new Video
         {
             Title = "middle-video",
         };
         middleVideo.VideoPerformers.Add(new VideoPerformer { Video = middleVideo, Performer = middle });
-        middleVideo.LikeHistory.Add(new VideoLikeHistory { OccurredAt = new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc) });
 
         var compactVideo = new Video
         {
             Title = "compact-video",
         };
         compactVideo.VideoPerformers.Add(new VideoPerformer { Video = compactVideo, Performer = compact });
-        compactVideo.LikeHistory.Add(new VideoLikeHistory { OccurredAt = new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc) });
 
         context.Performers.AddRange(leader, middle, compact, quiet);
         context.Videos.AddRange(leaderVideo, middleVideo, compactVideo);
@@ -359,6 +356,10 @@ public class RepositorySortBehaviorTests
         AddLikeInteraction(context, leaderVideo.Id, new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, middleVideo.Id, new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, compactVideo.Id, new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc));
+        // last_like_at now sorts by the current user's FavoritedAt affinity for the entity.
+        AddFavoriteAffinity(context, AffinityHostType.Performer, leader.Id, new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc));
+        AddFavoriteAffinity(context, AffinityHostType.Performer, middle.Id, new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc));
+        AddFavoriteAffinity(context, AffinityHostType.Performer, compact.Id, new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc));
         await context.SaveChangesAsync();
 
         var repository = new PerformerRepository(context);
@@ -505,7 +506,6 @@ public class RepositorySortBehaviorTests
             performer: youngerPerformer,
             fingerprints: [new FileFingerprint { Type = "phash", Value = "00aa" }]);
         alphaVideo.Date = new DateOnly(2024, 1, 20);
-        alphaVideo.LikeHistory.Add(new VideoLikeHistory { OccurredAt = new DateTime(2024, 1, 5, 12, 0, 0, DateTimeKind.Utc) });
 
         var betaVideo = CreateVideoWithFile(
             "beta-video",
@@ -517,9 +517,13 @@ public class RepositorySortBehaviorTests
             performer: olderPerformer,
             fingerprints: [new FileFingerprint { Type = "phash", Value = "00ff" }]);
         betaVideo.Date = new DateOnly(2024, 1, 20);
-        betaVideo.LikeHistory.Add(new VideoLikeHistory { OccurredAt = new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc) });
 
         context.Videos.AddRange(alphaVideo, betaVideo);
+        await context.SaveChangesAsync();
+
+        // last_like_at now sorts by the current user's FavoritedAt affinity for the video.
+        AddFavoriteAffinity(context, AffinityHostType.Video, alphaVideo.Id, new DateTime(2024, 1, 5, 12, 0, 0, DateTimeKind.Utc));
+        AddFavoriteAffinity(context, AffinityHostType.Video, betaVideo.Id, new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc));
         await context.SaveChangesAsync();
 
         var repository = new VideoRepository(context);
@@ -701,6 +705,11 @@ public class RepositorySortBehaviorTests
     private static void AddVideoAffinity(CoveContext context, int videoId, int viewCount = 0, int likeCount = 0, DateTime? lastConsumedAt = null)
     {
         context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = TestUserId, HostType = AffinityHostType.Video, HostId = videoId, ViewCount = viewCount, LikeCount = likeCount, LastConsumedAt = lastConsumedAt });
+    }
+
+    private static void AddFavoriteAffinity(CoveContext context, AffinityHostType hostType, int hostId, DateTime favoritedAt)
+    {
+        context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = TestUserId, HostType = hostType, HostId = hostId, IsFavorite = true, FavoritedAt = favoritedAt });
     }
 
     private static void AddLikeInteraction(CoveContext context, int videoId, DateTime at)

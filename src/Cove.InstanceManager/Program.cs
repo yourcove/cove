@@ -96,6 +96,18 @@ app.MapPost("/api/instances/{id}/console", (string id, InstanceManagerService ma
 });
 app.MapDelete("/api/instances/{id}", async (string id, bool deleteData, InstanceManagerService managerService) => Results.Ok(await managerService.RemoveAsync(id, deleteData)));
 app.MapGet("/api/instances/{id}/logs", (string id, int? tail, InstanceManagerService managerService) => Results.Ok(managerService.GetLogs(id, tail ?? 120)));
+app.MapPost("/api/shutdown", (IHostApplicationLifetime lifetime) =>
+{
+    // Stop the manager itself. Running Cove instances are detached, so they keep running; this only
+    // shuts down the manager web server and (via the finally block below) its tray icon. Defer the
+    // actual stop briefly so this response can flush back to the browser first.
+    _ = Task.Run(async () =>
+    {
+        await Task.Delay(250);
+        lifetime.StopApplication();
+    });
+    return Results.Ok(new { ok = true });
+});
 
 await app.StartAsync();
 
@@ -1271,7 +1283,7 @@ internal static class ManagerPage
   <main>
     <header>
       <h1>Cove Instance Manager</h1>
-      <div class="toolbar"><button id="refresh">Refresh</button></div>
+      <div class="toolbar"><button id="refresh">Refresh</button><button id="shutdown" class="danger">Shutdown Manager</button></div>
     </header>
     <div id="error" class="error"></div>
     <form id="create-form">
@@ -1435,8 +1447,18 @@ internal static class ManagerPage
     });
 
     $('refresh').addEventListener('click', load);
+
+    $('shutdown').addEventListener('click', async () => {
+      if (!confirm('Shut down the Instance Manager? Running Cove instances keep running; you will need to relaunch the manager to control them again.')) return;
+      try {
+        await request('/api/shutdown', { method: 'POST' });
+        clearInterval(refreshTimer);
+        document.body.innerHTML = '<main><h1>Cove Instance Manager stopped.</h1><p>You can close this tab. Relaunch the manager to control your instances again.</p></main>';
+      } catch (err) { error.textContent = err.message; }
+    });
+
     load();
-    setInterval(load, 5000);
+    const refreshTimer = setInterval(load, 5000);
   </script>
 </body>
 </html>

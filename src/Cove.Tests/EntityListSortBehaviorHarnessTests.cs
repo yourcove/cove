@@ -666,7 +666,7 @@ public class EntityListSortBehaviorHarnessTests
             "rating" => Order(fixture.Videos, video => fixture.Rating(RatingHostType.Video, video.Id), descending),
             "play_count" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).ViewCount, descending),
             "like_counter" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).LikeCount, descending),
-            "last_like_at" => Order(fixture.Videos, video => video.LikeHistory.Max(history => history.OccurredAt), descending),
+            "last_like_at" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).FavoritedAt, descending),
             "duration" => Order(fixture.Videos, video => video.MaxDuration, descending),
             "file_size" => Order(fixture.Videos, video => video.MaxFileSize, descending),
             "file_mod_time" => Order(fixture.Videos, video => video.MaxFileModTime, descending),
@@ -839,7 +839,7 @@ public class EntityListSortBehaviorHarnessTests
             "total_file_size" => Order(fixture.Performers, performer => performer.VideoPerformers.Sum(link => link.Video!.MaxFileSize), descending),
             "tag_count" => Order(fixture.Performers, performer => performer.PerformerTags.Count, descending),
             "career_length" => OrderWithDirectionalIdTieBreaker(fixture.Performers, CareerLength, descending),
-            "last_like_at" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => performer.VideoPerformers.SelectMany(link => link.Video!.LikeHistory).Max(history => history.OccurredAt), descending),
+            "last_like_at" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => fixture.Affinity(AffinityHostType.Performer, performer.Id).FavoritedAt, descending),
             "last_played_at" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => performer.VideoPerformers.Max(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LastConsumedAt), descending),
             "measurements" => OrderMeasurements(fixture.Performers, descending),
             "like_counter" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => performer.VideoPerformers.Sum(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LikeCount), descending),
@@ -1171,7 +1171,6 @@ public class EntityListSortBehaviorHarnessTests
                     [
                         new VideoFile { Id = 1201, Basename = "alpha.mp4", ParentFolder = folderA, ParentFolderId = folderA.Id, Path = "Z:/cove/a/alpha.mp4", Size = 1_100, ModTime = now.AddDays(-4), Height = 720, Duration = 11, FrameRate = 24, BitRate = 1_100_000, Fingerprints = [new FileFingerprint { Id = 1301, Type = "phash", Value = "11aa" }] },
                     ],
-                    LikeHistory = [new VideoLikeHistory { Id = 1401, OccurredAt = now.AddDays(-10) }],
                 },
                 new Video
                 {
@@ -1198,7 +1197,6 @@ public class EntityListSortBehaviorHarnessTests
                         new VideoFile { Id = 1202, Basename = "beta-a.mp4", ParentFolder = folderB, ParentFolderId = folderB.Id, Path = "Z:/cove/b/beta-a.mp4", Size = 1_000, ModTime = now.AddDays(-3), Height = 1080, Duration = 22, FrameRate = 30, BitRate = 2_200_000, Fingerprints = [new FileFingerprint { Id = 1302, Type = "phash", Value = "22bb" }] },
                         new VideoFile { Id = 1204, Basename = "beta-b.mp4", ParentFolder = folderB, ParentFolderId = folderB.Id, Path = "Z:/cove/b/beta-b.mp4", Size = 2_200, ModTime = now.AddDays(-3), Height = 1080, Duration = 20, FrameRate = 30, BitRate = 2_100_000 },
                     ],
-                    LikeHistory = [new VideoLikeHistory { Id = 1402, OccurredAt = now.AddDays(-8) }],
                 },
                 new Video
                 {
@@ -1226,7 +1224,6 @@ public class EntityListSortBehaviorHarnessTests
                         new VideoFile { Id = 1205, Basename = "gamma-b.mp4", ParentFolder = folderC, ParentFolderId = folderC.Id, Path = "Z:/cove/c/gamma-b.mp4", Size = 4_500, ModTime = now.AddDays(-2), Height = 1440, Duration = 30, FrameRate = 48, BitRate = 2_900_000 },
                         new VideoFile { Id = 1206, Basename = "gamma-c.mp4", ParentFolder = folderC, ParentFolderId = folderC.Id, Path = "Z:/cove/c/gamma-c.mp4", Size = 3_500, ModTime = now.AddDays(-2), Height = 1080, Duration = 28, FrameRate = 24, BitRate = 2_500_000 },
                     ],
-                    LikeHistory = [new VideoLikeHistory { Id = 1403, OccurredAt = now.AddDays(-6) }],
                 },
             };
 
@@ -1424,9 +1421,13 @@ public class EntityListSortBehaviorHarnessTests
             AddRating(RatingHostType.Studio, studios[1].Id, 8);
             AddRating(RatingHostType.Studio, studios[2].Id, 9);
 
-            AddAffinity(AffinityHostType.Video, videos[0].Id, viewCount: 1, likeCount: 10, totalConsumedSec: 100, lastPositionSec: 11, lastConsumedAt: now.AddDays(-30));
-            AddAffinity(AffinityHostType.Video, videos[1].Id, viewCount: 3, likeCount: 20, totalConsumedSec: 200, lastPositionSec: 22, lastConsumedAt: now.AddDays(-20));
-            AddAffinity(AffinityHostType.Video, videos[2].Id, viewCount: 9, likeCount: 30, totalConsumedSec: 300, lastPositionSec: 33, lastConsumedAt: now.AddDays(-10));
+            AddAffinity(AffinityHostType.Video, videos[0].Id, viewCount: 1, likeCount: 10, totalConsumedSec: 100, lastPositionSec: 11, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
+            AddAffinity(AffinityHostType.Video, videos[1].Id, viewCount: 3, likeCount: 20, totalConsumedSec: 200, lastPositionSec: 22, lastConsumedAt: now.AddDays(-20), favoritedAt: now.AddDays(-8));
+            AddAffinity(AffinityHostType.Video, videos[2].Id, viewCount: 9, likeCount: 30, totalConsumedSec: 300, lastPositionSec: 33, lastConsumedAt: now.AddDays(-10), favoritedAt: now.AddDays(-6));
+            // Performer-host FavoritedAt drives the performer last_like_at sort.
+            AddAffinity(AffinityHostType.Performer, performers[0].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-10));
+            AddAffinity(AffinityHostType.Performer, performers[1].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-8));
+            AddAffinity(AffinityHostType.Performer, performers[2].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-6));
             AddAffinity(AffinityHostType.Image, images[0].Id, viewCount: 1, likeCount: 5, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-30));
             AddAffinity(AffinityHostType.Image, images[1].Id, viewCount: 1, likeCount: 15, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-20));
             AddAffinity(AffinityHostType.Image, images[2].Id, viewCount: 1, likeCount: 25, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-10));
@@ -1464,7 +1465,7 @@ public class EntityListSortBehaviorHarnessTests
             Context.Ratings.Add(new Rating { UserId = TestUserId, HostType = hostType, HostId = hostId, Value = value, Aspect = "overall" });
         }
 
-        private void AddAffinity(AffinityHostType hostType, int hostId, int viewCount, int likeCount, double totalConsumedSec, double? lastPositionSec, DateTime? lastConsumedAt)
+        private void AddAffinity(AffinityHostType hostType, int hostId, int viewCount, int likeCount, double totalConsumedSec, double? lastPositionSec, DateTime? lastConsumedAt, DateTime? favoritedAt = null)
         {
             var affinity = new UserEntityAffinity
             {
@@ -1476,6 +1477,8 @@ public class EntityListSortBehaviorHarnessTests
                 TotalConsumedSec = totalConsumedSec,
                 LastPositionSec = lastPositionSec,
                 LastConsumedAt = lastConsumedAt,
+                IsFavorite = favoritedAt != null,
+                FavoritedAt = favoritedAt,
             };
             Affinities[(hostType, hostId)] = affinity;
             Context.UserEntityAffinities.Add(affinity);

@@ -88,13 +88,69 @@ public static class FullTextSearchHelpers
         if (normalized is null)
             return textQuery;
 
-        var pathTerm = normalized.ToLowerInvariant().Replace('\\', '/');
-        Expression<Func<TFile, bool>> fileMatches = file => file.Path.ToLower().Contains(pathTerm);
+        // Tokenize the query on separators (whitespace, _, -, ., +, /, …) and require every token to
+        // appear in the file path. This makes separators interchangeable — the way Stash treats them —
+        // so "foo slut", "foo_slut", "foo-bar", etc. all match a file named "foo_bar_slut". Each token
+        // must match the SAME file's path (all tokens ANDed inside files.Any) rather than being spread
+        // across different files of a multi-file entity.
+        var tokens = TokenizeSearchTerms(normalized);
+        if (tokens.Count == 0)
+            return textQuery;
+
+        var fileParam = Expression.Parameter(typeof(TFile), "file");
+        var pathLower = Expression.Call(
+            Expression.Property(fileParam, nameof(BaseFileEntity.Path)),
+            StringToLowerMethod);
+        Expression? fileBody = null;
+        foreach (var token in tokens)
+        {
+            var contains = Expression.Call(pathLower, StringContainsMethod, Expression.Constant(token));
+            fileBody = fileBody is null ? contains : Expression.AndAlso(fileBody, contains);
+        }
+
+        var fileMatches = Expression.Lambda<Func<TFile, bool>>(fileBody!, fileParam);
 
         var entityParam = Expression.Parameter(typeof(T), "entity");
         var body = BuildAnyMatch(filesSelector, entityParam, fileMatches);
         var predicate = Expression.Lambda<Func<T, bool>>(body, entityParam);
         return textQuery.Concat(baseQuery.Where(predicate)).Distinct();
+    }
+
+    private static readonly MethodInfo StringToLowerMethod =
+        typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!;
+    private static readonly MethodInfo StringContainsMethod =
+        typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
+
+    /// <summary>
+    /// Splits free-text search input into lowercase alphanumeric tokens, treating every non-alphanumeric
+    /// character (space, _, -, ., +, /, …) as a separator. Matches how <see cref="BuildPrefixQuery"/>
+    /// tokenizes for full-text search, so file-path matching and title matching stay consistent.
+    /// </summary>
+    private static List<string> TokenizeSearchTerms(string search)
+    {
+        var tokens = new List<string>();
+        var token = new StringBuilder();
+
+        void Flush()
+        {
+            if (token.Length == 0)
+                return;
+            var value = token.ToString();
+            if (!tokens.Contains(value))
+                tokens.Add(value);
+            token.Clear();
+        }
+
+        foreach (var ch in search)
+        {
+            if (char.IsLetterOrDigit(ch))
+                token.Append(char.ToLowerInvariant(ch));
+            else
+                Flush();
+        }
+
+        Flush();
+        return tokens;
     }
 
     private static Expression OrElse(Expression? left, Expression right)

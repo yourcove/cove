@@ -1764,6 +1764,7 @@ export function TagTile({ tag, engagement, onClick, onNavigate, children, select
       selecting={selecting}
       media={(
         <>
+          <RatingBanner rating={engagement?.rating} />
           {favorite ? <Heart className="absolute right-2 top-2 z-10 h-4 w-4 fill-red-500 text-red-500 drop-shadow" /> : null}
           {tag.imagePath ? (
             <>

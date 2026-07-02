@@ -51,7 +51,6 @@ public class EntityDetailCountControllerTests
             null!,
             context,
             null!,
-            null!,
             null!);
 
         var detailResult = await controller.GetById(performer.Id, CancellationToken.None);
@@ -97,7 +96,6 @@ public class EntityDetailCountControllerTests
             new StudioRepository(context),
             null!,
             context,
-            null!,
             null!);
 
         var detailResult = await controller.GetById(studio.Id, CancellationToken.None);

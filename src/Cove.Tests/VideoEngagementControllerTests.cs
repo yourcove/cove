@@ -163,7 +163,7 @@ public class VideoEngagementControllerTests
         var repository = new VideoRepository(context);
         var engagementService = new UserEngagementService(context, principalAccessor);
         var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        return new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, null!, engagementService, new CustomFieldService(context), null, principalAccessor);
+        return new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, engagementService, new CustomFieldService(context), null, principalAccessor);
     }
 
     private static PlaybackController CreatePlaybackController(CoveContext context, CurrentPrincipalAccessor principalAccessor)

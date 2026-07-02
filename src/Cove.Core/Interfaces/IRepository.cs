@@ -264,8 +264,10 @@ public class TagFilter
 {
     public string? Name { get; set; }
     public bool? Favorite { get; set; }
+    public int? Rating { get; set; }
     // Advanced criteria
     public BoolCriterion? FavoriteCriterion { get; set; }
+    public IntCriterion? RatingCriterion { get; set; }
     public IntCriterion? VideoCountCriterion { get; set; }
     public bool VideoCountIncludesChildren { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }

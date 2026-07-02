@@ -124,7 +124,6 @@ public sealed class TagProvenanceServiceTests
             new MemoryCache(new MemoryCacheOptions()),
             null!,
             null!,
-            null!,
             new NoOpUserEngagementService(),
             new CustomFieldService(context),
             new TagProvenanceService(context));

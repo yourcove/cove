@@ -111,6 +111,26 @@ public class EntityEngagementController(IUserEngagementService engagementService
         return snapshot is null ? NotFound() : Ok(ToDto(hostId, snapshot));
     }
 
+    [HttpPost("activity/reset-all")]
+    public async Task<ActionResult<object>> ResetAllActivity(CancellationToken cancellationToken)
+    {
+        if (principalAccessor.Current?.UserId is null)
+            return Forbid();
+
+        var count = await engagementService.ResetAllActivityAsync(cancellationToken);
+        return Ok(new { reset = count });
+    }
+
+    [HttpPost("wipe-all")]
+    public async Task<ActionResult<object>> WipeAllEngagement(CancellationToken cancellationToken)
+    {
+        if (principalAccessor.Current?.UserId is null)
+            return Forbid();
+
+        var count = await engagementService.WipeAllEngagementAsync(cancellationToken);
+        return Ok(new { wiped = count });
+    }
+
     private bool HasPermission(AffinityHostType hostType, bool write)
     {
         var permission = (hostType, write) switch

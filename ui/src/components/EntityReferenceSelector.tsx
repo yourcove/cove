@@ -4,6 +4,7 @@ import { Plus, X } from "lucide-react";
 import { faces, galleries, groups, images, performers, videos, studios, tags } from "../api/client";
 import type { CustomFieldType, Face, Gallery, Group, Image, Performer, Video, Studio, Tag, TagProvenance } from "../api/types";
 import { TagProvenanceHover } from "./TagProvenanceHover";
+import { TagActionMenu } from "./shared";
 import { rankSearchOptions } from "../utils/searchRanking";
 
 export type EntityReferenceType = Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group"> | "face";
@@ -267,6 +268,9 @@ export function EntityReferenceMultiSelector({
   excludeIds,
   lockedIds,
   selectedProvenanceById,
+  reportableIds,
+  onReportIncorrect,
+  onAdjustThreshold,
 }: {
   entityType: EntityReferenceType;
   values: number[];
@@ -280,6 +284,10 @@ export function EntityReferenceMultiSelector({
   excludeIds?: Iterable<number>;
   lockedIds?: Iterable<number>;
   selectedProvenanceById?: Record<number, TagProvenance[] | undefined>;
+  // Locked chips whose id is in reportableIds get the same "⋯" correction menu as the Details tab.
+  reportableIds?: Iterable<number>;
+  onReportIncorrect?: (id: number) => void;
+  onAdjustThreshold?: (id: number) => void;
 }) {
   const [searchText, setSearchText] = useState("");
   const trimmedSearch = searchText.trim();
@@ -311,6 +319,7 @@ export function EntityReferenceMultiSelector({
   const selectedOptions = useEntityReferenceOptions(entityType, values, searchOptions);
   const excluded = useMemo(() => new Set(excludeIds ?? []), [excludeIds]);
   const locked = useMemo(() => new Set(lockedIds ?? []), [lockedIds]);
+  const reportable = useMemo(() => new Set(reportableIds ?? []), [reportableIds]);
   const visibleResults = useMemo(
     () => searchOptions.filter((option) => !values.includes(option.id) && !excluded.has(option.id)),
     [excluded, searchOptions, values],
@@ -363,6 +372,14 @@ export function EntityReferenceMultiSelector({
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
+                ) : reportable.has(id) ? (
+                  <TagActionMenu
+                    name={option?.label ?? labels.singular}
+                    onReportIncorrect={onReportIncorrect ? () => onReportIncorrect(id) : undefined}
+                    onAdjustThreshold={onAdjustThreshold ? () => onAdjustThreshold(id) : undefined}
+                    triggerClassName="-my-0.5 -mr-1 inline-flex items-center rounded px-0.5 text-muted transition hover:text-foreground"
+                    iconClassName="h-3 w-3"
+                  />
                 ) : null}
               </span>
             );

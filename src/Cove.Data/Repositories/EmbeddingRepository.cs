@@ -37,6 +37,8 @@ public class EmbeddingRepository : IEmbeddingRepository
             query = query.Where(e => e.IsSemantic == filter.IsSemantic.Value);
         if (filter.SectionIndexGreaterThan.HasValue)
             query = query.Where(e => e.SectionIndex > filter.SectionIndexGreaterThan.Value);
+        if (filter.SectionIndex.HasValue)
+            query = query.Where(e => e.SectionIndex == filter.SectionIndex.Value);
 
         return query;
     }

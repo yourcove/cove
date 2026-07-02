@@ -1030,6 +1030,7 @@ public class ScanService(
 
             var total = Math.Max(videoFiles.Count, 1);
             var completed = 0;
+            var failed = 0;
 
             var maxParallelism = ResolveMaxParallelism();
             await Parallel.ForEachAsync(videoFiles, new ParallelOptions { MaxDegreeOfParallelism = maxParallelism, CancellationToken = ct }, async (videoFile, token) =>
@@ -1039,6 +1040,13 @@ public class ScanService(
 
                 progress.Report(0.92 + (0.06 * done / total), $"Generating video assets ({done}/{videoFiles.Count})");
 
+                // Isolate each video: a single corrupt/locked file (e.g. an ffmpeg decode failure or an
+                // IO error computing MD5) must not abort the whole batch. Parallel.ForEachAsync cancels
+                // all workers on the first unhandled exception, which is why one bad file previously
+                // poisoned the entire generation run. Swallow per-file errors and keep going; only real
+                // cancellation propagates.
+                try
+                {
                 if (options.GenerateCovers)
                 {
                     var thumbnailPath = thumbnailService.GetThumbnailPathForVideo(videoId);
@@ -1112,7 +1120,20 @@ public class ScanService(
                         await innerDb.SaveChangesAsync(token);
                     }
                 }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    logger.LogWarning(ex, "Failed generating assets for video {VideoId}; skipping", videoId);
+                }
             });
+
+            if (failed > 0)
+                logger.LogWarning("Video asset generation completed with {Failed} failed of {Total} videos", failed, videoFiles.Count);
         }
 
         if (generateImageAssets && processedImagePaths.Count > 0)
@@ -1138,6 +1159,7 @@ public class ScanService(
 
             var total = Math.Max(imageFiles.Count, 1);
             var completed = 0;
+            var failed = 0;
             var imgMaxParallelism = ResolveMaxParallelism();
             await Parallel.ForEachAsync(imageFiles, new ParallelOptions { MaxDegreeOfParallelism = imgMaxParallelism, CancellationToken = ct }, async (imageFile, token) =>
             {
@@ -1147,6 +1169,9 @@ public class ScanService(
                 if (imageFile.ParentFolder == null)
                     return;
 
+                // Isolate each image so one unreadable/corrupt file can't abort the whole batch.
+                try
+                {
                 if (options.GenerateImageThumbnails && imageFile.ImageId.HasValue)
                 {
                     await thumbnailService.GenerateImageThumbnailAsync(imageFile.ImageId.Value, overwrite: false, ct: token);
@@ -1205,7 +1230,20 @@ public class ScanService(
                         await innerDb.SaveChangesAsync(token);
                     }
                 }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    logger.LogWarning(ex, "Failed generating assets for image {ImageId}; skipping", imageFile.ImageId);
+                }
             });
+
+            if (failed > 0)
+                logger.LogWarning("Image asset generation completed with {Failed} failed of {Total} images", failed, imageFiles.Count);
         }
 
         if (generateAudioAssets && processedAudioPaths.Count > 0)
@@ -1231,6 +1269,7 @@ public class ScanService(
 
             var total = Math.Max(audioFiles.Count, 1);
             var completed = 0;
+            var failed = 0;
             var maxParallelism = ResolveMaxParallelism();
             await Parallel.ForEachAsync(audioFiles, new ParallelOptions { MaxDegreeOfParallelism = maxParallelism, CancellationToken = ct }, async (audioFile, token) =>
             {
@@ -1240,6 +1279,9 @@ public class ScanService(
                 if (audioFile.ParentFolder == null)
                     return;
 
+                // Isolate each audio file so one unreadable/corrupt file can't abort the whole batch.
+                try
+                {
                 var filePath = Path.Combine(audioFile.ParentFolder.Path, audioFile.Basename);
                 if (options.GenerateAudioPhashes
                     && !audioFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
@@ -1270,7 +1312,20 @@ public class ScanService(
                         await innerDb.SaveChangesAsync(token);
                     }
                 }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    logger.LogWarning(ex, "Failed generating audio fingerprints for file {FileId}; skipping", audioFile.Id);
+                }
             });
+
+            if (failed > 0)
+                logger.LogWarning("Audio fingerprint generation completed with {Failed} failed of {Total} files", failed, audioFiles.Count);
         }
 
         if (generateTextAssets && processedTextPaths.Count > 0)
@@ -1296,6 +1351,7 @@ public class ScanService(
 
             var total = Math.Max(textFiles.Count, 1);
             var completed = 0;
+            var failed = 0;
             var maxParallelism = ResolveMaxParallelism();
             await Parallel.ForEachAsync(textFiles, new ParallelOptions { MaxDegreeOfParallelism = maxParallelism, CancellationToken = ct }, async (textFile, token) =>
             {
@@ -1305,6 +1361,9 @@ public class ScanService(
                 if (textFile.ParentFolder == null)
                     return;
 
+                // Isolate each text file so one unreadable/corrupt file can't abort the whole batch.
+                try
+                {
                 var filePath = Path.Combine(textFile.ParentFolder.Path, textFile.Basename);
                 if (options.GenerateTextPhashes
                     && !textFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
@@ -1335,7 +1394,20 @@ public class ScanService(
                         await innerDb.SaveChangesAsync(token);
                     }
                 }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    logger.LogWarning(ex, "Failed generating text fingerprints for file {FileId}; skipping", textFile.Id);
+                }
             });
+
+            if (failed > 0)
+                logger.LogWarning("Text fingerprint generation completed with {Failed} failed of {Total} files", failed, textFiles.Count);
         }
     }
 
@@ -1457,6 +1529,45 @@ public class ScanService(
             .OrderBy(dir => dir.Count(c => c == '/'))
             .ThenBy(dir => dir, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        // A discovered directory that didn't match an existing folder by exact stored path may still be
+        // the SAME physical directory as a folder already in the DB that was stored under a differently
+        // normalized path — most commonly a Stash-migrated folder, whose path was stored with only
+        // backslash->slash conversion rather than the scanner's full canonicalization (Path.GetFullPath +
+        // trailing-slash trim). Reuse it by matching on canonicalized path; otherwise the scan creates a
+        // duplicate folder and therefore a duplicate entry for every file under it. Canonical full-path
+        // equality means the same directory, so this can never merge genuinely distinct folders.
+        if (missing.Count > 0)
+        {
+            var canonicalFolderIds = new Dictionary<string, int>(FilesystemPaths.PathComparer);
+            var candidateFolders = await db.Folders
+                .AsNoTracking()
+                .Select(folder => new { folder.Id, folder.Path })
+                .ToListAsync(ct);
+            foreach (var candidate in candidateFolders)
+            {
+                var canonical = TryCanonicalizeStoredFolderPath(candidate.Path);
+                if (canonical != null)
+                    canonicalFolderIds.TryAdd(canonical, candidate.Id);
+            }
+
+            var reusedByCanonicalPath = 0;
+            foreach (var dir in missing)
+            {
+                if (!folderIdsByPath.ContainsKey(dir) && canonicalFolderIds.TryGetValue(dir, out var existingId))
+                {
+                    folderIdsByPath[dir] = existingId;
+                    reusedByCanonicalPath++;
+                }
+            }
+
+            if (reusedByCanonicalPath > 0)
+                logger.LogInformation(
+                    "Scan reused {Count} existing folder(s) matched by canonicalized path (differently-normalized stored paths, e.g. Stash-migrated) to avoid duplicate folders.",
+                    reusedByCanonicalPath);
+
+            missing = missing.Where(dir => !folderIdsByPath.ContainsKey(dir)).ToList();
+        }
 
         foreach (var dir in missing)
         {
@@ -3028,6 +3139,26 @@ public class ScanService(
         var dirPath = Path.GetDirectoryName(path) ?? string.Empty;
         var basename = Path.GetFileName(path);
         return BaseFileEntity.ComputePath(NormalizeStoredFolderPath(dirPath), basename);
+    }
+
+    /// <summary>
+    /// Canonicalizes a stored folder path to the scanner's canonical form for comparison. Returns null
+    /// when the stored path can't be canonicalized (e.g. malformed, or a path from a different host that
+    /// Path.GetFullPath would reject) — such folders simply won't match a discovered directory, which is
+    /// safe: they aren't being scanned on this host.
+    /// </summary>
+    private static string? TryCanonicalizeStoredFolderPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        try
+        {
+            return NormalizeStoredFolderPath(path);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? GetParentStoredFolderPath(string storedPath)

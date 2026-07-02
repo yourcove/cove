@@ -16,8 +16,11 @@ public class PlaybackSession : BaseEntity
     public int UserId { get; set; }
     public InteractionHostType HostType { get; set; }
     public int HostId { get; set; }
-    /// <summary>Client-generated GUID that uniquely identifies this browser/player session.</summary>
+    /// <summary>Client-generated GUID for this player mount. Advisory only — the server resolves session
+    /// continuity via <see cref="UserSessionId"/>, so reloads/devices don't fragment a watch.</summary>
     public Guid SessionId { get; set; }
+    /// <summary>The user-global <see cref="UserSession"/> this per-entity session belongs to.</summary>
+    public int? UserSessionId { get; set; }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }

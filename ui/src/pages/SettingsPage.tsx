@@ -39,7 +39,7 @@ import {
   UserCog,
   X,
 } from "lucide-react";
-import { customFields, system, jobs, metadata, database, plugins as pluginsApi, logs as logsApi, tagGroups, auth as authApi, usersApi } from "../api/client";
+import { customFields, system, jobs, metadata, database, plugins as pluginsApi, logs as logsApi, tagGroups, auth as authApi, usersApi, entityEngagement } from "../api/client";
 import { recentChangelog } from "../data/changelog";
 import type { ScanOptions, GenerateOptions, CleanGeneratedOptions, ExportOptions, LogEntry, UserRow } from "../api/client";
 import type {
@@ -155,15 +155,17 @@ type ResolvedTrackingPreferences = {
   minImageDetailViewSeconds: number;
   minDerivedLikeSessionSeconds: number;
   sessionIdleTimeoutSec: number;
+  dwellPositiveSec: number;
 };
 
 const defaultTrackingPreferences: ResolvedTrackingPreferences = {
   enabled: true,
   minViewSeconds: 30,
-  viewCompletionRatio: 0.9,
+  viewCompletionRatio: 0.45,
   minImageDetailViewSeconds: 5,
-  minDerivedLikeSessionSeconds: 60,
-  sessionIdleTimeoutSec: 120,
+  minDerivedLikeSessionSeconds: 1200,
+  sessionIdleTimeoutSec: 1800,
+  dwellPositiveSec: 25,
 };
 
 function resolveTrackingPreferences(preferences?: UserTrackingPreferences | null): ResolvedTrackingPreferences {
@@ -174,6 +176,7 @@ function resolveTrackingPreferences(preferences?: UserTrackingPreferences | null
     minImageDetailViewSeconds: preferences?.minImageDetailViewSeconds ?? defaultTrackingPreferences.minImageDetailViewSeconds,
     minDerivedLikeSessionSeconds: preferences?.minDerivedLikeSessionSeconds ?? defaultTrackingPreferences.minDerivedLikeSessionSeconds,
     sessionIdleTimeoutSec: preferences?.sessionIdleTimeoutSec ?? defaultTrackingPreferences.sessionIdleTimeoutSec,
+    dwellPositiveSec: preferences?.dwellPositiveSec ?? defaultTrackingPreferences.dwellPositiveSec,
   };
 }
 
@@ -4130,7 +4133,19 @@ function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
               min={10}
               onChange={(value) => updateTrackingPreferences({ sessionIdleTimeoutSec: value ?? defaultTrackingPreferences.sessionIdleTimeoutSec })}
             />
+            <NumberField
+              label="Dwell-positive seconds"
+              value={trackingPreferences.dwellPositiveSec ?? defaultTrackingPreferences.dwellPositiveSec}
+              min={1}
+              onChange={(value) => updateTrackingPreferences({ dwellPositiveSec: value ?? defaultTrackingPreferences.dwellPositiveSec })}
+            />
           </div>
+          <p className="text-xs text-muted">
+            Tip: turn engagement history <strong>off</strong> while browsing or combing through content you're not actively
+            consuming. Skipping around dozens of videos to assess them would otherwise be misread as engagement and can
+            skew your recommendations.
+          </p>
+          <WipeEngagementButton />
         </div>
       </SectionCard>
       )}
@@ -5221,7 +5236,7 @@ function ExtensionTasksSection({ refetchJobs }: { refetchJobs: () => void }) {
 }
 
 // ---- Wipe Confirm Input ----
-function WipeConfirmInput({ onConfirm, onCancel, isPending, error }: { onConfirm: () => void; onCancel: () => void; isPending: boolean; error: string | null }) {
+function WipeConfirmInput({ onConfirm, onCancel, isPending, error, confirmLabel = "Permanently Wipe Database" }: { onConfirm: () => void; onCancel: () => void; isPending: boolean; error: string | null; confirmLabel?: string }) {
   const [value, setValue] = useState("");
   return (
     <div className="flex flex-col gap-2">
@@ -5240,7 +5255,7 @@ function WipeConfirmInput({ onConfirm, onCancel, isPending, error }: { onConfirm
           className="px-3 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
         >
           {isPending && <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />}
-          Permanently Wipe Database
+          {confirmLabel}
         </button>
         <button
           onClick={onCancel}
@@ -5249,6 +5264,65 @@ function WipeConfirmInput({ onConfirm, onCancel, isPending, error }: { onConfirm
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---- Wipe all engagement data (clean slate) ----
+function WipeEngagementButton() {
+  const queryClient = useQueryClient();
+  const [confirm1, setConfirm1] = useState(false);
+  const [confirm2, setConfirm2] = useState(false);
+  const [done, setDone] = useState<number | null>(null);
+  const wipeMut = useMutation({
+    mutationFn: () => entityEngagement.wipeAll(),
+    onSuccess: (result) => {
+      setDone(result.wiped);
+      setConfirm1(false);
+      setConfirm2(false);
+      void queryClient.invalidateQueries();
+    },
+  });
+
+  return (
+    <div className="pt-3 mt-2 border-t border-border">
+      <p className="text-sm text-secondary mb-2">
+        Wipe the <strong>automatically collected</strong> engagement for your profile: playback, sessions,
+        watch time &amp; sections, derived likes, page visits, and the derived affinities. Your explicit
+        engagement: <strong>ratings, likes, favorites, and bookmarks</strong> are kept.
+      </p>
+      {done !== null && (
+        <p className="text-xs text-emerald-300 mb-2">Cleared system-collected data on {done} affinity rows. Ratings, likes, favorites, and bookmarks were kept.</p>
+      )}
+      {!confirm1 && (
+        <button
+          onClick={() => { setDone(null); setConfirm1(true); }}
+          className="px-3 py-1.5 text-sm bg-red-900/40 hover:bg-red-900/70 text-red-400 hover:text-red-300 rounded border border-red-800/50 transition-colors"
+        >
+          Wipe automatic engagement data…
+        </button>
+      )}
+      {confirm1 && !confirm2 && (
+        <div className="space-y-2">
+          <p className="text-sm text-red-300 font-medium">Are you sure? This permanently deletes all automatically collected engagement (watch time, sessions, derived likes). Your ratings, likes, favorites, and bookmarks are kept. This cannot be undone.</p>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirm2(true)} className="px-3 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded transition-colors">Yes, continue</button>
+            <button onClick={() => setConfirm1(false)} className="px-3 py-1.5 text-sm text-secondary hover:text-foreground rounded transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+      {confirm2 && (
+        <div className="space-y-2">
+          <p className="text-sm text-red-300 font-medium">Final confirmation: type WIPE to confirm.</p>
+          <WipeConfirmInput
+            onConfirm={() => wipeMut.mutate()}
+            onCancel={() => { setConfirm1(false); setConfirm2(false); }}
+            isPending={wipeMut.isPending}
+            error={wipeMut.isError ? (wipeMut.error instanceof Error ? wipeMut.error.message : "Wipe failed") : null}
+            confirmLabel="Permanently Wipe Engagement"
+          />
+        </div>
+      )}
     </div>
   );
 }

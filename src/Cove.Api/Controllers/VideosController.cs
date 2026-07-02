@@ -18,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IEntityIdentifierService entityIdentifiers, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -34,10 +34,12 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         [FromQuery] string? title = null, [FromQuery] int? rating = null,
         [FromQuery] bool? organized = null, [FromQuery] int? studioId = null,
         [FromQuery] int? groupId = null, [FromQuery] int? galleryId = null, [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
+        [FromQuery] string? ids = null,
         CancellationToken ct = default)
     {
         var filter = new VideoFilter
         {
+            Ids = QueryParsing.ParseIntList(ids)?.ToList(),
             Title = title, Rating = rating, Organized = organized, StudioId = studioId, GroupId = groupId, GalleryId = galleryId,
             TagIds = QueryParsing.ParseIntList(tagIds)?.ToList(), PerformerIds = QueryParsing.ParseIntList(performerIds)?.ToList()
         };
@@ -306,8 +308,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             await tagProvenanceService.SyncTagSetAsync(AffinityHostType.Video, video.Id, [], dto.TagIds, cancellationToken: ct);
             await db.SaveChangesAsync(ct);
         }
-        if (dto.Urls?.Count > 0)
-            await entityIdentifiers.SyncAsync(EntityKinds.Video, video.Id, IdentifierSchemes.Url, dto.Urls, null, ct);
         if (dto.Rating.HasValue)
             await engagementService.SetVideoRatingAsync(video.Id, dto.Rating, cancellationToken: ct);
 
@@ -407,8 +407,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         await videoRepo.UpdateAsync(video, ct);
         if (dto.CustomFields != null)
             await customFields.SaveValuesAsync(CustomFieldEntityTypes.Video, id, dto.CustomFields, ct);
-        if (dto.Urls != null)
-            await entityIdentifiers.SyncAsync(EntityKinds.Video, id, IdentifierSchemes.Url, dto.Urls, null, ct);
         if (dto.Rating.HasValue)
             await engagementService.SetVideoRatingAsync(id, dto.Rating, cancellationToken: ct);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);

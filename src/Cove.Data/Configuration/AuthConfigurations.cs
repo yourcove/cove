@@ -207,23 +207,3 @@ public class AuditEventConfiguration : IEntityTypeConfiguration<AuditEvent>
         builder.HasIndex(e => new { e.Action, e.OccurredAt });
     }
 }
-
-public class EntityIdentifierConfiguration : IEntityTypeConfiguration<EntityIdentifier>
-{
-    public void Configure(EntityTypeBuilder<EntityIdentifier> builder)
-    {
-        builder.ToTable("entity_identifiers");
-        builder.HasKey(e => e.Id);
-        builder.Property(e => e.EntityKind).IsRequired().HasMaxLength(32);
-        builder.Property(e => e.Scheme).IsRequired().HasMaxLength(32);
-        builder.Property(e => e.Value).IsRequired().HasMaxLength(2000);
-        builder.Property(e => e.NormalizedValue).IsRequired().HasMaxLength(2000);
-        builder.Property(e => e.Source).HasMaxLength(200);
-
-        // Class-of-bug killer: a single uniqueness constraint that prevents duplicate
-        // (entity, scheme, value) rows across every entity kind.
-        builder.HasIndex(e => new { e.EntityKind, e.EntityId, e.Scheme, e.NormalizedValue }).IsUnique();
-        // Cross-entity lookup ("which entity owns this URL?").
-        builder.HasIndex(e => new { e.Scheme, e.NormalizedValue });
-    }
-}

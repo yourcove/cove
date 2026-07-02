@@ -219,6 +219,7 @@ export interface Tag {
   minOccurrencePercent?: number | null;
   isDerived?: boolean;
   canRemove?: boolean;
+  canReportIncorrect?: boolean;
   effectiveDurationSec?: number | null;
   effectiveDurationPercent?: number | null;
   aliases: string[];
@@ -1795,6 +1796,7 @@ export interface UserTrackingPreferences {
   minImageDetailViewSeconds?: number | null;
   minDerivedLikeSessionSeconds?: number | null;
   sessionIdleTimeoutSec?: number | null;
+  dwellPositiveSec?: number | null;
 }
 
 export interface UserVideosPreferences {
@@ -2632,7 +2634,9 @@ export interface PerformerFilterCriteria {
 export interface TagFilterCriteria {
   name?: string;
   favorite?: boolean;
+  rating?: number;
   favoriteCriterion?: BoolCriterion;
+  ratingCriterion?: IntCriterion;
   videoCountCriterion?: IntCriterion;
   videoCountIncludesChildren?: boolean;
   performerCountCriterion?: IntCriterion;
@@ -2938,6 +2942,7 @@ export interface BulkTagUpdate {
   minOccurrencePercent?: number;
   organized?: boolean;
   favorite?: boolean;
+  rating?: number;
   parentIds?: number[];
   parentMode?: BulkUpdateMode;
   childIds?: number[];

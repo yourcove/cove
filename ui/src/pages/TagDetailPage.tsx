@@ -15,6 +15,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
+import { InteractiveRating } from "../components/Rating";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { TagMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
@@ -137,7 +138,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     groups: "groups.read",
   }, hasPermission);
 
-  const { favorite: tagFavorite, setFavorite: setTagFavorite } = useEntityEngagement("tag", id, {
+  const { favorite: tagFavorite, setFavorite: setTagFavorite, rating: tagRating, setRating: setTagRating } = useEntityEngagement("tag", id, {
     fallbackFavorite: tag?.favorite,
   });
 
@@ -261,6 +262,9 @@ export function TagDetailPage({ id, onNavigate }: Props) {
         )}
         heroContent={(
           <>
+            <div className="mb-3 shrink-0">
+              <InteractiveRating value={tagRating} onChange={(value) => setTagRating(value)} readOnly={!canEngageTag} />
+            </div>
             <CustomFieldsDisplay customFields={tag.customFields} entityType="tag" />
           </>
         )}

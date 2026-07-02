@@ -105,13 +105,15 @@ function normalizeTrackingPreferences(
   const minImageDetailViewSeconds = clampNumber(tracking?.minImageDetailViewSeconds, 0, 86_400);
   const minDerivedLikeSessionSeconds = clampNumber(tracking?.minDerivedLikeSessionSeconds, 0, 86_400);
   const sessionIdleTimeoutSec = clampNumber(tracking?.sessionIdleTimeoutSec, 10, 86_400);
+  const dwellPositiveSec = clampNumber(tracking?.dwellPositiveSec, 1, 86_400);
 
   if (enabled == null
     && minViewSeconds == null
     && viewCompletionRatio == null
     && minImageDetailViewSeconds == null
     && minDerivedLikeSessionSeconds == null
-    && sessionIdleTimeoutSec == null) {
+    && sessionIdleTimeoutSec == null
+    && dwellPositiveSec == null) {
     return null;
   }
 
@@ -122,6 +124,7 @@ function normalizeTrackingPreferences(
     minImageDetailViewSeconds,
     minDerivedLikeSessionSeconds,
     sessionIdleTimeoutSec,
+    dwellPositiveSec,
   };
 }
 

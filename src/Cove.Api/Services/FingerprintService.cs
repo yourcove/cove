@@ -49,9 +49,18 @@ public class FingerprintService(
         if (!File.Exists(path))
             return null;
 
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-        var hash = await MD5.HashDataAsync(stream, ct);
-        return Convert.ToHexStringLower(hash);
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            var hash = await MD5.HashDataAsync(stream, ct);
+            return Convert.ToHexStringLower(hash);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A locked, vanished, or permission-denied file must not abort the caller's batch — skip it.
+            logger.LogWarning(ex, "Failed computing MD5 for {Path}; skipping", path);
+            return null;
+        }
     }
 
     public async Task<string?> ComputeAudioPhashAsync(string path, CancellationToken ct = default)
@@ -745,7 +754,9 @@ public class FingerprintService(
 
     private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
     {
-        var process = new System.Diagnostics.Process
+        // 'using' so the Process handle is always released — the old code never disposed it, leaking a
+        // handle per pHash extraction across a large scan.
+        using var process = new System.Diagnostics.Process
         {
             StartInfo = new System.Diagnostics.ProcessStartInfo
             {
@@ -766,9 +777,15 @@ public class FingerprintService(
         {
             await process.WaitForExitAsync(timeoutCts.Token);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
+            // Timeout OR outer cancellation — the ffmpeg process is still running. Dispose alone does not
+            // stop it, so kill the tree here or a cancelled/aborted scan orphans ffmpeg processes that keep
+            // burning CPU. Observe stderr so its reader task isn't left dangling.
             try { process.Kill(entireProcessTree: true); } catch { }
+            try { await stderrTask; } catch { }
+            if (ct.IsCancellationRequested)
+                throw;
             logger.LogWarning("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }

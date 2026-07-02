@@ -33,9 +33,60 @@ public class AiRunRepository : IAiRunRepository
         return run;
     }
 
+    public async Task<IReadOnlyDictionary<string, AiRun>> FindOrCreateManyAsync(
+        IReadOnlyList<(string RunKey, AiRunTargetType TargetType, int TargetId)> keys,
+        string sourceKey,
+        AiRunStatus initialStatus,
+        CancellationToken ct = default)
+    {
+        var runKeys = keys.Select(k => k.RunKey).Distinct().ToList();
+        var existing = await _db.AiRuns
+            .Where(r => r.SourceKey == sourceKey && runKeys.Contains(r.RunKey))
+            .ToListAsync(ct);
+
+        var byKey = new Dictionary<string, AiRun>(StringComparer.Ordinal);
+        foreach (var run in existing)
+            byKey[run.RunKey] = run;
+
+        var toAdd = new List<AiRun>();
+        foreach (var key in keys)
+        {
+            if (byKey.ContainsKey(key.RunKey))
+                continue;
+
+            var run = new AiRun
+            {
+                RunKey = key.RunKey,
+                SourceKey = sourceKey,
+                TargetType = key.TargetType,
+                TargetId = key.TargetId,
+                Status = initialStatus,
+            };
+            byKey[key.RunKey] = run;
+            toAdd.Add(run);
+        }
+
+        if (toAdd.Count > 0)
+        {
+            _db.AiRuns.AddRange(toAdd);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return byKey;
+    }
+
     public async Task UpdateAsync(AiRun run, CancellationToken ct = default)
     {
         _db.AiRuns.Update(run);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateManyAsync(IReadOnlyList<AiRun> runs, CancellationToken ct = default)
+    {
+        if (runs.Count == 0)
+            return;
+
+        _db.AiRuns.UpdateRange(runs);
         await _db.SaveChangesAsync(ct);
     }
 

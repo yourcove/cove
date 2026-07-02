@@ -132,7 +132,6 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-            .Include(s => s.LikeHistory)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .Where(s => pagedIds.Contains(s.Id))
@@ -400,7 +399,7 @@ public class VideoRepository : IVideoRepository
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Video, desc),
             "play_count" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc),
-            "last_like_at" => ApplyLastFavoriteSort(query, desc),
+            "last_like_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.FavoritedAt), desc),
             "organized" => desc ? query.OrderByDescending(s => s.Organized) : query.OrderBy(s => s.Organized),
             "last_played_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), desc),
             "play_duration" => EngagementQueryHelpers.ApplyAffinityDoubleSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.TotalConsumedSec), desc),
@@ -429,19 +428,6 @@ public class VideoRepository : IVideoRepository
             "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
             _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
         };
-    }
-
-    private static IQueryable<Video> ApplyLastFavoriteSort(IQueryable<Video> query, bool desc)
-    {
-        var sortQuery = query.Select(video => new
-        {
-            Video = video,
-            LastFavoriteAt = video.LikeHistory.Select(history => (DateTime?)history.OccurredAt).Max(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenByDescending(item => item.LastFavoriteAt).Select(item => item.Video)
-            : sortQuery.OrderBy(item => item.LastFavoriteAt == null ? 1 : 0).ThenBy(item => item.LastFavoriteAt).Select(item => item.Video);
     }
 
     private static IQueryable<Video> ApplyBitrateCriterion(IQueryable<Video> query, IntCriterion criterion)

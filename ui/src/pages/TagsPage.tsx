@@ -36,6 +36,7 @@ function clampOptionalPercent(value: number | undefined) {
 
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
+  { value: "rating", label: "Rating" },
   { value: "tag_group", label: "Tag Group" },
   { value: "video_count", label: "Video Count" },
   { value: "gallery_count", label: "Gallery Count" },

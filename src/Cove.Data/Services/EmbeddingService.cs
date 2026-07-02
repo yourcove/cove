@@ -62,19 +62,24 @@ public sealed class EmbeddingService(
 
         if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
         {
-            var ranked = await embeddings
-                .OrderBy(embedding => embedding.Vector.CosineDistance(query))
-                .Take(k)
-                .Select(embedding => new
-                {
-                    Embedding = embedding,
-                    Distance = embedding.Vector.CosineDistance(query),
-                })
-                .ToListAsync(cancellationToken);
+            try
+            {
+                return await NpgsqlKnnAsync(query, k, options, dimensions, cancellationToken);
+            }
+            catch
+            {
+                // Safety net: any issue with the cast/index path → the proven pgvector EF path (correct,
+                // just without the ANN index).
+                var ranked = await embeddings
+                    .OrderBy(embedding => embedding.Vector.CosineDistance(query))
+                    .Take(k)
+                    .Select(embedding => new { Embedding = embedding, Distance = embedding.Vector.CosineDistance(query) })
+                    .ToListAsync(cancellationToken);
 
-            return ranked
-                .Select(item => new EmbeddingSearchResult(item.Embedding, SanitizeDistance((float)item.Distance)))
-                .ToList();
+                return ranked
+                    .Select(item => new EmbeddingSearchResult(item.Embedding, SanitizeDistance((float)item.Distance)))
+                    .ToList();
+            }
         }
 
         var candidates = await embeddings.ToListAsync(cancellationToken);
@@ -82,6 +87,51 @@ public sealed class EmbeddingService(
             .Select(embedding => new EmbeddingSearchResult(embedding, SanitizeDistance(ComputeCosineDistance(embedding.Vector, query))))
             .OrderBy(result => result.Distance)
             .Take(k)
+            .ToList();
+    }
+
+    // KNN via raw SQL with an explicit vector(N) cast on both column and parameter, so the planner can
+    // use a matching partial HNSW index (the Vector column is untyped, so EF's "Vector" <=> q can't).
+    // ef_search is set per query (transaction-scoped) to cover the requested k plus the host-type/section
+    // post-filter. Returns identical results to the EF path; just much faster when an index matches.
+    private async Task<IReadOnlyList<EmbeddingSearchResult>> NpgsqlKnnAsync(
+        Vector query, int k, EmbeddingSearchOptions options, int dimensions, CancellationToken cancellationToken)
+    {
+        var conditions = new List<string> { $"\"Dim\" = {dimensions}" };
+        var args = new List<object> { query }; // {0} is the query vector
+        void Add(string column, object value)
+        {
+            conditions.Add($"\"{column}\" = {{{args.Count}}}");
+            args.Add(value);
+        }
+
+        if (options.HostType.HasValue) Add("HostType", (int)options.HostType.Value);
+        if (options.HostId.HasValue) Add("HostId", options.HostId.Value);
+        if (!string.IsNullOrWhiteSpace(options.Kind)) Add("Kind", options.Kind!);
+        if (!string.IsNullOrWhiteSpace(options.KindFamily)) Add("KindFamily", options.KindFamily!);
+        if (options.Modality.HasValue) Add("Modality", (int)options.Modality.Value);
+        if (options.IsSemantic.HasValue) Add("IsSemantic", options.IsSemantic.Value);
+        if (!string.IsNullOrWhiteSpace(options.SourceKey)) Add("SourceKey", options.SourceKey!);
+        if (options.SectionIndex.HasValue) Add("SectionIndex", options.SectionIndex.Value);
+
+        var sql = $"SELECT * FROM embeddings WHERE {string.Join(" AND ", conditions)} " +
+                  $"ORDER BY (\"Vector\")::vector({dimensions}) <=> {{0}}::vector({dimensions}) LIMIT {k}";
+
+        // ef_search must be set transaction-locally; the configured retrying execution strategy forbids
+        // user-initiated transactions, so wrap the whole unit in the strategy (its retriable boundary).
+        var efSearch = Math.Clamp(k * 3, 100, 1000);
+        var strategy = db.Database.CreateExecutionStrategy();
+        var rows = await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.Database.ExecuteSqlRawAsync($"SET LOCAL hnsw.ef_search = {efSearch}", cancellationToken);
+            var list = await db.Embeddings.FromSqlRaw(sql, args.ToArray()).AsNoTracking().ToListAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return list;
+        });
+
+        return rows
+            .Select(embedding => new EmbeddingSearchResult(embedding, SanitizeDistance(ComputeCosineDistance(embedding.Vector, query))))
             .ToList();
     }
 
@@ -114,6 +164,9 @@ public sealed class EmbeddingService(
 
         if (!string.IsNullOrWhiteSpace(options.SourceKey))
             query = query.Where(embedding => embedding.SourceKey == options.SourceKey);
+
+        if (options.SectionIndex.HasValue)
+            query = query.Where(embedding => embedding.SectionIndex == options.SectionIndex.Value);
 
         return query;
     }

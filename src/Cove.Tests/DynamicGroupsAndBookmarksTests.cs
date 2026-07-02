@@ -25,7 +25,7 @@ public class DynamicGroupsAndBookmarksTests
         context.Videos.Add(new Video { Title = "Saved Video" });
         await context.SaveChangesAsync();
         var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
-        var controller = new BookmarksController(context, principalAccessor);
+        var controller = new BookmarksController(context, principalAccessor, new NoOpUserEngagementService());
 
         principalAccessor.Set(CreatePrincipal(7));
         var saveResult = await controller.Toggle(new BookmarkToggleDto(AffinityHostType.Video, videoId, true), CancellationToken.None);

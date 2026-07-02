@@ -214,9 +214,20 @@ export function VideoPlayer({
   const sourceRestoreRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
   const lastLoadedSourceRef = useRef<string | null>(null);
   const pendingAutostartRef = useRef(false);
+  // Bounded in-place recovery from transient network stalls (MEDIA_ERR_NETWORK/ABORTED). Tracks how
+  // many reloads we've attempted since playback last succeeded plus the pending backoff timer, so a
+  // dead source can't spin us in a tight reload loop. Reset to 0 whenever playback resumes.
+  const networkRecoveryRef = useRef<{ attempts: number; timer: ReturnType<typeof setTimeout> | null }>({ attempts: 0, timer: null });
+  // Resume-seek bookkeeping: which source we last applied the resume/initial seek for, and whether a real
+  // resume target has been applied for it. Lets us ignore later resumeTime changes for the SAME source (the
+  // engagement cache being rewritten when you rate/favorite mid-playback) so they can't yank playback.
+  const resumeSourceKeyRef = useRef<string | null>(null);
+  const resumeSettledRef = useRef(false);
   const intervalStart = useRef<number | null>(null);
   const lastSeenTime = useRef<number>(0);
   const lastKeepaliveSentAt = useRef<number>(0);
+  // Wall-clock of the last timeupdate tick, used to tell contiguous playback from a seek.
+  const lastTickAt = useRef<number>(0);
   const journalFlushed = useRef(false);
   const lastHideInteractionAt = useRef(0);
   const clipEndedHandled = useRef(false);
@@ -259,6 +270,8 @@ export function VideoPlayer({
     pendingAutostartRef.current = false;
     autoTranscodeTriedRef.current = false;
     audioFallbackAppliedRef.current = false;
+    if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
+    networkRecoveryRef.current = { attempts: 0, timer: null };
     setAudioFallbackActive(false);
     setSelectedQuality("Direct");
     setTranscodeStartSec(0);
@@ -316,6 +329,16 @@ export function VideoPlayer({
 
   const seekToAbsoluteTime = useCallback((targetTime: number, forcePlay = false) => {
     const video = videoRef.current;
+    // A seek must not fold the skipped span into watched time: flush the open interval up to the real
+    // last-watched position and close it. onSeeked re-opens a fresh interval at the destination. (We can't
+    // call flushInterval here — it's declared below — so record directly.)
+    if (playbackTrackingTarget && intervalStart.current !== null) {
+      const s = intervalStart.current;
+      const e = roundPlaybackTime(lastSeenTime.current);
+      if (e > s)
+        playbackTracker.current.recordInterval({ startSec: s, endSec: e, mediaDurationSec: duration || video?.duration || 0, currentPositionSec: e, state: "active", mode: "default" });
+      intervalStart.current = null;
+    }
     const maxTarget = Number.isFinite(duration) && duration > 0 ? duration : targetTime;
     const target = Math.min(Math.max(0, targetTime), Math.max(0, maxTarget));
     const rounded = roundPlaybackTime(target);
@@ -337,7 +360,7 @@ export function VideoPlayer({
     onTimeUpdateProp?.(rounded);
     lastSeenTime.current = rounded;
     setTranscodeStartSec(target);
-  }, [duration, onTimeUpdateProp, selectedQuality]);
+  }, [duration, onTimeUpdateProp, selectedQuality, playbackTrackingTarget]);
 
   useEffect(() => {
     if (onSeekRegister) {
@@ -530,16 +553,33 @@ export function VideoPlayer({
 
   useEffect(() => {
     const v = videoRef.current;
-    const nextTime = clip
-      ? Math.min(Math.max(effectiveResumeTime ?? clip.start, clip.start), clip.end ?? duration)
-      : effectiveResumeTime ?? defaultPlaybackStartTime;
-    if (v && nextTime != null) {
-      if (selectedQuality === "Direct") {
-        v.currentTime = nextTime;
-      } else {
-        setTranscodeStartSec(nextTime);
+
+    // A change in this key is a legitimate moment to (re)apply the resume/initial seek: a new video, a quality
+    // switch, a new stream, or a clip change. Apply on a new source, or the FIRST time a resume target arrives
+    // for the current source (engagement loads async). A later resumeTime change for the SAME source — e.g.
+    // the engagement cache being rewritten when you rate/favorite mid-playback — must NOT re-seek.
+    const sourceKey = `${videoId}|${selectedQuality}|${streamUrl}|${clip?.start ?? ""}|${clip?.end ?? ""}|${clip?.loop ?? ""}`;
+    const isNewSource = sourceKey !== resumeSourceKeyRef.current;
+    const shouldSeek = isNewSource || (!resumeSettledRef.current && effectiveResumeTime != null);
+    if (isNewSource) {
+      resumeSourceKeyRef.current = sourceKey;
+      resumeSettledRef.current = effectiveResumeTime != null;
+    } else if (shouldSeek) {
+      resumeSettledRef.current = true;
+    }
+
+    if (shouldSeek) {
+      const nextTime = clip
+        ? Math.min(Math.max(effectiveResumeTime ?? clip.start, clip.start), clip.end ?? duration)
+        : effectiveResumeTime ?? defaultPlaybackStartTime;
+      if (v && nextTime != null) {
+        if (selectedQuality === "Direct") {
+          v.currentTime = nextTime;
+        } else {
+          setTranscodeStartSec(nextTime);
+        }
+        setCurTime(roundPlaybackTime(nextTime));
       }
-      setCurTime(roundPlaybackTime(nextTime));
     }
 
     if (clip?.loop && clip.end != null) {
@@ -633,6 +673,7 @@ export function VideoPlayer({
     intervalStart.current = time;
     lastSeenTime.current = time;
     lastKeepaliveSentAt.current = Date.now();
+    lastTickAt.current = Date.now();
   }, []);
 
   useEffect(() => {
@@ -697,21 +738,37 @@ export function VideoPlayer({
       return;
     }
 
+    // Flush the OPEN interval AND any already-queued intervals (e.g. one a pause put on the 5s batch
+    // timer) via keepalive, so a refresh/close/navigation never drops the last watched span.
+    const flushAllKeepalive = () => {
+      flushIntervalKeepalive("paused");
+      void playbackTracker.current.flush("paused", "keepalive");
+    };
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        flushIntervalKeepalive("paused");
+        // Flush what was watched up to now, then CLOSE the interval so the hidden span isn't
+        // bridged back in when the tab returns to the foreground.
+        flushAllKeepalive();
+        intervalStart.current = null;
+      } else if (document.visibilityState === "visible") {
+        // Reopen a fresh interval from the current position if playback is still running.
+        const video = videoRef.current;
+        if (video && !video.paused) {
+          startTrackedInterval(roundPlaybackTime(toAbsoluteTime(video.currentTime)));
+        }
       }
     };
-    const handlePageHide = () => flushIntervalKeepalive("paused");
+    const handlePageHide = () => flushAllKeepalive();
 
     window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      flushIntervalKeepalive("paused");
+      flushAllKeepalive();
     };
-  }, [flushIntervalKeepalive, playbackTrackingTarget]);
+  }, [flushIntervalKeepalive, playbackTrackingTarget, startTrackedInterval, toAbsoluteTime]);
 
   useEffect(() => {
     const handler = () => {
@@ -937,6 +994,39 @@ export function VideoPlayer({
     changeQuality(target);
   };
 
+  // Recover in place from a transient network stall (MEDIA_ERR_NETWORK / MEDIA_ERR_ABORTED). A hard
+  // network error leaves the <video> element in an error state that will not resume on its own, so we
+  // must reload — but we reload the SAME source and seek back to where we were, showing the buffering
+  // spinner meanwhile, instead of falling back to a transcode (which reloads from 0 and is what made
+  // the player jump to the beginning). Bounded + backed-off so a genuinely dead source stops retrying.
+  const recoverFromNetworkStall = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (networkRecoveryRef.current.attempts >= 3) return;
+    networkRecoveryRef.current.attempts += 1;
+    setIsBuffering(true);
+
+    const resumeAt = video.currentTime > 0.01
+      ? (selectedQuality === "Direct" ? video.currentTime : transcodeStartSec + video.currentTime)
+      : undefined;
+    const wasPlaying = !video.paused;
+
+    const onMeta = () => {
+      if (resumeAt != null && Number.isFinite(resumeAt)) {
+        video.currentTime = selectedQuality === "Direct" ? resumeAt : Math.max(0, resumeAt - transcodeStartSec);
+      }
+      if (wasPlaying) video.play().catch(() => {});
+    };
+    video.addEventListener("loadedmetadata", onMeta, { once: true });
+
+    if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
+    // Short, increasing backoff so a briefly-flapping connection isn't hammered.
+    networkRecoveryRef.current.timer = setTimeout(() => {
+      const v = videoRef.current;
+      if (v) v.load();
+    }, 500 * networkRecoveryRef.current.attempts);
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) {
@@ -993,6 +1083,7 @@ export function VideoPlayer({
   useEffect(() => {
     const video = videoRef.current;
     return () => {
+      if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
       if (!video) return;
       try {
         video.pause();
@@ -1063,16 +1154,27 @@ export function VideoPlayer({
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
         onLoadedMetadata={updateVideoBox}
         onLoadedData={updateVideoBox}
-        onError={() => {
-          // Direct playback failed (unsupported container/codec) — switch to transcoding.
-          if (selectedQuality === "Direct") fallbackToTranscode();
+        onError={(e) => {
+          const code = e.currentTarget.error?.code;
+          // Only a genuine container/codec failure (DECODE / SRC_NOT_SUPPORTED) warrants swapping to a
+          // server transcode. MEDIA_ERR_NETWORK (2) / MEDIA_ERR_ABORTED (1) are transient buffering
+          // stalls — recover in place at the same position rather than reloading from 0.
+          if (selectedQuality === "Direct" && (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)) {
+            fallbackToTranscode();
+          } else if (code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_ABORTED) {
+            recoverFromNetworkStall();
+          }
         }}
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
         onWaiting={() => setIsBuffering(true)}
         onStalled={() => setIsBuffering(true)}
         onCanPlay={() => setIsBuffering(false)}
-        onPlaying={() => setIsBuffering(false)}
+        onPlaying={() => {
+          setIsBuffering(false);
+          // Playback is healthy again — clear the transient-stall retry budget.
+          networkRecoveryRef.current.attempts = 0;
+        }}
         onPlay={() => {
           setPlaying(true);
           pendingAutostartRef.current = false;
@@ -1110,15 +1212,34 @@ export function VideoPlayer({
           const time = roundPlaybackTime(v ? toAbsoluteTime(v.currentTime) : 0);
           setCurTime(time);
           onTimeUpdateProp?.(time);
-          lastSeenTime.current = time;
+          // Don't accrue watch time while the tab is backgrounded: a <video> can keep playing and
+          // firing timeupdate in a hidden tab, and counting that pollutes engagement/watch data.
+          if (document.hidden) return;
+          const now = Date.now();
           if (trackingEnabled && intervalStart.current !== null) {
-            const now = Date.now();
-            if (now - lastKeepaliveSentAt.current >= 10000) {
-              lastKeepaliveSentAt.current = now;
+            const wallDt = lastTickAt.current > 0 ? (now - lastTickAt.current) / 1000 : 0;
+            const rate = v?.playbackRate ?? 1;
+            // Max contiguous media-time advance since the last tick (+ tolerance for jitter/buffering).
+            const maxAdvance = Math.max(1, wallDt * rate + 1);
+            const advance = time - lastSeenTime.current;
+            if (advance >= -0.5 && advance <= maxAdvance) {
+              // Contiguous playback → extend the watched interval.
+              lastSeenTime.current = time;
+              if (now - lastKeepaliveSentAt.current >= 10000) {
+                lastKeepaliveSentAt.current = now;
+                flushInterval("active");
+                intervalStart.current = time;
+              }
+            } else {
+              // Discontinuity (a seek): close the interval at the real last-watched position and reopen at
+              // the new one, so the skipped span is never counted as watched.
               flushInterval("active");
-              intervalStart.current = time;
+              startTrackedInterval(time);
             }
+          } else {
+            lastSeenTime.current = time;
           }
+          lastTickAt.current = now;
         }}
         onProgress={() => {
           const v = videoRef.current;

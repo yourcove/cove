@@ -87,7 +87,8 @@ public sealed record UserTrackingPreferencesDto(
     double? ViewCompletionRatio,
     int? MinImageDetailViewSeconds,
     int? MinDerivedLikeSessionSeconds,
-    int? SessionIdleTimeoutSec);
+    int? SessionIdleTimeoutSec,
+    int? DwellPositiveSec = null);
 
 public sealed record UserVideosPreferencesDto(
     bool? IncludeCompilationGroups);

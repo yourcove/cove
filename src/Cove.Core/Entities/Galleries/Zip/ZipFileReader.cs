@@ -16,6 +16,30 @@ public class ZipFileReader : IZipFileReader
         ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"
     };
 
+    // A single-byte, lossless code page (ISO-8859-1) used as the ZipArchive entryNameEncoding. .NET only
+    // applies entryNameEncoding to entries WITHOUT the UTF-8 language-encoding flag; UTF-8-flagged entries
+    // are always decoded as UTF-8. So for modern archives this is a no-op, and for legacy archives it maps
+    // each raw name byte 1:1 to a char (0-255), letting us recover and re-decode the original bytes below
+    // instead of getting U+FFFD mojibake from a mistaken UTF-8 decode.
+    private static readonly Encoding RawByteEncoding = Encoding.Latin1;
+
+    // Preferred legacy (DBCS) code page to try when an entry name is not valid UTF-8. Defaults to 949
+    // (Korean UHC) — the reported failing case. Configurable so libraries dominated by another legacy
+    // encoding (932 Shift-JIS, 936 GBK, 950 Big5, 1251 Cyrillic, …) can override it.
+    private readonly int _legacyCodePage;
+
+    static ZipFileReader()
+    {
+        // Required for Encoding.GetEncoding(949) etc. on .NET Core / non-Windows, where DBCS code pages
+        // are not registered by default. Idempotent, so registering per-process at type init is safe.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
+    public ZipFileReader(int legacyCodePage = 949)
+    {
+        _legacyCodePage = legacyCodePage;
+    }
+
     /// <inheritdoc/>
     public async Task<List<ZipEntryInfo>> ListEntriesAsync(string zipFilePath, CancellationToken ct = default)
     {
@@ -37,7 +61,9 @@ public class ZipFileReader : IZipFileReader
         // Create a ZipArchive from the file stream
         // ZipArchiveMode.Read is efficient for read-only operations
         // leaveOpen: false ensures the stream is disposed when ZipArchive is disposed
-        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false);
+        // entryNameEncoding: RawByteEncoding preserves raw bytes for legacy (non-UTF-8-flagged) names so
+        // FixEntryEncoding can recover them; UTF-8-flagged names are still decoded as UTF-8 by the runtime.
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false, entryNameEncoding: RawByteEncoding);
 
         var entries = new List<ZipEntryInfo>();
 
@@ -86,11 +112,14 @@ public class ZipFileReader : IZipFileReader
             FileShare.Read
         );
 
-        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false, entryNameEncoding: RawByteEncoding);
 
-        // Find the requested entry by its full path
-        // Entry names in zip files use forward slashes regardless of OS
-        var entry = archive.GetEntry(entryPath);
+        // Find the requested entry by its full path. entryPath is the DECODED name we stored at scan time,
+        // but the archive's raw entry names are byte-passthrough (see RawByteEncoding), so a direct
+        // GetEntry(entryPath) would miss legacy-encoded entries. Decode each entry name the same way we did
+        // at scan and match on the result, so Korean/CP949 (and other legacy) names resolve correctly.
+        var entry = archive.Entries.FirstOrDefault(e => string.Equals(DecodeEntryName(e.FullName), entryPath, StringComparison.Ordinal))
+            ?? archive.GetEntry(entryPath);
         if (entry == null)
             throw new FileNotFoundException($"Entry '{entryPath}' not found in zip archive");
 
@@ -125,22 +154,74 @@ public class ZipFileReader : IZipFileReader
     /// <inheritdoc/>
     public ZipEntryInfo FixEntryEncoding(ZipEntryInfo entry)
     {
-        // NOTE: Basic implementation for now
-        // The original Go code uses the 'chardet' library to detect
-        // character encodings automatically (Shift-JIS, CP437, ISO-8859-1, etc.)
-        //
-        // For a complete implementation, we would need to:
-        // 1. Check if the filename contains invalid UTF-8 sequences
-        // 2. Use a character encoding detection library (like Ude or similar)
-        // 3. Re-decode the filename using the detected encoding
-        //
-        // For now, we'll return the entry as-is, which works fine for
-        // properly UTF-8 encoded zip files (most modern archives)
-        //
-        // TODO: Implement advanced encoding detection if needed for legacy archives
-        // See: pkg/file/zip.go lines 50-86 in the original Go codebase for reference
+        var fixedFullName = DecodeEntryName(entry.FullName);
+        if (ReferenceEquals(fixedFullName, entry.FullName))
+            return entry;
 
-        return entry;
+        // Recompute Name from the corrected FullName so lookups and extension checks stay consistent.
+        var slash = fixedFullName.LastIndexOf('/');
+        var fixedName = slash >= 0 ? fixedFullName[(slash + 1)..] : fixedFullName;
+        return entry with { FullName = fixedFullName, Name = fixedName };
+    }
+
+    /// <summary>
+    /// Recovers a zip entry name that was read with the raw-byte passthrough encoding. UTF-8-flagged
+    /// entries arrive already-correct and are returned unchanged; legacy (non-UTF-8-flagged) entries
+    /// arrive as raw bytes mapped 1:1 to chars 0-255, which we re-decode as UTF-8 first (handles archives
+    /// that wrote UTF-8 without setting the flag) and then as the configured legacy DBCS code page.
+    /// </summary>
+    private string DecodeEntryName(string rawName)
+    {
+        var anyHigh = false;
+        foreach (var c in rawName)
+        {
+            // A char above the single-byte range can only have come from the runtime's UTF-8 decode of a
+            // properly-flagged entry — it's already correct, leave it alone.
+            if (c > 0xFF)
+                return rawName;
+            if (c > 0x7F)
+                anyHigh = true;
+        }
+
+        // Pure ASCII names are identical under every encoding — nothing to fix.
+        if (!anyHigh)
+            return rawName;
+
+        // All chars are 0-255 with at least one > 127: these are the original raw name bytes.
+        var raw = RawByteEncoding.GetBytes(rawName);
+
+        // Prefer a strict UTF-8 decode: unambiguous, and covers archives that stored UTF-8 bytes without
+        // setting the language-encoding flag.
+        if (TryDecodeStrict(raw, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true), out var utf8Name))
+            return utf8Name;
+
+        // Otherwise fall back to the configured legacy code page (default CP949 / Korean).
+        try
+        {
+            var decoded = Encoding.GetEncoding(_legacyCodePage).GetString(raw);
+            if (!string.IsNullOrEmpty(decoded))
+                return decoded;
+        }
+        catch (ArgumentException)
+        {
+            // Unknown/unregistered code page — fall through and keep the raw name.
+        }
+
+        return rawName;
+    }
+
+    private static bool TryDecodeStrict(byte[] bytes, Encoding strict, out string result)
+    {
+        try
+        {
+            result = strict.GetString(bytes);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            result = string.Empty;
+            return false;
+        }
     }
 
     /// <summary>

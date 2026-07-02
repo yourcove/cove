@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Net.Sockets;
+using Cove.Api.Services;
 using Npgsql;
 
 namespace Cove.Api.Middleware;
@@ -15,8 +16,18 @@ public sealed class DatabaseUnavailableMiddleware
 
     public DatabaseUnavailableMiddleware(RequestDelegate next) => _next = next;
 
-    public async Task InvokeAsync(HttpContext context, ILogger<DatabaseUnavailableMiddleware> logger)
+    public async Task InvokeAsync(HttpContext context, MaintenanceState maintenance, ILogger<DatabaseUnavailableMiddleware> logger)
     {
+        // A restore tears the schema down and rebuilds it; don't let requests run queries against the
+        // half-built database (they'd 500 with "relation ... does not exist"). Short-circuit to 503 so
+        // clients retry once it finishes. The request that triggered the restore is already past this
+        // middleware, so it isn't affected.
+        if (maintenance.IsRestoreInProgress && !context.Response.HasStarted)
+        {
+            await WriteUnavailableAsync(context, CreateRestoreInProgressResponse());
+            return;
+        }
+
         try
         {
             await _next(context);
@@ -39,11 +50,16 @@ public sealed class DatabaseUnavailableMiddleware
             }
             logger.LogDebug(ex, "Transient database connection failure handled at request boundary.");
 
-            context.Response.Clear();
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            context.Response.Headers.RetryAfter = RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            await context.Response.WriteAsJsonAsync(CreateResponse(), context.RequestAborted);
+            await WriteUnavailableAsync(context, CreateResponse());
         }
+    }
+
+    private static async Task WriteUnavailableAsync(HttpContext context, object payload)
+    {
+        context.Response.Clear();
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.Headers.RetryAfter = RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await context.Response.WriteAsJsonAsync(payload, context.RequestAborted);
     }
 
     private (bool ShouldLog, int SuppressedWarnings) ShouldLogWarning()
@@ -68,6 +84,12 @@ public sealed class DatabaseUnavailableMiddleware
     {
         code = "DATABASE_UNAVAILABLE",
         message = "The database is temporarily unavailable. Try again in a few seconds.",
+    };
+
+    public static object CreateRestoreInProgressResponse() => new
+    {
+        code = "DATABASE_RESTORE_IN_PROGRESS",
+        message = "A database restore is in progress. The server will be available again shortly.",
     };
 }
 

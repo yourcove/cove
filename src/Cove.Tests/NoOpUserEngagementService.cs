@@ -22,6 +22,9 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
     public Task<UserEngagementSnapshot?> SetFavoriteAsync(AffinityHostType hostType, int hostId, bool isFavorite, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
+    public Task<UserEngagementSnapshot?> SetBookmarkedAsync(AffinityHostType hostType, int hostId, bool saved, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
     public Task<UserEngagementSnapshot?> SetRatingAsync(AffinityHostType hostType, int hostId, int? value, string aspect = "overall", CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
@@ -66,6 +69,12 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
 
     public Task<UserEngagementSnapshot?> ResetActivityAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<int> ResetAllActivityAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
+    public Task<int> WipeAllEngagementAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
 
     public Task<UserEngagementSnapshot?> SetVideoRatingAsync(int videoId, int? value, string aspect = "overall", CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);

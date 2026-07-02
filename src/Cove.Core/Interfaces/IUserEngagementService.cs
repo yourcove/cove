@@ -29,6 +29,8 @@ public interface IUserEngagementService
 
     Task<UserEngagementSnapshot?> SetFavoriteAsync(AffinityHostType hostType, int hostId, bool isFavorite, CancellationToken cancellationToken = default);
 
+    Task<UserEngagementSnapshot?> SetBookmarkedAsync(AffinityHostType hostType, int hostId, bool saved, CancellationToken cancellationToken = default);
+
     Task<UserEngagementSnapshot?> SetRatingAsync(AffinityHostType hostType, int hostId, int? value, string aspect = "overall", CancellationToken cancellationToken = default);
 
     Task<bool> RecordInteractionAsync(InteractionHostType hostType, int hostId, InteractionKind kind, JsonElement? meta = null, CancellationToken cancellationToken = default);
@@ -63,6 +65,19 @@ public interface IUserEngagementService
     Task<UserEngagementSnapshot?> ResetVideoActivityAsync(int videoId, CancellationToken cancellationToken = default);
 
     Task<UserEngagementSnapshot?> ResetActivityAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reset ALL watch data for the current user: deletes every playback session/interval and clears
+    /// the watch-derived affinity metrics (consumed seconds, view/complete counts, resume position).
+    /// Ratings, likes, favorites, and interactions are preserved. Returns the number of affinity rows affected.
+    /// </summary>
+    Task<int> ResetAllActivityAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Wipe only the system-collected (implicit) engagement for the current user — playback
+    /// sessions/intervals, user-global sessions, behavioral interactions, derived likes, watch time,
+    /// view/complete counts, dwell, and page visits. Explicit signals (ratings, likes, favorites,
+    /// bookmarks) are preserved. Used to clear data poisoned by a bug. Returns affinity rows affected.</summary>
+    Task<int> WipeAllEngagementAsync(CancellationToken cancellationToken = default);
 
     Task<UserEngagementSnapshot?> SetVideoRatingAsync(int videoId, int? value, string aspect = "overall", CancellationToken cancellationToken = default);
 

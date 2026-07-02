@@ -766,13 +766,17 @@ public sealed class UserService : IUserService
         int? sessionIdleTimeoutSec = tracking.SessionIdleTimeoutSec.HasValue
             ? Math.Clamp(tracking.SessionIdleTimeoutSec.Value, 10, 86_400)
             : null;
+        int? dwellPositiveSec = tracking.DwellPositiveSec.HasValue
+            ? Math.Clamp(tracking.DwellPositiveSec.Value, 1, 86_400)
+            : null;
 
         if (tracking.Enabled is null
             && minViewSeconds is null
             && viewCompletionRatio is null
             && minImageDetailViewSeconds is null
             && minDerivedLikeSessionSeconds is null
-            && sessionIdleTimeoutSec is null)
+            && sessionIdleTimeoutSec is null
+            && dwellPositiveSec is null)
         {
             return null;
         }
@@ -783,7 +787,8 @@ public sealed class UserService : IUserService
             viewCompletionRatio,
             minImageDetailViewSeconds,
             minDerivedLikeSessionSeconds,
-            sessionIdleTimeoutSec);
+            sessionIdleTimeoutSec,
+            dwellPositiveSec);
     }
 
     private static UserThemePreferencesDto? NormalizeThemePreferences(UserThemePreferencesDto? theme)

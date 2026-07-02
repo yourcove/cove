@@ -194,6 +194,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const canWriteFaces = canWriteEntity("face", hasPermission);
   const canReadSegments = canReadEntity("segment", hasPermission);
   const canWriteSegments = hasPermission("segments.write");
+  const canWriteTags = hasPermission("tags.write");
   const canReadFiles = hasPermission("files.read");
   const canRunJobs = hasPermission("jobs.run");
   const canLibraryScan = hasPermission("library.scan");
@@ -390,6 +391,20 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       queryClient.invalidateQueries({ queryKey: ["face"] });
     },
   });
+
+  // "This detection is wrong": drop the AI's host-level applications for one tag so the wrongly-derived
+  // chip falls off this video. Refresh the video (effective tags) and tag lists/counts.
+  const reportIncorrectTagMut = useMutation({
+    mutationFn: (tagId: number) => tagApplications.reportIncorrect("video", Number(id), tagId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["video", id] });
+      queryClient.invalidateQueries({ queryKey: ["tag"] });
+    },
+  });
+  // The derived tag the user is reporting as wrong, if any. Owned here (not per-tab) so the Details
+  // chip and the Edit-tab selector share one confirm dialog and one mutation.
+  const [reportTag, setReportTag] = useState<any | null>(null);
+  const requestReportTag = canWriteTags ? (tag: any) => setReportTag(tag) : undefined;
 
   const resolvedSpans = resolvedSpansResponse?.spans ?? [];
   const activeProfileId = selectedProfileId ?? resolvedSpansResponse?.profileId;
@@ -636,6 +651,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       videoFaces={videoFaces}
       onMarkFaceNotPresent={canWriteFaces ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
       markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
+      onRequestReportTag={requestReportTag}
     />
   ) : activeTab === "segments" ? (
     <VideoSegmentsPanel
@@ -669,7 +685,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       playDuration={videoPlayDuration}
     />
   ) : activeTab === "edit" ? (
-    <VideoEditPanel video={video} onSaved={() => setActiveTab("details")} />
+    <VideoEditPanel video={video} onSaved={() => setActiveTab("details")} onNavigate={onNavigate} onRequestReportTag={requestReportTag} />
   ) : activeTab.startsWith("ext:") ? (() => {
     const extTabKey = activeTab.replace("ext:", "");
     const extTab = videoExtTabs.find((tab) => tab.key === extTabKey);
@@ -835,6 +851,21 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
         onCancel={() => setConfirmDelete(false)}
         showDeleteFile
       />
+      <ConfirmDialog
+        open={reportTag != null}
+        title="Is this detection wrong?"
+        message={reportTag
+          ? `"${reportTag.name}" was detected${describeTagEvidence(reportTag)} in this video. Removing it deletes the AI's detection from this video — use this only when the AI is mistaken. If it's correct but just too minor, adjust the tag's threshold instead.`
+          : ""}
+        confirmLabel="Remove detection"
+        isPending={reportTag != null && reportIncorrectTagMut.isPending}
+        onCancel={() => setReportTag(null)}
+        onConfirm={async () => {
+          if (!reportTag) return;
+          await reportIncorrectTagMut.mutateAsync(reportTag.id);
+          setReportTag(null);
+        }}
+      />
       <MediaDetailLayout
         title={<FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="title">{videoTitle}</FieldProvenanceHover>}
         headerImage={videoHeaderImage}
@@ -949,8 +980,21 @@ async function syncVideoEditPerformerContextTags(videoId: number, existingApplic
   }
 }
 
+// Renders the AI's evidence for a derived tag (" for 14s (3% of this video)") so the user can judge
+// whether it's a genuine mistake or just a minor-but-real detection before deciding to remove it.
+function describeTagEvidence(tag: { effectiveDurationSec?: number | null; effectiveDurationPercent?: number | null }): string {
+  const parts: string[] = [];
+  if (typeof tag.effectiveDurationSec === "number" && tag.effectiveDurationSec > 0) {
+    parts.push(formatDuration(tag.effectiveDurationSec));
+  }
+  if (typeof tag.effectiveDurationPercent === "number" && tag.effectiveDurationPercent > 0) {
+    parts.push(`${tag.effectiveDurationPercent.toFixed(tag.effectiveDurationPercent < 10 ? 1 : 0)}% of this video`);
+  }
+  return parts.length > 0 ? ` for ${parts.join(" — ")}` : "";
+}
+
 // Details Tab Content
-export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPresent, markingFaceId }: { video: Video; onNavigate: (r: any) => void; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number }) {
+export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onRequestReportTag?: (tag: any) => void }) {
   return (
     <div className="space-y-4">
       {/* Created/Updated + Code/Director at top like original */}
@@ -994,12 +1038,15 @@ export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPr
           <h6 className="text-sm text-muted mb-2">Tags</h6>
           <div className="flex flex-wrap gap-1.5">
             {video.tags.map((tag: any) => (
-              <TagBadge 
-                key={tag.id} 
-                name={tag.name} 
+              <TagBadge
+                key={tag.id}
+                name={tag.name}
                 tag={tag}
                 provenance={resolveTagProvenance(tag, video.fieldProvenance)}
-                onClick={() => onNavigate({ page: "tag", id: tag.id })} 
+                onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                reportable={Boolean(tag.canReportIncorrect && onRequestReportTag)}
+                onAdjustThreshold={() => onNavigate({ page: "tag", id: tag.id })}
+                onReportIncorrect={() => onRequestReportTag?.(tag)}
               />
             ))}
           </div>
@@ -2084,7 +2131,7 @@ function DetectionsPanel({
 }
 
 // ===== Inline Video Edit Panel =====
-function VideoEditPanel({ video, onSaved }: { video: Video; onSaved: () => void }) {
+function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { video: Video; onSaved: () => void; onNavigate?: (r: any) => void; onRequestReportTag?: (tag: any) => void }) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
   const [title, setTitle] = useState(video.title || "");
@@ -2143,6 +2190,7 @@ function VideoEditPanel({ video, onSaved }: { video: Video; onSaved: () => void 
   };
 
   const lockedTagIds = getLockedTagIds(video.tags);
+  const reportableTagIds = useMemo(() => video.tags.filter((tag: any) => tag.canReportIncorrect).map((tag) => tag.id), [video.tags]);
   const displayedTagIds = mergeTagIds(lockedTagIds, selectedTagIds);
   const tagProvenanceById = useMemo(() => {
     const lookup: Record<number, TagProvenance[] | undefined> = {};
@@ -2195,7 +2243,18 @@ function VideoEditPanel({ video, onSaved }: { video: Video; onSaved: () => void 
       {/* Tags */}
       <div className="space-y-1">
         <span className="text-xs text-secondary">Tags</span>
-        <EntityReferenceMultiSelector entityType="tag" values={displayedTagIds} lockedIds={lockedTagIds} onChange={updateSelectedTagIds} placeholder="Search tags..." inputClassName={inputCls} selectedProvenanceById={tagProvenanceById} />
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={displayedTagIds}
+          lockedIds={lockedTagIds}
+          onChange={updateSelectedTagIds}
+          placeholder="Search tags..."
+          inputClassName={inputCls}
+          selectedProvenanceById={tagProvenanceById}
+          reportableIds={onRequestReportTag ? reportableTagIds : undefined}
+          onReportIncorrect={onRequestReportTag ? (tagId) => onRequestReportTag(video.tags.find((tag) => tag.id === tagId)) : undefined}
+          onAdjustThreshold={onNavigate ? (tagId) => onNavigate({ page: "tag", id: tagId }) : undefined}
+        />
       </div>
 
       {/* Performers */}

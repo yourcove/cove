@@ -24,11 +24,9 @@ public enum InteractionKind
     // 1-3 reserved (formerly PlayStart, PlayProgress, PlayEnd — replaced by PlaybackInterval)
     Pause = 4,
     Seek = 5,
-    Like = 6,
-    Dislike = 7,
+    // 6, 7 reserved (formerly Like, Dislike — likes use the dedicated LikeCount path; Dislike was unused)
     LikeCount = 8,
-    Share = 9,
-    Hide = 10,
+    // 9, 10 reserved (formerly Share, Hide — never had a producer)
     OpenDetail = 11,
     OpenLightbox = 12,
     CloseLightbox = 13,
