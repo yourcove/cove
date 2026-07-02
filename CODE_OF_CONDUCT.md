@@ -18,16 +18,12 @@ Behavior that helps Cove stay healthy includes:
 - Respecting different viewpoints, experiences, and skill levels.
 - Giving feedback that is specific, constructive, and focused on the work.
 - Accepting feedback with curiosity and good faith.
-- Taking responsibility when you make a mistake, apologizing where appropriate,
-  and helping repair the impact.
-- Keeping discussions focused on what is best for Cove and its community.
 
 Behavior that is not acceptable includes:
 
 - Harassment, intimidation, threats, or personal attacks.
 - Insults, slurs, demeaning comments, or discriminatory language.
-- Unwanted sexual attention, sexualized comments, or sexualized imagery in
-  project spaces.
+- Unwanted sexual attention, sexualized comments.
 - Trolling, sustained disruption, or deliberately derailing conversations.
 - Publishing or sharing someone else's private information without permission.
 - Contacting someone repeatedly after they have asked you to stop.
@@ -63,37 +59,6 @@ Reports should include as much detail as you feel comfortable sharing, such as:
 Maintainers will handle reports with care and respect for the privacy and safety
 of everyone involved. Information will be shared only with people who need it to
 review and respond to the report.
-
-## Enforcement
-
-Maintainers are responsible for clarifying and enforcing this Code of Conduct.
-They may remove, edit, or reject comments, commits, code, issues, pull requests,
-documentation, extensions, or other contributions that do not align with it.
-
-Depending on the impact and severity of the behavior, maintainers may take one
-or more of the following actions:
-
-- A private clarification or reminder.
-- A formal warning.
-- Removal of harmful content.
-- Temporary limits on participation in project spaces.
-- Temporary or permanent removal from project spaces.
-- Loss of contributor status or eligibility for paid contribution work when the
-  behavior affects trust, safety, or the integrity of the project.
-
-Enforcement decisions should be proportionate, consistent, and focused on
-protecting the community. Maintainers may also take action when behavior outside
-official project spaces creates a meaningful safety or trust concern for Cove.
-
-## Maintainer Responsibilities
-
-Maintainers should model the standards in this document and apply them fairly.
-They should avoid conflicts of interest when reviewing reports and, when needed,
-ask another maintainer to handle a situation.
-
-Maintainers who violate this Code of Conduct may also face consequences,
-including removal from moderator, maintainer, payment, or project leadership
-responsibilities.
 
 ## Attribution
 
