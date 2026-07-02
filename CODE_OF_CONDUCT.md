@@ -37,7 +37,6 @@ This Code of Conduct applies in all Cove project spaces, including GitHub issues
 pull requests, discussions, reviews, documentation, community chat, extension
 repositories, events, and any other official or project-adjacent space.
 
-
 ## Reporting
 
 If you experience or witness conduct that may violate this Code of Conduct,
