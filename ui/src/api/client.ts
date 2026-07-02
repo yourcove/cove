@@ -320,14 +320,21 @@ function buildMediaUrl(
 
   const shareToken = authStore.getShareToken();
   const sharePassword = authStore.getSharePassword();
-  const accessToken = authStore.getAccessToken();
+  // Bearer users authenticate media requests via the same-origin, httpOnly `cove_access_token`
+  // cookie (set on login and refreshed on every /auth/refresh). We deliberately do NOT embed the
+  // access token in media URLs:
+  //   1. The token lives ~15 min. Because the auth middleware prefers a query `access_token` over the
+  //      cookie, a baked, now-expired token 401s even though a valid cookie is present.
+  //   2. Refreshing the token would change the URL, remounting the <video> and reloading/rewinding it
+  //      mid-playback (the reported "video jumps back on token refresh" bug).
+  // Omitting it keeps the media URL stable and lets the request fall through to the always-current
+  // cookie, so playback (and images) survive token refreshes seamlessly. Share links have no cookie,
+  // so they still carry their token in the URL.
   if (shareToken) {
     params.set("share_token", shareToken);
     if (sharePassword) {
       params.set("share_password", sharePassword);
     }
-  } else if (accessToken) {
-    params.set("access_token", accessToken);
   }
 
   const query = params.toString();

@@ -41,10 +41,11 @@ public class VideoEngagementControllerTests
             "video", videoId, sessionId, 120.0, 48.0, "paused",
             [new PlaybackIntervalInputDto(42.5, 48.0)]), CancellationToken.None));
 
-        // Send second set: watched 73.5–120.0 (46.5s), ended at full duration → IsCompleted = true
+        // Send second set: watched 66.0–120.0 (54.0s), ended. Total distinct watched = 59.5s of 120s (49.6%),
+        // above the 45% completion ratio → IsCompleted = true (coverage-based, independent of end position).
         Assert.IsType<NoContentResult>(await playbackController.RecordIntervals(new PlaybackIntervalsRequestDto(
             "video", videoId, sessionId, 120.0, 120.0, "ended",
-            [new PlaybackIntervalInputDto(73.5, 120.0)]), CancellationToken.None));
+            [new PlaybackIntervalInputDto(66.0, 120.0)]), CancellationToken.None));
 
         var incrementResult = await videosController.IncrementLike(videoId, CancellationToken.None);
         var incrementOk = Assert.IsType<OkObjectResult>(incrementResult.Result);
@@ -71,7 +72,7 @@ public class VideoEngagementControllerTests
         Assert.NotNull(userOneSnapshot);
         Assert.Equal(88, userOneSnapshot.Rating);
         Assert.Equal(120.0, userOneSnapshot.ResumeTime);
-        Assert.Equal(52.0, userOneSnapshot.PlayDuration, precision: 5);  // 5.5 + 46.5
+        Assert.Equal(59.5, userOneSnapshot.PlayDuration, precision: 5);  // 5.5 + 54.0
         Assert.Equal(2, userOneSnapshot.PlayCount);
         Assert.Equal(1, userOneSnapshot.LikeCount);
 
@@ -84,14 +85,14 @@ public class VideoEngagementControllerTests
         Assert.Equal(2, history.AllTimeWatchedIntervals!.Count);
         Assert.Equal(42.5, history.AllTimeWatchedIntervals[0].StartSec);
         Assert.Equal(48.0, history.AllTimeWatchedIntervals[0].EndSec);
-        Assert.Equal(73.5, history.AllTimeWatchedIntervals[1].StartSec);
+        Assert.Equal(66.0, history.AllTimeWatchedIntervals[1].StartSec);
         Assert.Equal(120.0, history.AllTimeWatchedIntervals[1].EndSec);
-        Assert.Equal(52.0, history.TotalDistinctWatchedSec!.Value, precision: 5);
+        Assert.Equal(59.5, history.TotalDistinctWatchedSec!.Value, precision: 5);
         Assert.NotNull(history.Sessions);
         var sessionHistory = Assert.Single(history.Sessions!);
         Assert.Equal(sessionId, sessionHistory.SessionId);
         Assert.True(sessionHistory.IsCompleted);
-        Assert.Equal(52.0, sessionHistory.TotalWatchedSec, precision: 5);
+        Assert.Equal(59.5, sessionHistory.TotalWatchedSec, precision: 5);
         Assert.Equal(2, sessionHistory.Intervals.Count);
 
         context.ChangeTracker.Clear();
@@ -119,7 +120,7 @@ public class VideoEngagementControllerTests
         Assert.Equal(2, affinity.ViewCount);
         Assert.Equal(1, affinity.LikeCount);
         Assert.Equal(1, affinity.CompleteCount);
-        Assert.Equal(52.0, affinity.TotalConsumedSec, precision: 5);
+        Assert.Equal(59.5, affinity.TotalConsumedSec, precision: 5);
 
         var playbackSessions = await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync();
         var playbackSession = Assert.Single(playbackSessions);
@@ -128,7 +129,7 @@ public class VideoEngagementControllerTests
         Assert.Equal(videoId, playbackSession.HostId);
         Assert.Equal(sessionId, playbackSession.SessionId);
         Assert.True(playbackSession.IsCompleted);
-        Assert.Equal(52.0, playbackSession.TotalWatchedSec, precision: 5);
+        Assert.Equal(59.5, playbackSession.TotalWatchedSec, precision: 5);
         Assert.Equal(120.0, playbackSession.LastPositionSec);
 
         var playbackIntervals = await context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(iv => iv.StartSec).ToListAsync();
@@ -137,7 +138,7 @@ public class VideoEngagementControllerTests
         Assert.Equal(7, playbackIntervals[0].UserId);
         Assert.Equal(42.5, playbackIntervals[0].StartSec);
         Assert.Equal(48.0, playbackIntervals[0].EndSec);
-        Assert.Equal(73.5, playbackIntervals[1].StartSec);
+        Assert.Equal(66.0, playbackIntervals[1].StartSec);
         Assert.Equal(120.0, playbackIntervals[1].EndSec);
 
         var ratingRows = await context.Ratings.IgnoreQueryFilters().OrderBy(rating => rating.Aspect).ToListAsync();
