@@ -209,6 +209,7 @@ export function VideoPlayer({
   const audioFallbackAppliedRef = useRef(false);
   const [faceOverlayEnabled, setFaceOverlayEnabled] = usePersistedFlag(FACE_OVERLAY_KEY, false);
   const playbackTracker = useRef(createPlaybackTracker());
+  const sourceRef = useRef<HTMLSourceElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const playTriggered = useRef(false);
   const sourceRestoreRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
@@ -550,6 +551,7 @@ export function VideoPlayer({
   const transcodeResolution = selectedQuality === SOURCE_TRANSCODE_QUALITY ? undefined : selectedQuality;
   const effectiveStreamUrl = selectedQuality === "Direct" ? streamUrl : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined);
   const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
+  const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
 
   useEffect(() => {
     const v = videoRef.current;
@@ -596,13 +598,12 @@ export function VideoPlayer({
 
     pendingAutostartRef.current = true;
     const video = videoRef.current;
-    const sourceSignature = `${effectiveStreamUrl}|${format || "mp4"}`;
-    if (!video || lastLoadedSourceRef.current !== sourceSignature) {
+    if (!video || lastLoadedSourceRef.current !== effectiveSourceSignature) {
       return;
     }
 
     video.play().catch(() => {});
-  }, [autostart, autostartToken, effectiveStreamUrl, format]);
+  }, [autostart, autostartToken, effectiveSourceSignature]);
 
   useEffect(() => {
     const handler = () => setPip(document.pictureInPictureElement === videoRef.current);
@@ -1033,11 +1034,24 @@ export function VideoPlayer({
       return;
     }
 
-    const sourceSignature = `${effectiveStreamUrl}|${format || "mp4"}`;
-    if (lastLoadedSourceRef.current === sourceSignature) {
+    const source = sourceRef.current ?? video.querySelector("source");
+    const sourceSrcMatches = source?.getAttribute("src") === effectiveStreamUrl;
+    const sourceTypeMatches = effectiveSourceType
+      ? source?.getAttribute("type") === effectiveSourceType
+      : !source?.hasAttribute("type");
+    if (lastLoadedSourceRef.current === effectiveSourceSignature && sourceSrcMatches && sourceTypeMatches) {
       return;
     }
-    lastLoadedSourceRef.current = sourceSignature;
+    lastLoadedSourceRef.current = effectiveSourceSignature;
+
+    if (source) {
+      source.setAttribute("src", effectiveStreamUrl);
+      if (effectiveSourceType) {
+        source.setAttribute("type", effectiveSourceType);
+      } else {
+        source.removeAttribute("type");
+      }
+    }
 
     const pendingRestore = sourceRestoreRef.current;
     sourceRestoreRef.current = null;
@@ -1073,7 +1087,7 @@ export function VideoPlayer({
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [clip, duration, effectiveResumeTime, effectiveStreamUrl, format, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec]);
+  }, [clip, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec]);
 
   // Release the media element's network connection when the player unmounts. Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
@@ -1093,6 +1107,7 @@ export function VideoPlayer({
         video.querySelectorAll("source").forEach((s) => s.removeAttribute("src"));
         video.removeAttribute("src");
         video.load();
+        lastLoadedSourceRef.current = null;
       } catch {
         // Ignore — element may already be detached.
       }
@@ -1258,7 +1273,7 @@ export function VideoPlayer({
           onEndedProp?.();
         }}
       >
-        <source src={effectiveStreamUrl} type={effectiveSourceType} />
+        <source ref={sourceRef} src={effectiveStreamUrl} type={effectiveSourceType} />
         {captions?.map((cap, idx) => (
           <track
             key={cap.id}
