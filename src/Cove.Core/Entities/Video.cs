@@ -46,7 +46,6 @@ public class Video : BaseEntity
     public ICollection<Video> ChildVideos { get; set; } = [];
     public ICollection<VideoUrl> Urls { get; set; } = [];
     public ICollection<VideoFile> Files { get; set; } = [];
-    public ICollection<VideoMarker> VideoMarkers { get; set; } = [];
     public ICollection<VideoTag> VideoTags { get; set; } = [];
     public ICollection<VideoPerformer> VideoPerformers { get; set; } = [];
     public ICollection<VideoGallery> VideoGalleries { get; set; } = [];

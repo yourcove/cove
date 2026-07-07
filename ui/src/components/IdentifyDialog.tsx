@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { metadata } from "../api/client";
-import type { MetadataServer } from "../api/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { metadata, system } from "../api/client";
+import type { MetadataServer, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import {
   Search,
@@ -61,7 +61,7 @@ const DEFAULT_IDENTIFY_DEFAULTS = {
   createStudios: true,
 };
 
-function buildIdentifySources(metadataServers: MetadataServer[]): IdentifySource[] {
+function buildIdentifySources(metadataServers: MetadataServer[], scrapers: ScraperSummary[]): IdentifySource[] {
   const sources: IdentifySource[] = [];
   metadataServers.forEach((box, i) => {
     sources.push({
@@ -71,6 +71,21 @@ function buildIdentifySources(metadataServers: MetadataServer[]): IdentifySource
       enabled: true,
     });
   });
+  // URL-capable video scrapers can identify any video that already has a matching URL (no fingerprint
+  // needed — the URL is the identity). Fragment/title search needs human review, so it stays in the
+  // tagger, not this hands-off flow.
+  scrapers
+    .filter((scraper) =>
+      scraper.entityType.toLowerCase() === "video" &&
+      scraper.supportedScrapes.some((kind) => kind.toLowerCase() === "url"))
+    .forEach((scraper) => {
+      sources.push({
+        id: `scraper-${scraper.id}`,
+        name: scraper.name,
+        type: "scraper",
+        enabled: true,
+      });
+    });
   return sources;
 }
 
@@ -80,8 +95,9 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
 
   const metadataServers = config?.scraping?.metadataServers ?? [];
   const identifyDefaults = config?.scraping?.identifyDefaults ?? DEFAULT_IDENTIFY_DEFAULTS;
+  const { data: scrapers = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers, enabled: open });
 
-  const [sources, setSources] = useState<IdentifySource[]>(() => buildIdentifySources(metadataServers));
+  const [sources, setSources] = useState<IdentifySource[]>(() => buildIdentifySources(metadataServers, []));
 
   const [showOptions, setShowOptions] = useState(false);
   const [setCoverImage, setSetCoverImage] = useState(true);
@@ -99,13 +115,13 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
       return;
     }
 
-    setSources(buildIdentifySources(metadataServers));
+    setSources(buildIdentifySources(metadataServers, scrapers));
     setCreateTags(identifyDefaults.createTags);
     setCreatePerformers(identifyDefaults.createPerformers);
     setCreateStudios(identifyDefaults.createStudios);
     setFieldStrategies(buildDefaultFieldStrategies());
     setPerformerGenders([...PERFORMER_GENDER_OPTIONS]);
-  }, [open, metadataServers, identifyDefaults.createTags, identifyDefaults.createPerformers, identifyDefaults.createStudios]);
+  }, [open, metadataServers, scrapers, identifyDefaults.createTags, identifyDefaults.createPerformers, identifyDefaults.createStudios]);
 
   const identifyMut = useMutation({
     mutationFn: () => {
@@ -351,7 +367,9 @@ export function IdentifyDialog({ open, onClose, videoIds }: Props) {
                     already have values won't be overwritten.
                     </p>
                     <p>
-                      Auto-apply duration and pHash thresholds are configured in Settings &gt; Metadata Providers &gt; Identify Defaults.
+                      Metadata servers match by fingerprint (duration and pHash thresholds are configured in
+                      Settings &gt; Metadata Providers &gt; Identify Defaults). Scraper sources apply only to
+                      videos that already have a URL the scraper recognizes.
                     </p>
                   </div>
                 </div>

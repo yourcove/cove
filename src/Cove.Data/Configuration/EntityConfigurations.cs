@@ -23,7 +23,6 @@ public class VideoConfiguration : IEntityTypeConfiguration<Video>
 
         builder.HasMany(s => s.Urls).WithOne(u => u.Video).HasForeignKey(u => u.VideoId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(s => s.Files).WithOne(f => f.Video).HasForeignKey(f => f.VideoId).OnDelete(DeleteBehavior.SetNull);
-        builder.HasMany(s => s.VideoMarkers).WithOne(m => m.Video).HasForeignKey(m => m.VideoId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(s => s.RemoteIds).WithOne(si => si.Video).HasForeignKey(si => si.VideoId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(s => s.PlayHistory).WithOne(h => h.Video).HasForeignKey(h => h.VideoId).OnDelete(DeleteBehavior.Cascade);
 
@@ -374,7 +373,7 @@ public class TagConfiguration : IEntityTypeConfiguration<Tag>
         builder.Property(t => t.Name).IsRequired().HasMaxLength(500);
         builder.Property(t => t.Color).HasMaxLength(9);
         builder.Property(t => t.VideoCount).HasDefaultValue(0);
-        builder.Property(t => t.VideoMarkerCount).HasDefaultValue(0);
+        builder.Property(t => t.SegmentCount).HasDefaultValue(0);
         builder.Property(t => t.ImageCount).HasDefaultValue(0);
         builder.Property(t => t.GalleryCount).HasDefaultValue(0);
         builder.Property(t => t.GroupCount).HasDefaultValue(0);
@@ -390,7 +389,7 @@ public class TagConfiguration : IEntityTypeConfiguration<Tag>
         builder.HasIndex(t => t.Favorite);
         builder.HasIndex(t => t.Organized);
         builder.HasIndex(t => t.VideoCount);
-        builder.HasIndex(t => t.VideoMarkerCount);
+        builder.HasIndex(t => t.SegmentCount);
         builder.HasIndex(t => t.ImageCount);
         builder.HasIndex(t => t.GalleryCount);
         builder.HasIndex(t => t.GroupCount);
@@ -658,29 +657,6 @@ public class GroupRelationConfiguration : IEntityTypeConfiguration<GroupRelation
         builder.HasKey(gr => new { gr.ContainingGroupId, gr.SubGroupId });
         builder.HasOne(gr => gr.ContainingGroup).WithMany(g => g.SubGroupRelations).HasForeignKey(gr => gr.ContainingGroupId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(gr => gr.SubGroup).WithMany(g => g.ContainingGroupRelations).HasForeignKey(gr => gr.SubGroupId).OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
-public class VideoMarkerConfiguration : IEntityTypeConfiguration<VideoMarker>
-{
-    public void Configure(EntityTypeBuilder<VideoMarker> builder)
-    {
-        builder.ToTable("video_markers");
-        builder.HasKey(m => m.Id);
-        builder.HasOne(m => m.PrimaryTag).WithMany().HasForeignKey(m => m.PrimaryTagId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(m => m.Video).WithMany(s => s.VideoMarkers).HasForeignKey(m => m.VideoId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasIndex(m => m.VideoId);
-    }
-}
-
-public class VideoMarkerTagConfiguration : IEntityTypeConfiguration<VideoMarkerTag>
-{
-    public void Configure(EntityTypeBuilder<VideoMarkerTag> builder)
-    {
-        builder.ToTable("video_marker_tags");
-        builder.HasKey(smt => new { smt.VideoMarkerId, smt.TagId });
-        builder.HasOne(smt => smt.VideoMarker).WithMany(m => m.VideoMarkerTags).HasForeignKey(smt => smt.VideoMarkerId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(smt => smt.Tag).WithMany().HasForeignKey(smt => smt.TagId).OnDelete(DeleteBehavior.Cascade);
     }
 }
 

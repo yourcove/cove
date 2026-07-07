@@ -201,7 +201,12 @@ function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string;
     ? { page: "audio", id: hostId }
     : hostType === "segment"
       ? { page: "segment", id: hostId }
-      : { page: "video", id: videoId, seekTo: item.startSec ?? 0 };
+      // Only pass an explicit seekTo when we actually have a position (segments carry startSec).
+      // Continue-watching video items have no startSec, so omit it and let VideoDetailPage resume
+      // from the engagement resumeTime — passing seekTo: 0 would force playback back to the start.
+      : item.startSec && item.startSec > 0
+        ? { page: "video", id: videoId, seekTo: item.startSec }
+        : { page: "video", id: videoId };
   const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
   return (
     <a

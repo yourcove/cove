@@ -35,7 +35,6 @@ import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 const Lightbox = lazy(() => import("../components/Lightbox").then((module) => ({ default: module.Lightbox })));
 const ImageCreateModal = lazy(() => import("./ImageEditModal").then((module) => ({ default: module.ImageCreateModal })));
 const QuickViewDialog = lazy(() => import("../components/QuickViewDialog").then((module) => ({ default: module.QuickViewDialog })));
-const ImageBatchScrapeDialog = lazy(() => import("../components/ImageBatchScrapeDialog").then((module) => ({ default: module.ImageBatchScrapeDialog })));
 
 const SEARCH_MODE_OPTIONS = [
   { value: "text", label: "Text", title: "Text search" },
@@ -76,7 +75,6 @@ export function ImagesPage({ onNavigate }: Props) {
   const [lightboxAutoPlay, setLightboxAutoPlay] = useState(false);
   const [lightboxScopeIds, setLightboxScopeIds] = useState<Set<number> | null>(null);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [showBatchScrape, setShowBatchScrape] = useState(false);
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const lastPagedFilterRef = useRef<Pick<FindFilter, "page" | "perPage">>({ page: defaultState.filter.page ?? 1, perPage: defaultState.filter.perPage });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
@@ -294,15 +292,6 @@ export function ImagesPage({ onNavigate }: Props) {
       onInvertSelection={invertSelection}
       selectionActions={
         <>
-          {canWriteImage ? (
-            <button
-              onClick={() => setShowBatchScrape(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20"
-            >
-              <Search className="w-3 h-3" />
-              Scrape
-            </button>
-          ) : null}
           {selectedVisibleImages.length > 1 ? (
             <button
               onClick={playSelectedImages}
@@ -479,13 +468,6 @@ export function ImagesPage({ onNavigate }: Props) {
       ) : null}
       {quickViewId !== null ? (
         <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
-      ) : null}
-      {showBatchScrape ? (
-        <ImageBatchScrapeDialog
-          open={showBatchScrape}
-          onClose={() => setShowBatchScrape(false)}
-          images={selectedVisibleImages}
-        />
       ) : null}
     </Suspense>
     </>

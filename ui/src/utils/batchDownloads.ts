@@ -41,7 +41,7 @@ export const DEFAULT_BATCH_DOWNLOAD_GENERATE_OPTIONS: GenerateOptions = {
   thumbnails: false,
   previews: false,
   sprites: false,
-  markers: false,
+  segments: false,
   segmentThumbnails: false,
   segmentPreviews: false,
   phashes: false,

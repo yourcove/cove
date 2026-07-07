@@ -702,6 +702,32 @@ public class RepositorySortBehaviorTests
             context.Ratings.Add(new Rating { UserId = TestUserId, HostType = hostType, HostId = hostId, Value = value.Value });
     }
 
+    [Fact]
+    public async Task VideoRepository_RatingNullFilters_SeparateRatedAndUnrated()
+    {
+        await using var context = CreateContext();
+        var rated = new Video { Title = "rated" };
+        var unrated = new Video { Title = "unrated" };
+        context.Videos.AddRange(rated, unrated);
+        await context.SaveChangesAsync();
+
+        context.Ratings.Add(new Rating { UserId = TestUserId, HostType = RatingHostType.Video, HostId = rated.Id, Value = 80 });
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+
+        // NotNull => only entities the current user has rated; IsNull => only unrated.
+        var (notNull, _) = await repository.FindAsync(
+            new VideoFilter { RatingCriterion = new IntCriterion { Modifier = CriterionModifier.NotNull } },
+            new FindFilter { Page = 1, PerPage = 20 });
+        var (isNull, _) = await repository.FindAsync(
+            new VideoFilter { RatingCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull } },
+            new FindFilter { Page = 1, PerPage = 20 });
+
+        Assert.Equal(["rated"], notNull.Select(video => video.Title ?? string.Empty).ToArray());
+        Assert.Equal(["unrated"], isNull.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
     private static void AddVideoAffinity(CoveContext context, int videoId, int viewCount = 0, int likeCount = 0, DateTime? lastConsumedAt = null)
     {
         context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = TestUserId, HostType = AffinityHostType.Video, HostId = videoId, ViewCount = viewCount, LikeCount = likeCount, LastConsumedAt = lastConsumedAt });

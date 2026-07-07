@@ -225,6 +225,184 @@ public class ScanServiceTests
         }
     }
 
+    [Fact]
+    public void ApplyFfprobeMetadata_OverwritesStaleCodecAndResolutionOnReEncode()
+    {
+        // Simulates the reported HEVC -> AV1 in-place re-encode: an already-populated file being re-probed
+        // must have its codec/resolution/duration replaced, not silently kept.
+        var videoFile = new VideoFile
+        {
+            Width = 1920,
+            Height = 1080,
+            Duration = 100,
+            BitRate = 5_000_000,
+            VideoCodec = "hevc",
+            AudioCodec = "aac",
+            FrameRate = 25,
+        };
+
+        const string json = """
+        {
+          "format": { "duration": "42.5", "bit_rate": "1000000" },
+          "streams": [
+            { "codec_type": "video", "codec_name": "av1", "width": 1280, "height": 720, "r_frame_rate": "30/1" },
+            { "codec_type": "audio", "codec_name": "opus" }
+          ]
+        }
+        """;
+
+        ScanService.ApplyFfprobeMetadata(videoFile, json);
+
+        Assert.Equal("av1", videoFile.VideoCodec);
+        Assert.Equal(1280, videoFile.Width);
+        Assert.Equal(720, videoFile.Height);
+        Assert.Equal("opus", videoFile.AudioCodec);
+        Assert.Equal(42.5, videoFile.Duration);
+        Assert.Equal(1_000_000, videoFile.BitRate);
+        Assert.Equal(30, videoFile.FrameRate);
+    }
+
+    [Fact]
+    public async Task StartScan_RelinksMovedVideoInsteadOfCreatingDuplicate()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            // oshash needs at least one 64KB chunk to be non-null.
+            var bytes = new byte[70_000];
+            new Random(1234).NextBytes(bytes);
+            var originalPath = Path.Combine(tempRoot, "original.mp4");
+            await File.WriteAllBytesAsync(originalPath, bytes);
+
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+
+            // First scan: creates the Video + VideoFile and its oshash identity fingerprint.
+            environment.Service.StartScan();
+
+            int videoFileId;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var seededFile = await db.VideoFiles.Include(f => f.Fingerprints).SingleAsync();
+                videoFileId = seededFile.Id;
+                Assert.Contains(seededFile.Fingerprints, fp => fp.Type == "oshash" && !string.IsNullOrEmpty(fp.Value));
+
+                // Stamp the entity so we can prove the move preserves it rather than recreating it.
+                var seededVideo = await db.Videos.SingleAsync();
+                seededVideo.Title = "Preserve me";
+                await db.SaveChangesAsync();
+            }
+
+            // Move the file to a subfolder (identical bytes -> identical oshash) and remove the original.
+            var subDir = Path.Combine(tempRoot, "sub");
+            Directory.CreateDirectory(subDir);
+            var movedPath = Path.Combine(subDir, "renamed.mp4");
+            File.Move(originalPath, movedPath);
+
+            // Second scan: should re-point the existing record, not create a duplicate.
+            environment.Service.StartScan();
+
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                Assert.Equal(1, await db.Videos.CountAsync());
+                var movedFile = await db.VideoFiles.SingleAsync();
+                Assert.Equal(videoFileId, movedFile.Id);
+                Assert.Equal("renamed.mp4", movedFile.Basename);
+                Assert.EndsWith("sub/renamed.mp4", movedFile.Path);
+                Assert.Equal("Preserve me", (await db.Videos.SingleAsync()).Title);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_AttachesDuplicateFileToExistingEntityInsteadOfCreatingSecondVideo()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var bytes = new byte[70_000];
+            new Random(4321).NextBytes(bytes);
+            var originalPath = Path.Combine(tempRoot, "original.mp4");
+            await File.WriteAllBytesAsync(originalPath, bytes);
+
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            // A COPY of the same bytes appears while the original remains on disk: identical content should
+            // join the existing video as a second file, not spawn a separate duplicate entity.
+            var copyPath = Path.Combine(tempRoot, "copy.mp4");
+            await File.WriteAllBytesAsync(copyPath, bytes);
+
+            environment.Service.StartScan();
+
+            await using var scope = environment.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(1, await db.Videos.CountAsync());
+            Assert.Equal(2, await db.VideoFiles.CountAsync());
+            var video = await db.Videos.Include(v => v.Files).SingleAsync();
+            Assert.Equal(2, video.Files.Count);
+            Assert.Contains(video.Files, f => f.Basename == "original.mp4");
+            Assert.Contains(video.Files, f => f.Basename == "copy.mp4");
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private static async Task<TestEnvironment> CreateBareEnvironmentAsync(string libraryRoot)
+    {
+        var services = new ServiceCollection();
+        var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase($"scan-service-{Guid.NewGuid():N}")
+            .Options;
+
+        services.AddSingleton(dbOptions);
+        services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+
+        var provider = services.BuildServiceProvider();
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            await db.Database.EnsureCreatedAsync();
+        }
+
+        var config = new CoveConfiguration
+        {
+            CovePaths = [new CovePath { Path = libraryRoot }],
+        };
+
+        var extensionManager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = libraryRoot,
+            CoveVersion = "test",
+        });
+
+        var service = new ScanService(
+            new ImmediateJobService(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            config,
+            new EventBus(),
+            new NoOpFingerprintService(),
+            new NoOpThumbnailService(),
+            new TextExtractionService(),
+            new ZipGalleryReader(new ZipFileReader()),
+            extensionManager,
+            NullLogger<ScanService>.Instance);
+
+        return new TestEnvironment(provider, service);
+    }
+
     private static async Task<TestEnvironment> CreateEnvironmentAsync(string libraryRoot, string videoPath, DateTime? storedModTime = null)
     {
         var services = new ServiceCollection();

@@ -20,10 +20,6 @@ import { resolveKeybinding } from "./keyboard/keybindings";
 import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, buildRouteUrl, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, readStoredRoute, resolveCurrentRoute, syncRouteHistory } from "./router/location";
 
 function normalizeRoute(route: Route): Route {
-  if (route.page === "markers") {
-    return route.id != null ? { page: "segment", id: route.id } : { page: "segments" };
-  }
-
   if (route.page === "logs") {
     return { page: "settings" };
   }

@@ -20,6 +20,13 @@ public class CoveConfiguration
     public int MaxConcurrentDownloads { get; set; } = 3;
     public List<DownloaderPathOverride> DownloaderPathOverrides { get; set; } = [];
     public bool CalculateMd5 { get; set; }
+    // When enabled (default), a scan that finds a file at a new path first checks whether its content
+    // (byte-identical oshash) already exists in the library. If a matching record's old location is gone,
+    // the file MOVED/was renamed and that record is re-pointed (keeping its entity, tags, fingerprints).
+    // If an identical file still exists on disk, the new file is a DUPLICATE and is attached as an extra
+    // file of that existing entity rather than creating a separate one. Only matches byte-identical files;
+    // disable to force every new path to be treated as a brand-new entity.
+    public bool EnableMoveDetection { get; set; } = true;
     // Frame-extraction engine for thumbnails, sprites, and pHash. "external" spawns the ffmpeg CLI
     // (most compatible, crash-isolated). "managed" decodes in-process via FFmpeg.AutoGen — much
     // faster, but a malformed file can crash the process on some systems, so it is opt-in.

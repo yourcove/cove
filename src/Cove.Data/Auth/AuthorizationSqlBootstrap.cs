@@ -35,8 +35,7 @@ public static class AuthorizationSqlDefinitions
                               ))
                           )
                     )
-                    WHEN 'marker' THEN EXISTS (SELECT 1 FROM video_marker_tags smt WHERE smt."TagId" = p_tag_id AND smt."VideoMarkerId" = p_entity_id)
-                        OR EXISTS (SELECT 1 FROM video_markers sm WHERE sm."Id" = p_entity_id AND sm."PrimaryTagId" = p_tag_id)
+                    WHEN 'segment' THEN EXISTS (SELECT 1 FROM segments seg WHERE seg."Id" = p_entity_id AND seg."TagId" = p_tag_id)
                     ELSE false
                 END;
             $$;
@@ -71,12 +70,7 @@ public static class AuthorizationSqlDefinitions
                               ))
                           )
                     )
-                    WHEN 'marker' THEN EXISTS (
-                        SELECT 1
-                        FROM video_markers sm
-                        JOIN videos s ON s."Id" = sm."VideoId"
-                        WHERE sm."Id" = p_entity_id AND s."StudioId" = p_studio_id
-                    )
+                    WHEN 'segment' THEN false
                     ELSE false
                 END;
             $$;
@@ -138,9 +132,9 @@ public static class AuthorizationSqlDefinitions
                             CROSS JOIN LATERAL jsonb_each(to_jsonb(entity)) AS entry
                             WHERE entity."Id" = p_entity_id
                         )
-                        WHEN 'marker' THEN (
+                        WHEN 'segment' THEN (
                             SELECT jsonb_object_agg(lower(entry.key), entry.value)
-                            FROM video_markers entity
+                            FROM segments entity
                             CROSS JOIN LATERAL jsonb_each(to_jsonb(entity)) AS entry
                             WHERE entity."Id" = p_entity_id
                         )

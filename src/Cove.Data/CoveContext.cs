@@ -61,7 +61,6 @@ public partial class CoveContext : DbContext
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<CustomFieldDefinition> CustomFieldDefinitions => Set<CustomFieldDefinition>();
     public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();
-    public DbSet<VideoMarker> VideoMarkers => Set<VideoMarker>();
     public DbSet<TagApplication> TagApplications => Set<TagApplication>();
     public DbSet<FieldProvenance> FieldProvenance => Set<FieldProvenance>();
     public DbSet<Segment> Segments => Set<Segment>();
@@ -861,7 +860,6 @@ public partial class CoveContext : DbContext
         CollectChangedIntKey(ids, ChangeTracker.Entries<GroupTag>(), entry => entry.TagId, nameof(GroupTag.TagId));
         CollectChangedIntKey(ids, ChangeTracker.Entries<TagApplication>(), entry => entry.TagId, nameof(TagApplication.TagId));
         CollectChangedNullableIntKey(ids, ChangeTracker.Entries<Segment>(), entry => entry.TagId, nameof(Segment.TagId));
-        CollectChangedIntKey(ids, ChangeTracker.Entries<VideoMarkerTag>(), entry => entry.TagId, nameof(VideoMarkerTag.TagId));
 
         foreach (var entry in ChangeTracker.Entries<Tag>())
         {
@@ -873,15 +871,6 @@ public partial class CoveContext : DbContext
             {
                 AddIfPositive(ids, entry.Entity.Id);
             }
-        }
-
-        foreach (var entry in ChangeTracker.Entries<VideoMarker>())
-        {
-            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
-                continue;
-
-            AddIfPositive(ids, entry.Entity.PrimaryTagId);
-            AddIfPositive(ids, entry.Property<int>(nameof(VideoMarker.PrimaryTagId)).OriginalValue);
         }
 
         AddRelatedIdsFromDeletedParents(ids,
@@ -937,15 +926,6 @@ public partial class CoveContext : DbContext
             groupIds => Set<GroupTag>().AsNoTracking()
                 .Where(groupTag => groupIds.Contains(groupTag.GroupId))
                 .Select(groupTag => groupTag.TagId));
-
-        AddRelatedIdsFromDeletedParents(ids,
-            ChangeTracker.Entries<VideoMarker>()
-                .Where(entry => entry.State == EntityState.Deleted)
-                .Select(entry => entry.Entity.Id)
-                .ToArray(),
-            markerIds => Set<VideoMarkerTag>().AsNoTracking()
-                .Where(videoMarkerTag => markerIds.Contains(videoMarkerTag.VideoMarkerId))
-                .Select(videoMarkerTag => videoMarkerTag.TagId));
 
         return ids;
     }
@@ -1169,7 +1149,7 @@ public partial class CoveContext : DbContext
         foreach (var tag in tags.Values)
         {
             tag.VideoCount = videoCounts.GetValueOrDefault(tag.Id, 0);
-            tag.VideoMarkerCount = videoSegmentCounts.GetValueOrDefault(tag.Id, 0);
+            tag.SegmentCount = videoSegmentCounts.GetValueOrDefault(tag.Id, 0);
             tag.ImageCount = imageCounts.GetValueOrDefault(tag.Id, 0);
             tag.GalleryCount = galleryCounts.GetValueOrDefault(tag.Id, 0);
             tag.GroupCount = groupCounts.GetValueOrDefault(tag.Id, 0);
@@ -1222,7 +1202,7 @@ public partial class CoveContext : DbContext
         foreach (var tag in tags.Values)
         {
             tag.VideoCount = videoCounts.GetValueOrDefault(tag.Id, 0);
-            tag.VideoMarkerCount = videoSegmentCounts.GetValueOrDefault(tag.Id, 0);
+            tag.SegmentCount = videoSegmentCounts.GetValueOrDefault(tag.Id, 0);
             tag.ImageCount = imageCounts.GetValueOrDefault(tag.Id, 0);
             tag.GalleryCount = galleryCounts.GetValueOrDefault(tag.Id, 0);
             tag.GroupCount = groupCounts.GetValueOrDefault(tag.Id, 0);

@@ -78,8 +78,8 @@ import type {
   ScrapeAttempt,
   CreateScrapeAttemptRequest,
   ApplyVideoScrapeAttemptRequest,
-  BatchVideoScrapeStartRequest,
-  BatchImageScrapeStartRequest,
+  ResolveScrapeRelationsRequest,
+  ResolveScrapeRelationsResult,
   BulkVideoUpdate,
   BulkPerformerUpdate,
   BulkTagUpdate,
@@ -1105,12 +1105,10 @@ export const scrapeAttempts = {
     request<ScrapeAttempt>("/scrape-attempts", { method: "POST", body: JSON.stringify(data) }),
   apply: (id: string, data: ApplyVideoScrapeAttemptRequest) =>
     request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
+  resolveRelations: (data: ResolveScrapeRelationsRequest) =>
+    request<ResolveScrapeRelationsResult>("/scrape-attempts/resolve-relations", { method: "POST", body: JSON.stringify(data) }),
   applyVideo: (id: string, data: ApplyVideoScrapeAttemptRequest) =>
     request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
-  startVideoBatch: (data: BatchVideoScrapeStartRequest) =>
-    request<{ jobId: string; queuedCount: number }>("/scrape-attempts/batch-videos", { method: "POST", body: JSON.stringify(data) }),
-  startImageBatch: (data: BatchImageScrapeStartRequest) =>
-    request<{ jobId: string; queuedCount: number }>("/scrape-attempts/batch-images", { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const bookmarks = {
@@ -1156,7 +1154,7 @@ export interface GenerateOptions {
   thumbnails?: boolean;
   previews?: boolean;
   sprites?: boolean;
-  markers?: boolean;
+  segments?: boolean;
   segmentThumbnails?: boolean;
   segmentPreviews?: boolean;
   phashes?: boolean;
@@ -1189,7 +1187,7 @@ export interface CleanGeneratedOptions {
   screenshots?: boolean;
   sprites?: boolean;
   transcodes?: boolean;
-  markers?: boolean;
+  segments?: boolean;
   imageThumbnails?: boolean;
   dryRun?: boolean;
 }

@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Film, Volume2 } from "lucide-react";
 import { useAudioSimilarityApi } from "../hooks/useAudioSimilarityApi";
-import type { AudioSimilarVideo } from "../api/types";
+import type { AudioSimilarVideo, EntityEngagement } from "../api/types";
 import { formatDuration } from "./shared";
 import { EntityCardGrid } from "./EntityCardGrid";
 import { VideoCard } from "./EntityCards";
 import { useManualContext } from "./ManualContext";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 
 const SIMILAR_PER_PAGE = 8;
 const AVAILABILITY_PER_PAGE = 1;
@@ -75,6 +76,9 @@ function SimilarityHeader() {
 }
 
 function SimilarVideoSection({ title, items, loading, error, onNavigate }: { title: string; items: AudioSimilarVideo[]; loading: boolean; error: boolean; onNavigate: (route: any) => void }) {
+  const videoIds = useMemo(() => items.map((item) => item.video.id), [items]);
+  const { engagementById: videoEngagement } = useEntityEngagementBatch("video", videoIds);
+
   if (error) {
     return null;
   }
@@ -89,7 +93,7 @@ function SimilarVideoSection({ title, items, loading, error, onNavigate }: { tit
       ) : (
         <EntityCardGrid minCardWidth="240px" gapClassName="gap-4" className="mt-3">
           {items.map((item) => (
-            <SimilarVideoCard key={item.video.id} item={item} onNavigate={onNavigate} />
+            <SimilarVideoCard key={item.video.id} item={item} engagement={videoEngagement.get(item.video.id)} onNavigate={onNavigate} />
           ))}
         </EntityCardGrid>
       )}
@@ -106,13 +110,13 @@ function SectionTitle({ title, count }: { title: string; count: number }) {
   );
 }
 
-function SimilarVideoCard({ item, onNavigate }: { item: AudioSimilarVideo; onNavigate: (route: any) => void }) {
+function SimilarVideoCard({ item, engagement, onNavigate }: { item: AudioSimilarVideo; engagement?: EntityEngagement; onNavigate: (route: any) => void }) {
   const video = item.video;
   const matchStart = item.sectionIndex > 0 ? item.startSec : undefined;
 
   return (
     <div className="relative h-full">
-      <VideoCard video={video} onClick={() => onNavigate(matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id })} onNavigate={onNavigate} />
+      <VideoCard video={video} engagement={engagement} onClick={() => onNavigate(matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id })} onNavigate={onNavigate} />
       <SimilarityOverlay distance={item.distance} label={getVideoMeta(item)} />
     </div>
   );

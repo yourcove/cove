@@ -22,7 +22,6 @@ public enum FilterMode
     Performers,
     Studios,
     Galleries,
-    VideoMarkers,
     Groups,
     Tags,
     Images,

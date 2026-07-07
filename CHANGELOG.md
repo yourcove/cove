@@ -8,6 +8,14 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [0.9.0] - 2026-07-07
+
+- Scan/Rescan Fixes
+- Backend Cleanup
+- Scape/Identify consolidation
+- Fix "Continue Watching" behavior from home page
+- Deepen Recommendation Extensions capabilities
+
 ## [0.8.0] - 2026-07-01
 
 - Add rating support for tags

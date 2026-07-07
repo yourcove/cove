@@ -19,7 +19,7 @@ import { useVideoQueue } from "../state/VideoQueueContext";
 import { VideoCard } from "../components/EntityCards";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canReadEntity, canWriteEntity, hasAnyPermission } from "../auth/visibility";
+import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { StringListEditor } from "../components/StringListEditor";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { useWallColumns } from "../hooks/useWallColumns";
@@ -52,7 +52,6 @@ import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
 const VideoDownloadDialog = lazy(() => import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })));
-const VideoBatchScrapeDialog = lazy(() => import("../components/VideoBatchScrapeDialog").then((module) => ({ default: module.VideoBatchScrapeDialog })));
 const BatchDownloadOptionsDialog = lazy(() => import("../components/BatchDownloadOptionsDialog").then((module) => ({ default: module.BatchDownloadOptionsDialog })));
 const MergeDialog = lazy(() => import("../components/MergeDialog").then((module) => ({ default: module.MergeDialog })));
 const IdentifyDialog = lazy(() => import("../components/IdentifyDialog").then((module) => ({ default: module.IdentifyDialog })));
@@ -121,7 +120,6 @@ export function VideosPage({ onNavigate }: Props) {
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const [showIdentify, setShowIdentify] = useState(false);
-  const [showBatchScrape, setShowBatchScrape] = useState(false);
   const [showBatchDownloadOptions, setShowBatchDownloadOptions] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
@@ -147,7 +145,6 @@ export function VideosPage({ onNavigate }: Props) {
   const canWriteVideo = canWriteEntity("video", hasPermission);
   const canDeleteVideo = canDeleteEntity("video", hasPermission);
   const canEngageVideo = canReadEntity("video", hasPermission) && (user?.kind === "user" || user?.kind === "system");
-  const canScrapeVideo = hasAnyPermission(hasPermission, ["videos.scrape", "videos.write"]);
   const canIdentifyVideo = hasPermission("library.identify") && canWriteVideo;
   const canDownloadVideo = hasPermission("jobs.run") && canWriteVideo;
   const feedVideoSource = config?.ui.feedVideoSource ?? "preview";
@@ -630,13 +627,6 @@ export function VideosPage({ onNavigate }: Props) {
           onNavigate={onNavigate}
         />
       ) : null}
-      {showBatchScrape ? (
-        <VideoBatchScrapeDialog
-          open={showBatchScrape}
-          onClose={() => setShowBatchScrape(false)}
-          videos={items.filter((video) => selectedIds.has(video.id))}
-        />
-      ) : null}
       {showBatchDownloadOptions ? (
         <BatchDownloadOptionsDialog
           open={showBatchDownloadOptions}
@@ -742,15 +732,6 @@ export function VideosPage({ onNavigate }: Props) {
             >
               <Search className="w-3 h-3" />
               Identify
-            </button>
-          )}
-          {canScrapeVideo && (
-            <button
-              onClick={() => setShowBatchScrape(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20"
-            >
-              <Search className="w-3 h-3" />
-              Scrape
             </button>
           )}
           {canWriteVideo && selectedIds.size >= 2 && (

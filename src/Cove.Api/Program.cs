@@ -302,8 +302,6 @@ try
     builder.Services.AddScoped<IGroupMetadataApplyService, GroupMetadataApplyService>();
     builder.Services.AddScoped<PerformerScrapeService>();
     builder.Services.AddScoped<ScrapeAttemptService>();
-    builder.Services.AddScoped<VideoBatchScrapeService>();
-    builder.Services.AddScoped<ImageBatchScrapeService>();
     builder.Services.AddSingleton<DownloaderService>();
     builder.Services.AddSingleton<ITranscodeService, TranscodeService>();
     builder.Services.AddScoped<StashMigrationService>();

@@ -20,6 +20,7 @@ import { CustomFieldsDisplay, FieldProvenanceHover, formatDate, formatDuration, 
 import { EntityRefBadge, MediaStudioSubtitle, PerformerTile, StudioHeaderImage } from "../components/EntityCards";
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
@@ -125,6 +126,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
     queryFn: () => texts.get(id),
   });
   const { hasPermission, user } = useAuth();
+  const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", text?.performers?.map((p) => p.id) ?? []);
   const primaryFile = useMemo(() => pickPrimaryTextFile(text), [text]);
   const canStreamTextFile = hasPermission("stream.read");
   const primaryFileIsPdf = isPdfTextFile(primaryFile);
@@ -490,6 +492,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
                         <PerformerTile
                           key={performer.id}
                           performer={performer}
+                          engagement={performerEngagement.get(performer.id)}
                           onClick={() => onNavigate({ page: "performer", id: performer.id })}
                           onNavigate={onNavigate}
                         >

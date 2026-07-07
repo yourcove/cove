@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { Building2, Check, FileAudio, FileText, Film, FolderOpen, Hash, Image as ImageIcon, Layers, Tag as TagIcon, User, Users, Volume2, VolumeX } from "lucide-react";
 import { entityImages, galleries as galleryApi, images as imageApi, videos as videoApi } from "../api/client";
-import type { Audio, Face, Gallery, Group, Image, Performer, Video, SegmentRecord, Studio, Tag, TagGraphNode, TextDocument } from "../api/types";
+import type { AffinityHostType, Audio, EntityEngagement, Face, Gallery, Group, Image, Performer, Video, SegmentRecord, Studio, Tag, TagGraphNode, TextDocument } from "../api/types";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import type { Route } from "../router/location";
 import { getAudioDisplayTitle, getTextDisplayTitle } from "../utils/audioTextDisplay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
@@ -71,6 +72,21 @@ const ENTITY_LABELS: Record<RelatedEntityType, string> = {
   faces: "Face",
 };
 
+// Rateable related-entity types → their AffinityHostType, so we can batch-load engagement (rating,
+// favorite, play state) for the visible items and show each card's rating banner. Segments and faces
+// are not rateable, so they're omitted (their engagement batch is skipped).
+const RELATED_ENTITY_AFFINITY_HOST: Partial<Record<RelatedEntityType, AffinityHostType>> = {
+  videos: "video",
+  images: "image",
+  performers: "performer",
+  galleries: "gallery",
+  studios: "studio",
+  tags: "tag",
+  groups: "group",
+  audios: "audio",
+  texts: "text",
+};
+
 export function getRelatedEntityDisplayModes(entityType: RelatedEntityType) {
   return RELATED_ENTITY_DISPLAY_MODES[entityType];
 }
@@ -130,6 +146,14 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
   const minCardWidthPx = getEntityCardMinWidthPx(cardSizeEntityType, effectiveZoomLevel);
   const wallColumns = useWallColumns(items, getWallColumnCount(entityType));
   const itemIndexes = useMemo(() => new Map(items.map((item, index) => [item.id, index])), [items]);
+  // Batch-load engagement for the materialized items so grid/wall tiles can show their rating banner
+  // (and favorite/play state) wherever this shared view is used — every detail page and list view.
+  const engagementHostType = RELATED_ENTITY_AFFINITY_HOST[entityType];
+  const engagementIds = useMemo(
+    () => (engagementHostType ? items.map((item) => item.id) : []),
+    [engagementHostType, items],
+  );
+  const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementIds);
   const loadingState = { infinitePageSize, hasNextPage, isFetchingNextPage, loadMore };
   const appConfig = useOptionalAppConfig();
   const feedVideoSource = appConfig?.config?.ui.feedVideoSource ?? "preview";
@@ -138,7 +162,7 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
   const feedVideoStartMinDuration = appConfig?.config?.ui.feedVideoStartMinDuration ?? 0;
   const [verticalSoundEnabled, setVerticalSoundEnabled] = useState(feedVideoSound);
   const [feedAudioVideoId, setFeedAudioVideoId] = useState<number | null>(null);
-  const renderItem = (item: TItem) => renderRelatedTile({ entityType, item, itemIndex: itemIndexes.get(item.id) ?? 0, selectedIds, selecting, onToggle, onNavigate, onVideoQuickView, onImageQuickView, onImagePreview, onImageDetails });
+  const renderItem = (item: TItem) => renderRelatedTile({ entityType, item, itemIndex: itemIndexes.get(item.id) ?? 0, engagement: engagementById.get(item.id), selectedIds, selecting, onToggle, onNavigate, onVideoQuickView, onImageQuickView, onImagePreview, onImageDetails });
 
   useEffect(() => {
     setVerticalSoundEnabled(feedVideoSound);
@@ -222,10 +246,11 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
   );
 }
 
-function renderRelatedTile<TItem extends RelatedEntityItem>({ entityType, item, itemIndex, selectedIds, selecting, onToggle, onNavigate, onVideoQuickView, onImageQuickView, onImagePreview, onImageDetails }: {
+function renderRelatedTile<TItem extends RelatedEntityItem>({ entityType, item, itemIndex, engagement, selectedIds, selecting, onToggle, onNavigate, onVideoQuickView, onImageQuickView, onImagePreview, onImageDetails }: {
   entityType: RelatedEntityType;
   item: TItem;
   itemIndex: number;
+  engagement?: EntityEngagement;
   selectedIds?: Set<number>;
   selecting: boolean;
   onToggle?: (id: number) => void;
@@ -243,19 +268,19 @@ function renderRelatedTile<TItem extends RelatedEntityItem>({ entityType, item, 
   switch (entityType) {
     case "videos": {
       const video = item as Video;
-      return <VideoCard video={video} onClick={onClick} onNavigate={onNavigate} onQuickView={onVideoQuickView ? () => onVideoQuickView(video.id) : undefined} selected={selected} onSelect={onSelect} selecting={selecting} />;
+      return <VideoCard video={video} engagement={engagement} onClick={onClick} onNavigate={onNavigate} onQuickView={onVideoQuickView ? () => onVideoQuickView(video.id) : undefined} selected={selected} onSelect={onSelect} selecting={selecting} />;
     }
     case "images": {
       const image = item as Image;
-      return <ImageTile image={image} onClick={onClick} onNavigate={onNavigate} onPreview={onImagePreview ? () => selecting && onToggle ? onToggle(image.id) : onImagePreview(image, itemIndex) : undefined} onDetails={onImageDetails ? () => selecting && onToggle ? onToggle(image.id) : onImageDetails(image) : undefined} onQuickView={onImageQuickView ? () => onImageQuickView(image.id) : undefined} selected={selected} onSelect={onSelect} selecting={selecting} />;
+      return <ImageTile image={image} engagement={engagement} onClick={onClick} onNavigate={onNavigate} onPreview={onImagePreview ? () => selecting && onToggle ? onToggle(image.id) : onImagePreview(image, itemIndex) : undefined} onDetails={onImageDetails ? () => selecting && onToggle ? onToggle(image.id) : onImageDetails(image) : undefined} onQuickView={onImageQuickView ? () => onImageQuickView(image.id) : undefined} selected={selected} onSelect={onSelect} selecting={selecting} />;
     }
-    case "performers": return <PerformerTile performer={item as Performer} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
-    case "galleries": return <GalleryTile gallery={item as Gallery} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
-    case "studios": return <StudioTile studio={item as Studio} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
-    case "tags": return <TagTile tag={item as Tag} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
-    case "groups": return <GroupTile group={item as Group} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
-    case "audios": return <AudioTile audio={item as Audio} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
-    case "texts": return <TextTile text={item as TextDocument} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "performers": return <PerformerTile performer={item as Performer} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "galleries": return <GalleryTile gallery={item as Gallery} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "studios": return <StudioTile studio={item as Studio} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "tags": return <TagTile tag={item as Tag} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "groups": return <GroupTile group={item as Group} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "audios": return <AudioTile audio={item as Audio} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
+    case "texts": return <TextTile text={item as TextDocument} engagement={engagement} onClick={onClick} onNavigate={onNavigate} selected={selected} onSelect={onSelect} selecting={selecting} />;
     case "segments": return <SegmentTile segment={item as SegmentRecord} onClick={onClick} route={route} selected={selected} onSelect={onSelect} selecting={selecting} />;
     case "faces": return <FaceTile face={item as Face} onClick={onClick} selected={selected} onSelect={onSelect} selecting={selecting} />;
   }

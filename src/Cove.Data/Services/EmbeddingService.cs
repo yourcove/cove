@@ -108,11 +108,23 @@ public sealed class EmbeddingService(
         if (options.HostType.HasValue) Add("HostType", (int)options.HostType.Value);
         if (options.HostId.HasValue) Add("HostId", options.HostId.Value);
         if (!string.IsNullOrWhiteSpace(options.Kind)) Add("Kind", options.Kind!);
-        if (!string.IsNullOrWhiteSpace(options.KindFamily)) Add("KindFamily", options.KindFamily!);
-        if (options.Modality.HasValue) Add("Modality", (int)options.Modality.Value);
         if (options.IsSemantic.HasValue) Add("IsSemantic", options.IsSemantic.Value);
         if (!string.IsNullOrWhiteSpace(options.SourceKey)) Add("SourceKey", options.SourceKey!);
-        if (options.SectionIndex.HasValue) Add("SectionIndex", options.SectionIndex.Value);
+
+        // Modality, KindFamily and SectionIndex are the predicate columns of the partial HNSW ANN
+        // indexes (see the 20260707 migration). They MUST be emitted as SQL literals, not parameters:
+        // Postgres only uses a partial index when it can prove, at plan time, that the query predicate
+        // implies the index predicate — which it cannot do against a parameter (@p). Parameterizing
+        // these silently defeated the index and made this KNN fall back to a full sequential scan +
+        // exact sort, which times out on a large embeddings table. These are small, controlled internal
+        // values (a modality int, a fixed KindFamily like 'feature.v1', a section index), so inlining is
+        // safe; KindFamily is still quote-escaped defensively.
+        if (!string.IsNullOrWhiteSpace(options.KindFamily))
+            conditions.Add($"\"KindFamily\" = '{options.KindFamily!.Replace("'", "''")}'");
+        if (options.Modality.HasValue)
+            conditions.Add($"\"Modality\" = {(int)options.Modality.Value}");
+        if (options.SectionIndex.HasValue)
+            conditions.Add($"\"SectionIndex\" = {options.SectionIndex.Value}");
 
         var sql = $"SELECT * FROM embeddings WHERE {string.Join(" AND ", conditions)} " +
                   $"ORDER BY (\"Vector\")::vector({dimensions}) <=> {{0}}::vector({dimensions}) LIMIT {k}";

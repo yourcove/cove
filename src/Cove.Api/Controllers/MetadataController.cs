@@ -200,7 +200,7 @@ public class MetadataController(
                 || opts?.Sprites == true
                 || opts?.SegmentThumbnails == true
                 || opts?.SegmentPreviews == true
-                || opts?.Markers == true
+                || opts?.Segments == true
                 || opts?.Phashes == true
                 || opts?.Md5 == true;
 
@@ -246,7 +246,7 @@ public class MetadataController(
                 || opts?.Sprites == true
                 || opts?.SegmentThumbnails == true
                 || opts?.SegmentPreviews == true
-                || opts?.Markers == true;
+                || opts?.Segments == true;
             var generateVideoPhashes = opts?.Phashes == true;
             var generateVideoMd5 = opts?.Md5 == true;
 
@@ -258,7 +258,7 @@ public class MetadataController(
                         || (opts?.Sprites == true && !item.HasSprite)
                         || opts?.SegmentThumbnails == true
                         || opts?.SegmentPreviews == true
-                        || opts?.Markers == true))
+                        || opts?.Segments == true))
                     || (generateVideoPhashes && (overwrite || !item.HasPhash))
                     || (generateVideoMd5 && (overwrite || !item.HasMd5)))
                 .ToList();
@@ -268,8 +268,8 @@ public class MetadataController(
             var maxParallel = config.MaxParallelTasks;
             var parallelism = maxParallel <= 0 ? Environment.ProcessorCount : Math.Max(1, maxParallel);
             var segmentPreviewsByVideoId = new Dictionary<int, List<(double StartSec, double? EndSec)>>();
-            var generateSegmentThumbnails = opts?.SegmentThumbnails == true || opts?.SegmentPreviews == true || opts?.Markers == true;
-            var generateSegmentPreviews = opts?.SegmentPreviews == true || opts?.Markers == true;
+            var generateSegmentThumbnails = opts?.SegmentThumbnails == true || opts?.SegmentPreviews == true || opts?.Segments == true;
+            var generateSegmentPreviews = opts?.SegmentPreviews == true || opts?.Segments == true;
 
             if (generateSegmentThumbnails && workItems.Count > 0)
             {
@@ -1080,6 +1080,8 @@ public class MetadataController(
             using var scope = scopeFactory.CreateScope();
             var dbCtx = scope.ServiceProvider.GetRequiredService<CoveContext>();
             var metadataServerSvc = scope.ServiceProvider.GetService<MetadataServerService>();
+            var scraperSvc = scope.ServiceProvider.GetService<ScraperService>();
+            var scrapeAttemptSvc = scope.ServiceProvider.GetService<ScrapeAttemptService>();
 
             var videos = opts?.VideoIds?.Count > 0
                 ? await dbCtx.Videos
@@ -1102,6 +1104,10 @@ public class MetadataController(
             var sourceOrder = sourceEndpoints?
                 .Select((endpoint, index) => new { endpoint, index })
                 .ToDictionary(item => item.endpoint, item => item.index, StringComparer.OrdinalIgnoreCase);
+
+            // Which URL-capable video scrapers are enabled as identify sources (null = all eligible;
+            // empty = the caller selected only metadata servers, so the scraper stage is skipped).
+            var enabledScraperIds = ResolveIdentifyScraperIds(opts?.Sources, scraperSvc);
 
             // Build import config from identify options
             var importConfig = new MetadataServerVideoImportRequestDto
@@ -1127,10 +1133,10 @@ public class MetadataController(
 
                 var video = videos[i];
                 var fingerprints = video.Files.SelectMany(f => f.Fingerprints).ToList();
-                if (fingerprints.Count == 0) continue;
+                var identified = false;
 
-                // Attempt MetadataServer identification
-                if (metadataServerSvc != null && (sourceEndpoints == null || sourceEndpoints.Count > 0))
+                // Attempt MetadataServer identification (needs fingerprints to auto-match a candidate).
+                if (fingerprints.Count > 0 && metadataServerSvc != null && (sourceEndpoints == null || sourceEndpoints.Count > 0))
                 {
                     try
                     {
@@ -1234,11 +1240,28 @@ public class MetadataController(
 
                             await metadataServerSvc.MergeVideoAsync(video, best.Endpoint, best.Id, importConfig, ct);
                             await dbCtx.SaveChangesAsync(ct);
+                            identified = true;
                         }
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "MetadataServer identify failed for video {VideoId}", video.Id);
+                    }
+                }
+
+                // Attempt scraper identification from the video's existing URL(s). The URL is the
+                // identity, so unlike metadata servers this needs no fingerprint match and also runs
+                // for fingerprint-less videos. Skipped if a metadata server already identified this one.
+                if (!identified && scraperSvc != null && scrapeAttemptSvc != null
+                    && (enabledScraperIds == null || enabledScraperIds.Count > 0))
+                {
+                    try
+                    {
+                        await TryScraperIdentifyVideoAsync(video, enabledScraperIds, opts, identifyDefaults, scraperSvc, scrapeAttemptSvc, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Scraper identify failed for video {VideoId}", video.Id);
                     }
                 }
             }
@@ -1270,6 +1293,118 @@ public class MetadataController(
         }
 
         return endpoints;
+    }
+
+    // Resolves which URL-capable video scrapers are enabled as identify sources. Returns null when no
+    // explicit sources were given (all scrapers eligible), or the set of scraper ids named in the
+    // sources list (empty when the caller selected only metadata servers, so the scraper stage skips).
+    private static HashSet<string>? ResolveIdentifyScraperIds(List<string>? sources, ScraperService? scraperSvc)
+    {
+        if (scraperSvc == null)
+            return [];
+
+        var videoScrapers = scraperSvc.GetScrapers()
+            .Where(scraper => string.Equals(scraper.EntityType, EntityKinds.Video, StringComparison.OrdinalIgnoreCase)
+                && scraper.SupportedScrapes.Any(kind => string.Equals(kind, "URL", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (sources == null || sources.Count == 0)
+            return null;
+
+        var enabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources.Select(source => source.Trim()).Where(source => source.Length > 0))
+        {
+            var match = videoScrapers.FirstOrDefault(scraper =>
+                string.Equals(scraper.Id, source, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(scraper.Name, source, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                enabled.Add(match.Id);
+        }
+
+        return enabled;
+    }
+
+    // Tries each URL-matching, enabled scraper for the video's URLs in priority order, applying the
+    // first that returns data (honoring the identify options), and returns whether one was applied.
+    private async Task<bool> TryScraperIdentifyVideoAsync(
+        Video video,
+        HashSet<string>? enabledScraperIds,
+        IdentifyOptionsDto? opts,
+        IdentifyDefaultsConfig identifyDefaults,
+        ScraperService scraperSvc,
+        ScrapeAttemptService scrapeAttemptSvc,
+        CancellationToken ct)
+    {
+        var urls = video.Urls
+            .Select(item => item.Url)
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .ToList();
+
+        foreach (var url in urls)
+        {
+            foreach (var candidate in scraperSvc.FindScrapersForUrl(url, EntityKinds.Video))
+            {
+                if (enabledScraperIds != null && !enabledScraperIds.Contains(candidate.Id))
+                    continue;
+
+                var attempt = await scrapeAttemptSvc.CreateAttemptAsync(
+                    new CreateScrapeAttemptDto(candidate.Id, EntityKinds.Video, video.Id, "url", url, null, null),
+                    ct);
+
+                if (attempt.Status != ScrapeAttemptStatuses.Success)
+                    continue;
+
+                await scrapeAttemptSvc.ApplyAttemptAsync(attempt.Id, BuildScraperIdentifyApplyDto(opts, identifyDefaults), ct);
+                logger.LogInformation(
+                    "Identify video {VideoId}: applied scraper {ScraperId} from URL {Url}",
+                    video.Id, candidate.Id, url);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Translates the identify options into a scraper apply plan: per-field overwrite/merge/ignore plus
+    // the create-missing / mark-organized toggles, mirroring the metadata-server import config.
+    private static ApplyVideoScrapeAttemptDto BuildScraperIdentifyApplyDto(IdentifyOptionsDto? opts, IdentifyDefaultsConfig identifyDefaults)
+    {
+        var strategies = opts?.FieldStrategies;
+        string Strategy(string key) => strategies != null && strategies.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim().ToLowerInvariant()
+            : "merge";
+
+        static string ModeFor(string strategy) => strategy switch
+        {
+            "ignore" => "skip",
+            "overwrite" => "replace",
+            _ => "merge",
+        };
+
+        var replaceFields = new List<string>();
+        foreach (var field in new[] { "title", "code", "details", "director", "date" })
+        {
+            if (Strategy(field) == "overwrite")
+                replaceFields.Add(field);
+        }
+        if (opts?.SetCoverImage ?? true)
+            replaceFields.Add("image");
+
+        var collectionModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["urls"] = ModeFor(Strategy("urls")),
+            ["tags"] = (opts?.SetTags ?? true) ? ModeFor(Strategy("tags")) : "skip",
+            ["performers"] = (opts?.SetPerformers ?? true) ? ModeFor(Strategy("performers")) : "skip",
+            ["studio"] = (opts?.SetStudio ?? true) ? ModeFor(Strategy("studio")) : "skip",
+        };
+
+        return new ApplyVideoScrapeAttemptDto(
+            ReplaceFields: replaceFields,
+            CollectionModes: collectionModes,
+            CreateMissingTags: opts?.CreateTags ?? identifyDefaults.CreateTags,
+            CreateMissingPerformers: opts?.CreatePerformers ?? identifyDefaults.CreatePerformers,
+            CreateMissingStudio: opts?.CreateStudios ?? identifyDefaults.CreateStudios,
+            MarkOrganized: opts?.MarkOrganized ?? false);
     }
 
     private static bool MeetsIdentifyAutoApplyThresholds(int matchCount, double? durationDifferenceSeconds, int? phashDistance, IdentifyDefaultsConfig identifyDefaults)

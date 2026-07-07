@@ -20,8 +20,7 @@ public sealed class ShareLinkService : IShareLinkService
         EntityKinds.Gallery,
         EntityKinds.Image,
         EntityKinds.Group,
-        EntityKinds.Marker,
-        "segment",
+        EntityKinds.Segment,
     };
 
     private readonly CoveContext _db;
@@ -214,7 +213,7 @@ public sealed class ShareLinkService : IShareLinkService
             EntityKinds.Gallery => await _db.ReadSet<Gallery>().CountAsync(gallery => parsedIds.Contains(gallery.Id), ct),
             EntityKinds.Image => await _db.ReadSet<Image>().CountAsync(image => parsedIds.Contains(image.Id), ct),
             EntityKinds.Group => await _db.ReadSet<Group>().CountAsync(group => parsedIds.Contains(group.Id), ct),
-            EntityKinds.Marker => await _db.ReadSet<VideoMarker>().CountAsync(marker => parsedIds.Contains(marker.Id), ct),
+            EntityKinds.Segment => await _db.ReadSet<Segment>().CountAsync(segment => parsedIds.Contains(segment.Id), ct),
             _ => 0,
         };
 
@@ -249,10 +248,8 @@ public sealed class ShareLinkService : IShareLinkService
 
     private static string NormalizeEntityKind(string entityKind)
     {
-        var normalized = entityKind.Trim().ToLowerInvariant();
-        return normalized == "segment" ? EntityKinds.Marker : normalized;
+        return entityKind.Trim().ToLowerInvariant();
     }
 
-    private static string ToClientEntityKind(string entityKind) =>
-        entityKind.Equals(EntityKinds.Marker, StringComparison.OrdinalIgnoreCase) ? "segment" : entityKind;
+    private static string ToClientEntityKind(string entityKind) => entityKind;
 }

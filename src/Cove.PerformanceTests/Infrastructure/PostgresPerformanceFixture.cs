@@ -395,17 +395,6 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                 video.Files.Add(videoFile);
             }
 
-            if (videoOrdinal % 5 == 0)
-            {
-                video.VideoMarkers.Add(new VideoMarker
-                {
-                    VideoId = video.Id,
-                    Title = $"Marker {videoOrdinal:000}",
-                    Seconds = 30,
-                    EndSeconds = 45,
-                    PrimaryTagId = tags[videoOrdinal % tags.Count].Id,
-                });
-            }
         }
 
         var images = new List<Image>();

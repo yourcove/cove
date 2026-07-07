@@ -141,7 +141,7 @@ public class TagsControllerSegmentTests
     }
 
     [Fact]
-    public async Task TagVideoMarkerCount_TracksVideoSegmentsInsteadOfLegacyMarkers()
+    public async Task TagSegmentCount_TracksVideoSegments()
     {
         await using var context = CreateContext();
         var tag = new Tag { Name = "Body" };
@@ -164,13 +164,13 @@ public class TagsControllerSegmentTests
         await context.SaveChangesAsync();
 
         var addedTag = await context.Tags.AsNoTracking().SingleAsync(candidate => candidate.Id == tag.Id);
-        Assert.Equal(1, addedTag.VideoMarkerCount);
+        Assert.Equal(1, addedTag.SegmentCount);
 
         context.Segments.Remove(segment);
         await context.SaveChangesAsync();
 
         var removedTag = await context.Tags.AsNoTracking().SingleAsync(candidate => candidate.Id == tag.Id);
-        Assert.Equal(0, removedTag.VideoMarkerCount);
+        Assert.Equal(0, removedTag.SegmentCount);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class TagsControllerSegmentTests
     }
 
     [Fact]
-    public async Task GetMarkerStrings_UsesVideoSegmentTitlesInsteadOfLegacyMarkers()
+    public async Task GetSegmentTitles_UsesVideoSegmentTitles()
     {
         await using var context = CreateContext();
         context.Segments.AddRange(
@@ -264,18 +264,18 @@ public class TagsControllerSegmentTests
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
-        var alphabeticalResult = await controller.GetMarkerStrings(null, null, CancellationToken.None);
+        var alphabeticalResult = await controller.GetSegmentTitles(null, null, CancellationToken.None);
         var alphabetical = Assert.IsType<OkObjectResult>(alphabeticalResult.Result).Value as List<string>;
         Assert.NotNull(alphabetical);
         Assert.Equal(["AI body", "Manual body"], alphabetical);
 
-        var countedResult = await controller.GetMarkerStrings(null, "count", CancellationToken.None);
+        var countedResult = await controller.GetSegmentTitles(null, "count", CancellationToken.None);
         var counted = Assert.IsType<OkObjectResult>(countedResult.Result).Value as List<string>;
         Assert.NotNull(counted);
         Assert.Equal("Manual body", counted![0]);
         Assert.DoesNotContain("Image-only title", counted);
 
-        var filteredResult = await controller.GetMarkerStrings("manual", null, CancellationToken.None);
+        var filteredResult = await controller.GetSegmentTitles("manual", null, CancellationToken.None);
         var filtered = Assert.IsType<OkObjectResult>(filteredResult.Result).Value as List<string>;
         Assert.NotNull(filtered);
         Assert.Equal(["Manual body"], filtered);

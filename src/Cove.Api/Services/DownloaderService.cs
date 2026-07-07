@@ -2221,8 +2221,8 @@ public class DownloaderService(
         if (directories.Count == 0)
             return null;
 
-        if (generate.Markers)
-            logger.LogInformation("Batch download generate follow-up does not currently support marker generation; skipping marker option.");
+        if (generate.Segments)
+            logger.LogInformation("Batch download generate follow-up does not currently support segment generation; skipping segment option.");
 
         using var scope = serviceScopeFactory.CreateScope();
         var scanService = scope.ServiceProvider.GetRequiredService<IScanService>();

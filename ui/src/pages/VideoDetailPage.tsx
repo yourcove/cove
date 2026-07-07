@@ -36,6 +36,7 @@ import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
@@ -995,6 +996,7 @@ function describeTagEvidence(tag: { effectiveDurationSec?: number | null; effect
 
 // Details Tab Content
 export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onRequestReportTag?: (tag: any) => void }) {
+  const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", video?.performers?.map((p) => p.id) ?? []);
   return (
     <div className="space-y-4">
       {/* Created/Updated + Code/Director at top like original */}
@@ -1070,6 +1072,7 @@ export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPr
                   <PerformerTile
                     key={performer.id}
                     performer={performer}
+                    engagement={performerEngagement.get(performer.id)}
                     onClick={() => onNavigate({ page: "performer", id: performer.id })}
                     onNavigate={onNavigate}
                   >

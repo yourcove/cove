@@ -14,6 +14,7 @@ import { VideoPlayer } from "../components/VideoPlayer";
 import { ProvenanceBadge, TagBadge } from "../components/shared";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 
 interface Props {
@@ -196,6 +197,7 @@ function ResolvedSpanPlayerCard({
     staleTime: 60_000,
   });
   const currentFile = currentVideo?.files[0];
+  const { engagementById: videoEngagement } = useEntityEngagementBatch("video", detail.videoId != null ? [detail.videoId] : []);
   const contextFollowTagId = detail.span.tagId ?? derivedQueryDescriptor?.operands.find((operand) => (operand.tagIds?.length ?? 0) > 0)?.tagIds?.[0];
   const contextFollowTagName = detail.span.tagName ?? (contextFollowTagId != null ? tagNamesById.get(contextFollowTagId) : undefined);
   const spanContext = useMemo(
@@ -401,7 +403,7 @@ function ResolvedSpanPlayerCard({
     <div className="space-y-4">
       {currentVideo ? (
         <div className="max-w-sm">
-          <VideoCard video={currentVideo} onClick={() => onNavigate({ page: "video", id: detail.videoId, seekTo: detail.span.startSec })} onNavigate={onNavigate} />
+          <VideoCard video={currentVideo} engagement={videoEngagement.get(detail.videoId)} onClick={() => onNavigate({ page: "video", id: detail.videoId, seekTo: detail.span.startSec })} onNavigate={onNavigate} />
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card/70 px-3 py-3 text-sm text-secondary">Loading parent video...</div>

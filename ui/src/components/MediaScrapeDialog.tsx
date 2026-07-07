@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Loader2, Search, Sparkles, X } from "lucide-react";
-import { performers, scrapeAttempts, system, tags } from "../api/client";
+import { scrapeAttempts, system } from "../api/client";
 import type { ScrapeAttempt, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import {
+  buildMatchInfo,
   buildRelationActionMap,
   buildRelationSelectionPayload,
   relationKey,
@@ -344,20 +345,6 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
     enabled: open,
   });
 
-  const { data: tagPage } = useQuery({
-    queryKey: ["scrape-dialog-tags"],
-    queryFn: () => tags.find({ page: 1, perPage: 10000, sort: "name", direction: "asc" }),
-    enabled: open,
-    staleTime: 60_000,
-  });
-
-  const { data: performerPage } = useQuery({
-    queryKey: ["scrape-dialog-performers"],
-    queryFn: () => performers.find({ page: 1, perPage: 10000, sort: "name", direction: "asc" }),
-    enabled: open,
-    staleTime: 60_000,
-  });
-
   const scraperPreferences = config?.scraping.scraperPreferences ?? [];
   const sourceUrls = useMemo(() => normalizeSourceUrls(entity.urls), [entity.urls]);
   const availableEntityScrapers = useMemo(
@@ -385,8 +372,23 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   );
   const currentData = applyPlan.currentData;
   const scrapedData = applyPlan.scrapedData;
-  const existingTagNames = useMemo(() => (tagPage?.items ?? []).map((tag) => tag.name), [tagPage]);
-  const existingPerformerNames = useMemo(() => (performerPage?.items ?? []).map((performer) => performer.name), [performerPage]);
+  // Ask the backend which scraped names already resolve to an existing tag/performer, using the same
+  // matcher the apply path runs (performers match on name OR alias). Replaces a former client-side
+  // fetch of every tag/performer, which missed alias matches and silently capped at 10k entities.
+  const scrapedRelationNames = useMemo(
+    () => ({ tags: scrapedData?.tags ?? [], performers: scrapedData?.performers ?? [] }),
+    [scrapedData?.tags, scrapedData?.performers],
+  );
+  const { data: resolvedRelations } = useQuery({
+    queryKey: ["scrape-dialog-resolve-relations", scrapedRelationNames],
+    queryFn: () => scrapeAttempts.resolveRelations(scrapedRelationNames),
+    enabled: open && (scrapedRelationNames.tags.length > 0 || scrapedRelationNames.performers.length > 0),
+    staleTime: 30_000,
+  });
+  const existingTagNames = useMemo(() => (resolvedRelations?.tags ?? []).map((match) => match.input), [resolvedRelations]);
+  const existingPerformerNames = useMemo(() => (resolvedRelations?.performers ?? []).map((match) => match.input), [resolvedRelations]);
+  const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
+  const performerMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.performers), [resolvedRelations]);
   const suggestedReplaceKey = useMemo(() => applyPlan.replaceFields.join("|"), [applyPlan.replaceFields]);
   const suggestedCollectionModesKey = useMemo(() => JSON.stringify(applyPlan.collectionModes), [applyPlan.collectionModes]);
   const relationDefaultsKey = useMemo(
@@ -944,6 +946,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                       const relationActions = isTags ? tagActions : performerActions;
                       const setRelationActions = isTags ? setTagActions : setPerformerActions;
                       const existingNames = isTags ? existingTagNames : existingPerformerNames;
+                      const matchInfo = isTags ? tagMatchInfo : performerMatchInfo;
                       const showRelationChoices = isTags || isPerformers;
 
                       return (
@@ -977,6 +980,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
                             names={row.scraped}
                             currentNames={row.current}
                             existingNames={existingNames}
+                            matchInfo={matchInfo}
                             actions={relationActions}
                             disabled={collectionModes[row.key] === "skip"}
                             onActionChange={(name, action) => setRelationActions((current) => ({ ...current, [relationKey(name)]: action }))}

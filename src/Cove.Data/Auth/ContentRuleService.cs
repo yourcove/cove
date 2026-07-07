@@ -8,7 +8,7 @@ public sealed class ContentRuleService : IContentRuleService
 {
     private static readonly HashSet<string> ValidEntityKinds = new(StringComparer.OrdinalIgnoreCase)
     {
-        "video", "performer", "tag", "studio", "gallery", "image", "group", "segment", "marker", "file",
+        "video", "performer", "tag", "studio", "gallery", "image", "group", "segment", "file",
     };
 
     private static readonly HashSet<string> ValidEffects = new(StringComparer.OrdinalIgnoreCase) { "allow", "deny" };
@@ -249,10 +249,8 @@ public sealed class ContentRuleService : IContentRuleService
 
     private static string NormalizeEntityKind(string entityKind)
     {
-        var normalized = entityKind.ToLowerInvariant();
-        return normalized == "segment" ? "marker" : normalized;
+        return entityKind.ToLowerInvariant();
     }
 
-    private static string ToClientEntityKind(string entityKind) =>
-        entityKind.Equals("marker", StringComparison.OrdinalIgnoreCase) ? "segment" : entityKind;
+    private static string ToClientEntityKind(string entityKind) => entityKind;
 }

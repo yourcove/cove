@@ -42,7 +42,7 @@ const TUTORIAL_STEPS = [
   {
     eyebrow: "Step 1",
     title: "Scan and generate your library",
-    description: "After setup, run Scan to index files, then use Scan & Generate when you want previews, thumbnails, hashes, sprites, or markers.",
+    description: "After setup, run Scan to index files, then use Scan & Generate when you want previews, thumbnails, hashes, sprites, or segments.",
     actionLabel: "Open Scan & Generate",
     highlight: "This is the fastest way to move from an empty library to something you can actually browse.",
     checklist: ["Scan the folders you just added", "Run Generate for previews and images", "Come back later if you add more media"],

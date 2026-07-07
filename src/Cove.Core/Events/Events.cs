@@ -13,6 +13,10 @@ public enum EventType
     TextCreated, TextUpdated, TextDeleted,
     GroupCreated, GroupUpdated, GroupDeleted,
 
+    // User set or cleared a rating on an entity. The published EntityEvent carries a
+    // Dictionary<string,object?> { userId, aspect, value } as its Entity payload (value null = cleared).
+    RatingCreated, RatingUpdated, RatingDeleted,
+
     // Jobs
     ScanStarted, ScanProgress, ScanCompleted,
     GenerateStarted, GenerateProgress, GenerateCompleted,

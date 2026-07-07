@@ -2150,27 +2150,21 @@ export interface ApplyVideoScrapeAttemptRequest {
 
 export type ApplyScrapeAttemptRequest = ApplyVideoScrapeAttemptRequest;
 
-export interface BatchVideoScrapeStartRequest {
-  scraperId: string;
-  inputKind: "url" | "name";
-  videoIds: number[];
-  autoApply?: boolean;
-  createMissingTags?: boolean;
-  createMissingPerformers?: boolean;
-  createMissingStudio?: boolean;
-  markOrganized?: boolean;
-  hydratePerformers?: boolean;
+export interface ResolveScrapeRelationsRequest {
+  performers: string[];
+  tags: string[];
 }
 
-export interface BatchImageScrapeStartRequest {
-  scraperId: string;
-  inputKind: "url" | "name";
-  imageIds: number[];
-  autoApply?: boolean;
-  createMissingTags?: boolean;
-  createMissingPerformers?: boolean;
-  createMissingStudio?: boolean;
-  markOrganized?: boolean;
+// One entry per requested name that matched an existing entity. matchedName is the existing
+// entity's primary name — it differs from input when the match was via an alias.
+export interface ScrapeRelationMatch {
+  input: string;
+  matchedName: string;
+}
+
+export interface ResolveScrapeRelationsResult {
+  performers: ScrapeRelationMatch[];
+  tags: ScrapeRelationMatch[];
 }
 
 export interface DownloaderDescriptor {
@@ -2232,7 +2226,7 @@ export interface DownloaderBatchGenerateOptions {
   thumbnails?: boolean;
   previews?: boolean;
   sprites?: boolean;
-  markers?: boolean;
+  segments?: boolean;
   segmentThumbnails?: boolean;
   segmentPreviews?: boolean;
   phashes?: boolean;

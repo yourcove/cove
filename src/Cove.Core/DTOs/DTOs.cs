@@ -1700,26 +1700,24 @@ public record ApplyVideoScrapeAttemptDto(
 
 public record ScrapeCollectionItemSelectionDto(string? Name, string? Action);
 
-public record BatchVideoScrapeStartRequestDto(
-    string ScraperId,
-    string InputKind,
-    List<int> VideoIds,
-    bool AutoApply = true,
-    bool CreateMissingTags = true,
-    bool CreateMissingPerformers = true,
-    bool CreateMissingStudio = true,
-    bool MarkOrganized = false,
-    bool HydratePerformers = false);
+// Lets the scrape dialog ask the backend which scraped names already resolve to an existing
+// entity (by name or alias) using the exact same matcher the apply path uses, so its
+// "matches existing" vs "will create" prediction stays in lockstep with save behavior.
+public record ResolveScrapeRelationsRequestDto
+{
+    public List<string> Performers { get; init; } = [];
+    public List<string> Tags { get; init; } = [];
+}
 
-public record BatchImageScrapeStartRequestDto(
-    string ScraperId,
-    string InputKind,
-    List<int> ImageIds,
-    bool AutoApply = true,
-    bool CreateMissingTags = true,
-    bool CreateMissingPerformers = true,
-    bool CreateMissingStudio = true,
-    bool MarkOrganized = false);
+// One entry per requested name that matched an existing entity. MatchedName is the existing
+// entity's primary name, which differs from Input when the match was via an alias.
+public record ScrapeRelationMatchDto(string Input, string MatchedName);
+
+public record ResolveScrapeRelationsResultDto
+{
+    public List<ScrapeRelationMatchDto> Performers { get; init; } = [];
+    public List<ScrapeRelationMatchDto> Tags { get; init; } = [];
+}
 
 public record PerformerScrapeUrlRequestDto(string? Url, bool CreateMissingTags = true);
 
@@ -2120,7 +2118,7 @@ public record GenerateOptionsDto
     public bool Thumbnails { get; init; } = true;
     public bool Previews { get; init; }
     public bool Sprites { get; init; }
-    public bool Markers { get; init; }
+    public bool Segments { get; init; }
     public bool SegmentThumbnails { get; init; }
     public bool SegmentPreviews { get; init; }
     public bool Phashes { get; init; }

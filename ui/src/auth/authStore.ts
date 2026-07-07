@@ -29,7 +29,7 @@ const READ_PERMISSION_GRANTS: Record<string, string> = {
   "studios.read": "studio",
   "tags.read": "tag",
   "groups.read": "group",
-  "segments.read": "marker",
+  "segments.read": "segment",
 };
 
 type Listener = () => void;

@@ -3405,7 +3405,7 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<int>("VideoMarkerCount")
+                    b.Property<int>("SegmentCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
@@ -3435,9 +3435,9 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("TagGroupId");
 
-                    b.HasIndex("VideoCount");
+                    b.HasIndex("SegmentCount");
 
-                    b.HasIndex("VideoMarkerCount");
+                    b.HasIndex("VideoCount");
 
                     b.ToTable("tags", (string)null);
                 });
@@ -4225,60 +4225,6 @@ namespace Cove.Data.Migrations
                     b.HasIndex("GalleryId");
 
                     b.ToTable("video_galleries", (string)null);
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.VideoMarker", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<double?>("EndSeconds")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("PrimaryTagId")
-                        .HasColumnType("integer");
-
-                    b.Property<double>("Seconds")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("VideoId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PrimaryTagId");
-
-                    b.HasIndex("VideoId");
-
-                    b.ToTable("video_markers", (string)null);
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.VideoMarkerTag", b =>
-                {
-                    b.Property<int>("VideoMarkerId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TagId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("VideoMarkerId", "TagId");
-
-                    b.HasIndex("TagId");
-
-                    b.ToTable("video_marker_tags", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoPerformer", b =>
@@ -5408,44 +5354,6 @@ namespace Cove.Data.Migrations
                     b.Navigation("Video");
                 });
 
-            modelBuilder.Entity("Cove.Core.Entities.VideoMarker", b =>
-                {
-                    b.HasOne("Cove.Core.Entities.Tag", "PrimaryTag")
-                        .WithMany()
-                        .HasForeignKey("PrimaryTagId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Cove.Core.Entities.Video", "Video")
-                        .WithMany("VideoMarkers")
-                        .HasForeignKey("VideoId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PrimaryTag");
-
-                    b.Navigation("Video");
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.VideoMarkerTag", b =>
-                {
-                    b.HasOne("Cove.Core.Entities.Tag", "Tag")
-                        .WithMany()
-                        .HasForeignKey("TagId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Cove.Core.Entities.VideoMarker", "VideoMarker")
-                        .WithMany("VideoMarkerTags")
-                        .HasForeignKey("VideoMarkerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tag");
-
-                    b.Navigation("VideoMarker");
-                });
-
             modelBuilder.Entity("Cove.Core.Entities.VideoPerformer", b =>
                 {
                     b.HasOne("Cove.Core.Entities.Performer", "Performer")
@@ -5770,16 +5678,9 @@ namespace Cove.Data.Migrations
 
                     b.Navigation("VideoGalleries");
 
-                    b.Navigation("VideoMarkers");
-
                     b.Navigation("VideoPerformers");
 
                     b.Navigation("VideoTags");
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.VideoMarker", b =>
-                {
-                    b.Navigation("VideoMarkerTags");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoFile", b =>

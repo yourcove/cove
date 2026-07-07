@@ -112,6 +112,180 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
+    public async Task ApplyAttemptAsync_VideoPerformerMatchesExistingByAliasInsteadOfCreating()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        // Existing performer whose primary name differs from the scraped name, but carries it as an alias.
+        var existingPerformer = new Performer
+        {
+            Name = "Jane Doe",
+            Aliases = [new PerformerAlias { Alias = "Myra Moans" }],
+        };
+        db.Performers.Add(existingPerformer);
+
+        var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync();
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/scene" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["PerformerNames"] = new[] { "Myra Moans" },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync();
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
+                CreateMissingPerformers: true,
+                // The UI predicted "create", but an alias match must still win server-side.
+                PerformerSelections: [new ScrapeCollectionItemSelectionDto("Myra Moans", "create")]),
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+
+        // No duplicate: still exactly one performer, and the video links to the aliased existing one.
+        Assert.Equal(1, await db.Performers.CountAsync());
+        Assert.False(await db.Performers.AnyAsync(performer => performer.Name == "Myra Moans"));
+
+        var updatedVideo = await db.Videos
+            .Include(item => item.VideoPerformers).ThenInclude(item => item.Performer)
+            .SingleAsync(item => item.Id == video.Id);
+        Assert.Equal(["Jane Doe"], updatedVideo.VideoPerformers.Select(item => item.Performer!.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task ResolveRelationsAsync_MatchesPerformerByAliasAndReportsMissingAsUnmatched()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        db.Performers.Add(new Performer
+        {
+            Name = "Jane Doe",
+            Aliases = [new PerformerAlias { Alias = "Myra Moans" }],
+        });
+        db.Tags.Add(new Tag { Name = "Redhead" });
+        await db.SaveChangesAsync();
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ResolveRelationsAsync(
+            new ResolveScrapeRelationsRequestDto
+            {
+                Performers = ["Myra Moans", "Nobody New"],
+                Tags = ["Redhead", "Unseen Tag"],
+            },
+            CancellationToken.None);
+
+        // Alias match reports the existing primary name; the unmatched name is simply absent.
+        var performerMatch = Assert.Single(result.Performers);
+        Assert.Equal("Myra Moans", performerMatch.Input);
+        Assert.Equal("Jane Doe", performerMatch.MatchedName);
+
+        var tagMatch = Assert.Single(result.Tags);
+        Assert.Equal("Redhead", tagMatch.Input);
+        Assert.Equal("Redhead", tagMatch.MatchedName);
+    }
+
+    [Fact]
+    public async Task ResolveRelationsAsync_MatchesNamesStoredWithSurroundingWhitespace()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        // Names can be stored with stray whitespace (e.g. a scraper applied " Feet "). A later scrape
+        // returning the trimmed "Feet" must still resolve to the existing entity, not predict "create".
+        db.Tags.Add(new Tag { Name = " Feet " });
+        db.Performers.Add(new Performer { Name = " Jane Doe " });
+        await db.SaveChangesAsync();
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ResolveRelationsAsync(
+            new ResolveScrapeRelationsRequestDto
+            {
+                Performers = ["Jane Doe"],
+                Tags = ["Feet"],
+            },
+            CancellationToken.None);
+
+        // A match is found despite the stored whitespace (MatchedName echoes the raw stored value,
+        // which the client normalizes via relationKey anyway).
+        var tagMatch = Assert.Single(result.Tags);
+        Assert.Equal("Feet", tagMatch.Input);
+        Assert.Equal("Feet", tagMatch.MatchedName.Trim());
+
+        var performerMatch = Assert.Single(result.Performers);
+        Assert.Equal("Jane Doe", performerMatch.Input);
+        Assert.Equal("Jane Doe", performerMatch.MatchedName.Trim());
+    }
+
+    [Fact]
+    public async Task ResolveRelationsAsync_MatchesTagByAliasCaseInsensitively()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        // Tag "Feet" has the alias "Foot". A scrape returning lowercase "foot" must resolve to the
+        // existing tag via its alias (case-insensitive) instead of predicting "will create".
+        db.Tags.Add(new Tag { Name = "Feet", Aliases = [new TagAlias { Alias = "Foot" }] });
+        await db.SaveChangesAsync();
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ResolveRelationsAsync(
+            new ResolveScrapeRelationsRequestDto { Tags = ["foot"], Performers = [] },
+            CancellationToken.None);
+
+        var tagMatch = Assert.Single(result.Tags);
+        Assert.Equal("foot", tagMatch.Input);
+        Assert.Equal("Feet", tagMatch.MatchedName);
+    }
+
+    [Fact]
     public async Task ApplyAttemptAsync_TextAttemptHonorsPerItemSelections()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";

@@ -53,7 +53,6 @@ const ENTITY_LIST_ROUTES: Record<string, string> = {
   image: "images",
   group: "groups",
   segment: "segments",
-  marker: "segments",
 };
 
 const inputClassName = "w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
@@ -61,7 +60,7 @@ const checkboxClassName = "h-4 w-4 rounded border-border bg-card text-accent foc
 const checkboxCardClassName = "inline-flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm text-foreground transition-colors hover:border-accent/50 hover:bg-card-hover";
 
 function formatEntityKind(entityKind: string) {
-  return entityKind === "marker" ? "segment" : entityKind;
+  return entityKind;
 }
 
 type SimpleScopeKind = (typeof SIMPLE_SCOPE_KINDS)[number];
@@ -1440,7 +1439,7 @@ function CreateShareLinkDialog({ onClose, onIssued }: { onClose: () => void; onI
 
 function IssuedShareLinkDialog({ link, onClose }: { link: ShareLinkIssuedRow; onClose: () => void }) {
   const primaryEntityId = link.entityIds.length === 1 ? Number(link.entityIds[0]) : undefined;
-  const routeEntityKind = link.entityKind === "marker" ? "segment" : link.entityKind;
+  const routeEntityKind = link.entityKind;
   const canUseDetailRoute = link.entityIds.length === 1 && Number.isInteger(primaryEntityId) && (primaryEntityId ?? 0) > 0;
   const routePath = buildRoutePath(canUseDetailRoute
     ? { page: routeEntityKind, id: primaryEntityId }

@@ -16,6 +16,7 @@ import { FieldProvenanceHover, formatDate, ProvenanceBadge, TagBadge } from "../
 import { EntityReferenceSelector } from "../components/EntityReferenceSelector";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useAppConfig } from "../state/AppConfigContext";
 import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
@@ -234,6 +235,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     queryFn: () => videos.get(segment!.hostId),
     enabled: !!segment && segment.hostType === "video" && canReadVideos,
   });
+  const { engagementById: videoEngagement } = useEntityEngagementBatch("video", segment?.hostType === "video" && segment.hostId != null ? [segment.hostId] : []);
   const normalizedTitle = title.trim() || undefined;
   const normalizedKind = kind;
   const normalizedColorHint = colorHint.trim() || undefined;
@@ -716,7 +718,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         <div className="mt-4 space-y-4">
           {segment.hostType === "video" && playbackVideo ? (
             <div className="max-w-sm">
-              <VideoCard video={playbackVideo} onClick={() => onNavigate(buildVideoRouteForSegment(segment))} onNavigate={onNavigate} />
+              <VideoCard video={playbackVideo} engagement={videoEngagement.get(playbackVideo.id)} onClick={() => onNavigate(buildVideoRouteForSegment(segment))} onNavigate={onNavigate} />
             </div>
           ) : null}
           {orderedSiblingSegments.length <= 1 ? (

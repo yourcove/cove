@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Film, Image as ImageIcon, Sparkles } from "lucide-react";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
-import type { VisualSimilarImage, VisualSimilarVideo } from "../api/types";
+import type { EntityEngagement, VisualSimilarImage, VisualSimilarVideo } from "../api/types";
 import { formatDuration } from "./shared";
 import { EntityCardGrid } from "./EntityCardGrid";
 import { ImageTile, VideoCard } from "./EntityCards";
 import { useManualContext } from "./ManualContext";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 
 const DEFAULT_SIMILAR_PER_PAGE = 8;
 const SIMILAR_PER_PAGE_OPTIONS = [8, 16, 24, 48];
@@ -280,6 +281,9 @@ function SimilarityHeader() {
 }
 
 function SimilarVideoSection({ items, loading, error, onNavigate }: { items: VisualSimilarVideo[]; loading: boolean; error: boolean; onNavigate: (route: any) => void }) {
+  const videoIds = useMemo(() => items.map((item) => item.video.id), [items]);
+  const { engagementById: videoEngagement } = useEntityEngagementBatch("video", videoIds);
+
   if (error) {
     return <UnavailablePanel message="Visual similarity could not be loaded." />;
   }
@@ -293,7 +297,7 @@ function SimilarVideoSection({ items, loading, error, onNavigate }: { items: Vis
       ) : (
         <EntityCardGrid minCardWidth="240px" gapClassName="gap-4" className="mt-1">
           {items.map((item) => (
-            <SimilarVideoCard key={item.video.id} item={item} onNavigate={onNavigate} />
+            <SimilarVideoCard key={item.video.id} item={item} engagement={videoEngagement.get(item.video.id)} onNavigate={onNavigate} />
           ))}
         </EntityCardGrid>
       )}
@@ -302,6 +306,9 @@ function SimilarVideoSection({ items, loading, error, onNavigate }: { items: Vis
 }
 
 function SimilarImageSection({ items, loading, error, onNavigate }: { items: VisualSimilarImage[]; loading: boolean; error: boolean; onNavigate: (route: any) => void }) {
+  const imageIds = useMemo(() => items.map((item) => item.image.id), [items]);
+  const { engagementById: imageEngagement } = useEntityEngagementBatch("image", imageIds);
+
   if (error) {
     return <UnavailablePanel message="Visual similarity could not be loaded." />;
   }
@@ -315,7 +322,7 @@ function SimilarImageSection({ items, loading, error, onNavigate }: { items: Vis
       ) : (
         <EntityCardGrid minCardWidth="190px" gapClassName="gap-4" className="mt-1">
           {items.map((item) => (
-            <SimilarImageCard key={item.image.id} item={item} onNavigate={onNavigate} />
+            <SimilarImageCard key={item.image.id} item={item} engagement={imageEngagement.get(item.image.id)} onNavigate={onNavigate} />
           ))}
         </EntityCardGrid>
       )}
@@ -323,24 +330,24 @@ function SimilarImageSection({ items, loading, error, onNavigate }: { items: Vis
   );
 }
 
-function SimilarVideoCard({ item, onNavigate }: { item: VisualSimilarVideo; onNavigate: (route: any) => void }) {
+function SimilarVideoCard({ item, engagement, onNavigate }: { item: VisualSimilarVideo; engagement?: EntityEngagement; onNavigate: (route: any) => void }) {
   const video = item.video;
   const matchStart = item.sectionIndex > 0 ? item.startSec : undefined;
 
   return (
     <div className="relative h-full">
-      <VideoCard video={video} onClick={() => onNavigate(matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id })} onNavigate={onNavigate} />
+      <VideoCard video={video} engagement={engagement} onClick={() => onNavigate(matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id })} onNavigate={onNavigate} />
       <SimilarityOverlay distance={item.distance} label={getVideoMeta(item)} />
     </div>
   );
 }
 
-function SimilarImageCard({ item, onNavigate }: { item: VisualSimilarImage; onNavigate: (route: any) => void }) {
+function SimilarImageCard({ item, engagement, onNavigate }: { item: VisualSimilarImage; engagement?: EntityEngagement; onNavigate: (route: any) => void }) {
   const image = item.image;
 
   return (
     <div className="relative h-full">
-      <ImageTile image={image} onClick={() => onNavigate({ page: "image", id: image.id })} onNavigate={onNavigate} />
+      <ImageTile image={image} engagement={engagement} onClick={() => onNavigate({ page: "image", id: image.id })} onNavigate={onNavigate} />
       <SimilarityOverlay distance={item.distance} />
     </div>
   );

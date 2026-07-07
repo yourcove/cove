@@ -20,6 +20,7 @@ import { CustomFieldsDisplay, FieldProvenanceHover, formatDate, formatDuration, 
 import { EntityRefBadge, MediaStudioSubtitle, PerformerTile, StudioHeaderImage } from "../components/EntityCards";
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { VideoPlayer } from "../components/VideoPlayer";
@@ -48,6 +49,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
     queryFn: () => audios.get(id),
   });
   const { hasPermission, user } = useAuth();
+  const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", audio?.performers?.map((p) => p.id) ?? []);
   const { backLabel, goBack } = useBackNavigation({ page: "audios" }, onNavigate);
   const [activeTab, setActiveTab] = useState<AudioTab>("details");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -438,6 +440,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
                         <PerformerTile
                           key={performer.id}
                           performer={performer}
+                          engagement={performerEngagement.get(performer.id)}
                           onClick={() => onNavigate({ page: "performer", id: performer.id })}
                           onNavigate={onNavigate}
                         >

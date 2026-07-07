@@ -1642,7 +1642,11 @@ function getMixedItemHost(item: MixedGroupItem): { kind: GroupItemKind; hostId: 
 
 function routeForGroupItem(item: GroupItem, hostType: string, hostId: number | null) {
   if (item.childGroupId) return { page: "group", id: item.childGroupId };
-  if (item.videoId) return { page: "video", id: item.videoId, seekTo: item.startSec ?? 0 };
+  // Only seek when the item carries a real position (spans/ranges). A plain video item has no
+  // startSec, so omit seekTo and let the video page resume from engagement rather than restart at 0.
+  if (item.videoId) return item.startSec && item.startSec > 0
+    ? { page: "video", id: item.videoId, seekTo: item.startSec }
+    : { page: "video", id: item.videoId };
   if (item.imageId) return { page: "image", id: item.imageId };
   if (!hostId) return null;
   if (["audio", "text", "gallery", "performer", "studio", "tag", "face", "group", "image", "video", "segment"].includes(hostType)) {
@@ -1822,11 +1826,17 @@ function GroupItemRow({ item, onNavigate, selected, onToggleSelect, dragHandlePr
 function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelect, dragHandleProps, isDragging, isOver, selecting }: { item: MixedGroupItem; hydrated?: HydratedGroupItemState; onNavigate: (r: any) => void; selected: boolean; onToggleSelect: () => void; dragHandleProps?: any; isDragging?: boolean; isOver?: boolean; selecting?: boolean }) {
   const host = groupItemHost(item);
   const route = host.route ?? { page: "group", id: item.source === "subgroup" ? item.group.id : item.item.groupId };
+  // Per-item engagement so each card shows its rating banner. getEngagementHost resolves the correct
+  // host type/id from the raw item (null for non-rateable kinds like segments, which disables it).
+  const engagementHost = getEngagementHost(item);
+  const { engagement: engagementRaw } = useEntityEngagement(engagementHost?.hostType ?? "video", engagementHost?.hostId ?? 0, { enabled: !!engagementHost });
+  const engagement = engagementRaw ?? undefined;
 
   if (item.source === "subgroup") {
     return (
       <GroupTile
         group={item.group}
+        engagement={engagement}
         onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
         onNavigate={onNavigate}
         selected={selected}
@@ -1847,6 +1857,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
           <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
             <VideoCard
               video={video}
+              engagement={engagement}
               onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
               onNavigate={onNavigate}
               selected={selected}
@@ -1862,6 +1873,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
           <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
             <ImageTile
               image={image}
+              engagement={engagement}
               onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
               onNavigate={onNavigate}
               selected={selected}
@@ -1877,6 +1889,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
           <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
             <AudioTile
               audio={audio}
+              engagement={engagement}
               onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
               onNavigate={onNavigate}
               selected={selected}
@@ -1892,6 +1905,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
           <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
             <TextTile
               text={text}
+              engagement={engagement}
               onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
               onNavigate={onNavigate}
               selected={selected}
@@ -1919,6 +1933,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
         return (
           <GroupTile
             group={hydrated.data.group}
+            engagement={engagement}
             onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
             onNavigate={onNavigate}
             selected={selected}
@@ -2111,7 +2126,9 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => onNavigate({ page: "video", id: item.videoId, seekTo: item.startSec ?? 0 })}
+                      onClick={() => onNavigate(item.startSec && item.startSec > 0
+                        ? { page: "video", id: item.videoId, seekTo: item.startSec }
+                        : { page: "video", id: item.videoId })}
                       className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
                     >
                       <ExternalLink className="h-4 w-4" />

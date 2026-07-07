@@ -28,6 +28,29 @@ public static class EngagementQueryHelpers
         if (criterion == null)
             return query;
 
+        // "Is rated" / "is not rated" for the current user. A rating is stored per-user in the ratings
+        // table, and the value projection below returns 0 for an unrated entity — so null-ness cannot be
+        // expressed as an int comparison (and ApplyInt has no IsNull/NotNull case, which is why these
+        // modifiers previously matched everything). Resolve them here against the existence of a rating row.
+        if (criterion.Modifier is CriterionModifier.IsNull or CriterionModifier.NotNull)
+        {
+            // No signed-in user → nobody has a rating: "not rated" (IsNull) matches all, "rated" matches none.
+            if (userId is not int uid)
+                return criterion.Modifier == CriterionModifier.IsNull ? query : query.Where(_ => false);
+
+            return criterion.Modifier == CriterionModifier.NotNull
+                ? query.Where(entity => db.Ratings.Any(rating =>
+                    rating.UserId == uid &&
+                    rating.HostType == hostType &&
+                    rating.HostId == EF.Property<int>(entity, "Id") &&
+                    rating.Aspect == "overall"))
+                : query.Where(entity => !db.Ratings.Any(rating =>
+                    rating.UserId == uid &&
+                    rating.HostType == hostType &&
+                    rating.HostId == EF.Property<int>(entity, "Id") &&
+                    rating.Aspect == "overall"));
+        }
+
         if (userId is not int selectedUserId)
             return FilterHelpers.ApplyInt(query, criterion, _ => 0);
 

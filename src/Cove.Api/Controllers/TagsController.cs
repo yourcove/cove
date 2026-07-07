@@ -893,11 +893,11 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }
 
-    // ===== Marker Wall =====
+    // ===== Segment Wall =====
 
-    [HttpGet("marker-strings")]
+    [HttpGet("segment-titles")]
     [OutputCache(PolicyName = "ShortCache")]
-    public async Task<ActionResult<List<string>>> GetMarkerStrings([FromQuery] string? q, [FromQuery] string? sort, CancellationToken ct)
+    public async Task<ActionResult<List<string>>> GetSegmentTitles([FromQuery] string? q, [FromQuery] string? sort, CancellationToken ct)
     {
         var query = db.Segments
             .AsNoTracking()

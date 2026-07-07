@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { performers, scrapeAttempts, system, tags } from "../api/client";
+import { scrapeAttempts, system } from "../api/client";
 import type { ApplyVideoScrapeAttemptRequest, ScrapeAttempt, ScraperSummary } from "../api/types";
 import type { Route } from "../router/location";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import {
+  buildMatchInfo,
   buildRelationActionMap,
   buildRelationSelectionPayload,
   relationKey,
@@ -378,18 +379,6 @@ function buildApplyRequest(
 export function ScraperEntityTagger<T extends ScraperEntityItem>({ entityType, label, items, selectedIds, selecting = false, onSelect, getTitle, getImageUrl, getRoute, queryKey }: ScraperEntityTaggerProps<T>) {
   const queryClient = useQueryClient();
   const { data: scraperList = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers });
-  const { data: tagPage } = useQuery({
-    queryKey: ["scrape-dialog-tags"],
-    queryFn: () => tags.find({ page: 1, perPage: 10000, sort: "name", direction: "asc" }),
-    enabled: items.length > 0 && entityType !== "group",
-    staleTime: 60_000,
-  });
-  const { data: performerPage } = useQuery({
-    queryKey: ["scrape-dialog-performers"],
-    queryFn: () => performers.find({ page: 1, perPage: 10000, sort: "name", direction: "asc" }),
-    enabled: items.length > 0,
-    staleTime: 60_000,
-  });
   const scrapers = scraperList.filter((scraper) => scraper.entityType.toLowerCase() === entityType);
   const [selectedScraperId, setSelectedScraperId] = useState("");
   const selectedScraper = scrapers.find((scraper) => scraper.id === selectedScraperId) ?? scrapers[0];
@@ -400,8 +389,6 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({ entityType, l
   const [preferences, setPreferences] = useState<ScrapeApplyPreferences>(() => loadScrapeApplyPreferences());
   const [blacklist, setBlacklist] = useState<string[]>(() => loadScraperBlacklist());
   const abortRef = useRef<AbortController | null>(null);
-  const existingTagNames = useMemo(() => (tagPage?.items ?? []).map((tag) => tag.name), [tagPage]);
-  const existingPerformerNames = useMemo(() => (performerPage?.items ?? []).map((performer) => performer.name), [performerPage]);
   const batchItems = useMemo(
     () => selectedIds && selectedIds.size > 0 ? items.filter((item) => selectedIds.has(item.id)) : items,
     [items, selectedIds],
@@ -525,8 +512,6 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({ entityType, l
             route={getRoute?.(item)}
             state={searchStates[item.id]}
             query={getQuery(item)}
-            existingTagNames={existingTagNames}
-            existingPerformerNames={existingPerformerNames}
             preferences={preferences}
             onQueryChange={(rowQuery) => setQueryOverrides((prev) => ({ ...prev, [item.id]: rowQuery }))}
             onSearch={() => searchItem(item)}
@@ -550,8 +535,6 @@ function ScraperEntityTaggerRow({
   route,
   state,
   query,
-  existingTagNames,
-  existingPerformerNames,
   preferences,
   onQueryChange,
   onSearch,
@@ -568,8 +551,6 @@ function ScraperEntityTaggerRow({
   route?: Route;
   state?: SearchState;
   query: string;
-  existingTagNames: string[];
-  existingPerformerNames: string[];
   preferences: ScrapeApplyPreferences;
   onQueryChange: (query: string) => void;
   onSearch: () => void;
@@ -581,6 +562,22 @@ function ScraperEntityTaggerRow({
 }) {
   const selectedResult = state?.results?.[state.selectedIndex ?? 0];
   const applyPlan = useMemo(() => buildDefaultApplyPlan(entityType, item, selectedResult), [entityType, item, selectedResult]);
+  // Resolve which scraped names already exist locally via the same backend matcher the apply path uses
+  // (alias-aware for performers), instead of a client-side snapshot of every tag/performer.
+  const scrapedRelationNames = useMemo(
+    () => ({ tags: applyPlan.scrapedData?.tags ?? [], performers: applyPlan.scrapedData?.performers ?? [] }),
+    [applyPlan.scrapedData?.tags, applyPlan.scrapedData?.performers],
+  );
+  const { data: resolvedRelations } = useQuery({
+    queryKey: ["scraper-tagger-resolve-relations", scrapedRelationNames],
+    queryFn: () => scrapeAttempts.resolveRelations(scrapedRelationNames),
+    enabled: scrapedRelationNames.tags.length > 0 || scrapedRelationNames.performers.length > 0,
+    staleTime: 30_000,
+  });
+  const existingTagNames = useMemo(() => (resolvedRelations?.tags ?? []).map((match) => match.input), [resolvedRelations]);
+  const existingPerformerNames = useMemo(() => (resolvedRelations?.performers ?? []).map((match) => match.input), [resolvedRelations]);
+  const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
+  const performerMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.performers), [resolvedRelations]);
   const [replaceFields, setReplaceFields] = useState<string[]>([]);
   const [collectionModes, setCollectionModes] = useState<Record<string, CollectionMode>>({ ...DEFAULT_COLLECTION_MODES });
   const [tagActions, setTagActions] = useState<ScrapeRelationActionMap>({});
@@ -668,6 +665,8 @@ function ScraperEntityTaggerRow({
                   performerActions={performerActions}
                   existingTagNames={existingTagNames}
                   existingPerformerNames={existingPerformerNames}
+                  tagMatchInfo={tagMatchInfo}
+                  performerMatchInfo={performerMatchInfo}
                   onReplaceFieldChange={(field, shouldReplace) => setReplaceFields((current) => {
                     const isReplacing = current.includes(field);
                     if (isReplacing === shouldReplace) return current;
@@ -702,6 +701,8 @@ function ScraperResultRow({
   performerActions,
   existingTagNames,
   existingPerformerNames,
+  tagMatchInfo,
+  performerMatchInfo,
   onReplaceFieldChange,
   onCollectionModeChange,
   onTagActionChange,
@@ -721,6 +722,8 @@ function ScraperResultRow({
   performerActions: ScrapeRelationActionMap;
   existingTagNames: string[];
   existingPerformerNames: string[];
+  tagMatchInfo?: Record<string, string>;
+  performerMatchInfo?: Record<string, string>;
   onReplaceFieldChange: (field: string, shouldReplace: boolean) => void;
   onCollectionModeChange: (field: string, mode: CollectionMode) => void;
   onTagActionChange: (name: string, action: "include" | "create" | "exclude") => void;
@@ -806,6 +809,7 @@ function ScraperResultRow({
             const isPerformers = row.key === "performers";
             const relationActions = isTags ? tagActions : performerActions;
             const existingNames = isTags ? existingTagNames : existingPerformerNames;
+            const matchInfo = isTags ? tagMatchInfo : performerMatchInfo;
 
             return (
               <CompactCollectionDecision
@@ -820,6 +824,7 @@ function ScraperResultRow({
                       names={row.scraped}
                       currentNames={row.current}
                       existingNames={existingNames}
+                      matchInfo={matchInfo}
                       actions={relationActions}
                       disabled={collectionModes[row.key] === "skip"}
                       onActionChange={isTags ? onTagActionChange : onPerformerActionChange}

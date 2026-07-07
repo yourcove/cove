@@ -4,6 +4,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -271,68 +272,6 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         await db.SaveChangesAsync(ct);
         return MapAttempt(attempt);
-    }
-
-    public async Task<ScrapeAttemptDto?> ApplyVideoAttemptWithDefaultPlanAsync(Guid id, ApplyVideoScrapeAttemptDto dto, CancellationToken ct = default)
-    {
-        var attempt = await db.ScrapeAttempts.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id, ct);
-        if (attempt == null || !string.Equals(attempt.EntityType, "video", StringComparison.OrdinalIgnoreCase) || attempt.EntityId == null)
-            return null;
-
-        var resultJson = ResolveResultJson(attempt, dto.SelectedCandidateIndex);
-        if (string.IsNullOrWhiteSpace(resultJson))
-            throw new InvalidOperationException("Scrape attempt does not contain a result to apply.");
-
-        var video = await db.Videos
-            .AsNoTracking()
-            .Include(item => item.Urls)
-            .Include(item => item.VideoTags).ThenInclude(item => item.Tag)
-            .Include(item => item.VideoPerformers).ThenInclude(item => item.Performer)
-            .Include(item => item.Studio)
-            .FirstOrDefaultAsync(item => item.Id == attempt.EntityId.Value, ct);
-
-        if (video == null)
-            return null;
-
-        using var resultDocument = JsonDocument.Parse(resultJson);
-        var root = resultDocument.RootElement;
-
-        return await ApplyVideoAttemptAsync(id, dto with
-        {
-            ReplaceFields = BuildDefaultReplaceFields(video, root),
-            CollectionModes = BuildDefaultCollectionModes(video, root),
-        }, ct);
-    }
-
-    public async Task<ScrapeAttemptDto?> ApplyImageAttemptWithDefaultPlanAsync(Guid id, ApplyVideoScrapeAttemptDto dto, CancellationToken ct = default)
-    {
-        var attempt = await db.ScrapeAttempts.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id, ct);
-        if (attempt == null || !string.Equals(attempt.EntityType, EntityKinds.Image, StringComparison.OrdinalIgnoreCase) || attempt.EntityId == null)
-            return null;
-
-        var resultJson = ResolveResultJson(attempt, dto.SelectedCandidateIndex);
-        if (string.IsNullOrWhiteSpace(resultJson))
-            throw new InvalidOperationException("Scrape attempt does not contain a result to apply.");
-
-        var image = await db.Images
-            .AsNoTracking()
-            .Include(item => item.Urls)
-            .Include(item => item.ImageTags).ThenInclude(item => item.Tag)
-            .Include(item => item.ImagePerformers).ThenInclude(item => item.Performer)
-            .Include(item => item.Studio)
-            .FirstOrDefaultAsync(item => item.Id == attempt.EntityId.Value, ct);
-
-        if (image == null)
-            return null;
-
-        using var resultDocument = JsonDocument.Parse(resultJson);
-        var root = resultDocument.RootElement;
-
-        return await ApplyAttemptAsync(id, dto with
-        {
-            ReplaceFields = BuildDefaultReplaceFields(image, root),
-            CollectionModes = BuildDefaultCollectionModes(image, root),
-        }, ct);
     }
 
     private async Task<string?> BuildEntitySnapshotJsonAsync(string entityType, int? entityId, CancellationToken ct)
@@ -1659,11 +1598,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        // Match on primary name or alias via the shared resolver so this apply and the dialog's
+        // resolve endpoint agree on create-vs-match (e.g. scraped "foot" resolves to the tag whose
+        // alias is "Foot" instead of creating a duplicate). Keyed by the scraped name.
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToList(), ct);
 
         if (mode == "replace")
             video.VideoTags.Clear();
@@ -1768,6 +1706,21 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             db.Set<TagParent>().Add(new TagParent { ParentId = parentId, ChildId = childId });
     }
 
+    // Read-only companion to the apply path: reports which scraped names already resolve to an
+    // existing performer/tag using the same RelationNameResolver, so the dialog can show an
+    // accurate "matches existing" vs "will create" state instead of guessing client-side.
+    public async Task<ResolveScrapeRelationsResultDto> ResolveRelationsAsync(ResolveScrapeRelationsRequestDto request, CancellationToken ct = default)
+    {
+        var performerMatches = await RelationNameResolver.ResolvePerformersAsync(db, request.Performers, ct);
+        var tagMatches = await RelationNameResolver.ResolveTagsAsync(db, request.Tags, ct);
+
+        return new ResolveScrapeRelationsResultDto
+        {
+            Performers = performerMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
+            Tags = tagMatches.Select(pair => new ScrapeRelationMatchDto(pair.Key, pair.Value.Name)).ToList(),
+        };
+    }
+
     private async Task ApplyPerformersAsync(Video video, JsonElement root, IDictionary<string, string> collectionModes, bool createMissing, IReadOnlyDictionary<string, string>? selections, CancellationToken ct)
     {
         var mode = GetMode(collectionModes, "performers");
@@ -1786,11 +1739,9 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedPerformerNames = selectedPerformerNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedPerformerNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        // Match on primary name or alias via the shared resolver so this apply and the dialog's
+        // resolve endpoint agree on create-vs-match. Keyed by the scraped name.
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(db, selectedPerformerNames.Select(item => item.Name).ToList(), ct);
 
         if (mode == "replace")
             video.VideoPerformers.Clear();
@@ -2208,124 +2159,6 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         => collectionModes.TryGetValue(key, out var mode) && !string.IsNullOrWhiteSpace(mode)
             ? mode.Trim().ToLowerInvariant()
             : key == "studio" ? "replace" : "merge";
-
-    private static List<string> BuildDefaultReplaceFields(Video video, JsonElement root)
-    {
-        var replaceFields = new List<string>();
-        var currentDate = video.Date?.ToString("yyyy-MM-dd");
-        var scrapedDate = GetNormalizedVideoDate(root);
-
-        var title = GetString(root, "Title", "Name");
-        if (!string.IsNullOrWhiteSpace(title) && !string.Equals(title, video.Title, StringComparison.Ordinal))
-            replaceFields.Add("title");
-
-        var code = GetString(root, "Code");
-        if (!string.IsNullOrWhiteSpace(code) && !string.Equals(code, video.Code, StringComparison.Ordinal))
-            replaceFields.Add("code");
-
-        var details = GetString(root, "Details", "Description", "Synopsis");
-        if (!string.IsNullOrWhiteSpace(details) && !string.Equals(details, video.Details, StringComparison.Ordinal))
-            replaceFields.Add("details");
-
-        var director = GetString(root, "Director");
-        if (!string.IsNullOrWhiteSpace(director) && !string.Equals(director, video.Director, StringComparison.Ordinal))
-            replaceFields.Add("director");
-
-        if (!string.IsNullOrWhiteSpace(scrapedDate) && !string.Equals(scrapedDate, currentDate, StringComparison.Ordinal))
-            replaceFields.Add("date");
-
-        var imageUrl = GetString(root, "Image", "ImageUrl", "ImageURL");
-        if (!string.IsNullOrWhiteSpace(imageUrl))
-            replaceFields.Add("image");
-
-        return replaceFields;
-    }
-
-    private static List<string> BuildDefaultReplaceFields(Image image, JsonElement root)
-    {
-        var replaceFields = new List<string>();
-        var currentDate = image.Date?.ToString("yyyy-MM-dd");
-        var scrapedDate = GetNormalizedVideoDate(root);
-
-        var title = GetString(root, "Title", "Name");
-        if (!string.IsNullOrWhiteSpace(title) && !string.Equals(title, image.Title, StringComparison.Ordinal))
-            replaceFields.Add("title");
-
-        var code = GetString(root, "Code");
-        if (!string.IsNullOrWhiteSpace(code) && !string.Equals(code, image.Code, StringComparison.Ordinal))
-            replaceFields.Add("code");
-
-        var details = GetString(root, "Details", "Description", "Synopsis");
-        if (!string.IsNullOrWhiteSpace(details) && !string.Equals(details, image.Details, StringComparison.Ordinal))
-            replaceFields.Add("details");
-
-        var photographer = GetString(root, "Photographer");
-        if (!string.IsNullOrWhiteSpace(photographer) && !string.Equals(photographer, image.Photographer, StringComparison.Ordinal))
-            replaceFields.Add("photographer");
-
-        if (!string.IsNullOrWhiteSpace(scrapedDate) && !string.Equals(scrapedDate, currentDate, StringComparison.Ordinal))
-            replaceFields.Add("date");
-
-        return replaceFields;
-    }
-
-    private static Dictionary<string, string> BuildDefaultCollectionModes(Video video, JsonElement root)
-    {
-        var currentUrls = video.Urls.Select(item => item.Url).Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var currentTags = video.VideoTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var currentPerformers = video.VideoPerformers.Where(item => item.Performer != null).Select(item => item.Performer!.Name).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var currentStudio = video.Studio?.Name?.Trim();
-
-        var scrapedUrls = GetStringList(root, "URLs", "Url", "URL");
-        var scrapedTags = GetTagNames(root, "Tags", "Tag", "TagNames");
-        var scrapedPerformers = GetNamedItems(root, "Performers", "Performer", "PerformerNames");
-        var scrapedStudio = GetString(root, "Studio", "StudioName");
-
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["studio"] = !string.IsNullOrWhiteSpace(scrapedStudio) && !string.Equals(scrapedStudio, currentStudio, StringComparison.OrdinalIgnoreCase) ? "replace" : "skip",
-            ["urls"] = scrapedUrls.Count > 0 && !StringListsEqual(scrapedUrls, currentUrls) ? "merge" : "skip",
-            ["tags"] = scrapedTags.Count > 0 && !StringListsEqual(scrapedTags, currentTags) ? "merge" : "skip",
-            ["performers"] = scrapedPerformers.Count > 0 && !StringListsEqual(scrapedPerformers, currentPerformers) ? "merge" : "skip",
-        };
-    }
-
-    private static Dictionary<string, string> BuildDefaultCollectionModes(Image image, JsonElement root)
-    {
-        var currentUrls = image.Urls.Select(item => item.Url).Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var currentTags = image.ImageTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var currentPerformers = image.ImagePerformers.Where(item => item.Performer != null).Select(item => item.Performer!.Name).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var currentStudio = image.Studio?.Name?.Trim();
-
-        var scrapedUrls = GetStringList(root, "URLs", "Url", "URL");
-        var scrapedTags = GetTagNames(root, "Tags", "Tag", "TagNames");
-        var scrapedPerformers = GetNamedItems(root, "Performers", "Performer", "PerformerNames");
-        var scrapedStudio = GetString(root, "Studio", "StudioName");
-
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["studio"] = !string.IsNullOrWhiteSpace(scrapedStudio) && !string.Equals(scrapedStudio, currentStudio, StringComparison.OrdinalIgnoreCase) ? "replace" : "skip",
-            ["urls"] = scrapedUrls.Count > 0 && !StringListsEqual(scrapedUrls, currentUrls) ? "merge" : "skip",
-            ["tags"] = scrapedTags.Count > 0 && !StringListsEqual(scrapedTags, currentTags) ? "merge" : "skip",
-            ["performers"] = scrapedPerformers.Count > 0 && !StringListsEqual(scrapedPerformers, currentPerformers) ? "merge" : "skip",
-        };
-    }
-
-    private static bool StringListsEqual(IEnumerable<string> left, IEnumerable<string> right)
-    {
-        var normalizedLeft = left
-            .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Select(item => item.Trim().ToLowerInvariant())
-            .OrderBy(item => item, StringComparer.Ordinal)
-            .ToList();
-        var normalizedRight = right
-            .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Select(item => item.Trim().ToLowerInvariant())
-            .OrderBy(item => item, StringComparer.Ordinal)
-            .ToList();
-
-        return normalizedLeft.SequenceEqual(normalizedRight, StringComparer.Ordinal);
-    }
 
     private static ScrapedGroupDto BuildScrapedGroup(JsonElement root)
     {

@@ -1,6 +1,7 @@
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
 using Microsoft.EntityFrameworkCore;
@@ -9,8 +10,14 @@ using System.Text.Json;
 
 namespace Cove.Data.Services;
 
-public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAccessor principalAccessor) : IUserEngagementService
+public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAccessor principalAccessor, IEventBus? eventBus = null) : IUserEngagementService
 {
+    // Publish a rating-changed event (best-effort) so extensions/recommenders can refresh derived state. The
+    // Entity payload carries userId + aspect + value (value null = cleared) so a handler knows WHO and WHAT changed.
+    private void PublishRatingEvent(EventType type, AffinityHostType hostType, int hostId, int userId, string aspect, int? value)
+        => eventBus?.Publish(new EntityEvent(type, hostType.ToString().ToLowerInvariant(), hostId,
+            new Dictionary<string, object?> { ["userId"] = userId, ["aspect"] = aspect, ["value"] = value }));
+
     private static readonly UserEngagementSnapshot EmptySnapshot = new(false, null, 0d, 0d, 0, null, 0, 0, 0, 0);
     // ..., MinDerivedLikeSessionSeconds = 1200 (a session must be ≥20 min long to earn its derived like),
     // SessionIdleTimeoutSec = 1800 (a ≥30 min gap between events starts a new session),
@@ -136,6 +143,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         var normalizedAspect = NormalizeAspect(aspect);
 
         var userId = principalAccessor.Current?.UserId;
+        EventType? ratingEvent = null;
         if (userId.HasValue)
         {
             var ratingHostType = ToRatingHostType(hostType);
@@ -145,8 +153,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
 
             if (!value.HasValue)
             {
-                if (existing != null)
-                    db.Ratings.Remove(existing);
+                if (existing != null) { db.Ratings.Remove(existing); ratingEvent = EventType.RatingDeleted; }
             }
             else if (existing == null)
             {
@@ -158,13 +165,17 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                     Aspect = normalizedAspect,
                     Value = Math.Clamp(value.Value, 0, 100),
                 });
+                ratingEvent = EventType.RatingCreated;
             }
             else
             {
                 existing.Value = Math.Clamp(value.Value, 0, 100);
+                ratingEvent = EventType.RatingUpdated;
             }
         }
         await db.SaveChangesAsync(cancellationToken);
+        if (ratingEvent is { } evt && userId is { } uid)
+            PublishRatingEvent(evt, hostType, hostId, uid, normalizedAspect, value);
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
@@ -940,6 +951,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         var normalizedAspect = NormalizeAspect(aspect);
 
         var userId = principalAccessor.Current?.UserId;
+        EventType? ratingEvent = null;
         if (userId.HasValue)
         {
             var existing = await db.Ratings.FirstOrDefaultAsync(
@@ -948,8 +960,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
 
             if (!value.HasValue)
             {
-                if (existing != null)
-                    db.Ratings.Remove(existing);
+                if (existing != null) { db.Ratings.Remove(existing); ratingEvent = EventType.RatingDeleted; }
             }
             else if (existing == null)
             {
@@ -961,13 +972,17 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                     Aspect = normalizedAspect,
                     Value = Math.Clamp(value.Value, 0, 100),
                 });
+                ratingEvent = EventType.RatingCreated;
             }
             else
             {
                 existing.Value = Math.Clamp(value.Value, 0, 100);
+                ratingEvent = EventType.RatingUpdated;
             }
         }
         await db.SaveChangesAsync(cancellationToken);
+        if (ratingEvent is { } evt && userId is { } uid)
+            PublishRatingEvent(evt, AffinityHostType.Video, videoId, uid, normalizedAspect, value);
 
         return await BuildVideoSnapshotAsync(videoId, video, null, cancellationToken);
     }

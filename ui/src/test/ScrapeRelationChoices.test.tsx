@@ -29,4 +29,20 @@ describe("ScrapeRelationChoices", () => {
     expect(onActionChange).toHaveBeenNthCalledWith(2, "New", "exclude");
     expect(onActionChange).toHaveBeenNthCalledWith(3, "Skipped", "create");
   });
+
+  it("surfaces the matched primary name in the tooltip for alias matches", () => {
+    render(
+      <ScrapeRelationChoices
+        names={["Myra Moans"]}
+        currentNames={[]}
+        existingNames={["Myra Moans"]}
+        matchInfo={{ "myra moans": "Jane Doe" }}
+        actions={{ "myra moans": "include" }}
+        onActionChange={vi.fn()}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: "Myra Moans: Existing" });
+    expect(chip.getAttribute("title")).toContain("Jane Doe");
+  });
 });

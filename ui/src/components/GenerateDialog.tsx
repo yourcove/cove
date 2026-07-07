@@ -35,7 +35,7 @@ export function GenerateDialog({ open, onClose, onOpenJobDrawer, videoIds, image
     thumbnails: showVideo,
     previews: false,
     sprites: false,
-    markers: false,
+    segments: false,
     segmentThumbnails: false,
     segmentPreviews: false,
     phashes: false,
@@ -61,10 +61,10 @@ export function GenerateDialog({ open, onClose, onOpenJobDrawer, videoIds, image
     setOpts((o) => {
       const nextValue = !o[key];
       if (key === "segmentThumbnails") {
-        return { ...o, segmentThumbnails: nextValue, segmentPreviews: nextValue ? o.segmentPreviews : false, markers: false };
+        return { ...o, segmentThumbnails: nextValue, segmentPreviews: nextValue ? o.segmentPreviews : false, segments: false };
       }
       if (key === "segmentPreviews") {
-        return { ...o, segmentThumbnails: nextValue ? true : o.segmentThumbnails, segmentPreviews: nextValue, markers: false };
+        return { ...o, segmentThumbnails: nextValue ? true : o.segmentThumbnails, segmentPreviews: nextValue, segments: false };
       }
       return { ...o, [key]: nextValue };
     });

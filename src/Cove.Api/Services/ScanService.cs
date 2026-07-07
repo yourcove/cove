@@ -75,7 +75,7 @@ public class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var videoFile = await ProcessVideoFileAsync(db, path, videoId, ct);
+        var (videoFile, _) = await ProcessVideoFileAsync(db, path, videoId, ct);
         await db.SaveChangesAsync(ct);
 
         var resolvedVideoId = videoFile.VideoId;
@@ -97,7 +97,7 @@ public class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var image = await ProcessImageFileAsync(db, path, imageId, ct);
+        var (image, _) = await ProcessImageFileAsync(db, path, imageId, ct);
         await db.SaveChangesAsync(ct);
 
         if (image.Id == 0)
@@ -139,7 +139,7 @@ public class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var audio = await ProcessAudioFileAsync(db, path, audioId, ct);
+        var (audio, _) = await ProcessAudioFileAsync(db, path, audioId, ct);
         await db.SaveChangesAsync(ct);
 
         if (audio.Id == 0)
@@ -160,7 +160,7 @@ public class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var textDocument = await ProcessTextFileAsync(db, path, textDocumentId, ct);
+        var (textDocument, _) = await ProcessTextFileAsync(db, path, textDocumentId, ct);
         await db.SaveChangesAsync(ct);
 
         if (textDocument.Id == 0)
@@ -328,6 +328,15 @@ public class ScanService(
                     existingFiles.Count,
                     files.Count);
 
+                // Move/rename detection is only meaningful when the library already has files (a first
+                // scan has nothing to move). Gating on existing files also avoids paying for per-new-file
+                // identity lookups on the initial import, where none can possibly match.
+                var moveDetectionEnabled = config.EnableMoveDetection
+                    && await db.Set<BaseFileEntity>().AnyAsync(f => f.ZipFileId == null, ct);
+                var moveIndex = new MoveDetectionIndex { Enabled = moveDetectionEnabled };
+                if (moveDetectionEnabled)
+                    logger.LogInformation("Move/rename detection enabled for this scan.");
+
                 void PublishScanEntityEvent(string entityType, int entityId, bool isUpdate)
                 {
                     var eventType = entityType switch
@@ -378,11 +387,16 @@ public class ScanService(
                 // Phase 2a: classify every discovered file against the in-memory index.
                 // This is cheap (no I/O, no DB) so it stays single-threaded; it skips
                 // unchanged files and collects only the ones that actually need work.
-                var filesToProcess = new List<(DiscoveredFile File, bool IsKnownFile)>(files.Count);
+                var filesToProcess = new List<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)>(files.Count);
                 foreach (var file in files)
                 {
                     ct.ThrowIfCancellationRequested();
 
+                    // True when a known file's bytes changed on disk (or a rescan forces reprocessing):
+                    // its metadata, identity hash, and derived assets must be refreshed, not just its
+                    // size/modtime. A metadata-only reprobe (metadata was never captured) is handled
+                    // separately and does not count as a content change.
+                    var contentChanged = false;
                     var isKnownFile = existingFiles.TryGetValue(file.StoredPath, out var existingFile);
                     if (isKnownFile)
                     {
@@ -402,12 +416,15 @@ public class ScanService(
                                 break;
                             case ScanFileChangeReason.SizeChanged:
                                 sizeChangedCount++;
+                                contentChanged = true;
                                 break;
                             case ScanFileChangeReason.ModTimeChanged:
                                 modTimeChangedCount++;
+                                contentChanged = true;
                                 break;
                             case ScanFileChangeReason.RescanForced:
                                 rescanForcedCount++;
+                                contentChanged = true;
                                 break;
                         }
 
@@ -439,7 +456,7 @@ public class ScanService(
                     }
 
                     changedOrNewCount++;
-                    filesToProcess.Add((file, isKnownFile));
+                    filesToProcess.Add((file, isKnownFile, contentChanged));
                 }
 
                 // Resolve every parent folder once, up front, into a shared id map. Workers then look
@@ -462,7 +479,7 @@ public class ScanService(
                     var workerCount = Math.Min(maxParallelism, filesToProcess.Count);
                     progress.Report(0.15, $"Processing {filesToProcess.Count:N0} changed/new file(s) using up to {workerCount} worker(s)...");
 
-                    var workQueue = new ConcurrentQueue<(DiscoveredFile File, bool IsKnownFile)>(filesToProcess);
+                    var workQueue = new ConcurrentQueue<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)>(filesToProcess);
 
                     int? ResolveFolderId(DiscoveredFile file)
                     {
@@ -480,46 +497,47 @@ public class ScanService(
                             workerDb.Database.SetCommandTimeout(ScanCommandTimeout);
 
                         // The current un-committed batch, plus the entity events to publish once it commits.
-                        var batchItems = new List<(DiscoveredFile File, bool IsKnownFile)>(ScanSaveBatchSize);
+                        var batchItems = new List<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)>(ScanSaveBatchSize);
                         var batchEvents = new List<Action>(ScanSaveBatchSize);
 
                         // Stage one file's entities into the worker context (no save). Appends the event
                         // to fire once persisted. Galleries are excluded here as they commit internally.
-                        async Task StageAsync((DiscoveredFile File, bool IsKnownFile) work, List<Action> events)
+                        async Task StageAsync((DiscoveredFile File, bool IsKnownFile, bool ContentChanged) work, List<Action> events)
                         {
                             var file = work.File;
                             var isKnownFile = work.IsKnownFile;
+                            var contentChanged = work.ContentChanged;
                             var folderId = ResolveFolderId(file);
 
                             if (videoExts.Contains(file.Extension))
                             {
                                 processedVideoPaths.TryAdd(file.Path, 0);
-                                var videoFile = await ProcessVideoFileAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId);
-                                events.Add(() => { if (videoFile.VideoId.HasValue) PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile); });
+                                var (videoFile, relinked) = await ProcessVideoFileAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                events.Add(() => { if (videoFile.VideoId.HasValue) PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked); });
                             }
                             else if (imageExts.Contains(file.Extension))
                             {
                                 processedImagePaths.TryAdd(file.Path, 0);
-                                var image = await ProcessImageFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId);
-                                events.Add(() => PublishScanEntityEvent("Image", image.Id, isKnownFile));
+                                var (image, relinked) = await ProcessImageFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                events.Add(() => PublishScanEntityEvent("Image", image.Id, isKnownFile || relinked));
                             }
                             else if (audioExts.Contains(file.Extension))
                             {
                                 processedAudioPaths.TryAdd(file.Path, 0);
-                                var audio = await ProcessAudioFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId);
-                                events.Add(() => PublishScanEntityEvent("Audio", audio.Id, isKnownFile));
+                                var (audio, relinked) = await ProcessAudioFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                events.Add(() => PublishScanEntityEvent("Audio", audio.Id, isKnownFile || relinked));
                             }
                             else if (textExts.Contains(file.Extension))
                             {
                                 processedTextPaths.TryAdd(file.Path, 0);
-                                var textDocument = await ProcessTextFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId);
-                                events.Add(() => PublishScanEntityEvent("Text", textDocument.Id, isKnownFile));
+                                var (textDocument, relinked) = await ProcessTextFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                events.Add(() => PublishScanEntityEvent("Text", textDocument.Id, isKnownFile || relinked));
                             }
                         }
 
                         // Process a single item in its own transaction. Used for galleries (which commit
                         // internally) and as the fallback when a batch save fails.
-                        async Task ProcessSingleAsync((DiscoveredFile File, bool IsKnownFile) work)
+                        async Task ProcessSingleAsync((DiscoveredFile File, bool IsKnownFile, bool ContentChanged) work)
                         {
                             var file = work.File;
                             var isKnownFile = work.IsKnownFile;
@@ -1493,7 +1511,7 @@ public class ScanService(
     /// </summary>
     private async Task<ConcurrentDictionary<string, int>> ResolveScanFolderIdsAsync(
         CoveContext db,
-        IReadOnlyCollection<(DiscoveredFile File, bool IsKnownFile)> filesToProcess,
+        IReadOnlyCollection<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)> filesToProcess,
         CancellationToken ct)
     {
         // Use the host filesystem's case sensitivity so two folders differing only by case (distinct on
@@ -1700,7 +1718,7 @@ public class ScanService(
         }
     }
 
-    private async Task<VideoFile> ProcessVideoFileAsync(
+    private async Task<(VideoFile File, bool Relinked)> ProcessVideoFileAsync(
         CoveContext db,
         string path,
         int? videoId,
@@ -1710,7 +1728,10 @@ public class ScanService(
         bool syncCaptions = true,
         bool knownNew = false,
         ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
-        int? parentFolderId = null)
+        int? parentFolderId = null,
+        bool contentChanged = false,
+        ScanOperationOptions? scanOptions = null,
+        MoveDetectionIndex? moveIndex = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -1723,8 +1744,8 @@ public class ScanService(
         if (!knownNew)
         {
             var existingQuery = syncCaptions
-                ? db.VideoFiles.Include(file => file.Captions)
-                : db.VideoFiles.AsQueryable();
+                ? db.VideoFiles.Include(file => file.Captions).Include(file => file.Fingerprints)
+                : db.VideoFiles.Include(file => file.Fingerprints);
             existing = await existingQuery.FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
         }
 
@@ -1751,10 +1772,21 @@ public class ScanService(
             if (targetVideo != null)
                 existing.VideoId = targetVideo.Id;
 
-            // Re-probe if metadata is missing (e.g., FFprobe wasn't available during initial scan)
-            if (NeedsVideoMetadataProbe(existing))
+            // Re-probe when the bytes changed in place (re-encode/replacement) or when metadata was
+            // never captured (e.g. FFprobe was unavailable on the initial scan).
+            if (contentChanged || NeedsVideoMetadataProbe(existing))
             {
                 await ProbeVideoAsync(existing, path, ct);
+            }
+
+            if (contentChanged)
+            {
+                await RefreshChangedFileFingerprintsAsync(
+                    existing, path,
+                    phashEnabled: scanOptions?.GeneratePhashes == true,
+                    md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    ct);
+                InvalidateStaleVideoAssets(existing, scanOptions);
             }
 
             if (syncCaptions)
@@ -1762,7 +1794,40 @@ public class ScanService(
                 SyncVideoCaptions(existing, path, captionFilesByDir);
             }
 
-            return existing;
+            return (existing, false);
+        }
+
+        // No row at this path. Before creating a fresh entity, check whether this file's content already
+        // exists in the library: a MOVE (re-point the now-missing record) or a DUPLICATE (attach as an
+        // additional file of the existing video), rather than creating a separate duplicate entity.
+        if (targetVideo == null && moveIndex is { Enabled: true })
+        {
+            var (match, isMove) = await TryMatchExistingFileAsync(db.VideoFiles, path, folderId, basename, stat, moveIndex, ct);
+            if (match != null)
+            {
+                if (isMove)
+                {
+                    if (syncCaptions)
+                        SyncVideoCaptions(match, path, captionFilesByDir);
+                    logger.LogInformation("Re-linked moved video file to {NewPath} (previously {OldPath})", path, match.Path);
+                    return (match, true);
+                }
+
+                // Duplicate: identical content already on disk — add this file to the same video entity.
+                var duplicateFile = new VideoFile
+                {
+                    Basename = basename,
+                    ParentFolderId = folderId,
+                    Size = stat.Size,
+                    ModTime = stat.ModTime,
+                    Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
+                    VideoId = match.VideoId,
+                };
+                db.VideoFiles.Add(duplicateFile);
+                await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir);
+                logger.LogInformation("Attached duplicate video file {NewPath} to existing video {VideoId}", path, match.VideoId);
+                return (duplicateFile, true);
+            }
         }
 
         // Create video file entry
@@ -1796,7 +1861,100 @@ public class ScanService(
         await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir);
 
         logger.LogDebug("Added video file for: {Path}", path);
-        return videoFile;
+        return (videoFile, false);
+    }
+
+    // Delete a changed video's stale visual assets (cover/preview/sprite) so the generation phase
+    // recreates them from the new content — but only for the asset types this scan is (re)generating,
+    // so a metadata-only scan never destroys assets it will not rebuild.
+    private void InvalidateStaleVideoAssets(VideoFile videoFile, ScanOperationOptions? options)
+    {
+        if (options == null || videoFile.VideoId is not int vid)
+            return;
+
+        if (options.GenerateCovers)
+            TryDeleteGeneratedFile(thumbnailService.GetThumbnailPathForVideo(vid));
+        if (options.GeneratePreviews)
+            TryDeleteGeneratedFile(thumbnailService.GetPreviewPath(vid));
+        if (options.GenerateSprites)
+        {
+            TryDeleteGeneratedFile(thumbnailService.GetSpritePath(vid));
+            TryDeleteGeneratedFile(thumbnailService.GetSpriteVttPath(vid));
+        }
+    }
+
+    /// <summary>
+    /// Match a file now appearing at <paramref name="path"/> against an already-known file with identical
+    /// content (same oshash) and classify what to do:
+    /// <list type="bullet">
+    /// <item><c>(row, IsMove: true)</c> — the matched record's old location is gone, so the file MOVED:
+    /// the returned row has been re-pointed to the new location (preserving its entity/tags/fingerprints).</item>
+    /// <item><c>(row, IsMove: false)</c> — an identical file still exists on disk, so this is a DUPLICATE:
+    /// the returned row identifies the entity the caller should attach the new file to (not mutated).</item>
+    /// <item><c>(null, false)</c> — no confident single match; the caller should create a fresh entity.</item>
+    /// </list>
+    /// Byte-identity only (oshash): a move/copy preserves exact bytes, and oshash uniquely identifies any
+    /// real media file (>64KB). Perceptual/fuzzy matching is intentionally NOT used — it could group a
+    /// different-but-similar file into the wrong entity.
+    /// </summary>
+    private async Task<(TFile? Match, bool IsMove)> TryMatchExistingFileAsync<TFile>(
+        DbSet<TFile> trackedSet,
+        string path,
+        int folderId,
+        string basename,
+        FileStat stat,
+        MoveDetectionIndex moveIndex,
+        CancellationToken ct)
+        where TFile : BaseFileEntity
+    {
+        var oshash = await ComputeOshashAsync(path, ct);
+        if (string.IsNullOrEmpty(oshash))
+            return (null, false); // file too small to fingerprint (e.g. <64KB) — treat as brand new
+
+        // Candidate rows carry the same oshash. Exclude zip-backed entries (their on-disk identity is the
+        // archive, not a movable loose file). ParentFolder is deliberately NOT included: a move re-point
+        // sets the FK and nulls the navigation so ComputeFilePaths derives the NEW path from the new id.
+        var candidates = (await trackedSet
+            .Where(f => f.ZipFileId == null
+                && f.Fingerprints.Any(fp => fp.Type == "oshash" && fp.Value == oshash))
+            .ToListAsync(ct))
+            .Where(candidate => !moveIndex.ClaimedFileIds.ContainsKey(candidate.Id))
+            .ToList();
+
+        if (candidates.Count == 0)
+            return (null, false);
+
+        // Prefer a MOVE: if exactly one matching record's old path is gone, re-point it so its entity and
+        // tags follow the file to its new location. (Done even when a duplicate also exists on disk, so a
+        // real move never loses metadata to an unrelated copy.)
+        var missing = candidates
+            .Where(candidate => !string.IsNullOrEmpty(candidate.Path) && !File.Exists(candidate.Path))
+            .ToList();
+
+        if (missing.Count == 1)
+        {
+            var claim = missing[0];
+            if (!moveIndex.ClaimedFileIds.TryAdd(claim.Id, 0))
+                return (null, false); // lost the race to another worker
+
+            // Re-point the existing row to the new location. Null the navigation so the path recompute in
+            // CoveContext.ComputeFilePaths batch-loads the NEW folder's path (it trusts a non-null nav).
+            claim.ParentFolderId = folderId;
+            claim.ParentFolder = null;
+            claim.Basename = basename;
+            claim.Size = stat.Size;
+            claim.ModTime = stat.ModTime;
+            return (claim, true);
+        }
+
+        // Otherwise, if an identical file still exists on disk, this is a duplicate: attach it as another
+        // file of that existing entity rather than creating a separate one. Pick deterministically.
+        var present = candidates
+            .Where(candidate => !string.IsNullOrEmpty(candidate.Path) && File.Exists(candidate.Path))
+            .OrderBy(candidate => candidate.Id)
+            .FirstOrDefault();
+
+        return present != null ? (present, false) : (null, false);
     }
 
     private async Task EnrichVideoFileAsync(
@@ -1930,7 +2088,7 @@ public class ScanService(
         }
     }
 
-    private async Task<Image> ProcessImageFileAsync(
+    private async Task<(Image Entity, bool Relinked)> ProcessImageFileAsync(
         CoveContext db,
         string path,
         int? imageId,
@@ -1938,7 +2096,10 @@ public class ScanService(
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
         bool knownNew = false,
-        int? parentFolderId = null)
+        int? parentFolderId = null,
+        bool contentChanged = false,
+        ScanOperationOptions? scanOptions = null,
+        MoveDetectionIndex? moveIndex = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -1949,6 +2110,7 @@ public class ScanService(
             ? null
             : await db.ImageFiles
                 .Include(f => f.Image)
+                .Include(f => f.Fingerprints)
                 .FirstOrDefaultAsync(f => f.ParentFolderId == folderId && f.Basename == basename, ct);
 
         // Consult entities added but not yet saved in this batch to avoid violating the unique
@@ -1959,7 +2121,52 @@ public class ScanService(
         {
             existing.Size = stat.Size;
             existing.ModTime = stat.ModTime;
-            return existing.Image ?? throw new InvalidOperationException($"Image file {path} is not attached to an image");
+
+            if (contentChanged)
+            {
+                await RefreshChangedFileFingerprintsAsync(
+                    existing, path,
+                    phashEnabled: scanOptions?.GenerateImagePhashes == true,
+                    md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    ct);
+                // Drop the stale thumbnail so the generation phase rebuilds it from the new content.
+                if (scanOptions?.GenerateImageThumbnails == true && existing.ImageId is int changedImageId)
+                    await thumbnailService.DeleteImageGeneratedFilesAsync(changedImageId, ct);
+            }
+
+            return (existing.Image ?? throw new InvalidOperationException($"Image file {path} is not attached to an image"), false);
+        }
+
+        // Content already in the library: re-link a moved image, or attach a duplicate to its entity.
+        if (!imageId.HasValue && moveIndex is { Enabled: true })
+        {
+            var (match, isMove) = await TryMatchExistingFileAsync(db.ImageFiles, path, folderId, basename, stat, moveIndex, ct);
+            if (match?.ImageId is int matchedImageId)
+            {
+                var parentImage = await db.Images.FirstOrDefaultAsync(item => item.Id == matchedImageId, ct);
+                if (parentImage != null)
+                {
+                    if (isMove)
+                    {
+                        logger.LogInformation("Re-linked moved image file to {NewPath} (previously {OldPath})", path, match.Path);
+                        return (parentImage, true);
+                    }
+
+                    var duplicateFile = new ImageFile
+                    {
+                        Basename = basename,
+                        ParentFolderId = folderId,
+                        Size = stat.Size,
+                        ModTime = stat.ModTime,
+                        Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
+                        ImageId = matchedImageId,
+                    };
+                    db.ImageFiles.Add(duplicateFile);
+                    await EnrichImageFileAsync(duplicateFile, path, ct);
+                    logger.LogInformation("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
+                    return (parentImage, true);
+                }
+            }
         }
 
         var imageFile = new ImageFile
@@ -1997,21 +2204,26 @@ public class ScanService(
             db.Images.Add(image);
         }
 
+        await EnrichImageFileAsync(imageFile, path, ct);
+
+        logger.LogDebug("Added image for: {Path}", path);
+        return (image, false);
+    }
+
+    // Compute the always-on identity fingerprint (oshash) plus the optional md5 for a new image file.
+    // oshash is what lets a later scan recognise this image if it moves or is renamed.
+    private async Task EnrichImageFileAsync(ImageFile imageFile, string path, CancellationToken ct)
+    {
+        var oshash = await ComputeOshashAsync(path, ct);
+        if (oshash != null)
+            UpsertFingerprint(imageFile, "oshash", oshash);
+
         if (config.CalculateMd5)
         {
             var md5 = await fingerprintService.ComputeMd5Async(path, ct);
             if (!string.IsNullOrWhiteSpace(md5))
-            {
-                imageFile.Fingerprints.Add(new FileFingerprint
-                {
-                    Type = "md5",
-                    Value = md5,
-                });
-            }
+                UpsertFingerprint(imageFile, "md5", md5);
         }
-
-        logger.LogDebug("Added image for: {Path}", path);
-        return image;
     }
 
     private async Task<Gallery> ProcessGalleryFileAsync(
@@ -2198,7 +2410,7 @@ public class ScanService(
         return gallery;
     }
 
-    private async Task<Audio> ProcessAudioFileAsync(
+    private async Task<(Audio Entity, bool Relinked)> ProcessAudioFileAsync(
         CoveContext db,
         string path,
         int? audioId,
@@ -2206,7 +2418,10 @@ public class ScanService(
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
         bool knownNew = false,
-        int? parentFolderId = null)
+        int? parentFolderId = null,
+        bool contentChanged = false,
+        ScanOperationOptions? scanOptions = null,
+        MoveDetectionIndex? moveIndex = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -2229,8 +2444,45 @@ public class ScanService(
 
             var existingAudio = existing.Audio ?? throw new InvalidOperationException($"Audio file {path} is not attached to an audio entity");
             await EnrichAudioFileAsync(existingAudio, existing, path, ct);
+            // A re-encode invalidates the stored phash; blank it so the generation phase recomputes it.
+            if (contentChanged && scanOptions?.GenerateAudioPhashes == true)
+                BlankFingerprint(existing, "phash");
             RefreshAudioSummary(existingAudio);
-            return existingAudio;
+            return (existingAudio, false);
+        }
+
+        // Content already in the library: re-link a moved audio file, or attach a duplicate to its entity.
+        if (!audioId.HasValue && moveIndex is { Enabled: true })
+        {
+            var (match, isMove) = await TryMatchExistingFileAsync(db.AudioFiles, path, folderId, basename, stat, moveIndex, ct);
+            if (match?.AudioId is int matchedAudioId)
+            {
+                var parentAudio = await db.Audios.Include(item => item.Files).FirstOrDefaultAsync(item => item.Id == matchedAudioId, ct);
+                if (parentAudio != null)
+                {
+                    if (isMove)
+                    {
+                        logger.LogInformation("Re-linked moved audio file to {NewPath} (previously {OldPath})", path, match.Path);
+                        RefreshAudioSummary(parentAudio);
+                        return (parentAudio, true);
+                    }
+
+                    var duplicateFile = new AudioFile
+                    {
+                        Basename = basename,
+                        ParentFolderId = folderId,
+                        Path = BaseFileEntity.ComputePath(dirPath, basename),
+                        Size = stat.Size,
+                        ModTime = stat.ModTime,
+                        Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
+                    };
+                    parentAudio.Files.Add(duplicateFile);
+                    await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct);
+                    RefreshAudioSummary(parentAudio);
+                    logger.LogInformation("Attached duplicate audio file {NewPath} to existing audio {AudioId}", path, matchedAudioId);
+                    return (parentAudio, true);
+                }
+            }
         }
 
         var audioFile = new AudioFile
@@ -2268,10 +2520,10 @@ public class ScanService(
         RefreshAudioSummary(audio);
 
         logger.LogDebug("Added audio for: {Path}", path);
-        return audio;
+        return (audio, false);
     }
 
-    private async Task<TextDocument> ProcessTextFileAsync(
+    private async Task<(TextDocument Entity, bool Relinked)> ProcessTextFileAsync(
         CoveContext db,
         string path,
         int? textDocumentId,
@@ -2279,7 +2531,10 @@ public class ScanService(
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
         bool knownNew = false,
-        int? parentFolderId = null)
+        int? parentFolderId = null,
+        bool contentChanged = false,
+        ScanOperationOptions? scanOptions = null,
+        MoveDetectionIndex? moveIndex = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -2302,8 +2557,45 @@ public class ScanService(
 
             var existingDocument = existing.TextDocument ?? throw new InvalidOperationException($"Text file {path} is not attached to a text document");
             await EnrichTextFileAsync(existingDocument, existing, path, ct);
+            // A content change invalidates the stored phash; blank it so the generation phase recomputes it.
+            if (contentChanged && scanOptions?.GenerateTextPhashes == true)
+                BlankFingerprint(existing, "phash");
             RefreshTextSummary(existingDocument);
-            return existingDocument;
+            return (existingDocument, false);
+        }
+
+        // Content already in the library: re-link a moved text file, or attach a duplicate to its entity.
+        if (!textDocumentId.HasValue && moveIndex is { Enabled: true })
+        {
+            var (match, isMove) = await TryMatchExistingFileAsync(db.TextFiles, path, folderId, basename, stat, moveIndex, ct);
+            if (match?.TextDocumentId is int matchedTextId)
+            {
+                var parentDocument = await db.TextDocuments.Include(item => item.Files).FirstOrDefaultAsync(item => item.Id == matchedTextId, ct);
+                if (parentDocument != null)
+                {
+                    if (isMove)
+                    {
+                        logger.LogInformation("Re-linked moved text file to {NewPath} (previously {OldPath})", path, match.Path);
+                        RefreshTextSummary(parentDocument);
+                        return (parentDocument, true);
+                    }
+
+                    var duplicateFile = new TextFile
+                    {
+                        Basename = basename,
+                        ParentFolderId = folderId,
+                        Path = BaseFileEntity.ComputePath(dirPath, basename),
+                        Size = stat.Size,
+                        ModTime = stat.ModTime,
+                        Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
+                    };
+                    parentDocument.Files.Add(duplicateFile);
+                    await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct);
+                    RefreshTextSummary(parentDocument);
+                    logger.LogInformation("Attached duplicate text file {NewPath} to existing text document {TextId}", path, matchedTextId);
+                    return (parentDocument, true);
+                }
+            }
         }
 
         var textFile = new TextFile
@@ -2341,7 +2633,7 @@ public class ScanService(
         RefreshTextSummary(textDocument);
 
         logger.LogDebug("Added text document for: {Path}", path);
-        return textDocument;
+        return (textDocument, false);
     }
 
     private async Task EnrichAudioFileAsync(Audio audio, AudioFile audioFile, string path, CancellationToken ct)
@@ -2351,6 +2643,11 @@ public class ScanService(
 
         if (string.IsNullOrWhiteSpace(audio.Title) || string.Equals(audio.Title, fallbackTitle, StringComparison.OrdinalIgnoreCase))
             audio.Title = metadata.Title ?? fallbackTitle;
+
+        // Always-on identity fingerprint so a later scan can recognise this file if it moves/renames.
+        var oshash = await ComputeOshashAsync(path, ct);
+        if (oshash != null)
+            UpsertFingerprint(audioFile, "oshash", oshash);
 
         if (config.CalculateMd5)
         {
@@ -2379,6 +2676,11 @@ public class ScanService(
         {
             logger.LogWarning(ex, "Failed to extract text metadata for {Path}", path);
         }
+
+        // Always-on identity fingerprint so a later scan can recognise this file if it moves/renames.
+        var oshash = await ComputeOshashAsync(path, ct);
+        if (oshash != null)
+            UpsertFingerprint(textFile, "oshash", oshash);
 
         if (config.CalculateMd5)
         {
@@ -2593,6 +2895,67 @@ public class ScanService(
         });
     }
 
+    // Blank (rather than delete) a stale fingerprint's value. The asset-generation phase and the
+    // duplicate/move matchers all treat an empty value as "absent", so blanking a stale phash/md5 on
+    // an in-place content change makes the generation phase recompute it — and never leaves a wrong
+    // hash behind that could mis-identify the file. Requires the file's Fingerprints to be loaded.
+    private static void BlankFingerprint(BaseFileEntity file, string type)
+    {
+        var existing = file.Fingerprints.FirstOrDefault(fingerprint => string.Equals(fingerprint.Type, type, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+            existing.Value = string.Empty;
+    }
+
+    private void TryDeleteGeneratedFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Failed to delete stale generated asset {Path}", path);
+        }
+    }
+
+    /// <summary>
+    /// Refresh the identity/derived state of an already-known file whose bytes changed in place
+    /// (in-place re-encode or replacement). The oshash identity always refreshes so move-detection
+    /// and duplicate matching stay correct; heavier fingerprints and visual assets refresh only when
+    /// this scan is configured to (re)generate them, honouring the per-scan generate options.
+    /// </summary>
+    private async Task RefreshChangedFileFingerprintsAsync(
+        BaseFileEntity file,
+        string path,
+        bool phashEnabled,
+        bool md5Enabled,
+        CancellationToken ct)
+    {
+        var oshash = await ComputeOshashAsync(path, ct);
+        if (oshash != null)
+            UpsertFingerprint(file, "oshash", oshash);
+
+        if (md5Enabled)
+        {
+            var md5 = await fingerprintService.ComputeMd5Async(path, ct);
+            if (!string.IsNullOrWhiteSpace(md5))
+                UpsertFingerprint(file, "md5", md5);
+            else
+                BlankFingerprint(file, "md5");
+        }
+        else
+        {
+            // md5 is now wrong and this scan is not recomputing it; drop the stale value.
+            BlankFingerprint(file, "md5");
+        }
+
+        // phash needs the frame/audio pipeline, which runs in the generation phase; blank the stale
+        // value so that phase recomputes it (only when phash generation is enabled for this type).
+        if (phashEnabled)
+            BlankFingerprint(file, "phash");
+    }
+
     /// <summary>
     /// Compute OpenSubtitles hash (oshash) for a video file.
     /// Standard oshash algorithm.
@@ -2681,47 +3044,61 @@ public class ScanService(
 
             if (process.ExitCode != 0 || string.IsNullOrEmpty(json)) return;
 
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            // Extract format duration
-            if (root.TryGetProperty("format", out var format))
-            {
-                if (format.TryGetProperty("duration", out var dur) && double.TryParse(dur.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var duration))
-                    videoFile.Duration = duration;
-                if (format.TryGetProperty("bit_rate", out var br) && long.TryParse(br.GetString(), out var bitrate))
-                    videoFile.BitRate = bitrate;
-            }
-
-            // Extract stream info
-            if (root.TryGetProperty("streams", out var streams))
-            {
-                foreach (var stream in streams.EnumerateArray())
-                {
-                    var codecType = stream.TryGetProperty("codec_type", out var ct2) ? ct2.GetString() : null;
-                    if (codecType == "video" && videoFile.Width == 0)
-                    {
-                        if (stream.TryGetProperty("width", out var w)) videoFile.Width = w.GetInt32();
-                        if (stream.TryGetProperty("height", out var h)) videoFile.Height = h.GetInt32();
-                        if (stream.TryGetProperty("codec_name", out var cn)) videoFile.VideoCodec = cn.GetString() ?? "";
-                        if (stream.TryGetProperty("r_frame_rate", out var rfr))
-                        {
-                            var frs = rfr.GetString() ?? "";
-                            var frParts = frs.Split('/');
-                            if (frParts.Length == 2 && double.TryParse(frParts[0], out var num) && double.TryParse(frParts[1], out var den) && den > 0)
-                                videoFile.FrameRate = num / den;
-                        }
-                    }
-                    else if (codecType == "audio" && string.IsNullOrEmpty(videoFile.AudioCodec))
-                    {
-                        if (stream.TryGetProperty("codec_name", out var acn)) videoFile.AudioCodec = acn.GetString() ?? "";
-                    }
-                }
-            }
+            ApplyFfprobeMetadata(videoFile, json);
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "FFprobe failed for {Path}", path);
+        }
+    }
+
+    /// <summary>
+    /// Apply ffprobe's -show_format/-show_streams JSON onto a <see cref="VideoFile"/>. Always overwrites
+    /// (using local "first stream seen" flags rather than gating on the current field values), so
+    /// re-probing an already-populated file after an in-place re-encode updates the stored codec,
+    /// resolution, framerate, duration, and bitrate instead of silently keeping the stale values.
+    /// </summary>
+    internal static void ApplyFfprobeMetadata(VideoFile videoFile, string json)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        // Extract format duration
+        if (root.TryGetProperty("format", out var format))
+        {
+            if (format.TryGetProperty("duration", out var dur) && double.TryParse(dur.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var duration))
+                videoFile.Duration = duration;
+            if (format.TryGetProperty("bit_rate", out var br) && long.TryParse(br.GetString(), out var bitrate))
+                videoFile.BitRate = bitrate;
+        }
+
+        if (root.TryGetProperty("streams", out var streams))
+        {
+            var sawVideoStream = false;
+            var sawAudioStream = false;
+            foreach (var stream in streams.EnumerateArray())
+            {
+                var codecType = stream.TryGetProperty("codec_type", out var ct2) ? ct2.GetString() : null;
+                if (codecType == "video" && !sawVideoStream)
+                {
+                    sawVideoStream = true;
+                    if (stream.TryGetProperty("width", out var w)) videoFile.Width = w.GetInt32();
+                    if (stream.TryGetProperty("height", out var h)) videoFile.Height = h.GetInt32();
+                    if (stream.TryGetProperty("codec_name", out var cn)) videoFile.VideoCodec = cn.GetString() ?? "";
+                    if (stream.TryGetProperty("r_frame_rate", out var rfr))
+                    {
+                        var frs = rfr.GetString() ?? "";
+                        var frParts = frs.Split('/');
+                        if (frParts.Length == 2 && double.TryParse(frParts[0], out var num) && double.TryParse(frParts[1], out var den) && den > 0)
+                            videoFile.FrameRate = num / den;
+                    }
+                }
+                else if (codecType == "audio" && !sawAudioStream)
+                {
+                    sawAudioStream = true;
+                    if (stream.TryGetProperty("codec_name", out var acn)) videoFile.AudioCodec = acn.GetString() ?? "";
+                }
+            }
         }
     }
 
@@ -3171,6 +3548,16 @@ public class ScanService(
     private static readonly string[] FolderIgnoreFileNames = [".coveignore", ".stashignore"];
 
     private record CaptionSidecar(string Filename, string LanguageCode, string CaptionType);
+
+    // Shared, worker-safe state for move/rename detection. Enabled is decided once per scan (only when
+    // the library already has files to move to/from). ClaimedFileIds prevents two workers from both
+    // re-pointing the same now-missing record when a file's bytes appear at more than one new location.
+    private sealed class MoveDetectionIndex
+    {
+        public required bool Enabled { get; init; }
+        public ConcurrentDictionary<int, byte> ClaimedFileIds { get; } = new();
+    }
+
     private enum ExistingFileKind { Unknown, Video, Image, Gallery, Audio, Text }
     private sealed record ExistingFileScanInfo(string StoredPath, int Id, ExistingFileKind Kind, long Size, DateTime ModTime, bool NeedsMetadataProbe);
     private sealed record AudioProbeMetadata(string? Title);

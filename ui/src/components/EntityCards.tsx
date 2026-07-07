@@ -1695,6 +1695,7 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
           <span className="absolute right-1 top-1 z-[5] inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"><MonitorPlay className="h-3 w-3" />Video</span>
         ) : null}
         {duration ? <span className="absolute bottom-1 right-1 z-[5] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">{duration}</span> : null}
+        <RatingBanner rating={engagement?.rating} />
       </div>
       <div className="card-body flex flex-1 flex-col gap-2 border-t border-border/50 p-2.5">
         <div className="flex min-h-0 flex-1 flex-col">
@@ -1715,6 +1716,7 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
 
 interface TextTileProps {
   text: TextDocument;
+  engagement?: EntityEngagement;
   onClick: () => void;
   onNavigate?: (route: any) => void;
   selected?: boolean;
@@ -1722,7 +1724,7 @@ interface TextTileProps {
   selecting?: boolean;
 }
 
-export function TextTile({ text, selected, onSelect, selecting, onClick, onNavigate }: TextTileProps) {
+export function TextTile({ text, engagement, selected, onSelect, selecting, onClick, onNavigate }: TextTileProps) {
   const title = getTextDisplayTitle(text);
   const primaryFile = pickPrimaryTextFile(text);
   const preview = primaryFile?.excerptText?.trim() || text.details?.trim() || "Open the document to read the extracted content and file details.";
@@ -1735,6 +1737,7 @@ export function TextTile({ text, selected, onSelect, selecting, onClick, onNavig
         {(selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
         {!selecting ? <BookmarkButton hostType="text" hostId={text.id} compact deferUntilHover className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100" /> : null}
         {text.maxWordCount ? <span className="absolute bottom-1 right-1 z-[5] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">{Intl.NumberFormat().format(text.maxWordCount)} words</span> : null}
+        <RatingBanner rating={engagement?.rating} />
       </div>
       <div className="card-body flex flex-1 flex-col gap-2 border-t border-border/50 p-2.5">
         <div className="flex min-h-0 flex-1 flex-col">

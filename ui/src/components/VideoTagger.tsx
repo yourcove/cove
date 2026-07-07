@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, scrapeAttempts, system } from "../api/client";
 import type { ApplyVideoScrapeAttemptRequest, Video, MetadataServer, MetadataServerVideoMatch, MetadataServerVideoImportRequest, ScrapeAttempt, ScraperSummary, ScrapeCollectionItemSelection } from "../api/types";
@@ -6,7 +6,7 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { formatDuration, getResolutionLabel } from "./shared";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import { buildFragmentDraft, findDefaultKind, getVideoNameSearchInput, supportsScrapeKind, type CollectionMode, type InputKind } from "./videoScrapeUtils";
-import { buildRelationSelectionPayload, relationKey, ScrapeRelationChoices, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
+import { buildMatchInfo, buildRelationSelectionPayload, relationKey, ScrapeRelationChoices, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
 import {
   CompactCollectionDecision,
   CompactImageDecision,
@@ -161,6 +161,8 @@ function parseAttemptResults(attempt: ScrapeAttempt): Record<string, unknown>[] 
 }
 
 function toCandidates(names: string[]) {
+  // existsLocally is a placeholder here; scraper results don't know local state at parse time. The
+  // row enriches it from the backend resolve-relations matcher (see the resolvedRelations query).
   return names.map((name) => ({ remoteId: name, name, existsLocally: false }));
 }
 
@@ -885,8 +887,44 @@ function TaggerVideoRow({
       setRefreshBusyEndpoint(null);
     }
   };
-  const selectedResult = state?.results?.[state.selectedIndex ?? 0];
   const queryClient = useQueryClient();
+  // Resolve which scraper-returned tag/performer names already exist locally, using the same backend
+  // matcher the apply path uses (alias-aware for performers). Metadata-server results already carry
+  // correct existsLocally from their own search, so only scraper candidates are enriched below.
+  const scraperResultNames = useMemo(() => {
+    const tags = new Set<string>();
+    const performers = new Set<string>();
+    for (const r of state?.results ?? []) {
+      if (r.sourceKind !== "scraper") continue;
+      r.tagNames.forEach((name) => tags.add(name));
+      r.performerNames.forEach((name) => performers.add(name));
+    }
+    return { tags: [...tags], performers: [...performers] };
+  }, [state?.results]);
+  const { data: resolvedRelations } = useQuery({
+    queryKey: ["tagger-resolve-relations", scraperResultNames],
+    queryFn: () => scrapeAttempts.resolveRelations({ tags: scraperResultNames.tags, performers: scraperResultNames.performers }),
+    enabled: scraperResultNames.tags.length > 0 || scraperResultNames.performers.length > 0,
+    staleTime: 30_000,
+  });
+  const existingTagKeys = useMemo(() => new Set((resolvedRelations?.tags ?? []).map((m) => relationKey(m.input))), [resolvedRelations]);
+  const existingPerformerKeys = useMemo(() => new Set((resolvedRelations?.performers ?? []).map((m) => relationKey(m.input))), [resolvedRelations]);
+  const tagMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.tags), [resolvedRelations]);
+  const performerMatchInfo = useMemo(() => buildMatchInfo(resolvedRelations?.performers), [resolvedRelations]);
+  const enrichedResults = useMemo(() => {
+    const results = state?.results;
+    if (!results) return results;
+    return results.map((r) =>
+      r.sourceKind !== "scraper"
+        ? r
+        : {
+            ...r,
+            tagCandidates: r.tagCandidates.map((c) => ({ ...c, existsLocally: existingTagKeys.has(relationKey(c.name)) })),
+            performerCandidates: r.performerCandidates.map((c) => ({ ...c, existsLocally: existingPerformerKeys.has(relationKey(c.name)) })),
+          },
+    );
+  }, [state?.results, existingTagKeys, existingPerformerKeys]);
+  const selectedResult = enrichedResults?.[state?.selectedIndex ?? 0];
   const videoLinkProps = createNestedRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () => onNavigate?.(video.id));
   const isScraperSource = source?.kind === "scraper";
   const videoUrls = (video.urls ?? []).filter((url) => url.trim());
@@ -1160,7 +1198,9 @@ function TaggerVideoRow({
           {state?.results && state.results.length > 0 && (
             <TaggerResults
               video={video}
-              results={state.results}
+              results={enrichedResults ?? state.results}
+              tagMatchInfo={tagMatchInfo}
+              performerMatchInfo={performerMatchInfo}
               selectedIndex={state.selectedIndex ?? 0}
               onSelect={(i) => onUpdateState(i === (state.selectedIndex ?? 0) ? { selectedIndex: i } : {
                 selectedIndex: i,
@@ -1253,6 +1293,8 @@ function TaggerVideoRow({
 interface TaggerResultsProps {
   video: Video;
   results: UnifiedVideoMatch[];
+  tagMatchInfo?: Record<string, string>;
+  performerMatchInfo?: Record<string, string>;
   selectedIndex: number;
   onSelect: (index: number) => void;
   onSave: () => void;
@@ -1275,7 +1317,7 @@ interface TaggerResultsProps {
   taggerConfig: TaggerConfig;
 }
 
-function TaggerResults({ video, results, selectedIndex, onSelect, onSave, saving, saved, localDuration, excludedPerformers, excludedTags, skipStudio, forceIncludedPerformers, forceIncludedTags, forceIncludeStudio, fieldStrategies, collectionModes, onFieldStrategyChange, onCollectionModeChange, onTogglePerformer, onToggleTag, onToggleStudio, taggerConfig }: TaggerResultsProps) {
+function TaggerResults({ video, results, tagMatchInfo, performerMatchInfo, selectedIndex, onSelect, onSave, saving, saved, localDuration, excludedPerformers, excludedTags, skipStudio, forceIncludedPerformers, forceIncludedTags, forceIncludeStudio, fieldStrategies, collectionModes, onFieldStrategyChange, onCollectionModeChange, onTogglePerformer, onToggleTag, onToggleStudio, taggerConfig }: TaggerResultsProps) {
   return (
     <div className="space-y-1">
       {results.map((result, i) => (
@@ -1283,6 +1325,8 @@ function TaggerResults({ video, results, selectedIndex, onSelect, onSave, saving
           key={`${result.endpoint}-${result.id}`}
           video={video}
           result={result}
+          tagMatchInfo={tagMatchInfo}
+          performerMatchInfo={performerMatchInfo}
           isSelected={i === selectedIndex}
           onClick={() => onSelect(i)}
           onSave={i === selectedIndex ? onSave : undefined}
@@ -1312,6 +1356,8 @@ function TaggerResults({ video, results, selectedIndex, onSelect, onSave, saving
 function TaggerResultRow({
   video,
   result,
+  tagMatchInfo,
+  performerMatchInfo,
   isSelected,
   onClick,
   onSave,
@@ -1335,6 +1381,8 @@ function TaggerResultRow({
 }: {
   video: Video;
   result: MetadataServerVideoMatch;
+  tagMatchInfo?: Record<string, string>;
+  performerMatchInfo?: Record<string, string>;
   isSelected: boolean;
   onClick: () => void;
   onSave?: () => void;
@@ -1512,6 +1560,7 @@ function TaggerResultRow({
                     names={result.performerNames}
                     currentNames={currentPerformerNames}
                     existingNames={existingPerformerNames}
+                    matchInfo={performerMatchInfo}
                     actions={performerActions}
                     disabled={collectionModes.performers === "skip"}
                     onActionChange={(name) => onTogglePerformer?.(name)}
@@ -1533,6 +1582,7 @@ function TaggerResultRow({
                     names={result.tagNames}
                     currentNames={currentTagNames}
                     existingNames={existingTagNames}
+                    matchInfo={tagMatchInfo}
                     actions={tagActions}
                     disabled={collectionModes.tags === "skip"}
                     onActionChange={(name) => onToggleTag?.(name)}

@@ -27,6 +27,7 @@ import { TEXT_CRITERIA } from "../components/FilterDialog";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
+import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 
 const SORT_OPTIONS = [
   { value: "updatedAt", label: "Updated At" },
@@ -89,6 +90,8 @@ export function TextsPage({ onNavigate }: Props) {
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
+  const textIds = useMemo(() => items.map((t) => t.id) ?? [], [items]);
+  const { engagementById: textEngagement } = useEntityEngagementBatch("text", textIds);
   const { hasPermission } = useAuth();
   const canWriteText = canWriteEntity("text", hasPermission);
   const handleSelectAllMatching = async () => {
@@ -165,6 +168,7 @@ export function TextsPage({ onNavigate }: Props) {
           renderItem={(text) => (
             <TextTile
               text={text}
+              engagement={textEngagement.get(text.id)}
               selected={selectedIds.has(text.id)}
               selecting={selecting}
               onSelect={() => toggle(text.id)}

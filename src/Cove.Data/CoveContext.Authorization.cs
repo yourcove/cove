@@ -49,7 +49,7 @@ public partial class CoveContext
     private bool CanReadGalleriesByRule => CurrentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Gallery) == true;
     private bool CanReadImagesByRule => CurrentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true;
     private bool CanReadGroupsByRule => CurrentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Group) == true;
-    private bool CanReadSegmentsByRule => CurrentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Marker) == true;
+    private bool CanReadSegmentsByRule => CurrentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Segment) == true;
 
     private bool RequiresVideoReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains(EntityKinds.Video) == true;
     private bool RequiresAudioReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains(EntityKinds.Audio) == true;
@@ -60,7 +60,7 @@ public partial class CoveContext
     private bool RequiresGalleryReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains(EntityKinds.Gallery) == true;
     private bool RequiresImageReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains(EntityKinds.Image) == true;
     private bool RequiresGroupReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains(EntityKinds.Group) == true;
-    private bool RequiresMarkerReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains("marker") == true;
+    private bool RequiresSegmentReadScopeEvaluation => CurrentShareLinkId != null || CurrentPrincipal?.ReadRestrictedEntityKinds.Contains(EntityKinds.Segment) == true;
 
     [DbFunction("cove_authz_can_read", "public")]
     public static bool CanReadEntitySql(
@@ -173,16 +173,6 @@ public partial class CoveContext
 
         modelBuilder.Entity<SegmentDisplayRule>().HasQueryFilter(rule =>
             AuthorizationFiltersBypassed || rule.UserId == null || (CurrentUserId != null && rule.UserId == CurrentUserId));
-
-        modelBuilder.Entity<VideoMarker>().HasQueryFilter(marker =>
-            AuthorizationFiltersBypassed
-                ? true
-                : (!RequiresMarkerReadScopeEvaluation
-                    ? CanReadSegments
-                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Marker, marker.Id))
-                && (!RequiresVideoReadScopeEvaluation
-                    ? CanReadVideos
-                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, marker.VideoId)));
 
         modelBuilder.Entity<GalleryChapter>().HasQueryFilter(chapter =>
             AuthorizationFiltersBypassed
@@ -486,9 +476,9 @@ public partial class CoveContext
                             : application.ContextType == "face"
                                 ? CanReadFaces
                                 : application.ContextType == "segment" || application.ContextType == "detection"
-                                    ? (!RequiresMarkerReadScopeEvaluation
+                                    ? (!RequiresSegmentReadScopeEvaluation
                                         ? CanReadSegments
-                                        : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Marker, application.ContextId.Value))
+                                        : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Segment, application.ContextId.Value))
                                     : false)));
 
         modelBuilder.Entity<PerformerTag>().HasQueryFilter(link =>
@@ -590,15 +580,5 @@ public partial class CoveContext
                 && (!RequiresTagReadScopeEvaluation
                     ? CanReadTags
                     : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadTags, CanReadTagsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Tag, link.ChildId)));
-
-        modelBuilder.Entity<VideoMarkerTag>().HasQueryFilter(link =>
-            AuthorizationFiltersBypassed
-                ? true
-                : (!RequiresMarkerReadScopeEvaluation
-                    ? CanReadSegments
-                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Marker, link.VideoMarkerId))
-                && (!RequiresTagReadScopeEvaluation
-                    ? CanReadTags
-                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadTags, CanReadTagsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Tag, link.TagId)));
     }
 }

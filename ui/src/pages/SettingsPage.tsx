@@ -466,7 +466,7 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   thumbnails: true,
   previews: false,
   sprites: false,
-  markers: false,
+  segments: false,
   segmentThumbnails: false,
   segmentPreviews: false,
   phashes: false,
@@ -4612,12 +4612,12 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
               <CheckboxLabel
                 label="Segment thumbnails"
                 checked={!!genOpts.segmentThumbnails}
-                onChange={(c) => setGenOpts({ ...genOpts, segmentThumbnails: c, segmentPreviews: c ? genOpts.segmentPreviews : false, markers: false })}
+                onChange={(c) => setGenOpts({ ...genOpts, segmentThumbnails: c, segmentPreviews: c ? genOpts.segmentPreviews : false, segments: false })}
               />
               <CheckboxLabel
                 label="Animated segment previews"
                 checked={!!genOpts.segmentPreviews}
-                onChange={(c) => setGenOpts({ ...genOpts, segmentThumbnails: c ? true : genOpts.segmentThumbnails, segmentPreviews: c, markers: false })}
+                onChange={(c) => setGenOpts({ ...genOpts, segmentThumbnails: c ? true : genOpts.segmentThumbnails, segmentPreviews: c, segments: false })}
               />
               <CheckboxLabel label="Perceptual hashes (phash)" checked={!!genOpts.phashes} onChange={(c) => setGenOpts({ ...genOpts, phashes: c })} />
               <CheckboxLabel label="MD5 checksums" checked={!!genOpts.md5} onChange={(c) => setGenOpts({ ...genOpts, md5: c })} />
@@ -4780,7 +4780,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
     screenshots: true,
     sprites: true,
     transcodes: true,
-    markers: true,
+    segments: true,
     imageThumbnails: true,
     dryRun: false,
   });
@@ -4935,7 +4935,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
             <CheckboxLabel label="Screenshots" checked={!!cleanGenOpts.screenshots} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, screenshots: c })} />
             <CheckboxLabel label="Sprites" checked={!!cleanGenOpts.sprites} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, sprites: c })} />
             <CheckboxLabel label="Transcodes" checked={!!cleanGenOpts.transcodes} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, transcodes: c })} />
-            <CheckboxLabel label="Segments" checked={!!cleanGenOpts.markers} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, markers: c })} />
+            <CheckboxLabel label="Segments" checked={!!cleanGenOpts.segments} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, segments: c })} />
             <CheckboxLabel label="Image thumbnails" checked={!!cleanGenOpts.imageThumbnails} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, imageThumbnails: c })} />
             <CheckboxLabel label="Dry run" checked={!!cleanGenOpts.dryRun} onChange={(c) => setCleanGenOpts({ ...cleanGenOpts, dryRun: c })} />
           </div>

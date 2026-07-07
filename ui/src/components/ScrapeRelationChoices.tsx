@@ -7,6 +7,16 @@ export function relationKey(name: string) {
   return name.trim().toLowerCase();
 }
 
+// relationKey(scraped name) -> the existing entity's primary name. Differs from the scraped name when
+// the match was via an alias; surfaced as the ScrapeRelationChoices tooltip so a match is never a mystery.
+export function buildMatchInfo(matches?: { input: string; matchedName: string }[]): Record<string, string> {
+  const info: Record<string, string> = {};
+  for (const match of matches ?? []) {
+    info[relationKey(match.input)] = match.matchedName;
+  }
+  return info;
+}
+
 export function buildRelationActionMap(
   scrapedNames: string[],
   currentNames: string[],
@@ -41,6 +51,7 @@ export function ScrapeRelationChoices({
   names,
   currentNames,
   existingNames,
+  matchInfo,
   actions,
   onActionChange,
   disabled = false,
@@ -48,6 +59,9 @@ export function ScrapeRelationChoices({
   names: string[];
   currentNames: string[];
   existingNames: string[];
+  // relationKey(scraped name) -> the existing entity's primary name. When it differs from the
+  // scraped name, the match was via an alias; surfaced in the tooltip so a match is never a mystery.
+  matchInfo?: Record<string, string>;
   actions: ScrapeRelationActionMap;
   onActionChange: (name: string, action: ScrapeCollectionItemAction) => void;
   disabled?: boolean;
@@ -63,6 +77,9 @@ export function ScrapeRelationChoices({
         const isCurrent = current.has(key);
         const existsLocally = isCurrent || existing.has(key);
         const nextAction = action === "exclude" ? existsLocally ? "include" : "create" : "exclude";
+        // Show the matched primary name only when it differs from the scraped name (alias match).
+        const matchedName = matchInfo?.[key];
+        const aliasMatch = matchedName != null && relationKey(matchedName) !== key ? matchedName : null;
         const label = action === "exclude"
           ? "Excluded"
           : action === "create"
@@ -75,8 +92,14 @@ export function ScrapeRelationChoices({
         const title = action === "exclude"
           ? `${name} is excluded`
           : action === "create"
-            ? `${name} will be created`
-            : `${name} will be included`;
+            ? `${name} has no existing match — a new entry will be created`
+            : isCurrent
+              ? `${name} is already linked`
+              : aliasMatch
+                ? `${name} matches existing "${aliasMatch}" (alias) — no new entry created`
+                : existsLocally
+                  ? `${name} matches an existing entry — no new entry created`
+                  : `${name} will be included`;
 
         return (
           <button

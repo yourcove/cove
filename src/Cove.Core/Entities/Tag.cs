@@ -22,7 +22,7 @@ public class Tag : BaseEntity
 
     // Denormalized usage counters for hot list/detail reads.
     public int VideoCount { get; set; }
-    public int VideoMarkerCount { get; set; }
+    public int SegmentCount { get; set; }
     public int ImageCount { get; set; }
     public int GalleryCount { get; set; }
     public int GroupCount { get; set; }

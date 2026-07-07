@@ -999,7 +999,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
         points: [
           "[green] the scrubber with segment and face swimlanes",
           "[blue] speed and loop controls",
-          "Click a swimlane marker to jump straight to that moment",
+          "Click a swimlane segment to jump straight to that moment",
         ],
         topicLinks: [
           { label: "How segments work", topicId: "segments" },
