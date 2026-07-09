@@ -9,6 +9,7 @@ import { createRouteLinkProps } from "../components/cardNavigation";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { readAuthenticatedUserHomePageContent, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
+import { withSeededRandomSort } from "../utils/seededRandomSort";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -248,20 +249,24 @@ function RecommendationRow({ content, onNavigate }: { content: FrontPageContent;
 // ─── Custom Filter Row ──────────────────────────────────────────────────────
 
 function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomFilter; onNavigate: (r: any) => void }) {
+  const findFilter = useMemo(
+    () => withSeededRandomSort({}, { perPage: 25, sort: filter.sortBy, direction: filter.direction }),
+    [filter],
+  );
+
   const fetchFn = useMemo((): (() => Promise<any>) => {
-    const params = { perPage: 25, sort: filter.sortBy, direction: filter.direction };
     switch (filter.mode) {
-      case "videos": return () => videos.find(params);
-      case "performers": return () => performers.find(params);
-      case "studios": return () => studios.find(params);
-      case "tags": return () => tags.find(params);
-      case "galleries": return () => galleries.find(params);
-      case "groups": return () => groups.find(params);
+      case "videos": return () => videos.find(findFilter);
+      case "performers": return () => performers.find(findFilter);
+      case "studios": return () => studios.find(findFilter);
+      case "tags": return () => tags.find(findFilter);
+      case "galleries": return () => galleries.find(findFilter);
+      case "groups": return () => groups.find(findFilter);
     }
-  }, [filter]);
+  }, [filter.mode, findFilter]);
 
   const { data, isLoading } = useQuery<any>({
-    queryKey: ["front-page", filter.mode, filter.sortBy, filter.direction],
+    queryKey: ["front-page", filter.mode, findFilter],
     queryFn: fetchFn,
   });
 
@@ -297,29 +302,32 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
   const parsedFilter = useMemo(() => parseJsonObject<FindFilter>(filter?.findFilter) ?? {}, [filter?.findFilter]);
   const parsedObjectFilter = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.objectFilter), [filter?.objectFilter]);
   const hasObjectFilter = !!parsedObjectFilter && Object.keys(parsedObjectFilter).length > 0;
-
-  const fetchFn = useMemo((): (() => Promise<any>) => {
-    if (!mode) return () => Promise.resolve({ items: [], totalCount: 0 });
-    const findFilter = {
+  const findFilter = useMemo((): FindFilter | undefined => {
+    if (!mode) return undefined;
+    return withSeededRandomSort({}, {
       ...parsedFilter,
       page: 1,
       perPage: 25,
       sort: parsedFilter.sort ?? DEFAULT_SORT_BY_MODE[mode],
       direction: parsedFilter.direction ?? "desc",
-    };
+    });
+  }, [mode, parsedFilter]);
+
+  const fetchFn = useMemo((): (() => Promise<any>) => {
+    if (!mode) return () => Promise.resolve({ items: [], totalCount: 0 });
     const fetchMap: Record<string, () => Promise<any>> = {
       videos: hasObjectFilter ? () => videos.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => videos.find(findFilter),
       performers: hasObjectFilter ? () => performers.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => performers.find(findFilter),
       studios: hasObjectFilter ? () => studios.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => studios.find(findFilter),
-      tags: () => tags.find(findFilter),
+      tags: hasObjectFilter ? () => tags.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => tags.find(findFilter),
       galleries: hasObjectFilter ? () => galleries.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => galleries.find(findFilter),
       groups: hasObjectFilter ? () => groups.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => groups.find(findFilter),
     };
     return fetchMap[mode] ?? (() => Promise.resolve({ items: [], totalCount: 0 }));
-  }, [mode, parsedFilter, parsedObjectFilter, hasObjectFilter]);
+  }, [mode, findFilter, parsedObjectFilter, hasObjectFilter]);
 
   const { data, isLoading } = useQuery<any>({
-    queryKey: ["front-page-saved", savedFilterId, mode, parsedFilter, parsedObjectFilter],
+    queryKey: ["front-page-saved", savedFilterId, mode, findFilter, parsedObjectFilter],
     queryFn: fetchFn,
     enabled: !!mode,
   });
@@ -840,4 +848,3 @@ function FrontPageEditor({
 function getSavedFilterLabel(item: SavedFilterRow, savedFilterById: Map<number, SavedFilter>) {
   return savedFilterById.get(item.savedFilterId)?.name ?? `Saved Filter #${item.savedFilterId}`;
 }
-
