@@ -24,19 +24,6 @@ function MultiSelectProbe() {
   );
 }
 
-function LegacyPreserveProbe() {
-  const [items, setItems] = useState([{ id: 1 }]);
-  const { selectedIds, toggle } = useMultiSelect(items, { preserveOnAppend: true });
-
-  return (
-    <div>
-      <div data-testid="selected">{[...selectedIds].join(",")}</div>
-      <button type="button" onClick={() => toggle(1)}>Toggle first</button>
-      <button type="button" onClick={() => setItems((current) => [...current, { id: 2 }])}>Append</button>
-    </div>
-  );
-}
-
 function IdSelectableProbe() {
   const items = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
   const { selectedIds, toggle, selectAll, selectIds, invertSelection } = useMultiSelect(items, {
@@ -118,19 +105,6 @@ describe("useMultiSelect", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("selected")).toBeEmptyDOMElement();
-    });
-  });
-
-  it("accepts the deprecated preserveOnAppend alias while callers migrate", async () => {
-    const user = userEvent.setup();
-
-    render(<LegacyPreserveProbe />);
-
-    await user.click(screen.getByRole("button", { name: "Toggle first" }));
-    await user.click(screen.getByRole("button", { name: "Append" }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("selected")).toHaveTextContent("1");
     });
   });
 

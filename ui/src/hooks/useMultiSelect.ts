@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseMultiSelectOptions<T extends { id: string | number }> {
   preserveOnItemsChange?: boolean;
-  /** @deprecated Use preserveOnItemsChange instead. */
-  preserveOnAppend?: boolean;
   resetKey?: string;
   isSelectable?: (item: T) => boolean;
   isSelectableId?: (id: T["id"]) => boolean;
@@ -45,7 +43,7 @@ export function useMultiSelect<T extends { id: string | number }>(items: T[], op
   const isSelectable = options.isSelectable ?? allSelectable;
   const isSelectableId = options.isSelectableId ?? allSelectable;
   const canSelectUnloadedIds = options.isSelectableId !== undefined;
-  const preserveOnItemsChange = options.preserveOnItemsChange ?? options.preserveOnAppend ?? false;
+  const preserveOnItemsChange = options.preserveOnItemsChange ?? false;
 
   // Infinite lists can unload pages above or below the viewport, so those selections are preserved until the query changes.
   const itemIdsKey = items.map((item) => String(item.id)).join(",");
