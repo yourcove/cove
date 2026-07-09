@@ -216,6 +216,64 @@ public class TagsControllerSegmentTests
     }
 
     [Fact]
+    public async Task TagDetail_OrdersParentsAndChildrenByEffectiveSortName()
+    {
+        await using var context = CreateContext();
+
+        var parent = new Tag { Name = "Parent" };
+        var zebraChild = new Tag { Name = "Zebra Child" };
+        var appleChild = new Tag { Name = "Apple Child" };
+        var bravoSortChild = new Tag { Name = "Xylophone Child", SortName = "Bravo Child" };
+        var deltaSortChild = new Tag { Name = "Antelope Child", SortName = "Delta Child" };
+
+        var child = new Tag { Name = "Child" };
+        var zebraParent = new Tag { Name = "Zebra Parent" };
+        var appleParent = new Tag { Name = "Apple Parent" };
+        var bravoSortParent = new Tag { Name = "Xylophone Parent", SortName = "Bravo Parent" };
+        var deltaSortParent = new Tag { Name = "Antelope Parent", SortName = "Delta Parent" };
+
+        context.Tags.AddRange(
+            parent,
+            zebraChild,
+            appleChild,
+            bravoSortChild,
+            deltaSortChild,
+            child,
+            zebraParent,
+            appleParent,
+            bravoSortParent,
+            deltaSortParent);
+        await context.SaveChangesAsync();
+
+        context.Set<TagParent>().AddRange(
+            new TagParent { ParentId = parent.Id, ChildId = zebraChild.Id },
+            new TagParent { ParentId = parent.Id, ChildId = appleChild.Id },
+            new TagParent { ParentId = parent.Id, ChildId = bravoSortChild.Id },
+            new TagParent { ParentId = parent.Id, ChildId = deltaSortChild.Id },
+            new TagParent { ParentId = zebraParent.Id, ChildId = child.Id },
+            new TagParent { ParentId = appleParent.Id, ChildId = child.Id },
+            new TagParent { ParentId = bravoSortParent.Id, ChildId = child.Id },
+            new TagParent { ParentId = deltaSortParent.Id, ChildId = child.Id });
+        await context.SaveChangesAsync();
+
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
+
+        var parentDetailResult = await controller.GetById(parent.Id, CancellationToken.None);
+        var parentDetailOk = Assert.IsType<OkObjectResult>(parentDetailResult.Result);
+        var parentDetail = Assert.IsType<TagDetailDto>(parentDetailOk.Value);
+        Assert.Equal(
+            [appleChild.Name, bravoSortChild.Name, deltaSortChild.Name, zebraChild.Name],
+            parentDetail.Children.Select(tag => tag.Name).ToList());
+
+        var childDetailResult = await controller.GetById(child.Id, CancellationToken.None);
+        var childDetailOk = Assert.IsType<OkObjectResult>(childDetailResult.Result);
+        var childDetail = Assert.IsType<TagDetailDto>(childDetailOk.Value);
+        Assert.Equal(
+            [appleParent.Name, bravoSortParent.Name, deltaSortParent.Name, zebraParent.Name],
+            childDetail.Parents.Select(tag => tag.Name).ToList());
+    }
+
+    [Fact]
     public async Task GetSegmentTitles_UsesVideoSegmentTitles()
     {
         await using var context = CreateContext();
