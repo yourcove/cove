@@ -1,5 +1,6 @@
 import { createRouteLinkProps } from "./cardNavigation";
 import type { Route } from "../router/location";
+import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 export function RouteCardLinkOverlay({
   route,
@@ -39,7 +40,7 @@ export function CardSelectionToggle({
 }: {
   selected?: boolean;
   selecting?: boolean;
-  onToggle?: () => void;
+  onToggle?: (options?: MultiSelectToggleOptions) => void;
 }) {
   if (!onToggle) {
     return null;
@@ -53,7 +54,7 @@ export function CardSelectionToggle({
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        onToggle();
+        onToggle(toggleOptionsFromEvent(event));
       }}
       onPointerDown={(event) => event.stopPropagation()}
       className={`absolute left-0.5 top-0.5 z-10 flex h-8 w-8 items-center justify-center rounded-md transition-opacity ${selected || selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}

@@ -13,7 +13,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
@@ -88,7 +88,7 @@ export function TextsPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const textIds = useMemo(() => items.map((t) => t.id) ?? [], [items]);
   const { engagementById: textEngagement } = useEntityEngagementBatch("text", textIds);
@@ -171,8 +171,8 @@ export function TextsPage({ onNavigate }: Props) {
               engagement={textEngagement.get(text.id)}
               selected={selectedIds.has(text.id)}
               selecting={selecting}
-              onSelect={() => toggle(text.id)}
-              onClick={() => selecting ? toggle(text.id) : onNavigate({ page: "text", id: text.id })}
+              onSelect={(toggleOptions) => toggle(text.id, toggleOptions)}
+              onClick={(toggleOptions) => selecting ? toggle(text.id, toggleOptions) : onNavigate({ page: "text", id: text.id })}
               onNavigate={onNavigate}
             />
           )}
@@ -351,7 +351,7 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
   );
 }
 
-function TextListTable({ texts: items, selectedIds, selecting, onToggle, onNavigate }: { texts: TextDocument[]; selectedIds: Set<number>; selecting: boolean; onToggle: (id: number) => void; onNavigate: (route: any) => void }) {
+function TextListTable({ texts: items, selectedIds, selecting, onToggle, onNavigate }: { texts: TextDocument[]; selectedIds: Set<number>; selecting: boolean; onToggle: MultiSelectToggleHandler; onNavigate: (route: any) => void }) {
   const numberFormat = new Intl.NumberFormat();
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -373,13 +373,13 @@ function TextListTable({ texts: items, selectedIds, selecting, onToggle, onNavig
             const primaryFile = pickPrimaryTextFile(text);
             const preview = primaryFile?.excerptText?.trim() || text.details?.trim();
             return (
-              <tr key={text.id} onClick={() => selecting ? onToggle(text.id) : onNavigate({ page: "text", id: text.id })} className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(text.id) ? "bg-accent/10" : ""}`}>
+              <tr key={text.id} onClick={(event) => selecting ? onToggle(text.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "text", id: text.id })} className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(text.id) ? "bg-accent/10" : ""}`}>
                 <td className="px-3 py-2">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(text.id)}
-                    onChange={() => onToggle(text.id)}
-                    onClick={(event) => event.stopPropagation()}
+	                    onChange={() => {}}
+	                    onClick={(event) => { event.stopPropagation(); onToggle(text.id, toggleOptionsFromEvent(event)); }}
                     className="rounded border-border bg-card"
                     aria-label={`Select ${title}`}
                   />
@@ -406,4 +406,3 @@ function TextListTable({ texts: items, selectedIds, selecting, onToggle, onNavig
     </div>
   );
 }
-

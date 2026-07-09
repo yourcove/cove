@@ -4,7 +4,7 @@ import { tags, tagGroups } from "../api/client";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import type { Tag, TagCreate, TagFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { CreateModalActions, EditModal, Field, NumberInput, SelectInput, TextInput, TextArea } from "../components/EditModal";
 import { Merge, Layers, Tag as TagIcon } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
@@ -109,7 +109,7 @@ export function TagsPage({ onNavigate }: Props) {
   const { engagementById } = useEntityEngagementBatch("tag", items.map((item) => item.id));
   const selectionItems: Array<Pick<Tag, "id" | "name" | "imagePath">> = displayMode === "graph" ? graphData?.items ?? [] : items;
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter, displayMode }), [displayMode, listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(selectionItems, { preserveOnAppend: displayMode !== "graph" && listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(selectionItems, { preserveOnItemsChange: displayMode !== "graph" && listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -215,10 +215,10 @@ export function TagsPage({ onNavigate }: Props) {
             <TagTile
               tag={tag}
               engagement={engagementById.get(tag.id)}
-              onClick={() => selecting ? toggle(tag.id) : onNavigate({ page: "tag", id: tag.id })}
+              onClick={(toggleOptions) => selecting ? toggle(tag.id, toggleOptions) : onNavigate({ page: "tag", id: tag.id })}
               onNavigate={onNavigate}
               selected={selectedIds.has(tag.id)}
-              onSelect={() => toggle(tag.id)}
+              onSelect={(toggleOptions) => toggle(tag.id, toggleOptions)}
               selecting={selecting}
             >
               <ExtensionSlot slot="tag-card-footer" context={{ tag, onNavigate }} />
@@ -359,7 +359,7 @@ function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: 
   );
 }
 
-function TagListTable({ tags: items, onNavigate, selectedIds, onToggle, selecting }: { tags: Tag[]; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: (id: number) => void; selecting?: boolean }) {
+function TagListTable({ tags: items, onNavigate, selectedIds, onToggle, selecting }: { tags: Tag[]; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -376,10 +376,10 @@ function TagListTable({ tags: items, onNavigate, selectedIds, onToggle, selectin
         {items.map((t) => (
           <tr
             key={t.id}
-            onClick={() => selecting ? onToggle?.(t.id) : onNavigate({ page: "tag", id: t.id })}
+            onClick={(event) => selecting ? onToggle?.(t.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: t.id })}
             className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(t.id) ? "bg-accent/10" : ""}`}
           >
-            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => onToggle?.(t.id)} onClick={(e) => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
+            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => {}} onClick={(event) => { event.stopPropagation(); onToggle?.(t.id, toggleOptionsFromEvent(event)); }} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
             <td className="py-2 px-3 text-foreground">{t.name}</td>
             <td className="py-2 px-3 text-secondary">
               {t.tagGroupName ? (
@@ -398,4 +398,3 @@ function TagListTable({ tags: items, onNavigate, selectedIds, onToggle, selectin
     </table>
   );
 }
-

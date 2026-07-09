@@ -3,6 +3,7 @@ import type { DisplayMode } from "../../components/ListPage";
 import { DerivedSpanResults } from "./DerivedSpanResults";
 import { RawSegmentResults } from "./RawSegmentResults";
 import type { AppliedDerivedQuery, DerivedSpanItem, RawSegmentItem } from "./types";
+import type { MultiSelectToggleHandler } from "../../hooks/useMultiSelect";
 
 interface Props {
   displayMode: DisplayMode;
@@ -16,7 +17,7 @@ interface Props {
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selectedIds: Set<string | number>;
-  onToggle: (id: string | number) => void;
+  onToggle: MultiSelectToggleHandler<string | number>;
   selecting: boolean;
   infinitePageSize: boolean;
   hasNextPage?: boolean;

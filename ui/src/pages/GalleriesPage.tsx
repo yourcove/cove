@@ -5,7 +5,7 @@ import type { EntityEngagement, FindFilter, Gallery, GalleryCreate, GalleryFilte
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { RatingBanner } from "../components/Rating";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { FolderOpen, Images as ImagesIcon, Trash2, Loader2, Edit, Box, Film, Check, Search, Download } from "lucide-react";
 import { GalleryTile, PopoverButton, VideosPopoverContent, ImagesPopoverContent, EntityReferencePopovers } from "../components/EntityCards";
@@ -88,7 +88,7 @@ export function GalleriesPage({ onNavigate }: Props) {
   const { engagementById } = useEntityEngagementBatch("gallery", items.map((item) => item.id));
   const wallColumns = useWallColumns(items, wallColumnCount);
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const selectedGallery = selectedIds.size === 1 ? items.find((gallery) => selectedIds.has(gallery.id)) : undefined;
   const selectedDownloadTargets = useMemo(() => getUndownloadedSelectionItems(items, selectedIds), [items, selectedIds]);
@@ -222,7 +222,7 @@ export function GalleriesPage({ onNavigate }: Props) {
           isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
           loadMore={listData.loadMore}
           renderItem={(g) => (
-            <GalleryTile gallery={g} engagement={engagementById.get(g.id)} onClick={() => selecting ? toggle(g.id) : onNavigate({ page: "gallery", id: g.id })} onNavigate={onNavigate} selected={selectedIds.has(g.id)} onSelect={() => toggle(g.id)} selecting={selecting} />
+            <GalleryTile gallery={g} engagement={engagementById.get(g.id)} onClick={(toggleOptions) => selecting ? toggle(g.id, toggleOptions) : onNavigate({ page: "gallery", id: g.id })} onNavigate={onNavigate} selected={selectedIds.has(g.id)} onSelect={(toggleOptions) => toggle(g.id, toggleOptions)} selecting={selecting} />
           )}
         />
       ) : displayMode === "list" ? (
@@ -241,10 +241,10 @@ export function GalleriesPage({ onNavigate }: Props) {
                 <GalleryWallCard
                   gallery={gallery}
                   engagement={engagementById.get(gallery.id)}
-                  onClick={() => selecting ? toggle(gallery.id) : onNavigate({ page: "gallery", id: gallery.id })}
+                  onClick={(toggleOptions) => selecting ? toggle(gallery.id, toggleOptions) : onNavigate({ page: "gallery", id: gallery.id })}
                   onNavigate={onNavigate}
                   selected={selectedIds.has(gallery.id)}
-                  onSelect={() => toggle(gallery.id)}
+                  onSelect={(toggleOptions) => toggle(gallery.id, toggleOptions)}
                   selecting={selecting}
                 />
           )}
@@ -270,13 +270,13 @@ export function GalleriesPage({ onNavigate }: Props) {
   );
 }
 
-function GalleryWallCard({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting }: { gallery: Gallery; engagement?: EntityEngagement; onClick: () => void; onNavigate: (route: any) => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+function GalleryWallCard({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting }: { gallery: Gallery; engagement?: EntityEngagement; onClick: BoundMultiSelectToggleHandler; onNavigate: (route: any) => void; selected?: boolean; onSelect?: BoundMultiSelectToggleHandler; selecting?: boolean }) {
   const rating = engagement?.rating;
   const galleryCoverSrc = gallery.coverPath ?? galleries.coverUrl(gallery.id, gallery.updatedAt, 960);
 
   return (
     <WallMediaCard
-      onClick={onClick}
+      onClick={(event) => onClick(toggleOptionsFromEvent(event))}
       title={getGalleryDisplayTitle(gallery)}
       imageSrc={galleryCoverSrc}
       aspectRatio="1 / 1"
@@ -330,7 +330,7 @@ function GalleryWallCard({ gallery, engagement, onClick, onNavigate, selected, o
   );
 }
 
-function GalleryListTable({ galleries: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { galleries: Gallery[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: (id: number) => void; selecting?: boolean }) {
+function GalleryListTable({ galleries: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { galleries: Gallery[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -345,8 +345,8 @@ function GalleryListTable({ galleries: items, engagementById, onNavigate, select
       </thead>
       <tbody>
         {items.map((g) => (
-          <tr key={g.id} onClick={() => selecting ? onToggle?.(g.id) : onNavigate({ page: "gallery", id: g.id })} className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(g.id) ? "bg-accent/10" : ""}`}>
-            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(g.id)} onChange={() => onToggle?.(g.id)} onClick={(e) => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
+          <tr key={g.id} onClick={(event) => selecting ? onToggle?.(g.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "gallery", id: g.id })} className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(g.id) ? "bg-accent/10" : ""}`}>
+            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(g.id)} onChange={() => {}} onClick={(event) => { event.stopPropagation(); onToggle?.(g.id, toggleOptionsFromEvent(event)); }} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
             <td className="py-2 px-3 text-foreground">{getGalleryDisplayTitle(g)}</td>
             <td className="py-2 px-3 text-secondary">{g.studioName ?? ""}</td>
             <td className="py-2 px-3 text-secondary">{g.date ?? ""}</td>
@@ -425,4 +425,3 @@ function GalleryCreateModal({ open, onClose, onCreated }: { open: boolean; onClo
     </EditModal>
   );
 }
-

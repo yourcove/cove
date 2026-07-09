@@ -35,13 +35,14 @@ import {
   Upload,
   CloudUpload,
 } from "lucide-react";
+import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface VideoTaggerProps {
   videos: Video[];
   onNavigate?: (videoId: number) => void;
   selectedIds?: Set<number>;
   selecting?: boolean;
-  onSelect?: (videoId: number) => void;
+  onSelect?: (videoId: number, options?: MultiSelectToggleOptions) => void;
   mode?: "bulk" | "detail";
 }
 
@@ -669,6 +670,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         const state = searchStates[s.id];
         return !state || !state.results || state.results.length > 0;
       });
+  const visibleVideoIds = visibleVideos.map((video) => video.id);
 
   return (
     <div className="space-y-0">
@@ -824,7 +826,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
             onNavigate={onNavigate}
             selected={selectedIds?.has(video.id) ?? false}
             selecting={selecting}
-            onSelect={onSelect}
+            onSelect={onSelect ? withOrderedToggle(onSelect, visibleVideoIds) : undefined}
             detailMode={mode === "detail"}
           />
         ))}
@@ -852,7 +854,7 @@ interface TaggerVideoRowProps {
   onNavigate?: (videoId: number) => void;
   selected?: boolean;
   selecting?: boolean;
-  onSelect?: (videoId: number) => void;
+  onSelect?: (videoId: number, options?: MultiSelectToggleOptions) => void;
   detailMode?: boolean;
 }
 
@@ -1028,7 +1030,7 @@ function TaggerVideoRow({
         {onSelect && (
           <button
             type="button"
-            onClick={() => onSelect(video.id)}
+            onClick={(event) => onSelect(video.id, toggleOptionsFromEvent(event))}
             className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`}
             aria-label={selected ? "Deselect video" : "Select video"}
             title={selected ? "Deselect" : "Select"}
@@ -1596,5 +1598,3 @@ function TaggerResultRow({
     </div>
   );
 }
-
-

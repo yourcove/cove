@@ -5,12 +5,13 @@ import type { MetadataServer, MetadataServerTagImportRequest, MetadataServerTagM
 import { useAppConfig } from "../state/AppConfigContext";
 import { DEFAULT_TAGGER_BLACKLIST, RemoteRefreshButtons, TaggerSettingsPanel, TaggerToolbar, cleanTaggerQueryString } from "./TaggerShared";
 import { AlertCircle, Check, CloudDownload, CloudUpload, Eye, EyeOff, Loader2, Search, Tag as TagIcon, X } from "lucide-react";
+import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface TagTaggerProps {
   tags: Tag[];
   selectedIds?: Set<number>;
   selecting?: boolean;
-  onSelect?: (tagId: number) => void;
+  onSelect?: (tagId: number, options?: MultiSelectToggleOptions) => void;
   mode?: "bulk" | "detail";
 }
 
@@ -102,6 +103,7 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
   const visibleTags = mode === "detail" || taggerConfig.showTagged
     ? tagList
     : tagList.filter((tag) => !searchStates[tag.id]?.saved);
+  const visibleTagIds = visibleTags.map((tag) => tag.id);
 
   return (
     <div className="space-y-0">
@@ -149,7 +151,7 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
             detailMode={mode === "detail"}
             selected={selectedIds?.has(tag.id) ?? false}
             selecting={selecting}
-            onSelect={onSelect}
+            onSelect={onSelect ? withOrderedToggle(onSelect, visibleTagIds) : undefined}
           />
         ))}
       </div>
@@ -169,7 +171,7 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
   detailMode?: boolean;
   selected: boolean;
   selecting: boolean;
-  onSelect?: (tagId: number) => void;
+  onSelect?: (tagId: number, options?: MultiSelectToggleOptions) => void;
 }) {
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
 
@@ -214,7 +216,7 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
         {onSelect && (
           <button
             type="button"
-            onClick={() => onSelect(tag.id)}
+            onClick={(event) => onSelect(tag.id, toggleOptionsFromEvent(event))}
             className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`}
             aria-label={selected ? "Deselect tag" : "Select tag"}
             title={selected ? "Deselect" : "Select"}

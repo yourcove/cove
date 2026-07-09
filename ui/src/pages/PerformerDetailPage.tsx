@@ -881,7 +881,7 @@ function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
       : videos.find(nextFilter, { performerIds: String(performerId) }),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -932,7 +932,7 @@ function PerformerGalleriesPanel({ performerId, filter, setFilter, onNavigate }:
       : galleries.find(nextFilter, { performerIds: String(performerId) }),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -981,7 +981,7 @@ function PerformerImagesPanel({ performerId, filter, setFilter, onNavigate }: {
       : images.find(nextFilter, { performerIds: String(performerId) }),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -1029,7 +1029,7 @@ function PerformerAudiosPanel({ performerId, filter, setFilter, onNavigate }: {
     }),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -1074,7 +1074,7 @@ function PerformerTextsPanel({ performerId, filter, setFilter, onNavigate }: {
     }),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -1122,7 +1122,7 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
       : performers.groups(performerId, nextFilter),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {

@@ -26,6 +26,7 @@ import { StudioTagger } from "./StudioTagger";
 import { TagTagger } from "./TagTagger";
 import { ScraperEntityTagger } from "./ScraperEntityTagger";
 import { TagGraphView } from "./TagGraphView";
+import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 export type RelatedEntityType = "videos" | "images" | "performers" | "galleries" | "studios" | "tags" | "groups" | "audios" | "texts" | "segments" | "faces";
 
@@ -109,7 +110,8 @@ interface RelatedEntityListViewProps<TItem extends RelatedEntityItem> extends In
   zoomLevel?: number;
   selectedIds?: Set<number>;
   selecting?: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
+  isSelectable?: (item: TItem) => boolean;
   onNavigate: (route: any) => void;
   onVideoQuickView?: (id: number) => void;
   onImageQuickView?: (id: number) => void;
@@ -127,6 +129,7 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
   selectedIds,
   selecting = false,
   onToggle,
+  isSelectable,
   onNavigate,
   onVideoQuickView,
   onImageQuickView,
@@ -178,7 +181,7 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
   }
 
   if (effectiveDisplayMode === "list") {
-    return <RelatedEntityListRows entityType={entityType} items={items} zoomLevel={effectiveZoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={onToggle} onNavigate={onNavigate} {...loadingState} />;
+    return <RelatedEntityListRows entityType={entityType} items={items} zoomLevel={effectiveZoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={onToggle} isSelectable={isSelectable} onNavigate={onNavigate} {...loadingState} />;
   }
 
   if (effectiveDisplayMode === "feed" && (entityType === "videos" || entityType === "images")) {
@@ -253,7 +256,7 @@ function renderRelatedTile<TItem extends RelatedEntityItem>({ entityType, item, 
   engagement?: EntityEngagement;
   selectedIds?: Set<number>;
   selecting: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
   onNavigate: (route: any) => void;
   onVideoQuickView?: (id: number) => void;
   onImageQuickView?: (id: number) => void;
@@ -261,9 +264,9 @@ function renderRelatedTile<TItem extends RelatedEntityItem>({ entityType, item, 
   onImageDetails?: (image: Image) => void;
 }) {
   const selected = selectedIds?.has(item.id) ?? false;
-  const onSelect = onToggle ? () => onToggle(item.id) : undefined;
+  const onSelect = onToggle ? (toggleOptions?: MultiSelectToggleOptions) => onToggle(item.id, toggleOptions) : undefined;
   const route = getRoute(entityType, item);
-  const onClick = () => selecting && onToggle ? onToggle(item.id) : onNavigate(route);
+  const onClick = (toggleOptions?: MultiSelectToggleOptions) => selecting && onToggle ? onToggle(item.id, toggleOptions) : onNavigate(route);
 
   switch (entityType) {
     case "videos": {
@@ -286,17 +289,19 @@ function renderRelatedTile<TItem extends RelatedEntityItem>({ entityType, item, 
   }
 }
 
-export function RelatedEntityListRows<TItem extends RelatedEntityItem>({ entityType, items, zoomLevel, selectedIds, selecting, onToggle, onNavigate, infinitePageSize, hasNextPage, isFetchingNextPage, loadMore }: {
+export function RelatedEntityListRows<TItem extends RelatedEntityItem>({ entityType, items, zoomLevel, selectedIds, selecting, onToggle, isSelectable, onNavigate, infinitePageSize, hasNextPage, isFetchingNextPage, loadMore }: {
   entityType: RelatedEntityType;
   items: TItem[];
   zoomLevel?: number;
   selectedIds?: Set<number>;
   selecting: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
+  isSelectable?: (item: TItem) => boolean;
   onNavigate: (route: any) => void;
 } & InfiniteEntityLoadingState) {
   const listPageCardSize = useListPageCardSizeContext();
   const density = getRelatedListDensity(zoomLevel ?? listPageCardSize?.zoomLevel ?? 1);
+  const canSelect = isSelectable ?? (() => true);
   const renderRow = (item: TItem) => (
     <RelatedEntityListRow
       key={item.id}
@@ -306,6 +311,7 @@ export function RelatedEntityListRows<TItem extends RelatedEntityItem>({ entityT
       selected={selectedIds?.has(item.id) ?? false}
       selecting={selecting}
       onToggle={onToggle}
+      selectable={canSelect(item)}
       onNavigate={onNavigate}
     />
   );
@@ -331,19 +337,20 @@ export function RelatedEntityListRows<TItem extends RelatedEntityItem>({ entityT
   return <div className={`mx-auto flex w-full max-w-7xl flex-col px-2 ${density.containerGapClassName}`}>{items.map(renderRow)}</div>;
 }
 
-export function RelatedEntityListRow<TItem extends RelatedEntityItem>({ entityType, item, density, selected, selecting, onToggle, onNavigate }: {
+export function RelatedEntityListRow<TItem extends RelatedEntityItem>({ entityType, item, density, selected, selecting, onToggle, selectable = true, onNavigate }: {
   entityType: RelatedEntityType;
   item: TItem;
   density?: RelatedListDensity;
   selected?: boolean;
   selecting?: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
+  selectable?: boolean;
   onNavigate: (route: any) => void;
 }) {
   const listPageCardSize = useListPageCardSizeContext();
   const resolvedDensity = density ?? getRelatedListDensity(listPageCardSize?.zoomLevel ?? 1);
   const route = getRoute(entityType, item);
-  const onClick = () => selecting && onToggle ? onToggle(item.id) : onNavigate(route);
+  const onClick = (toggleOptions?: MultiSelectToggleOptions) => selecting && selectable && onToggle ? onToggle(item.id, toggleOptions) : onNavigate(route);
   const stats = getRelatedStats(entityType, item);
   const title = getRelatedTitle(entityType, item);
   const subtitle = getRelatedSubtitle(entityType, item);
@@ -353,12 +360,12 @@ export function RelatedEntityListRow<TItem extends RelatedEntityItem>({ entityTy
     <article
       className={`group flex w-full items-stretch ${resolvedDensity.rowGapClassName} rounded-lg border border-border/70 bg-card/70 ${resolvedDensity.rowPaddingClassName} text-left shadow-sm shadow-black/10 transition-colors hover:border-accent/45 hover:bg-card ${selected ? "border-accent/70 bg-accent/10 ring-1 ring-accent/35" : ""}`}
       style={{ minHeight: resolvedDensity.minHeight }}
-      onClick={onClick}
+      onClick={(event) => onClick(toggleOptionsFromEvent(event))}
     >
-      {onToggle ? (
+      {onToggle && selectable ? (
         <button
           type="button"
-          onClick={(event) => { event.stopPropagation(); onToggle(item.id); }}
+          onClick={(event) => { event.stopPropagation(); onToggle(item.id, toggleOptionsFromEvent(event)); }}
           className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] transition-colors ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-transparent hover:text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`}
           aria-label={selected ? `Deselect ${ENTITY_LABELS[entityType].toLowerCase()}` : `Select ${ENTITY_LABELS[entityType].toLowerCase()}`}
         >
@@ -368,7 +375,7 @@ export function RelatedEntityListRow<TItem extends RelatedEntityItem>({ entityTy
 
       {resolvedDensity.showImage ? <RelatedThumbnail entityType={entityType} item={item} density={resolvedDensity} /> : null}
 
-      <button type="button" onClick={(event) => { event.stopPropagation(); onClick(); }} className="flex min-w-0 flex-1 flex-col justify-center text-left">
+      <button type="button" onClick={(event) => { event.stopPropagation(); onClick(toggleOptionsFromEvent(event)); }} className="flex min-w-0 flex-1 flex-col justify-center text-left">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <h3 className={`min-w-0 truncate font-semibold text-foreground transition-colors group-hover:text-accent ${resolvedDensity.titleClassName}`}>{title}</h3>
           {resolvedDensity.showBadges ? getRelatedStatusBadge(entityType, item) : null}
@@ -390,7 +397,7 @@ function renderRelatedTagger<TItem extends RelatedEntityItem>({ entityType, item
   items: TItem[];
   selectedIds?: Set<number>;
   selecting: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
   onNavigate: (route: any) => void;
 }) {
   switch (entityType) {
@@ -578,12 +585,12 @@ function renderRelatedWallTile<TItem extends RelatedEntityItem>({ entityType, it
   item: TItem;
   selectedIds?: Set<number>;
   selecting: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
   onNavigate: (route: any) => void;
 }) {
   const selected = selectedIds?.has(item.id) ?? false;
-  const onSelect = onToggle ? () => onToggle(item.id) : undefined;
-  const onClick = () => selecting && onToggle ? onToggle(item.id) : onNavigate(getRoute(entityType, item));
+  const onSelect = onToggle ? (toggleOptions?: MultiSelectToggleOptions) => onToggle(item.id, toggleOptions) : undefined;
+  const onClick = (toggleOptions?: MultiSelectToggleOptions) => selecting && onToggle ? onToggle(item.id, toggleOptions) : onNavigate(getRoute(entityType, item));
 
   switch (entityType) {
     case "videos": return <RelatedVideoWallCard video={item as Video} selected={selected} selecting={selecting} onSelect={onSelect} onClick={onClick} />;
@@ -594,7 +601,7 @@ function renderRelatedWallTile<TItem extends RelatedEntityItem>({ entityType, it
   }
 }
 
-function RelatedVideoWallCard({ video, selected, selecting, onSelect, onClick }: { video: Video; selected?: boolean; selecting?: boolean; onSelect?: () => void; onClick: () => void }) {
+function RelatedVideoWallCard({ video, selected, selecting, onSelect, onClick }: { video: Video; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onClick: (options?: MultiSelectToggleOptions) => void }) {
   const file = video.files[0];
   const title = video.title || file?.basename || `Video ${video.id}`;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, 1280);
@@ -615,10 +622,11 @@ function RelatedVideoWallCard({ video, selected, selecting, onSelect, onClick }:
       muted
       aspectRatio={file?.width && file.height ? `${file.width} / ${file.height}` : "16 / 9"}
       imageClassName="object-cover"
+      onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
       className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()}
     >
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${title}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${title}`} disabled={selecting} selectionSafeZone />
       <div className={`absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent transition-opacity ${showTitle ? "opacity-0 group-hover:opacity-100" : "opacity-0"}`} />
       {showTitle ? <div className="absolute inset-x-0 bottom-0 p-2 opacity-0 transition-opacity group-hover:opacity-100"><p className="truncate text-xs font-medium text-white">{title}</p></div> : null}
       {duration > 0 ? <span className="absolute right-1 top-1 rounded bg-black/70 px-1 text-xs text-white">{formatDuration(duration)}</span> : null}
@@ -626,7 +634,7 @@ function RelatedVideoWallCard({ video, selected, selecting, onSelect, onClick }:
   );
 }
 
-function RelatedImageWallCard({ image, selected, selecting, onSelect, onClick }: { image: Image; selected?: boolean; selecting?: boolean; onSelect?: () => void; onClick: () => void }) {
+function RelatedImageWallCard({ image, selected, selecting, onSelect, onClick }: { image: Image; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onClick: (options?: MultiSelectToggleOptions) => void }) {
   const title = getImageDisplayTitle(image);
   const file = image.files[0];
 
@@ -635,20 +643,21 @@ function RelatedImageWallCard({ image, selected, selecting, onSelect, onClick }:
       title={title}
       imageSrc={imageApi.thumbnailUrl(image.id)}
       aspectRatio={file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1"}
+      onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
       className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()}
     >
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={onClick} label={`Open image ${title}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={onClick} label={`Open image ${title}`} disabled={selecting} selectionSafeZone />
     </WallMediaCard>
   );
 }
 
-function RelatedPortraitWallCard({ entityType, item, selected, selecting, onSelect, onClick }: { entityType: RelatedEntityType; item: RelatedEntityItem; selected?: boolean; selecting?: boolean; onSelect?: () => void; onClick: () => void }) {
+function RelatedPortraitWallCard({ entityType, item, selected, selecting, onSelect, onClick }: { entityType: RelatedEntityType; item: RelatedEntityItem; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onClick: (options?: MultiSelectToggleOptions) => void }) {
   const title = getRelatedTitle(entityType, item);
   const imageSrc = getRelatedThumbnailUrl(entityType, item, 640);
 
   return (
-    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="2 / 3" onClick={onClick} className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()} fallback={<User className="h-12 w-12 text-muted" />}>
+    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="2 / 3" onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()} fallback={<User className="h-12 w-12 text-muted" />}>
       <RouteCardLinkOverlay route={getRoute(entityType, item)} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone />
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
       <div className="selection-safe-zone absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2 text-xs font-medium text-white">{title}</div>
@@ -656,12 +665,12 @@ function RelatedPortraitWallCard({ entityType, item, selected, selecting, onSele
   );
 }
 
-function RelatedGalleryWallCard({ gallery, selected, selecting, onSelect, onClick }: { gallery: Gallery; selected?: boolean; selecting?: boolean; onSelect?: () => void; onClick: () => void }) {
+function RelatedGalleryWallCard({ gallery, selected, selecting, onSelect, onClick }: { gallery: Gallery; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onClick: (options?: MultiSelectToggleOptions) => void }) {
   const title = getGalleryDisplayTitle(gallery);
   const imageSrc = gallery.coverPath ?? galleryApi.coverUrl(gallery.id, gallery.updatedAt, 960);
 
   return (
-    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="1 / 1" onClick={onClick} className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()} fallback={<FolderOpen className="h-10 w-10 text-muted" />}>
+    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="1 / 1" onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()} fallback={<FolderOpen className="h-10 w-10 text-muted" />}>
       <RouteCardLinkOverlay route={{ page: "gallery", id: gallery.id }} onClick={onClick} label={`Open gallery ${title}`} disabled={selecting} selectionSafeZone />
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2 text-xs font-medium text-white">
@@ -677,7 +686,7 @@ function RelatedEntityFeed({ entityType, items, selectedIds, selecting, onToggle
   items: Array<Video | Image>;
   selectedIds?: Set<number>;
   selecting: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
   onNavigate: (route: any) => void;
   feedVideoSource: string;
   feedVideoSound: boolean;
@@ -687,8 +696,8 @@ function RelatedEntityFeed({ entityType, items, selectedIds, selecting, onToggle
   onFeedAudioVideoChange: Dispatch<SetStateAction<number | null>>;
 } & InfiniteEntityLoadingState) {
   const renderFeedItem = (item: Video | Image) => entityType === "videos"
-    ? <RelatedVideoFeedCard video={item as Video} selected={selectedIds?.has(item.id) ?? false} selecting={selecting} onSelect={onToggle ? () => onToggle(item.id) : undefined} onNavigate={onNavigate} feedVideoSource={feedVideoSource} feedVideoStartPercent={feedVideoStartPercent} feedVideoStartMinDuration={feedVideoStartMinDuration} soundEnabled={feedAudioVideoId === item.id} onPlaybackEligibilityChange={feedVideoSound ? (eligible) => onFeedAudioVideoChange((current) => eligible ? item.id : current === item.id ? null : current) : undefined} />
-    : <RelatedImageFeedCard image={item as Image} selected={selectedIds?.has(item.id) ?? false} selecting={selecting} onSelect={onToggle ? () => onToggle(item.id) : undefined} onNavigate={onNavigate} />;
+    ? <RelatedVideoFeedCard video={item as Video} selected={selectedIds?.has(item.id) ?? false} selecting={selecting} onSelect={onToggle ? (toggleOptions?: MultiSelectToggleOptions) => onToggle(item.id, toggleOptions) : undefined} onNavigate={onNavigate} feedVideoSource={feedVideoSource} feedVideoStartPercent={feedVideoStartPercent} feedVideoStartMinDuration={feedVideoStartMinDuration} soundEnabled={feedAudioVideoId === item.id} onPlaybackEligibilityChange={feedVideoSound ? (eligible) => onFeedAudioVideoChange((current) => eligible ? item.id : current === item.id ? null : current) : undefined} />
+    : <RelatedImageFeedCard image={item as Image} selected={selectedIds?.has(item.id) ?? false} selecting={selecting} onSelect={onToggle ? (toggleOptions?: MultiSelectToggleOptions) => onToggle(item.id, toggleOptions) : undefined} onNavigate={onNavigate} />;
 
   if (infinitePageSize && items.length > 0) {
     return (
@@ -711,7 +720,7 @@ function RelatedEntityFeed({ entityType, items, selectedIds, selecting, onToggle
   return <div className="mx-auto w-full max-w-[64rem] space-y-5 px-3 sm:px-4">{items.map((item) => <div key={item.id}>{renderFeedItem(item)}</div>)}</div>;
 }
 
-function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration, soundEnabled, onPlaybackEligibilityChange }: { video: Video; selected?: boolean; selecting?: boolean; onSelect?: () => void; onNavigate: (route: any) => void; feedVideoSource: string; feedVideoStartPercent: number; feedVideoStartMinDuration: number; soundEnabled: boolean; onPlaybackEligibilityChange?: (eligible: boolean) => void }) {
+function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration, soundEnabled, onPlaybackEligibilityChange }: { video: Video; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onNavigate: (route: any) => void; feedVideoSource: string; feedVideoStartPercent: number; feedVideoStartMinDuration: number; soundEnabled: boolean; onPlaybackEligibilityChange?: (eligible: boolean) => void }) {
   const file = video.files[0];
   const title = video.title || file?.basename || `Video ${video.id}`;
   const coverAlt = video.imagePath ? title : "";
@@ -719,11 +728,11 @@ function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate
   const { coverUrl, videoSrc, videoStatusSrc } = getVideoFeedMedia(video, feedVideoSource);
   const mediaStyle = getFeedMediaStyle(file);
   const videoStartTimeSec = getVideoFeedVideoStartTime(video, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration);
-  const openOrSelect = () => selecting ? onSelect?.() : onNavigate({ page: "video", id: video.id });
+  const openOrSelect = (toggleOptions?: MultiSelectToggleOptions) => selecting ? onSelect?.(toggleOptions) : onNavigate({ page: "video", id: video.id });
   const mediaOverlay = (
     <>
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={openOrSelect} label={`Open video ${title}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={openOrSelect} label={`Open video ${title}`} disabled={selecting} selectionSafeZone />
     </>
   );
 
@@ -731,6 +740,7 @@ function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate
     <FeedCardFrame
       dataAttribute={{ "data-feed-video-id": video.id }}
       selected={selected}
+      onClick={selecting ? (event) => openOrSelect(toggleOptionsFromEvent(event)) : undefined}
       identity={video.studioName ? <FeedIdentityBadge>{video.studioName}</FeedIdentityBadge> : undefined}
       header={<>{video.date ? <span>{video.date}</span> : null}{duration > 0 ? <span>{formatDuration(duration)}</span> : null}</>}
       media={mediaStyle ? (
@@ -738,7 +748,7 @@ function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate
       ) : (
         <WallMediaCard title={title} imageSrc={coverUrl} imageAlt={coverAlt} videoSrc={videoSrc} videoStatusSrc={videoStatusSrc} useVideo muted={!soundEnabled} videoStartTimeSec={videoStartTimeSec} videoPlayThreshold={0.5} onVideoPlayEligibilityChange={onPlaybackEligibilityChange} playbackTracking={{ hostType: "video", hostId: video.id, surface: "feed", scopeKey: `related-video-feed:${video.id}` }} aspectRatio={file?.width && file.height ? `${file.width} / ${file.height}` : "16 / 9"} imageClassName="object-cover" style={mediaStyle} className="overflow-hidden rounded-2xl border border-border/70 bg-black/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)] hover:border-border/70">{mediaOverlay}</WallMediaCard>
       )}
-      title={<button type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(); }} className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent">{title}</button>}
+      title={<button type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(toggleOptionsFromEvent(event)); }} className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent">{title}</button>}
       details={video.details ? <p className="line-clamp-4">{video.details}</p> : undefined}
       metadata={(video.organized || video.galleries.length > 0) ? <>{video.organized ? <FeedMetadataPill>Organized</FeedMetadataPill> : null}{video.galleries.length > 0 ? <FeedMetadataPill>{video.galleries.length} galleries</FeedMetadataPill> : null}</> : undefined}
       chips={<RelatedFeedChips performers={video.performers} tags={video.tags} selecting={selecting} onSelect={onSelect} onNavigate={onNavigate} />}
@@ -746,16 +756,16 @@ function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate
   );
 }
 
-function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate }: { image: Image; selected?: boolean; selecting?: boolean; onSelect?: () => void; onNavigate: (route: any) => void }) {
+function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate }: { image: Image; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onNavigate: (route: any) => void }) {
   const title = getImageDisplayTitle(image);
   const file = image.files[0];
   const imageSrc = imageApi.thumbnailUrl(image.id, 1280);
   const mediaStyle = getFeedMediaStyle(file);
-  const openOrSelect = () => selecting ? onSelect?.() : onNavigate({ page: "image", id: image.id });
+  const openOrSelect = (toggleOptions?: MultiSelectToggleOptions) => selecting ? onSelect?.(toggleOptions) : onNavigate({ page: "image", id: image.id });
   const mediaOverlay = (
     <>
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={openOrSelect} label={`Open image ${title}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={openOrSelect} label={`Open image ${title}`} disabled={selecting} selectionSafeZone />
     </>
   );
 
@@ -763,6 +773,7 @@ function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate
     <FeedCardFrame
       dataAttribute={{ "data-feed-image-id": image.id }}
       selected={selected}
+      onClick={selecting ? (event) => openOrSelect(toggleOptionsFromEvent(event)) : undefined}
       identity={image.studioName ? <FeedIdentityBadge>{image.studioName}</FeedIdentityBadge> : undefined}
       header={<>{image.date ? <span>{image.date}</span> : null}{image.photographer ? <span>{image.photographer}</span> : null}</>}
       media={mediaStyle ? (
@@ -770,7 +781,7 @@ function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate
       ) : (
         <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio={file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1"} style={mediaStyle} className="overflow-hidden rounded-2xl border border-border/70 bg-black/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)] hover:border-border/70">{mediaOverlay}</WallMediaCard>
       )}
-      title={<button type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(); }} className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent">{title}</button>}
+      title={<button type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(toggleOptionsFromEvent(event)); }} className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent">{title}</button>}
       details={image.details ? <p className="line-clamp-4">{image.details}</p> : undefined}
       metadata={(image.organized || image.galleries.length > 0) ? <>{image.organized ? <FeedMetadataPill>Organized</FeedMetadataPill> : null}{image.galleries.length > 0 ? <FeedMetadataPill>{image.galleries.length} galleries</FeedMetadataPill> : null}</> : undefined}
       chips={<RelatedFeedChips performers={image.performers} tags={image.tags} selecting={selecting} onSelect={onSelect} onNavigate={onNavigate} />}
@@ -778,14 +789,14 @@ function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate
   );
 }
 
-function RelatedFeedChips({ performers, tags, selecting, onSelect, onNavigate }: { performers: Array<{ id: number; name: string }>; tags: Tag[]; selecting?: boolean; onSelect?: () => void; onNavigate: (route: any) => void }) {
+function RelatedFeedChips({ performers, tags, selecting, onSelect, onNavigate }: { performers: Array<{ id: number; name: string }>; tags: Tag[]; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onNavigate: (route: any) => void }) {
   const visibleTags = tags.slice(0, 4);
   const hiddenTags = tags.slice(4);
   return (
     <>
-      {performers.slice(0, 4).map((performer) => <FeedChipButton key={`performer-${performer.id}`} onClick={() => selecting ? onSelect?.() : onNavigate({ page: "performer", id: performer.id })}>{performer.name}</FeedChipButton>)}
-      {visibleTags.map((tag) => <FeedChipButton key={`tag-${tag.id}`} onClick={() => selecting ? onSelect?.() : onNavigate({ page: "tag", id: tag.id })}>#{tag.name}</FeedChipButton>)}
-      {hiddenTags.length > 0 ? <FeedChipOverflowMenu>{hiddenTags.map((tag) => <FeedChipButton key={tag.id} onClick={() => selecting ? onSelect?.() : onNavigate({ page: "tag", id: tag.id })}>#{tag.name}</FeedChipButton>)}</FeedChipOverflowMenu> : null}
+      {performers.slice(0, 4).map((performer) => <FeedChipButton key={`performer-${performer.id}`} onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "performer", id: performer.id })}>{performer.name}</FeedChipButton>)}
+      {visibleTags.map((tag) => <FeedChipButton key={`tag-${tag.id}`} onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}>#{tag.name}</FeedChipButton>)}
+      {hiddenTags.length > 0 ? <FeedChipOverflowMenu>{hiddenTags.map((tag) => <FeedChipButton key={tag.id} onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}>#{tag.name}</FeedChipButton>)}</FeedChipOverflowMenu> : null}
     </>
   );
 }
@@ -794,7 +805,7 @@ function RelatedVideoVerticalViewer({ videos, selectedIds, selecting, onToggle, 
   videos: Video[];
   selectedIds?: Set<number>;
   selecting: boolean;
-  onToggle?: (id: number) => void;
+  onToggle?: (id: number, options?: MultiSelectToggleOptions) => void;
   onNavigate: (route: any) => void;
   feedVideoSource: string;
   feedVideoStartPercent: number;
@@ -858,7 +869,7 @@ function RelatedVideoVerticalViewer({ videos, selectedIds, selecting, onToggle, 
             video={video}
             selected={selectedIds?.has(video.id) ?? false}
             selecting={selecting}
-            onSelect={onToggle ? () => onToggle(video.id) : undefined}
+            onSelect={onToggle ? (toggleOptions?: MultiSelectToggleOptions) => onToggle(video.id, toggleOptions) : undefined}
             onNavigate={onNavigate}
             feedVideoSource={feedVideoSource}
             feedVideoStartPercent={feedVideoStartPercent}
@@ -874,13 +885,13 @@ function RelatedVideoVerticalViewer({ videos, selectedIds, selecting, onToggle, 
   );
 }
 
-function RelatedVideoVerticalCard({ video, selected, selecting, onSelect, onNavigate, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration, useVideo, soundEnabled, onToggleSound, viewerHeight }: { video: Video; selected?: boolean; selecting?: boolean; onSelect?: () => void; onNavigate: (route: any) => void; feedVideoSource: string; feedVideoStartPercent: number; feedVideoStartMinDuration: number; useVideo: boolean; soundEnabled: boolean; onToggleSound: () => void; viewerHeight: number | null }) {
+function RelatedVideoVerticalCard({ video, selected, selecting, onSelect, onNavigate, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration, useVideo, soundEnabled, onToggleSound, viewerHeight }: { video: Video; selected?: boolean; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onNavigate: (route: any) => void; feedVideoSource: string; feedVideoStartPercent: number; feedVideoStartMinDuration: number; useVideo: boolean; soundEnabled: boolean; onToggleSound: () => void; viewerHeight: number | null }) {
   const file = video.files[0];
   const title = video.title || file?.basename || `Video ${video.id}`;
   const duration = getVideoDisplayDuration(video);
   const { coverUrl, videoSrc, videoStatusSrc } = getVideoFeedMedia(video, feedVideoSource);
   const videoStartTimeSec = getVideoFeedVideoStartTime(video, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration);
-  const openOrSelect = () => selecting ? onSelect?.() : onNavigate({ page: "video", id: video.id });
+  const openOrSelect = (toggleOptions?: MultiSelectToggleOptions) => selecting ? onSelect?.(toggleOptions) : onNavigate({ page: "video", id: video.id });
   const availableViewerHeight = viewerHeight != null ? Math.max(120, viewerHeight) : null;
 
   return (
@@ -897,6 +908,7 @@ function RelatedVideoVerticalCard({ video, selected, selecting, onSelect, onNavi
         playbackTracking={{ hostType: "video", hostId: video.id, surface: "vertical", scopeKey: `related-video-vertical:${video.id}` }}
         aspectRatio="9 / 16"
         imageClassName="object-cover"
+        onClick={selecting ? (event) => openOrSelect(toggleOptionsFromEvent(event)) : undefined}
         style={{ width: availableViewerHeight != null ? `min(calc(100vw - 1rem), ${Math.round(availableViewerHeight * 0.5625)}px)` : "min(calc(100vw - 1rem), calc((100dvh - 10rem) * 0.5625))" }}
         className={`group mx-auto overflow-hidden rounded-[1.5rem] bg-card shadow-2xl transition-colors sm:rounded-[1.75rem] ${selected ? "border-accent ring-1 ring-accent/60" : "border-border hover:border-accent/50"}`}
       >
@@ -914,7 +926,7 @@ function RelatedVideoVerticalCard({ video, selected, selecting, onSelect, onNavi
           {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
         </button>
         <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-        <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={openOrSelect} label={`Open video ${title}`} selectionSafeZone />
+        <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={openOrSelect} label={`Open video ${title}`} disabled={selecting} selectionSafeZone />
         {duration > 0 ? <span className="absolute right-2 top-2 rounded bg-black/65 px-2 py-0.5 text-xs text-white">{formatDuration(duration)}</span> : null}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/45 to-transparent p-4 pt-14 text-white">
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/75">

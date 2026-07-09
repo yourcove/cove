@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { InteractiveRating } from "./Rating";
 
 export interface FeedMediaDimensions {
@@ -52,7 +52,7 @@ interface FeedCardFrameProps {
   details?: ReactNode;
   metadata?: ReactNode;
   chips?: ReactNode;
-  onClick?: () => void;
+  onClick?: (event: MouseEvent<HTMLElement>) => void;
 }
 
 export function FeedCardFrame({ dataAttribute, selected, identity, header, headerActions, media, title, details, metadata, chips, onClick }: FeedCardFrameProps) {
@@ -99,13 +99,13 @@ export function FeedMetadataPill({ children }: { children: ReactNode }) {
   return <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 font-medium text-muted">{children}</span>;
 }
 
-export function FeedChipButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+export function FeedChipButton({ children, onClick }: { children: ReactNode; onClick: (event: MouseEvent<HTMLButtonElement>) => void }) {
   return (
     <button
       type="button"
       onClick={(event) => {
         event.stopPropagation();
-        onClick();
+        onClick(event);
       }}
       className="rounded-full border border-border/70 bg-background/50 px-2 py-0.5 font-medium text-secondary transition-colors hover:border-accent/50 hover:bg-background/80 hover:text-foreground"
     >

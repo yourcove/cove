@@ -21,12 +21,13 @@ import {
   Search, Loader2, Check, X, ChevronDown, ChevronUp, AlertCircle,
   CloudDownload, CloudUpload, Fingerprint, Settings2, EyeOff, Eye,
 } from "lucide-react";
+import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface PerformerTaggerProps {
   performers: Performer[];
   selectedIds?: Set<number>;
   selecting?: boolean;
-  onSelect?: (performerId: number) => void;
+  onSelect?: (performerId: number, options?: MultiSelectToggleOptions) => void;
   onNavigate?: (performerId: number) => void;
   mode?: "bulk" | "detail";
 }
@@ -446,6 +447,7 @@ export function PerformerTagger({ performers: performerList, selectedIds, select
   const visiblePerformers = mode === "detail" || taggerConfig.showTagged
     ? performerList
     : performerList.filter((p) => !p.remoteIds || p.remoteIds.length === 0);
+  const visiblePerformerIds = visiblePerformers.map((performer) => performer.id);
 
   return (
     <div className="space-y-0">
@@ -499,7 +501,7 @@ export function PerformerTagger({ performers: performerList, selectedIds, select
             source={selectedSource}
             selected={selectedIds?.has(performer.id) ?? false}
             selecting={selecting}
-            onSelect={onSelect}
+            onSelect={onSelect ? withOrderedToggle(onSelect, visiblePerformerIds) : undefined}
             onNavigate={onNavigate}
             metadataServers={metadataServers}
             taggerConfig={taggerConfig}
@@ -542,7 +544,7 @@ function PerformerTaggerRow({
   source?: PerformerSource;
   selected: boolean;
   selecting: boolean;
-  onSelect?: (performerId: number) => void;
+  onSelect?: (performerId: number, options?: MultiSelectToggleOptions) => void;
   onNavigate?: (performerId: number) => void;
   metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
@@ -648,7 +650,7 @@ function PerformerTaggerRow({
         {onSelect && (
           <button
             type="button"
-            onClick={() => onSelect(performer.id)}
+            onClick={(event) => onSelect(performer.id, toggleOptionsFromEvent(event))}
             className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`}
             aria-label={selected ? "Deselect performer" : "Select performer"}
             title={selected ? "Deselect" : "Select"}
@@ -929,5 +931,3 @@ function PerformerResultRow({
     </div>
   );
 }
-
-

@@ -6,7 +6,7 @@ import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { StringListEditor } from "../components/StringListEditor";
 import { GENDER_OPTIONS } from "./PerformerEditModal";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { PERFORMER_CRITERIA } from "../components/FilterDialog";
 import { Users, Heart, Merge, User } from "lucide-react";
@@ -82,7 +82,7 @@ export function PerformersPage({ onNavigate }: Props) {
   const wallColumns = useWallColumns(items, wallColumnCount);
   const { engagementById } = useEntityEngagementBatch("performer", items.map((item) => item.id));
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -160,8 +160,8 @@ export function PerformersPage({ onNavigate }: Props) {
                   route={{ page: "performer", id: performer.id }}
                   selected={selectedIds.has(performer.id)}
                   selecting={selecting}
-                  onSelect={() => toggle(performer.id)}
-                  onClick={() => selecting ? toggle(performer.id) : onNavigate({ page: "performer", id: performer.id })}
+                  onSelect={(toggleOptions) => toggle(performer.id, toggleOptions)}
+                  onClick={(toggleOptions) => selecting ? toggle(performer.id, toggleOptions) : onNavigate({ page: "performer", id: performer.id })}
                 />
           )}
         />
@@ -179,10 +179,10 @@ export function PerformersPage({ onNavigate }: Props) {
             <PerformerTile
               performer={p}
               engagement={engagementById.get(p.id)}
-              onClick={() => selecting ? toggle(p.id) : onNavigate({ page: "performer", id: p.id })}
+              onClick={(toggleOptions) => selecting ? toggle(p.id, toggleOptions) : onNavigate({ page: "performer", id: p.id })}
               onNavigate={onNavigate}
               selected={selectedIds.has(p.id)}
-              onSelect={() => toggle(p.id)}
+              onSelect={(toggleOptions) => toggle(p.id, toggleOptions)}
               selecting={selecting}
             />
           )}
@@ -210,9 +210,9 @@ export function PerformersPage({ onNavigate }: Props) {
   );
 }
 
-function EntityWallCard({ title, imageSrc, route, selected, selecting, onSelect, onClick }: { title: string; imageSrc?: string | null; route: any; selected: boolean; selecting: boolean; onSelect: () => void; onClick: () => void }) {
+function EntityWallCard({ title, imageSrc, route, selected, selecting, onSelect, onClick }: { title: string; imageSrc?: string | null; route: any; selected: boolean; selecting: boolean; onSelect: BoundMultiSelectToggleHandler; onClick: BoundMultiSelectToggleHandler }) {
   return (
-    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="2 / 3" onClick={onClick} className={selected ? "ring-2 ring-accent" : ""} fallback={<User className="h-12 w-12 text-muted" />}>
+    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="2 / 3" onClick={(event) => onClick(toggleOptionsFromEvent(event))} className={selected ? "ring-2 ring-accent" : ""} fallback={<User className="h-12 w-12 text-muted" />}>
       <RouteCardLinkOverlay route={route} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone />
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
       <div className="selection-safe-zone absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2 text-xs font-medium text-white">
@@ -222,7 +222,7 @@ function EntityWallCard({ title, imageSrc, route, selected, selecting, onSelect,
   );
 }
 
-function PerformerListTable({ performers: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { performers: Performer[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: (id: number) => void; selecting?: boolean }) {
+function PerformerListTable({ performers: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { performers: Performer[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -248,12 +248,12 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
           return (
             <tr 
               key={p.id} 
-              onClick={() => selecting ? onToggle?.(p.id) : onNavigate({ page: "performer", id: p.id })}
+              onClick={(event) => selecting ? onToggle?.(p.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "performer", id: p.id })}
               className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(p.id) ? "bg-accent/10" : ""}`}
             >
               {selectedIds && (
                 <td className="py-2 px-3">
-                  <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => onToggle?.(p.id)} onClick={(e) => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" />
+                  <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => {}} onClick={(event) => { event.stopPropagation(); onToggle?.(p.id, toggleOptionsFromEvent(event)); }} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" />
                 </td>
               )}
               <td className="py-2 px-3 text-foreground">
@@ -408,4 +408,3 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
     </EditModal>
   );
 }
-

@@ -3,6 +3,7 @@ import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts
 import { SegmentTile } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
+import { toggleOptionsFromEvent, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../../hooks/useMultiSelect";
 import {
   buildRawSegmentTitle,
   formatDate,
@@ -22,7 +23,7 @@ interface Props {
   canReadVideos: boolean;
   onNavigate: (route: any) => void;
   selectedIds: Set<string | number>;
-  onToggle: (id: string | number) => void;
+  onToggle: MultiSelectToggleHandler<string | number>;
   selecting: boolean;
   infinitePageSize: boolean;
   hasNextPage?: boolean;
@@ -61,9 +62,9 @@ export function RawSegmentResults({
             segment={item}
             label={`Open raw segment ${buildRawSegmentTitle(item)}`}
             eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
-            onClick={() => (selecting ? onToggle(item.id) : onNavigate({ page: "segment", id: item.id }))}
+            onClick={(toggleOptions) => (selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id }))}
             selected={selectedIds.has(item.id)}
-            onSelect={() => onToggle(item.id)}
+            onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
             selecting={selecting}
             footer={(
               <div className="flex items-center justify-between gap-2">
@@ -107,7 +108,7 @@ export function RawSegmentResults({
             canReadVideos={canReadVideos}
             onNavigate={onNavigate}
             selected={selectedIds.has(item.id)}
-            onToggle={() => onToggle(item.id)}
+            onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
             selecting={selecting}
             density={listDensity}
           />
@@ -130,14 +131,14 @@ function RawSegmentListRow({
   canReadVideos: boolean;
   onNavigate: (route: any) => void;
   selected: boolean;
-  onToggle: () => void;
+  onToggle: BoundMultiSelectToggleHandler<string | number>;
   selecting: boolean;
   density: SegmentListDensity;
 }) {
   const title = buildRawSegmentTitle(item);
 
   return (
-    <div onClick={selecting ? onToggle : undefined} className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}>
+    <div onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined} className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}>
       <RouteCardLinkOverlay route={{ page: "segment", id: item.id }} onClick={() => onNavigate({ page: "segment", id: item.id })} label={`Open raw segment ${title}`} disabled={selecting} selectionSafeZone />
       <div className="flex items-start gap-3 lg:grid lg:grid-cols-[minmax(0,1.3fr)_140px_minmax(0,1fr)_120px_120px] lg:items-center">
         <div className="relative min-w-0 pl-8">

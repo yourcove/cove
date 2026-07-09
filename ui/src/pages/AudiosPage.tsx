@@ -15,7 +15,7 @@ import { canWriteEntity } from "../auth/visibility";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { getAudioDisplayTitle } from "../utils/audioTextDisplay";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
@@ -91,7 +91,7 @@ export function AudiosPage({ onNavigate }: Props) {
   const isLoading = listData.isLoading;
   const { engagementById } = useEntityEngagementBatch("audio", items.map((item) => item.id));
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const { hasPermission } = useAuth();
   const canWriteAudio = canWriteEntity("audio", hasPermission);
@@ -172,8 +172,8 @@ export function AudiosPage({ onNavigate }: Props) {
               engagement={engagementById.get(audio.id)}
               selected={selectedIds.has(audio.id)}
               selecting={selecting}
-              onSelect={() => toggle(audio.id)}
-              onClick={() => selecting ? toggle(audio.id) : onNavigate({ page: "audio", id: audio.id })}
+              onSelect={(toggleOptions) => toggle(audio.id, toggleOptions)}
+              onClick={(toggleOptions) => selecting ? toggle(audio.id, toggleOptions) : onNavigate({ page: "audio", id: audio.id })}
               onNavigate={onNavigate}
             />
           )}
@@ -351,7 +351,7 @@ function AudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   );
 }
 
-function AudioListTable({ audios: items, engagementById, selectedIds, selecting, onToggle, onNavigate }: { audios: Audio[]; engagementById: ReadonlyMap<number, EntityEngagement>; selectedIds: Set<number>; selecting: boolean; onToggle: (id: number) => void; onNavigate: (route: any) => void }) {
+function AudioListTable({ audios: items, engagementById, selectedIds, selecting, onToggle, onNavigate }: { audios: Audio[]; engagementById: ReadonlyMap<number, EntityEngagement>; selectedIds: Set<number>; selecting: boolean; onToggle: MultiSelectToggleHandler; onNavigate: (route: any) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card">
       <table className="min-w-full divide-y divide-border text-sm">
@@ -372,13 +372,13 @@ function AudioListTable({ audios: items, engagementById, selectedIds, selecting,
             const duration = audio.maxDuration > 0 ? formatDuration(audio.maxDuration) : "";
             const engagement = engagementById.get(audio.id);
             return (
-              <tr key={audio.id} onClick={() => selecting ? onToggle(audio.id) : onNavigate({ page: "audio", id: audio.id })} className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(audio.id) ? "bg-accent/10" : ""}`}>
+              <tr key={audio.id} onClick={(event) => selecting ? onToggle(audio.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "audio", id: audio.id })} className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(audio.id) ? "bg-accent/10" : ""}`}>
                 <td className="px-3 py-2">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(audio.id)}
-                    onChange={() => onToggle(audio.id)}
-                    onClick={(event) => event.stopPropagation()}
+	                    onChange={() => {}}
+	                    onClick={(event) => { event.stopPropagation(); onToggle(audio.id, toggleOptionsFromEvent(event)); }}
                     className="rounded border-border bg-card"
                     aria-label={`Select ${title}`}
                   />
@@ -405,4 +405,3 @@ function AudioListTable({ audios: items, engagementById, selectedIds, selecting,
     </div>
   );
 }
-

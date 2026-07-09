@@ -32,6 +32,7 @@ import {
   cleanTaggerQueryString,
 } from "./TaggerShared";
 import { AlertCircle, Check, FileQuestion, Loader2, Search } from "lucide-react";
+import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 type SupportedScraperEntity = "image" | "audio" | "text" | "gallery" | "group";
 
@@ -63,7 +64,7 @@ interface ScraperEntityTaggerProps<T extends ScraperEntityItem> {
   items: T[];
   selectedIds?: Set<number>;
   selecting?: boolean;
-  onSelect?: (id: number) => void;
+  onSelect?: (id: number, options?: MultiSelectToggleOptions) => void;
   getTitle: (item: T) => string;
   getImageUrl?: (item: T) => string | undefined;
   getRoute?: (item: T) => Route;
@@ -459,6 +460,7 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({ entityType, l
     abortRef.current?.abort();
     setBatchSearching(false);
   }, []);
+  const orderedItemIds = items.map((item) => item.id);
 
   if (scrapers.length === 0) {
     return (
@@ -518,7 +520,7 @@ export function ScraperEntityTagger<T extends ScraperEntityItem>({ entityType, l
             onUpdateState={(update) => updateSearchState(item.id, update)}
             selected={selectedIds?.has(item.id) ?? false}
             selecting={selecting}
-            onSelect={onSelect}
+            onSelect={onSelect ? withOrderedToggle(onSelect, orderedItemIds) : undefined}
             onApplied={() => queryClient.invalidateQueries({ queryKey: [queryKey] })}
           />
         ))}
@@ -557,7 +559,7 @@ function ScraperEntityTaggerRow({
   onUpdateState: (update: Partial<SearchState>) => void;
   selected: boolean;
   selecting: boolean;
-  onSelect?: (id: number) => void;
+  onSelect?: (id: number, options?: MultiSelectToggleOptions) => void;
   onApplied: () => void;
 }) {
   const selectedResult = state?.results?.[state.selectedIndex ?? 0];
@@ -627,7 +629,7 @@ function ScraperEntityTaggerRow({
     <div className={`px-3 py-2 ${selected ? "bg-accent/5" : ""}`}>
       <div className="flex gap-3">
         {onSelect && (
-          <button type="button" onClick={() => onSelect(item.id)} className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`} aria-label={selected ? "Deselect" : "Select"} title={selected ? "Deselect" : "Select"}>
+          <button type="button" onClick={(event) => onSelect(item.id, toggleOptionsFromEvent(event))} className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`} aria-label={selected ? "Deselect" : "Select"} title={selected ? "Deselect" : "Select"}>
             <Check className="h-3 w-3" />
           </button>
         )}
@@ -841,5 +843,3 @@ function ScraperResultRow({
     </div>
   );
 }
-
-

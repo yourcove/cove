@@ -5,7 +5,7 @@ import type { EntityEngagement, Studio, StudioCreate, StudioFilterCriteria } fro
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { EntityReferenceSelector } from "../components/EntityReferenceSelector";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { Building2, Merge } from "lucide-react";
 import { STUDIO_CRITERIA } from "../components/FilterDialog";
@@ -82,7 +82,7 @@ export function StudiosPage({ onNavigate }: Props) {
   const isLoading = listData.isLoading;
   const { engagementById } = useEntityEngagementBatch("studio", items.map((item) => item.id));
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -153,10 +153,10 @@ export function StudiosPage({ onNavigate }: Props) {
             <StudioTile
               studio={s}
               engagement={engagementById.get(s.id)}
-              onClick={() => selecting ? toggle(s.id) : onNavigate({ page: "studio", id: s.id })}
+              onClick={(toggleOptions) => selecting ? toggle(s.id, toggleOptions) : onNavigate({ page: "studio", id: s.id })}
               onNavigate={onNavigate}
               selected={selectedIds.has(s.id)}
-              onSelect={() => toggle(s.id)}
+              onSelect={(toggleOptions) => toggle(s.id, toggleOptions)}
               selecting={selecting}
             >
               <ExtensionSlot slot="studio-card-footer" context={{ studio: s, onNavigate }} />
@@ -185,7 +185,7 @@ export function StudiosPage({ onNavigate }: Props) {
   );
 }
 
-function StudioListTable({ studios: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { studios: Studio[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: (id: number) => void; selecting?: boolean }) {
+function StudioListTable({ studios: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { studios: Studio[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -201,10 +201,10 @@ function StudioListTable({ studios: items, engagementById, onNavigate, selectedI
         {items.map((s) => (
           <tr
             key={s.id}
-            onClick={() => selecting ? onToggle?.(s.id) : onNavigate({ page: "studio", id: s.id })}
+            onClick={(event) => selecting ? onToggle?.(s.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "studio", id: s.id })}
             className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(s.id) ? "bg-accent/10" : ""}`}
           >
-            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => onToggle?.(s.id)} onClick={(e) => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
+            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => {}} onClick={(event) => { event.stopPropagation(); onToggle?.(s.id, toggleOptionsFromEvent(event)); }} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
             <td className="py-2 px-3 text-foreground">{s.name}</td>
             <td className="py-2 px-3 text-secondary">{s.parentName ?? ""}</td>
             <td className="py-2 px-3 text-secondary text-right">{s.videoCount}</td>
@@ -273,4 +273,3 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
     </EditModal>
   );
 }
-
