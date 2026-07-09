@@ -63,6 +63,41 @@ public class EntityDetailCountControllerTests
     }
 
     [Fact]
+    public async Task PerformerDetail_ReturnsTagsSortedByEffectiveSortName()
+    {
+        await using var context = CreateContext();
+
+        var performer = new Performer { Name = "Performer" };
+        var zulu = new Tag { Name = "Zulu" };
+        var alpha = new Tag { Name = "Alpha" };
+        var bravoSort = new Tag { Name = "Xylophone", SortName = "Bravo" };
+        var deltaSort = new Tag { Name = "Antelope", SortName = "Delta" };
+        context.AddRange(performer, zulu, alpha, bravoSort, deltaSort);
+        await context.SaveChangesAsync();
+
+        context.AddRange(
+            new PerformerTag { PerformerId = performer.Id, TagId = zulu.Id },
+            new PerformerTag { PerformerId = performer.Id, TagId = alpha.Id },
+            new PerformerTag { PerformerId = performer.Id, TagId = bravoSort.Id },
+            new PerformerTag { PerformerId = performer.Id, TagId = deltaSort.Id });
+        await context.SaveChangesAsync();
+
+        var controller = new PerformersController(
+            new PerformerRepository(context),
+            null!,
+            null!,
+            context,
+            null!,
+            null!);
+
+        var detailResult = await controller.GetById(performer.Id, CancellationToken.None);
+        var detail = Assert.IsType<OkObjectResult>(detailResult.Result).Value as PerformerDto;
+
+        Assert.NotNull(detail);
+        Assert.Equal(["Alpha", "Xylophone", "Antelope", "Zulu"], detail!.Tags.Select(tag => tag.Name).ToArray());
+    }
+
+    [Fact]
     public async Task StudioDetail_UsesLiveUsageCountsInsteadOfStoredCounters()
     {
         await using var context = CreateContext();
