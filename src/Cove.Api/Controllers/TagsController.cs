@@ -499,13 +499,13 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             t.ParentRelations
                 .Where(pr => pr.Parent != null)
                 .Select(pr => pr.Parent!)
-                .OrderBy(TagHierarchySortKey)
+                .OrderBy(TagDtoMapping.EffectiveSortName)
                 .Select(parent => MapTagDto(parent))
                 .ToList(),
             t.ChildRelations
                 .Where(cr => cr.Child != null)
                 .Select(cr => cr.Child!)
-                .OrderBy(TagHierarchySortKey)
+                .OrderBy(TagDtoMapping.EffectiveSortName)
                 .Select(child => MapTagDto(child))
                 .ToList(),
             usageCounts.VideoCount,
@@ -533,8 +533,6 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             t.Organized,
             fieldProvenance);
     }
-
-    private static string TagHierarchySortKey(Tag tag) => tag.SortName ?? tag.Name;
 
     private List<TagListDto> MapTagListDtos(IReadOnlyList<Tag> items, IReadOnlyDictionary<int, TagUsageCounts> usageCountsByTagId)
     {

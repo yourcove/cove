@@ -5,6 +5,8 @@ namespace Cove.Api.Controllers;
 
 internal static class TagDtoMapping
 {
+    public static string EffectiveSortName(Tag tag) => tag.SortName ?? tag.Name;
+
     public static TagDto MapTagDto(Tag tag, List<TagProvenanceDto>? provenance = null)
         => new(
             tag.Id,
