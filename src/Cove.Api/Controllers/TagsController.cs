@@ -496,8 +496,18 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             t.Description,
             t.Favorite,
             t.Aliases.Select(a => a.Alias).ToList(),
-            t.ParentRelations.Where(pr => pr.Parent != null).Select(pr => MapTagDto(pr.Parent!)).ToList(),
-            t.ChildRelations.Where(cr => cr.Child != null).Select(cr => MapTagDto(cr.Child!)).ToList(),
+            t.ParentRelations
+                .Where(pr => pr.Parent != null)
+                .Select(pr => pr.Parent!)
+                .OrderBy(TagDtoMapping.EffectiveSortName)
+                .Select(parent => MapTagDto(parent))
+                .ToList(),
+            t.ChildRelations
+                .Where(cr => cr.Child != null)
+                .Select(cr => cr.Child!)
+                .OrderBy(TagDtoMapping.EffectiveSortName)
+                .Select(child => MapTagDto(child))
+                .ToList(),
             usageCounts.VideoCount,
             usageCounts.PerformerCount,
             usageCounts.ImageCount,
@@ -512,16 +522,16 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             t.UpdatedAt.ToString("o"),
             t.ShowAsSegment,
             t.SegmentColorOverride,
-                t.SegmentLaneOverride,
-                t.Color,
-                t.TagGroupId,
-                t.TagGroup?.Name,
-                t.TagGroup?.Color,
-                t.MinOccurrenceSec,
-                t.MinOccurrencePercent,
-                t.RemoteIds.Select(remoteId => new TagRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
-                t.Organized,
-                fieldProvenance);
+            t.SegmentLaneOverride,
+            t.Color,
+            t.TagGroupId,
+            t.TagGroup?.Name,
+            t.TagGroup?.Color,
+            t.MinOccurrenceSec,
+            t.MinOccurrencePercent,
+            t.RemoteIds.Select(remoteId => new TagRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
+            t.Organized,
+            fieldProvenance);
     }
 
     private List<TagListDto> MapTagListDtos(IReadOnlyList<Tag> items, IReadOnlyDictionary<int, TagUsageCounts> usageCountsByTagId)
