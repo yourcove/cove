@@ -9,6 +9,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
@@ -704,7 +705,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
         GetEffectiveTags(s, effectiveTagsByVideoId),
-        s.VideoPerformers.Where(sp => sp.Performer != null).Select(sp => MapPerformerSummary(sp.Performer!, performerCounts)).ToList(),
+        s.VideoPerformers.Where(sp => sp.Performer != null).Select(sp => sp.Performer!).OrderForDisplay().Select(performer => MapPerformerSummary(performer, performerCounts)).ToList(),
         EffectiveFiles(s).Select(f => new VideoFileDto(
             f.Id,
             CanReadFiles ? f.Path : string.Empty,
@@ -742,7 +743,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
         GetEffectiveTags(s, effectiveTagsByVideoId),
-        s.VideoPerformers.Where(sp => sp.Performer != null).Select(sp => MapPerformerSummary(sp.Performer!, null)).ToList(),
+        s.VideoPerformers.Where(sp => sp.Performer != null).Select(sp => sp.Performer!).OrderForDisplay().Select(performer => MapPerformerSummary(performer, null)).ToList(),
         EffectiveFiles(s).Select(f => new VideoFileDto(
             f.Id,
             CanReadFiles ? f.Path : string.Empty,

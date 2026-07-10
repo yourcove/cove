@@ -6,6 +6,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Helpers;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 
@@ -241,7 +242,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.Date?.ToString("yyyy-MM-dd"),
         i.Urls.Select(u => u.Url).ToList(),
         i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!, GetTagProvenance(provenanceLookup, it.Tag!.Id))).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Birthdate?.ToString("yyyy-MM-dd"), ip.Performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, ip.Performer!))).ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
         galleryCount ?? i.GalleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
         i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
@@ -279,7 +280,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.Date?.ToString("yyyy-MM-dd"),
         i.Urls.Select(u => u.Url).ToList(),
         i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!)).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => new PerformerSummaryDto(ip.Performer!.Id, ip.Performer.Name, ip.Performer.Disambiguation, ip.Performer.Gender?.ToString(), ip.Performer.Birthdate?.ToString("yyyy-MM-dd"), ip.Performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, ip.Performer!))).ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
         galleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
         i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],

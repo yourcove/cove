@@ -6,6 +6,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Helpers;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 
@@ -254,7 +255,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
         g.GalleryTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!, GetTagProvenance(provenanceLookup, gt.Tag!.Id))).ToList(),
-        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => new PerformerSummaryDto(gp.Performer!.Id, gp.Performer.Name, gp.Performer.Disambiguation, gp.Performer.Gender?.ToString(), gp.Performer.Birthdate?.ToString("yyyy-MM-dd"), gp.Performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, gp.Performer!))).ToList(),
+        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => gp.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
         imageCount ?? g.ImageCount,
         videoCount ?? g.VideoCount,
         g.VideoGalleries?.Select(sg => sg.VideoId).ToList() ?? [],
