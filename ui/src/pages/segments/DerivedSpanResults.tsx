@@ -6,6 +6,7 @@ import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts
 import { SegmentTile } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
+import { toggleOptionsFromEvent, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../../hooks/useMultiSelect";
 import {
   buildSpanTitle,
   type DerivedOperandNameMaps,
@@ -27,7 +28,7 @@ interface Props {
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selectedIds: Set<string | number>;
-  onToggle: (id: string | number) => void;
+  onToggle: MultiSelectToggleHandler<string | number>;
   selecting: boolean;
   infinitePageSize: boolean;
   hasNextPage?: boolean;
@@ -134,9 +135,9 @@ export function DerivedSpanResults({
               route={route}
               label={`Open segment ${title}`}
               eyebrow={formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}
-              onClick={() => (selecting ? onToggle(item.id) : onNavigate(route))}
+              onClick={(toggleOptions) => (selecting ? onToggle(item.id, toggleOptions) : onNavigate(route))}
               selected={selectedIds.has(item.id)}
-              onSelect={() => onToggle(item.id)}
+              onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
               selecting={selecting}
               footer={(
                 <div className="space-y-1.5">
@@ -187,7 +188,7 @@ export function DerivedSpanResults({
             onNavigate={onNavigate}
             onViewRawSegments={onViewRawSegments}
             selected={selectedIds.has(item.id)}
-            onToggle={() => onToggle(item.id)}
+            onToggle={(toggleOptions) => onToggle(item.id, toggleOptions)}
             selecting={selecting}
             nameMaps={nameMaps}
             density={listDensity}
@@ -214,7 +215,7 @@ function DerivedSpanListRow({
   onNavigate: (route: any) => void;
   onViewRawSegments: (segmentIds: number[]) => void;
   selected: boolean;
-  onToggle: () => void;
+  onToggle: BoundMultiSelectToggleHandler<string | number>;
   selecting: boolean;
   nameMaps?: DerivedOperandNameMaps;
   density: SegmentListDensity;
@@ -224,7 +225,7 @@ function DerivedSpanListRow({
   const operandSummary = formatDerivedOperandSummary(item, nameMaps);
 
   return (
-    <div onClick={selecting ? onToggle : undefined} className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}>
+    <div onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined} className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}>
       <RouteCardLinkOverlay route={{ page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor }} onClick={() => onNavigate({ page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor })} label={`Open span ${title}`} disabled={selecting} selectionSafeZone />
       <div className="flex items-start gap-3 lg:grid lg:grid-cols-[minmax(0,1.4fr)_140px_minmax(0,1.1fr)_120px_120px] lg:items-center">
         <div className="relative min-w-0 pl-8">

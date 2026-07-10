@@ -19,7 +19,7 @@ import { formatDate } from "../components/shared";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
@@ -409,7 +409,7 @@ export function FacesPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const selectedFaceIds = useMemo(() => Array.from(selectedIds).map((value) => Number(value)), [selectedIds]);
   const batchComparableFaces = useMemo(() => items.filter((face) => selectedIds.has(face.id) && !face.performerId && face.topSuggestion), [items, selectedIds]);
@@ -604,9 +604,9 @@ export function FacesPage({ onNavigate }: Props) {
             renderItem={(face) => (
               <FaceTile
                 face={face}
-                onClick={() => selecting ? toggle(face.id) : onNavigate({ page: "face", id: face.id })}
+                onClick={(toggleOptions) => selecting ? toggle(face.id, toggleOptions) : onNavigate({ page: "face", id: face.id })}
                 selected={selectedIds.has(face.id)}
-                onSelect={() => toggle(face.id)}
+                onSelect={(toggleOptions) => toggle(face.id, toggleOptions)}
                 selecting={selecting}
               >
                 {face.performerId ? (
@@ -819,7 +819,7 @@ function FaceListTable({
   onLinkSuggestion: (face: Face, suggestion: FaceTopSuggestion) => void;
   actionDisabled?: boolean;
   selectedIds: Set<number>;
-  onToggle: (id: number) => void;
+  onToggle: MultiSelectToggleHandler;
   selecting: boolean;
 }) {
   const density = useFaceListDensity();
@@ -845,7 +845,7 @@ function FaceListTable({
             onLinkSuggestion={(suggestion) => onLinkSuggestion(face, suggestion)}
             actionDisabled={actionDisabled}
             selected={selectedIds.has(face.id)}
-            onToggle={() => onToggle(face.id)}
+            onToggle={(toggleOptions) => onToggle(face.id, toggleOptions)}
             selecting={selecting}
             density={density}
           />
@@ -903,7 +903,7 @@ function FaceListRow({
   onLinkSuggestion: (suggestion: FaceTopSuggestion) => void;
   actionDisabled?: boolean;
   selected: boolean;
-  onToggle: () => void;
+  onToggle: BoundMultiSelectToggleHandler;
   selecting: boolean;
   density: FaceListDensity;
 }) {
@@ -911,7 +911,7 @@ function FaceListRow({
 
   return (
     <div
-      onClick={selecting ? onToggle : undefined}
+      onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined}
       className={`group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}
     >
       <RouteCardLinkOverlay
@@ -1123,4 +1123,3 @@ function formatPercent(value: number) {
   const scaled = value <= 1 ? value * 100 : value;
   return Math.max(0, Math.min(100, Math.round(scaled)));
 }
-

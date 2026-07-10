@@ -15,6 +15,7 @@ import { getAudioDisplayTitle, getTextDisplayTitle, pickPrimaryTextFile } from "
 import { BookmarkButton } from "./BookmarkButton";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
+import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const appConfig = useOptionalAppConfig();
@@ -37,13 +38,13 @@ interface EntityTileDragHandleProps {
 interface EntityTileFrameProps {
   route: { page: string; id: number };
   label: string;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   media: ReactNode;
   body: ReactNode;
   footer?: ReactNode;
   children?: ReactNode;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
   selectable?: boolean;
   mediaClassName?: string;
@@ -79,7 +80,7 @@ export function EntityTileFrame({
 }: EntityTileFrameProps) {
   return (
     <div
-      onClick={selecting ? onClick : undefined}
+      onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
       className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"} ${isDragging ? "opacity-50" : ""} ${isOver ? "outline outline-2 outline-accent" : ""} ${className}`}
     >
       <RouteCardLinkOverlay route={route} onClick={onClick} label={label} disabled={selecting} selectionSafeZone={selectable && (selected !== undefined || selecting)} />
@@ -769,7 +770,7 @@ export function MediaStudioSubtitle({ date, studioId, studioName, fieldProvenanc
 }
 
 // ===== VideoCard (redesigned - cleaner, performer badges, 2-line title) =====
-export function VideoCard({ video, engagement, onClick, selected, onSelect, onNavigate, selecting, onQuickView, bookmarkInitiallySaved }: { video: Video; engagement?: EntityEngagement; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean; onNavigate?: (r: any) => void; onQuickView?: () => void; bookmarkInitiallySaved?: boolean }) {
+export function VideoCard({ video, engagement, onClick, selected, onSelect, onNavigate, selecting, onQuickView, bookmarkInitiallySaved }: { video: Video; engagement?: EntityEngagement; onClick: (options?: MultiSelectToggleOptions) => void; selected?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; selecting?: boolean; onNavigate?: (r: any) => void; onQuickView?: () => void; bookmarkInitiallySaved?: boolean }) {
   const appConfig = useOptionalAppConfig();
   const file = video.files[0];
   const clipDuration = typeof video.clipStartSec === "number" && typeof video.clipEndSec === "number"
@@ -816,7 +817,7 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
   }, []);
 
   return (
-    <div onClick={selecting ? onClick : undefined} className={`video-card relative cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
+    <div onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`video-card relative cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
       <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${cardTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="video-card-preview card-media relative aspect-video bg-black overflow-hidden">
         <img
@@ -986,11 +987,11 @@ interface PerformerTileEntity {
 
 interface PerformerTileProps {
   performer: PerformerTileEntity;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (r: any) => void;
   children?: ReactNode;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
 }
 
@@ -1095,11 +1096,11 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
 
 interface StudioTileProps {
   studio: Studio;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (r: any) => void;
   children?: ReactNode;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
 }
 
@@ -1196,13 +1197,13 @@ export function StudioTile({ studio, engagement, onClick, onNavigate, children, 
 
 interface ImageTileProps {
   image: Image;
-  onClick: () => void;
-  onPreview?: () => void;
-  onDetails?: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
+  onPreview?: (options?: MultiSelectToggleOptions) => void;
+  onDetails?: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (r: any) => void;
   onQuickView?: () => void;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
   bookmarkInitiallySaved?: boolean;
 }
@@ -1216,9 +1217,9 @@ export function ImageTile({ image, engagement, onClick, onPreview, onDetails, on
   const detailsClick = onDetails ?? onClick;
   const previewClick = onPreview ?? detailsClick;
   return (
-    <div onClick={selecting ? onClick : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
+    <div onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       {!onPreview ? <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={detailsClick} label={`Open image ${displayTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} /> : null}
-      <div className="card-media aspect-square overflow-hidden bg-surface relative" onClick={selecting ? undefined : previewClick}>
+      <div className="card-media aspect-square overflow-hidden bg-surface relative" onClick={selecting ? undefined : () => previewClick()}>
         <CoverImage src={images.thumbnailUrl(image.id)} alt={displayTitle} className="h-full w-full" loading="lazy" />
         <RatingBanner rating={engagement?.rating} />
         {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
@@ -1308,10 +1309,10 @@ export function ImageTile({ image, engagement, onClick, onPreview, onDetails, on
 
 interface GalleryTileProps {
   gallery: Gallery;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (r: any) => void;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
   bookmarkInitiallySaved?: boolean;
 }
@@ -1519,10 +1520,10 @@ export function GroupItemsPopoverContent({ groupId, kind, totalCount, onNavigate
 
 interface GroupTileProps {
   group: Group;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (r: any) => void;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
   selectable?: boolean;
   bookmarkInitiallySaved?: boolean;
@@ -1634,10 +1635,10 @@ function CountPill({ icon, count, title }: { icon: ReactNode; count: number; tit
 interface AudioTileProps {
   audio: Audio;
   engagement?: EntityEngagement;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (route: any) => void;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
 }
 
@@ -1680,7 +1681,7 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
   }, [canPreview, stopPreview]);
 
   return (
-    <article onClick={selecting ? onClick : undefined} onMouseEnter={schedulePreview} onMouseLeave={stopPreview} className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
+    <article onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} onMouseEnter={schedulePreview} onMouseLeave={stopPreview} className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
       <RouteCardLinkOverlay route={{ page: "audio", id: audio.id }} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="card-media relative flex aspect-video items-center justify-center overflow-hidden bg-surface">
         {audio.imagePath ? (
@@ -1717,10 +1718,10 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
 interface TextTileProps {
   text: TextDocument;
   engagement?: EntityEngagement;
-  onClick: () => void;
+  onClick: (options?: MultiSelectToggleOptions) => void;
   onNavigate?: (route: any) => void;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
 }
 
@@ -1730,7 +1731,7 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
   const preview = primaryFile?.excerptText?.trim() || text.details?.trim() || "Open the document to read the extracted content and file details.";
 
   return (
-    <article onClick={selecting ? onClick : undefined} className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
+    <article onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
       <RouteCardLinkOverlay route={{ page: "text", id: text.id }} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="card-media relative flex aspect-video items-center justify-center overflow-hidden bg-surface">
         {text.imagePath ? <CoverImage src={text.imagePath} alt={title} className="h-full w-full" loading="lazy" /> : <FileText className="h-12 w-12 text-muted opacity-50" />}
@@ -1753,7 +1754,7 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
   );
 }
 
-export function TagTile({ tag, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: { tag: TagType; engagement?: EntityEngagement; onClick: () => void; onNavigate?: (r: any) => void; children?: ReactNode; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+export function TagTile({ tag, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: { tag: TagType; engagement?: EntityEngagement; onClick: (options?: MultiSelectToggleOptions) => void; onNavigate?: (r: any) => void; children?: ReactNode; selected?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; selecting?: boolean }) {
   const favorite = engagement?.isFavorite ?? tag.favorite;
   const hasFooter = Boolean(tag.videoCount || tag.segmentCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount);
 
@@ -1803,7 +1804,7 @@ export function TagTile({ tag, engagement, onClick, onNavigate, children, select
   );
 }
 
-export function FaceTile({ face, onClick, selected, onSelect, selecting, children }: { face: Face; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean; children?: React.ReactNode }) {
+export function FaceTile({ face, onClick, selected, onSelect, selecting, children }: { face: Face; onClick: (options?: MultiSelectToggleOptions) => void; selected?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; selecting?: boolean; children?: React.ReactNode }) {
   const title = faceDisplayName(face);
 
   return (
@@ -1974,7 +1975,7 @@ interface SegmentTileItem {
   performerName?: string;
 }
 
-export function SegmentTile({ segment, route, label, eyebrow, footer, onClick, selected, onSelect, selecting }: { segment: SegmentTileItem; route?: any; label?: string; eyebrow?: string; footer?: ReactNode; onClick: () => void; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+export function SegmentTile({ segment, route, label, eyebrow, footer, onClick, selected, onSelect, selecting }: { segment: SegmentTileItem; route?: any; label?: string; eyebrow?: string; footer?: ReactNode; onClick: (options?: MultiSelectToggleOptions) => void; selected?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; selecting?: boolean }) {
   const sourceLabel = formatSegmentSourceLabel(segment.sourceKey);
   const refLabel = segment.performerName || segment.refLabel;
   const title = segment.title || segment.tagName || refLabel || segment.kind || sourceLabel;
@@ -1983,7 +1984,7 @@ export function SegmentTile({ segment, route, label, eyebrow, footer, onClick, s
   const confidenceLabel = segment.confidence == null ? null : `${Math.round(segment.confidence * 100)}%`;
 
   return (
-    <article onClick={selecting ? onClick : undefined} className={`entity-card video-card group relative overflow-hidden rounded border bg-card transition-all ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
+    <article onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`entity-card video-card group relative overflow-hidden rounded border bg-card transition-all ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
       <RouteCardLinkOverlay route={cardRoute} onClick={onClick} label={label ?? `Open segment ${title}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="card-media relative aspect-video w-full overflow-hidden bg-surface/70">
         {(selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
@@ -2042,4 +2043,3 @@ function formatSegmentSourceLabel(sourceKey?: string) {
 function SegmentHoverPreview({ hostId, segmentId, updatedAt, startSec, endSec, title, className }: { hostId: number; segmentId?: number; updatedAt?: string; startSec: number; endSec?: number; title: string; className: string }) {
   return <SegmentPreviewMedia hostId={hostId} segmentId={segmentId} updatedAt={updatedAt} startSec={startSec} endSec={endSec} title={title} className={className} />;
 }
-

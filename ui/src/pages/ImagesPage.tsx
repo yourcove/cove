@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, images } from "../api/client";
 import type { DeleteEntityOptions, EntityEngagement, FindFilter, Image, ImageFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
@@ -185,7 +185,7 @@ export function ImagesPage({ onNavigate }: Props) {
   const wallColumnOptions = useMemo(() => ({ stable: infinitePageSize, getKey: (image: Image) => image.id }), [infinitePageSize]);
   const wallColumns = useWallColumns(items, wallColumnCount, estimateImageWallHeight, wallColumnOptions);
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter, searchMode }), [listData.infiniteFilterKey, objectFilter, searchMode]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const selectedVisibleImages = useMemo(() => items.filter((item) => selectedIds.has(item.id)), [items, selectedIds]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -354,7 +354,7 @@ export function ImagesPage({ onNavigate }: Props) {
               onNavigate={onNavigate}
               canEngage={canEngageImage}
               selected={selectedIds.has(img.id)}
-              onSelect={() => toggle(img.id)}
+              onSelect={(toggleOptions) => toggle(img.id, toggleOptions)}
               selecting={selecting}
             />
             )}
@@ -401,12 +401,12 @@ export function ImagesPage({ onNavigate }: Props) {
             <ImageTile
               image={img}
               engagement={engagementById.get(img.id)}
-              onClick={() => {
-                if (selecting) { toggle(img.id); return; }
+              onClick={(toggleOptions) => {
+                if (selecting) { toggle(img.id, toggleOptions); return; }
                 onNavigate({ page: "image", id: img.id });
               }}
-              onPreview={() => {
-                if (selecting) { toggle(img.id); return; }
+              onPreview={(toggleOptions) => {
+                if (selecting) { toggle(img.id, toggleOptions); return; }
                 setLightboxScopeIds(null);
                 setLightboxAutoPlay(false);
                 setLightboxIndex(idx);
@@ -418,7 +418,7 @@ export function ImagesPage({ onNavigate }: Props) {
               }}
               onNavigate={onNavigate}
               selected={selectedIds.has(img.id)}
-              onSelect={() => toggle(img.id)}
+              onSelect={(toggleOptions) => toggle(img.id, toggleOptions)}
               selecting={selecting}
               onQuickView={() => setQuickViewId(img.id)}
             />
@@ -435,7 +435,7 @@ export function ImagesPage({ onNavigate }: Props) {
           estimateItemHeight={320}
           gap={8}
           renderItem={(img) => (
-            <ImageWallCard image={img} onClick={() => selecting ? toggle(img.id) : onNavigate({ page: "image", id: img.id })} selected={selectedIds.has(img.id)} selecting={selecting} onSelect={() => toggle(img.id)} />
+            <ImageWallCard image={img} onClick={(toggleOptions) => selecting ? toggle(img.id, toggleOptions) : onNavigate({ page: "image", id: img.id })} selected={selectedIds.has(img.id)} selecting={selecting} onSelect={(toggleOptions) => toggle(img.id, toggleOptions)} />
           )}
         />
       )}
@@ -474,7 +474,7 @@ export function ImagesPage({ onNavigate }: Props) {
   );
 }
 
-function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onSelect, selecting }: { image: Image; engagement?: EntityEngagement; onNavigate: (route: any) => void; canEngage: boolean; selected?: boolean; onSelect?: () => void; selecting?: boolean }) {
+function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onSelect, selecting }: { image: Image; engagement?: EntityEngagement; onNavigate: (route: any) => void; canEngage: boolean; selected?: boolean; onSelect?: BoundMultiSelectToggleHandler; selecting?: boolean }) {
   const displayTitle = getImageDisplayTitle(image);
   const file = image.files[0];
   const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1";
@@ -494,9 +494,9 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
     },
   });
   const ratingValue = ratingMut.data?.rating ?? engagement?.rating;
-  const openOrSelect = () => {
+  const openOrSelect = (toggleOptions?: MultiSelectToggleOptions) => {
     if (selecting) {
-      onSelect?.();
+      onSelect?.(toggleOptions);
       return;
     }
 
@@ -523,7 +523,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
     <FeedCardFrame
       dataAttribute={{ "data-feed-image-id": image.id }}
       selected={selected}
-      onClick={selecting ? openOrSelect : undefined}
+      onClick={selecting ? (event) => openOrSelect(toggleOptionsFromEvent(event)) : undefined}
       identity={image.studioName ? <FeedIdentityBadge>{image.studioName}</FeedIdentityBadge> : undefined}
       header={(
         <>
@@ -590,7 +590,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
       title={(
         <button
           type="button"
-          onClick={(event) => { event.stopPropagation(); openOrSelect(); }}
+          onClick={(event) => { event.stopPropagation(); openOrSelect(toggleOptionsFromEvent(event)); }}
           className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent"
         >
           {displayTitle}
@@ -608,7 +608,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
           {image.performers.slice(0, 4).map((performer) => (
             <FeedChipButton
               key={performer.id}
-              onClick={() => selecting ? onSelect?.() : onNavigate({ page: "performer", id: performer.id })}
+              onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "performer", id: performer.id })}
             >
               {performer.name}
             </FeedChipButton>
@@ -616,7 +616,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
           {visibleTags.map((tag) => (
             <FeedChipButton
               key={tag.id}
-              onClick={() => selecting ? onSelect?.() : onNavigate({ page: "tag", id: tag.id })}
+              onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}
             >
               #{tag.name}
             </FeedChipButton>
@@ -626,7 +626,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
               {hiddenTags.map((tag) => (
                 <FeedChipButton
                   key={tag.id}
-                  onClick={() => selecting ? onSelect?.() : onNavigate({ page: "tag", id: tag.id })}
+                  onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}
                 >
                   #{tag.name}
                 </FeedChipButton>
@@ -639,7 +639,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
   );
 }
 
-function ImageWallCard({ image, onClick, selected, selecting, onSelect }: { image: Image; onClick: () => void; selected?: boolean; selecting?: boolean; onSelect?: () => void }) {
+function ImageWallCard({ image, onClick, selected, selecting, onSelect }: { image: Image; onClick: BoundMultiSelectToggleHandler; selected?: boolean; selecting?: boolean; onSelect?: BoundMultiSelectToggleHandler }) {
   const displayTitle = getImageDisplayTitle(image);
   const file = image.files[0];
   const aspectRatio = file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1";
@@ -649,10 +649,11 @@ function ImageWallCard({ image, onClick, selected, selecting, onSelect }: { imag
       title={displayTitle}
       imageSrc={images.thumbnailUrl(image.id)}
       aspectRatio={aspectRatio}
+      onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
       className={`group ${selected ? "border-accent ring-1 ring-accent/60" : ""}`.trim()}
     >
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={onClick} label={`Open image ${displayTitle}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={onClick} label={`Open image ${displayTitle}`} disabled={selecting} selectionSafeZone />
       {!selecting && (
         <BookmarkButton
           hostType="image"

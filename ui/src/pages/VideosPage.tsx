@@ -8,7 +8,7 @@ import { useListUrlState } from "../hooks/useListUrlState";
 import { usePaginatedInfiniteQuery } from "../hooks/usePaginatedInfiniteQuery";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
 import { VideoTagger } from "../components/VideoTagger";
-import { useMultiSelect } from "../hooks/useMultiSelect";
+import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { CustomFieldsEditor, formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
@@ -472,7 +472,7 @@ export function VideosPage({ onNavigate }: Props) {
     return file?.width && file.height ? file.height / file.width : 9 / 16;
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter: backendObjectFilter, searchMode }), [backendObjectFilter, infiniteFilterKey, searchMode]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const selectedVideo = selectedIds.size === 1 ? items.find((video) => selectedIds.has(video.id)) : undefined;
   const selectedDownloadTargets = useMemo(() => getUndownloadedSelectionItems(items, selectedIds), [items, selectedIds]);
@@ -866,7 +866,7 @@ export function VideosPage({ onNavigate }: Props) {
                   viewerHeight={verticalViewerHeight}
                   selected={selectedIds.has(video.id)}
                   selecting={selecting}
-                  onSelect={() => toggle(video.id)}
+                  onSelect={(toggleOptions) => toggle(video.id, toggleOptions)}
                   onNavigate={navigateToVideo}
                 />
               )}
@@ -902,7 +902,7 @@ export function VideosPage({ onNavigate }: Props) {
                 canEngage={canEngageVideo}
                 selected={selectedIds.has(video.id)}
                 selecting={selecting}
-                onSelect={() => toggle(video.id)}
+                onSelect={(toggleOptions) => toggle(video.id, toggleOptions)}
               />
             )}
           />
@@ -925,10 +925,10 @@ export function VideosPage({ onNavigate }: Props) {
               <VideoCard
                 video={video}
                 engagement={engagementById.get(video.id)}
-                onClick={() => selecting ? toggle(video.id) : navigateToVideo(video.id)}
+                onClick={(toggleOptions) => selecting ? toggle(video.id, toggleOptions) : navigateToVideo(video.id)}
                 onNavigate={onNavigate}
                 selected={selectedIds.has(video.id)}
-                onSelect={() => toggle(video.id)}
+                onSelect={(toggleOptions) => toggle(video.id, toggleOptions)}
                 selecting={selecting}
                 onQuickView={() => setQuickViewId(video.id)}
               />
@@ -943,10 +943,10 @@ export function VideosPage({ onNavigate }: Props) {
                 key={`video-${entry.video.id}`}
                 video={entry.video}
                 engagement={engagementById.get(entry.video.id)}
-                onClick={() => selecting ? toggle(entry.video!.id) : navigateToVideo(entry.video!.id)}
+                onClick={(toggleOptions) => selecting ? toggle(entry.video!.id, toggleOptions) : navigateToVideo(entry.video!.id)}
                 onNavigate={onNavigate}
                 selected={selectedIds.has(entry.video.id)}
-                onSelect={() => toggle(entry.video!.id)}
+                onSelect={(toggleOptions) => toggle(entry.video!.id, toggleOptions)}
                 selecting={selecting}
                 onQuickView={() => setQuickViewId(entry.video!.id)}
               />
@@ -972,10 +972,10 @@ export function VideosPage({ onNavigate }: Props) {
           renderItem={(video) => (
                 <VideoWallCard
                   video={video}
-                  onClick={() => selecting ? toggle(video.id) : navigateToVideo(video.id)}
+                  onClick={(toggleOptions) => selecting ? toggle(video.id, toggleOptions) : navigateToVideo(video.id)}
                   selected={selectedIds.has(video.id)}
                   selecting={selecting}
-                  onSelect={() => toggle(video.id)}
+                  onSelect={(toggleOptions) => toggle(video.id, toggleOptions)}
                 />
           )}
         />
@@ -1328,7 +1328,7 @@ function getVideoFeedVideoStartTime(video: Video, feedVideoSource: string, start
 
 /* ── Video List Table ── */
 
-function VideoListTable({ entries, onNavigate, selectedIds, onToggle, selecting }: { entries: VideoListEntry[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: (id: number) => void; selecting?: boolean }) {
+function VideoListTable({ entries, onNavigate, selectedIds, onToggle, selecting }: { entries: VideoListEntry[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-2">
       {entries.map((entry) => {
@@ -1368,7 +1368,7 @@ function CompilationListRow({ group, onNavigate }: { group: Group; onNavigate: (
 
 /* ── Video Wall Card ── */
 
-function VideoWallCard({ video, onClick, selected, selecting, onSelect }: { video: Video; onClick: () => void; selected?: boolean; selecting?: boolean; onSelect?: () => void }) {
+function VideoWallCard({ video, onClick, selected, selecting, onSelect }: { video: Video; onClick: BoundMultiSelectToggleHandler; selected?: boolean; selecting?: boolean; onSelect?: BoundMultiSelectToggleHandler }) {
   const file = video.files[0];
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, 1280);
   const previewUrl = videos.previewUrl(video.id);
@@ -1393,10 +1393,11 @@ function VideoWallCard({ video, onClick, selected, selecting, onSelect }: { vide
       muted
       aspectRatio={aspectRatio}
       imageClassName="object-cover"
+      onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
       className="group"
     >
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${title}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${title}`} disabled={selecting} selectionSafeZone />
       <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent transition-opacity ${showTitle ? "opacity-0 group-hover:opacity-100" : "opacity-0"}`} />
       {showTitle ? <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <p className="text-xs text-white font-medium truncate">
@@ -1412,7 +1413,7 @@ function VideoWallCard({ video, onClick, selected, selecting, onSelect }: { vide
   );
 }
 
-function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnabled, onToggleSound, onPlaybackEligibilityChange, feedVideoStartPercent, feedVideoStartMinDuration, onNavigate, canEngage, selected, selecting, onSelect }: { video: Video; engagement?: EntityEngagement; feedVideoSource: string; useVideo: boolean; soundEnabled: boolean; onToggleSound: () => void; onPlaybackEligibilityChange?: (eligible: boolean) => void; feedVideoStartPercent: number; feedVideoStartMinDuration: number; onNavigate: (route: any) => void; canEngage: boolean; selected?: boolean; selecting?: boolean; onSelect?: () => void }) {
+function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnabled, onToggleSound, onPlaybackEligibilityChange, feedVideoStartPercent, feedVideoStartMinDuration, onNavigate, canEngage, selected, selecting, onSelect }: { video: Video; engagement?: EntityEngagement; feedVideoSource: string; useVideo: boolean; soundEnabled: boolean; onToggleSound: () => void; onPlaybackEligibilityChange?: (eligible: boolean) => void; feedVideoStartPercent: number; feedVideoStartMinDuration: number; onNavigate: (route: any) => void; canEngage: boolean; selected?: boolean; selecting?: boolean; onSelect?: BoundMultiSelectToggleHandler }) {
   const file = video.files[0];
   const { coverUrl, videoSrc, videoStatusSrc } = getVideoFeedMedia(video, feedVideoSource);
   const title = video.title || file?.basename || `Video ${video.id}`;
@@ -1438,11 +1439,12 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
   const renderVideoControls = (controls: WallMediaVideoControlsState) => (
     <VideoFeedVideoControls controls={controls} soundEnabled={soundEnabled} onToggleSound={onToggleSound} />
   );
+  const openOrSelect = (toggleOptions?: MultiSelectToggleOptions) => selecting ? onSelect?.(toggleOptions) : onNavigate({ page: "video", id: video.id });
 
   const mediaOverlay = (
     <>
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={() => onNavigate({ page: "video", id: video.id })} label={`Open video ${title}`} selectionSafeZone />
+      <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={openOrSelect} label={`Open video ${title}`} disabled={selecting} selectionSafeZone />
       {!selecting && (
         <BookmarkButton
           hostType="video"
@@ -1459,6 +1461,7 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
     <FeedCardFrame
       dataAttribute={{ "data-feed-video-id": video.id }}
       selected={selected}
+      onClick={selecting ? (event) => openOrSelect(toggleOptionsFromEvent(event)) : undefined}
       identity={video.studioName ? <FeedIdentityBadge>{video.studioName}</FeedIdentityBadge> : undefined}
       header={(
         <>
@@ -1541,7 +1544,10 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
       title={(
         <button
           type="button"
-          onClick={() => onNavigate({ page: "video", id: video.id })}
+          onClick={(event) => {
+            event.stopPropagation();
+            openOrSelect(toggleOptionsFromEvent(event));
+          }}
           className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent"
         >
           {title}
@@ -1559,7 +1565,7 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
           {video.performers.slice(0, 4).map((performer) => (
             <FeedChipButton
               key={performer.id}
-              onClick={() => onNavigate({ page: "performer", id: performer.id })}
+              onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "performer", id: performer.id })}
             >
               {performer.name}
             </FeedChipButton>
@@ -1567,7 +1573,7 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
           {visibleTags.map((tag) => (
             <FeedChipButton
               key={tag.id}
-              onClick={() => onNavigate({ page: "tag", id: tag.id })}
+              onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}
             >
               #{tag.name}
             </FeedChipButton>
@@ -1577,7 +1583,7 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
               {hiddenTags.map((tag) => (
                 <FeedChipButton
                   key={tag.id}
-                  onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                  onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}
                 >
                   #{tag.name}
                 </FeedChipButton>
@@ -1656,7 +1662,7 @@ function VideoFeedVideoControls({ controls, soundEnabled, onToggleSound }: { con
   );
 }
 
-function VideoVerticalViewerCard({ video, feedVideoSource, useVideo, soundEnabled, onToggleSound, feedVideoStartPercent, feedVideoStartMinDuration, fullscreen, viewerHeight, onNavigate, selected, selecting, onSelect }: { video: Video; feedVideoSource: string; useVideo: boolean; soundEnabled: boolean; onToggleSound: () => void; feedVideoStartPercent: number; feedVideoStartMinDuration: number; fullscreen: boolean; viewerHeight: number | null; onNavigate: (videoId: number) => void; selected?: boolean; selecting?: boolean; onSelect?: () => void }) {
+function VideoVerticalViewerCard({ video, feedVideoSource, useVideo, soundEnabled, onToggleSound, feedVideoStartPercent, feedVideoStartMinDuration, fullscreen, viewerHeight, onNavigate, selected, selecting, onSelect }: { video: Video; feedVideoSource: string; useVideo: boolean; soundEnabled: boolean; onToggleSound: () => void; feedVideoStartPercent: number; feedVideoStartMinDuration: number; fullscreen: boolean; viewerHeight: number | null; onNavigate: (videoId: number) => void; selected?: boolean; selecting?: boolean; onSelect?: BoundMultiSelectToggleHandler }) {
   const file = video.files[0];
   const { coverUrl, videoSrc, videoStatusSrc } = getVideoFeedMedia(video, feedVideoSource);
   const title = video.title || file?.basename || `Video ${video.id}`;
@@ -1664,6 +1670,7 @@ function VideoVerticalViewerCard({ video, feedVideoSource, useVideo, soundEnable
   const duration = getVideoDisplayDuration(video);
   const videoStartTimeSec = getVideoFeedVideoStartTime(video, feedVideoSource, feedVideoStartPercent, feedVideoStartMinDuration);
   const availableViewerHeight = viewerHeight != null ? Math.max(120, viewerHeight) : null;
+  const openOrSelect = (toggleOptions?: MultiSelectToggleOptions) => selecting ? onSelect?.(toggleOptions) : onNavigate(video.id);
 
   return (
     <article data-vertical-video-id={video.id} className={`flex h-full min-h-0 snap-start snap-always items-center justify-center ${fullscreen ? "px-0 py-0" : "px-2 py-0 sm:px-4"}`}>
@@ -1681,6 +1688,7 @@ function VideoVerticalViewerCard({ video, feedVideoSource, useVideo, soundEnable
         aspectRatio="9 / 16"
         imageClassName="object-cover"
         fillMedia={fullscreen}
+        onClick={selecting ? (event) => openOrSelect(toggleOptionsFromEvent(event)) : undefined}
         style={fullscreen
           ? { width: "min(100vw, 56.25dvh)", height: "100dvh" }
           : { width: availableViewerHeight != null ? `min(calc(100vw - 1rem), ${Math.round(availableViewerHeight * 0.5625)}px)` : "min(calc(100vw - 1rem), calc((100dvh - 10rem) * 0.5625))" }}
@@ -1700,7 +1708,7 @@ function VideoVerticalViewerCard({ video, feedVideoSource, useVideo, soundEnable
           {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
         </button>
         <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
-        <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={() => onNavigate(video.id)} label={`Open video ${title}`} selectionSafeZone />
+        <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={openOrSelect} label={`Open video ${title}`} disabled={selecting} selectionSafeZone />
         {!selecting && (
           <BookmarkButton
             hostType="video"
@@ -1727,4 +1735,3 @@ function VideoVerticalViewerCard({ video, feedVideoSource, useVideo, soundEnable
     </article>
   );
 }
-

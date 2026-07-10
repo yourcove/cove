@@ -18,12 +18,13 @@ import {
 import {
   Search, Loader2, Check, AlertCircle, Fingerprint, CloudUpload,
 } from "lucide-react";
+import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface StudioTaggerProps {
   studios: Studio[];
   selectedIds?: Set<number>;
   selecting?: boolean;
-  onSelect?: (studioId: number) => void;
+  onSelect?: (studioId: number, options?: MultiSelectToggleOptions) => void;
   mode?: "bulk" | "detail";
 }
 
@@ -210,6 +211,7 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
   const visibleStudios = mode === "detail" || taggerConfig.showTagged
     ? studioList
     : studioList.filter((s) => !s.remoteIds || s.remoteIds.length === 0);
+  const visibleStudioIds = visibleStudios.map((studio) => studio.id);
 
   return (
     <div className="space-y-0">
@@ -262,7 +264,7 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
             detailMode={mode === "detail"}
             selected={selectedIds?.has(studio.id) ?? false}
             selecting={selecting}
-            onSelect={onSelect}
+            onSelect={onSelect ? withOrderedToggle(onSelect, visibleStudioIds) : undefined}
           />
         ))}
       </div>
@@ -295,7 +297,7 @@ function StudioTaggerRow({
   detailMode?: boolean;
   selected: boolean;
   selecting: boolean;
-  onSelect?: (studioId: number) => void;
+  onSelect?: (studioId: number, options?: MultiSelectToggleOptions) => void;
 }) {
   const imageUrl = studio.imagePath;
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
@@ -347,7 +349,7 @@ function StudioTaggerRow({
         {onSelect && (
           <button
             type="button"
-            onClick={() => onSelect(studio.id)}
+            onClick={(event) => onSelect(studio.id, toggleOptionsFromEvent(event))}
             className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? "border-accent bg-accent text-white" : selecting ? "border-accent/60 text-accent" : "border-border text-transparent hover:border-accent hover:text-accent"}`}
             aria-label={selected ? "Deselect studio" : "Select studio"}
             title={selected ? "Deselect" : "Select"}
@@ -576,4 +578,3 @@ function StudioResultRow({
     </div>
   );
 }
-

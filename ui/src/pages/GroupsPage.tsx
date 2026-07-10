@@ -1,13 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { groups } from "../api/client";
-import type { EntityEngagement, FindFilter, Group, GroupCreate, GroupFilterCriteria, PaginatedResponse } from "../api/types";
+import type { FindFilter, Group, GroupCreate, GroupFilterCriteria, PaginatedResponse } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { SortableList } from "../components/SortableList";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { formatDate } from "../components/shared";
 import { Layers, Trash2, Loader2, Edit } from "lucide-react";
 import { GroupTile } from "../components/EntityCards";
 import { GROUP_CRITERIA } from "../components/FilterDialog";
@@ -54,10 +53,6 @@ const SORT_OPTIONS = [
   { value: "aliases", label: "Aliases" },
 ];
 
-function getGroupItemCount(group: Group) {
-  return group.itemCount ?? (group.kind === "dynamic" ? group.cachedItemCount ?? group.videoCount : group.videoCount);
-}
-
 interface Props {
   onNavigate: (r: any) => void;
 }
@@ -88,14 +83,16 @@ export function GroupsPage({ onNavigate }: Props) {
   const canDeleteGroup = canDeleteEntity("group", hasPermission);
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const queryGroupsPage = useCallback((nextFilter: FindFilter) =>
+    hasObjectFilter
+      ? groups.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as GroupFilterCriteria })
+      : groups.find(nextFilter),
+  [hasObjectFilter, objectFilter]);
   const listData = useInfiniteListData<Group>({
     queryKey: ["groups", filter, objectFilter],
     filter,
     chunkSize: defaultState.filter.perPage ?? 40,
-    queryPage: (nextFilter) =>
-      hasObjectFilter
-        ? groups.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as GroupFilterCriteria })
-        : groups.find(nextFilter),
+    queryPage: queryGroupsPage,
   });
 
   const items = listData.items;
@@ -104,22 +101,39 @@ export function GroupsPage({ onNavigate }: Props) {
   const manualOrderingEnabled = !listData.infinitePageSize && displayMode === "grid" && !hasObjectFilter && !filter.q && (filter.sort ?? "sort_order") === "sort_order" && (filter.direction ?? "asc") !== "desc";
   const { engagementById } = useEntityEngagementBatch("group", items.map((item) => item.id));
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle: toggleRaw, selectIds: selectIdsRaw, selectNone, invertSelection } = useMultiSelect(items, { preserveOnAppend: listData.infinitePageSize, resetKey: selectionResetKey });
   // Built-in/system groups (Save for Later, Watch History, Continue Watching) can't be deleted,
   // so they must not be selectable for bulk actions.
-  const builtInGroupIds = useMemo(
+  const protectedBuiltInGroupIds = useMemo(
     () => new Set(items.filter((group) => isProtectedBuiltInGroup(group.querySourceKey)).map((group) => group.id)),
     [items],
   );
-  const isSelectableGroup = useCallback((id: number) => !builtInGroupIds.has(id), [builtInGroupIds]);
-  const toggle = useCallback((id: number) => { if (isSelectableGroup(id)) toggleRaw(id); }, [isSelectableGroup, toggleRaw]);
-  const selectAll = useCallback(() => selectIdsRaw(items.filter((group) => isSelectableGroup(group.id)).map((group) => group.id)), [items, isSelectableGroup, selectIdsRaw]);
-  const selectIds = useCallback((ids: number[]) => selectIdsRaw(ids.filter(isSelectableGroup)), [isSelectableGroup, selectIdsRaw]);
+  const isSelectableGroupId = useCallback((id: number) => !protectedBuiltInGroupIds.has(id), [protectedBuiltInGroupIds]);
+  const isSelectableGroupItem = useCallback((group: Group) => !isProtectedBuiltInGroup(group.querySourceKey), []);
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey, isSelectable: isSelectableGroupItem, isSelectableId: isSelectableGroupId });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
     try {
-      selectIds(await listData.fetchAllIds());
+      const ids: number[] = [];
+      const seen = new Set<number>();
+      let page = 1;
+      let totalCount = Number.POSITIVE_INFINITY;
+      while (ids.length < totalCount) {
+        const response = await queryGroupsPage({ ...filter, page, perPage: 1000 });
+        totalCount = response.totalCount;
+        for (const group of response.items) {
+          if (seen.has(group.id)) continue;
+          seen.add(group.id);
+          if (!isProtectedBuiltInGroup(group.querySourceKey)) {
+            ids.push(group.id);
+          }
+        }
+        if (response.items.length === 0 || response.page * response.perPage >= response.totalCount) {
+          break;
+        }
+        page += 1;
+      }
+      selectIds(ids);
     } finally {
       setSelectAllMatchingPending(false);
     }
@@ -215,12 +229,12 @@ export function GroupsPage({ onNavigate }: Props) {
               <GroupTile
                 group={g}
                 engagement={engagementById.get(g.id)}
-                onClick={() => onNavigate({ page: "group", id: g.id })}
+                onClick={(toggleOptions) => selecting && isSelectableGroupItem(g) ? toggle(g.id, toggleOptions) : onNavigate({ page: "group", id: g.id })}
                 onNavigate={onNavigate}
                 selected={selectedIds.has(g.id)}
-                onSelect={() => toggle(g.id)}
+                onSelect={(toggleOptions) => toggle(g.id, toggleOptions)}
                 selecting={selecting}
-                selectable={isSelectableGroup(g.id)}
+                selectable={isSelectableGroupItem(g)}
                 dragHandleProps={canWriteGroup ? dragHandleProps : undefined}
                 isDragging={isDragging}
                 isOver={isOver}
@@ -241,18 +255,18 @@ export function GroupsPage({ onNavigate }: Props) {
               <GroupTile
                 group={g}
                 engagement={engagementById.get(g.id)}
-                onClick={() => selecting && isSelectableGroup(g.id) ? toggle(g.id) : onNavigate({ page: "group", id: g.id })}
+                onClick={(toggleOptions) => selecting && isSelectableGroupItem(g) ? toggle(g.id, toggleOptions) : onNavigate({ page: "group", id: g.id })}
                 onNavigate={onNavigate}
                 selected={selectedIds.has(g.id)}
-                onSelect={() => toggle(g.id)}
+                onSelect={(toggleOptions) => toggle(g.id, toggleOptions)}
                 selecting={selecting}
-                selectable={isSelectableGroup(g.id)}
+                selectable={isSelectableGroupItem(g)}
               />
             )}
           />
         )
       ) : (
-        <RelatedEntityListView entityType="groups" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
+        <RelatedEntityListView entityType="groups" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} isSelectable={isSelectableGroupItem} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
       )}
       {items.length === 0 && (
         <div className="text-center text-secondary py-16">
@@ -271,41 +285,6 @@ export function GroupsPage({ onNavigate }: Props) {
         isPending={bulkEditMut.isPending}
       />
     </>
-  );
-}
-
-function GroupListTable({ groups: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { groups: Group[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: (id: number) => void; selecting?: boolean }) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-left text-muted text-xs">
-          {selectedIds && <th className="w-8 py-2 px-3"></th>}
-          <th className="py-2 px-3">Name</th>
-          <th className="py-2 px-3">Studio</th>
-          <th className="py-2 px-3">Director</th>
-          <th className="py-2 px-3">Date</th>
-          <th className="py-2 px-3 text-right">Items</th>
-          <th className="py-2 px-3 text-right">Rating</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((g) => (
-          <tr
-            key={g.id}
-            onClick={() => selecting ? onToggle?.(g.id) : onNavigate({ page: "group", id: g.id })}
-            className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(g.id) ? "bg-accent/10" : ""}`}
-          >
-            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(g.id)} onChange={() => onToggle?.(g.id)} onClick={(e) => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
-            <td className="py-2 px-3 text-foreground">{g.name}</td>
-            <td className="py-2 px-3 text-secondary">{g.studioName ?? ""}</td>
-            <td className="py-2 px-3 text-secondary">{g.director ?? ""}</td>
-            <td className="py-2 px-3 text-secondary">{g.date ? formatDate(g.date) : ""}</td>
-            <td className="py-2 px-3 text-secondary text-right">{getGroupItemCount(g)}</td>
-            <td className="py-2 px-3 text-secondary text-right">{engagementById.get(g.id)?.rating ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
@@ -438,4 +417,3 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
     </EditModal>
   );
 }
-

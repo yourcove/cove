@@ -612,7 +612,7 @@ export function SegmentsPage({ onNavigate }: Props) {
   }, [filter, infinitePageSize, pageNumber, perPage, setFilter, totalCount]);
 
   const selectionResetKey = useMemo(() => JSON.stringify({ contentView, filter: { ...filter, page: undefined }, objectFilter, activeProfileId, appliedQuery, rawSegmentIds }), [activeProfileId, appliedQuery, contentView, filter, objectFilter, rawSegmentIds]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(selectionItems, { preserveOnAppend: infinitePageSize, resetKey: selectionResetKey });
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(selectionItems, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const spanSelectionItems = selectedMatchingItems?.view === "spans" ? selectedMatchingItems.spans : spanItems;
   const rawSelectionItems = selectedMatchingItems?.view === "raw" ? selectedMatchingItems.raw : rawItems;
