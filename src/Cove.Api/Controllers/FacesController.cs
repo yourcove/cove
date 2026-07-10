@@ -1205,6 +1205,14 @@ public class FacesController(
             .Skip((page - 1) * perPage)
             .Take(perPage)
             .ToList();
+        var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(
+            pageItems.Select(item => faces[item.Id]).ToArray(),
+            cancellationToken);
+        pageItems = pageItems
+            .Select(item => item.CoverImageUrl is null
+                ? item with { CoverImageUrl = coverFallbacks.GetValueOrDefault(item.Id) }
+                : item)
+            .ToList();
 
         return Ok(new PaginatedResponse<FaceSimilarDto>(pageItems, totalCount, page, perPage));
     }

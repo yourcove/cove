@@ -33,7 +33,13 @@ public class AiCoreControllerTests
             new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
             new FacePerformerPropagationService(context),
             Array.Empty<IFaceLifecycleParticipant>(),
-            NullLogger<FacesController>.Instance);
+            NullLogger<FacesController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext(),
+            },
+        };
 
         var firstCreate = await controller.Create(new FaceCreateDto("Lead", null, false, "ext:ai.faces"), CancellationToken.None);
         var firstCreated = Assert.IsType<CreatedAtActionResult>(firstCreate.Result);
@@ -80,6 +86,27 @@ public class AiCoreControllerTests
                 Vector = new Vector(new[] { 0.95f, 0.05f, 0f }),
                 SourceKey = "ext:ai.faces",
             });
+        var hostImage = new Image { Title = "Still" };
+        context.Images.Add(hostImage);
+        await context.SaveChangesAsync();
+
+        var representativeDetection = new Detection
+        {
+            HostType = DetectionHostType.Image,
+            HostId = hostImage.Id,
+            FrameWidth = 1200,
+            FrameHeight = 1600,
+            Class = "face",
+            Score = 0.92f,
+            X = 120,
+            Y = 180,
+            W = 240,
+            H = 300,
+            RefKind = "face",
+            RefId = secondFace.Id,
+            SourceKey = "ext:ai.faces",
+        };
+        context.Detections.Add(representativeDetection);
         await context.SaveChangesAsync();
 
         var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, 1, 5, 5, CancellationToken.None);
@@ -87,6 +114,7 @@ public class AiCoreControllerTests
         var similarFaces = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(similarOk.Value);
         var match = Assert.Single(similarFaces.Items);
         Assert.Equal(secondFace.Id, match.Id);
+        Assert.Contains($"/api/stream/detection/{representativeDetection.Id}/crop", match.CoverImageUrl, StringComparison.Ordinal);
 
         var mergeResult = await controller.MergeInto(secondFace.Id, new FaceMergeDto(firstFace.Id), CancellationToken.None);
         var mergeOk = Assert.IsType<OkObjectResult>(mergeResult.Result);
