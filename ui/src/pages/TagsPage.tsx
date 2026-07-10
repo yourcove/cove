@@ -272,7 +272,7 @@ function TagGroupManagerDialog({ open, onClose }: { open: boolean; onClose: () =
 }
 
 /* ── Tag Create Modal ── */
-function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+export function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: "", description: "", aliases: [] as string[], color: "", tagGroupId: undefined as number | undefined, minOccurrenceSec: undefined as number | undefined, minOccurrencePercent: undefined as number | undefined });
   const [selectedParentIds, setSelectedParentIds] = useState<number[]>([]);
@@ -294,8 +294,12 @@ function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: 
       if (created?.id) onCreated(created.id);
     },
   });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
   return (
-    <EditModal title="Create Tag" open={open} onClose={onClose}>
+    <EditModal title="Create Tag" open={open} onClose={handleClose}>
       <Field label="Name">
         <TextInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
       </Field>
@@ -344,6 +348,11 @@ function TagCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: 
       <Field label="Custom Fields">
         <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="tag" />
       </Field>
+      {mutation.error ? (
+        <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          {mutation.error.message}
+        </div>
+      ) : null}
       <CreateModalActions loading={mutation.isPending} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} onSave={() => mutation.mutate({
           name: form.name,
           description: form.description || undefined,
