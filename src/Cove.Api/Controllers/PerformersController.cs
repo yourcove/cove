@@ -564,7 +564,11 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         p.Tattoos, p.Piercings, p.Favorite, p.Details,
         p.Urls.Select(u => u.Url).ToList(),
         p.Aliases.Select(a => a.Alias).ToList(),
-        p.PerformerTags.Where(pt => pt.Tag != null).Select(pt => TagDtoMapping.MapTagDto(pt.Tag!)).ToList(),
+        p.PerformerTags
+            .Where(pt => pt.Tag != null)
+            .OrderBy(pt => TagDtoMapping.EffectiveSortName(pt.Tag!))
+            .Select(pt => TagDtoMapping.MapTagDto(pt.Tag!))
+            .ToList(),
         p.RemoteIds.Select(remoteId => new PerformerRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         usageCounts?.VideoCount ?? p.VideoCount,
         usageCounts?.ImageCount ?? p.ImageCount,
@@ -769,4 +773,3 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }
 }
-
