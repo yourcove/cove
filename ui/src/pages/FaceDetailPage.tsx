@@ -101,7 +101,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
       direction: nextFilter.direction,
       page: nextFilter.page ?? 1,
       perPage: nextFilter.perPage ?? 18,
-      k: Math.max(80, (nextFilter.page ?? 1) * (nextFilter.perPage ?? 18) * 4),
+      k: 250,
     }),
   });
 

@@ -1131,8 +1131,7 @@ public class FacesController(
     {
         page = Math.Max(page, 1);
         perPage = Math.Clamp(perPage, 1, 250);
-        k = Math.Clamp(k, 1, 250);
-        var candidateCount = Math.Clamp(Math.Max(k, page * perPage * 4), 1, 250);
+        var candidateCount = Math.Clamp(k, 1, 250);
 
         var sourceEmbedding = await db.Embeddings
             .AsNoTracking()

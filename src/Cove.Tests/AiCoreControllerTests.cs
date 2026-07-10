@@ -128,6 +128,68 @@ public class AiCoreControllerTests
     }
 
     [Fact]
+    public async Task FacesController_GetSimilar_HonorsExactCandidateLimitAcrossPages()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var sourceFace = new Face { Label = "Source", PrimarySourceKey = "ext:ai.faces" };
+        context.Faces.Add(sourceFace);
+        await context.SaveChangesAsync();
+
+        var candidateFaces = Enumerable.Range(1, 8)
+            .Select(index => new Face { Label = $"Candidate {index}", PrimarySourceKey = $"candidate:{index}" })
+            .ToArray();
+        context.Faces.AddRange(candidateFaces);
+        await context.SaveChangesAsync();
+
+        context.Embeddings.Add(new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = sourceFace.Id,
+            Kind = "face.arcface",
+            KindFamily = "face.arcface",
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = 3,
+            Vector = new Vector(new[] { 1f, 0f, 0f }),
+            SourceKey = "ext:ai.faces",
+        });
+        context.Embeddings.AddRange(candidateFaces.Select((face, index) => new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = face.Id,
+            Kind = "face.arcface",
+            KindFamily = "face.arcface",
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = 3,
+            Vector = new Vector(new[] { 1f, (index + 1) * 0.1f, 0f }),
+            SourceKey = "ext:ai.faces",
+        }));
+        await context.SaveChangesAsync();
+
+        var controller = new FacesController(
+            context,
+            new EmbeddingService(context, []),
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            new FacePerformerPropagationService(context),
+            Array.Empty<IFaceLifecycleParticipant>(),
+            NullLogger<FacesController>.Instance);
+
+        var firstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, 1, 5, 5, CancellationToken.None);
+        var firstOk = Assert.IsType<OkObjectResult>(firstResult.Result);
+        var firstPage = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(firstOk.Value);
+        var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, 2, 2, 5, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(ok.Value);
+
+        Assert.Equal(5, firstPage.TotalCount);
+        Assert.Equal(5, page.TotalCount);
+        Assert.Equal(2, page.Items.Count);
+        Assert.Equal(firstPage.Items.Skip(2).Take(2).Select(face => face.Id), page.Items.Select(face => face.Id));
+    }
+
+    [Fact]
     public async Task FacesController_CanListDetectionsPointingToFace()
     {
         await using var scope = await CreateContextAsync();
