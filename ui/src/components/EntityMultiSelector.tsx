@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { faces as facesApi, performers as performersApi, tags as tagsApi } from "../api/client";
 import type { Face, Performer, Tag } from "../api/types";
 import { rankSearchOptions } from "../utils/searchRanking";
+import { AutocompleteDropdown } from "./AutocompleteDropdown";
 
 type EntitySelectorType = "tags" | "performers" | "faces";
 
@@ -29,6 +30,7 @@ export function EntityMultiSelector({
   emptyMessage,
 }: EntityMultiSelectorProps) {
   const [searchText, setSearchText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedSearch = searchText.trim();
 
   const { data: searchResults, isLoading } = useQuery({
@@ -36,6 +38,7 @@ export function EntityMultiSelector({
     queryFn: () => searchEntities(entityType, trimmedSearch),
     enabled: trimmedSearch.length >= 1,
     staleTime: 60_000,
+    placeholderData: (previousData) => previousData,
   });
 
   const searchOptions = useMemo(
@@ -80,7 +83,7 @@ export function EntityMultiSelector({
   );
 
   return (
-    <div className="space-y-2">
+    <div className="relative flex flex-col gap-2">
       {selectedOptions.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {selectedOptions.map((option) => (
@@ -101,6 +104,7 @@ export function EntityMultiSelector({
       ) : null}
 
       <input
+        ref={inputRef}
         type="text"
         value={searchText}
         onChange={(event) => setSearchText(event.target.value)}
@@ -109,7 +113,7 @@ export function EntityMultiSelector({
       />
 
       {trimmedSearch ? (
-        <div className="max-h-40 overflow-y-auto rounded border border-border bg-surface">
+        <AutocompleteDropdown anchorRef={inputRef} className="rounded border border-border bg-surface">
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 ? (
             <div className="px-3 py-2 text-sm text-muted">{emptyMessage ?? `No ${entityType} found`}</div>
@@ -131,7 +135,7 @@ export function EntityMultiSelector({
               {option.secondaryLabel ? <span className="text-xs text-muted">{option.secondaryLabel}</span> : null}
             </button>
           ))}
-        </div>
+        </AutocompleteDropdown>
       ) : null}
     </div>
   );

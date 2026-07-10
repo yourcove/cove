@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { studios as studiosApi } from "../api/client";
 import { rankByLabel } from "../utils/searchRanking";
+import { AutocompleteDropdown } from "./AutocompleteDropdown";
 
 interface StudioSelectorProps {
   value?: number;
@@ -12,10 +13,11 @@ interface StudioSelectorProps {
 
 export function StudioSelector({ value, onChange, placeholder = "Search studios..." }: StudioSelectorProps) {
   const [searchText, setSearchText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedSearch = searchText.trim();
   const queryClient = useQueryClient();
 
-  const { data: searchResults, isLoading } = useQuery({
+  const { data: searchResults, isLoading, isFetching } = useQuery({
     queryKey: ["studio-selector", trimmedSearch],
     queryFn: async () => {
       const response = await studiosApi.find({
@@ -29,6 +31,7 @@ export function StudioSelector({ value, onChange, placeholder = "Search studios.
     },
     staleTime: 60000,
     enabled: trimmedSearch.length >= 1,
+    placeholderData: (previousData) => previousData,
   });
 
   const selectedResult = searchResults?.find((studio) => studio.id === value);
@@ -55,10 +58,10 @@ export function StudioSelector({ value, onChange, placeholder = "Search studios.
       queryClient.invalidateQueries({ queryKey: ["studios"] });
     },
   });
-  const showCreateOption = trimmedSearch && !isLoading && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && !exactMatchExists;
 
   return (
-    <div className="space-y-2">
+    <div className="relative flex flex-col gap-2">
       {selectedLabel && (
         <div className="flex flex-wrap gap-1">
           <span className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground">
@@ -71,6 +74,7 @@ export function StudioSelector({ value, onChange, placeholder = "Search studios.
       )}
 
       <input
+        ref={inputRef}
         type="text"
         value={searchText}
         onChange={(e) => setSearchText(e.target.value)}
@@ -79,7 +83,7 @@ export function StudioSelector({ value, onChange, placeholder = "Search studios.
       />
 
       {trimmedSearch && (
-        <div className="max-h-32 overflow-y-auto rounded border border-border bg-surface">
+        <AutocompleteDropdown anchorRef={inputRef} maxHeight={128} className="rounded border border-border bg-surface">
           {isLoading ? (
             <div className="px-3 py-2 text-sm text-muted">Loading...</div>
           ) : visibleResults.length === 0 && !showCreateOption ? (
@@ -115,7 +119,7 @@ export function StudioSelector({ value, onChange, placeholder = "Search studios.
               )}
             </button>
           ) : null}
-        </div>
+        </AutocompleteDropdown>
       )}
     </div>
   );
