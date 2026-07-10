@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { faces, galleries, groups, images, performers, videos, studios, tags } from "../api/client";
@@ -6,6 +6,7 @@ import type { CustomFieldType, Face, Gallery, Group, Image, Performer, Video, St
 import { TagProvenanceHover } from "./TagProvenanceHover";
 import { TagActionMenu } from "./shared";
 import { rankSearchOptions } from "../utils/searchRanking";
+import { AutocompleteDropdown } from "./AutocompleteDropdown";
 
 export type EntityReferenceType = Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group"> | "face";
 
@@ -90,6 +91,7 @@ export function EntityReferenceSelector({
   selectedLabel?: string;
 }) {
   const [searchText, setSearchText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedSearch = searchText.trim();
   const labels = getEntityReferenceLabel(entityType);
   const queryClient = useQueryClient();
@@ -105,11 +107,12 @@ export function EntityReferenceSelector({
     return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading } = useQuery({
+  const { data: searchResults, isLoading, isFetching } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
     staleTime: 60_000,
+    placeholderData: (previousData) => previousData,
   });
 
   const searchOptions = useMemo(
@@ -157,10 +160,10 @@ export function EntityReferenceSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isLoading && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatableTypes[entityType] && !exactMatchExists;
 
   return (
-    <div className="min-w-0 space-y-2">
+    <div className="relative flex min-w-0 flex-col gap-2">
       {typeof value === "number" && selectedDisplay === "chip" ? (
         <div className="flex flex-wrap gap-1">
           <span className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground">
@@ -181,6 +184,7 @@ export function EntityReferenceSelector({
 
       <div className="relative">
         <input
+          ref={inputRef}
           type="text"
           value={showSelectedInInput ? selectedInputLabel : searchText}
           onChange={(event) => setSearchText(event.target.value)}
@@ -210,7 +214,7 @@ export function EntityReferenceSelector({
       </div>
 
       {trimmedSearch ? (
-        <div className="max-h-40 overflow-y-auto overflow-x-hidden rounded border border-border bg-surface">
+        <AutocompleteDropdown anchorRef={inputRef} className="rounded border border-border bg-surface">
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 && !showCreateOption ? (
             <div className="px-3 py-2 text-sm text-muted">No {labels.plural} found</div>
@@ -249,7 +253,7 @@ export function EntityReferenceSelector({
               )}
             </button>
           ) : null}
-        </div>
+        </AutocompleteDropdown>
       ) : null}
     </div>
   );
@@ -264,6 +268,7 @@ export function EntityReferenceMultiSelector({
   disabled = false,
   inputClassName,
   resultsClassName,
+  resultsMaxHeight,
   containerClassName,
   excludeIds,
   lockedIds,
@@ -280,6 +285,7 @@ export function EntityReferenceMultiSelector({
   disabled?: boolean;
   inputClassName?: string;
   resultsClassName?: string;
+  resultsMaxHeight?: number;
   containerClassName?: string;
   excludeIds?: Iterable<number>;
   lockedIds?: Iterable<number>;
@@ -290,6 +296,7 @@ export function EntityReferenceMultiSelector({
   onAdjustThreshold?: (id: number) => void;
 }) {
   const [searchText, setSearchText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedSearch = searchText.trim();
   const labels = getEntityReferenceLabel(entityType);
   const queryClient = useQueryClient();
@@ -305,11 +312,12 @@ export function EntityReferenceMultiSelector({
     return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading } = useQuery({
+  const { data: searchResults, isLoading, isFetching } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
     staleTime: 60_000,
+    placeholderData: (previousData) => previousData,
   });
 
   const searchOptions = useMemo(
@@ -349,10 +357,10 @@ export function EntityReferenceMultiSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isLoading && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatableTypes[entityType] && !exactMatchExists;
 
   return (
-    <div className={containerClassName ?? "space-y-2"}>
+    <div className={`relative ${containerClassName ?? "flex flex-col gap-2"}`}>
       {values.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {values.map((id) => {
@@ -390,6 +398,7 @@ export function EntityReferenceMultiSelector({
       ) : null}
 
       <input
+        ref={inputRef}
         type="text"
         value={searchText}
         onChange={(event) => setSearchText(event.target.value)}
@@ -399,7 +408,7 @@ export function EntityReferenceMultiSelector({
       />
 
       {trimmedSearch ? (
-        <div className={resultsClassName ?? "max-h-40 overflow-y-auto rounded border border-border bg-surface"}>
+        <AutocompleteDropdown anchorRef={inputRef} maxHeight={resultsMaxHeight} className={resultsClassName ?? "rounded border border-border bg-surface"}>
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 && !showCreateOption ? (
             <div className="px-3 py-2 text-sm text-muted">{emptyMessage ?? `No ${labels.plural} found`}</div>
@@ -438,7 +447,7 @@ export function EntityReferenceMultiSelector({
               )}
             </button>
           ) : null}
-        </div>
+        </AutocompleteDropdown>
       ) : null}
     </div>
   );

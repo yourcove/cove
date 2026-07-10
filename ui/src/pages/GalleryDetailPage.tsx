@@ -620,7 +620,8 @@ function AddImagesDialog({ existingImageIds, onAdd, onClose, isPending }: {
             disabled={isPending}
             placeholder="Search images..."
             emptyMessage="No images found"
-            resultsClassName="max-h-72 overflow-y-auto rounded border border-border bg-surface"
+            resultsClassName="rounded border border-border bg-surface"
+            resultsMaxHeight={288}
           />
         </div>
 
@@ -718,4 +719,3 @@ function GalleryFileInfo({ gallery }: { gallery: { folderPath?: string; files: {
     </div>
   );
 }
-
