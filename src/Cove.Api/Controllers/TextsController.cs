@@ -6,6 +6,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
@@ -663,14 +664,14 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         text.Date?.ToString("yyyy-MM-dd"),
         text.Urls.Select(url => url.Url).ToList(),
         text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).ToList(),
-        text.TextPerformers.Where(link => link.Performer != null).Select(link => new PerformerSummaryDto(
-            link.Performer!.Id,
-            link.Performer.Name,
-            link.Performer.Disambiguation,
-            link.Performer.Gender?.ToString(),
-            link.Performer.Birthdate?.ToString("yyyy-MM-dd"),
-            link.Performer.Favorite,
-            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, link.Performer!))).ToList(),
+        text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(
+            performer.Id,
+            performer.Name,
+            performer.Disambiguation,
+            performer.Gender?.ToString(),
+            performer.Birthdate?.ToString("yyyy-MM-dd"),
+            performer.Favorite,
+            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
         text.Files.OrderBy(file => file.Id).Select(file => new TextFileDto(
             file.Id,
             CanReadFiles ? file.Path : string.Empty,
