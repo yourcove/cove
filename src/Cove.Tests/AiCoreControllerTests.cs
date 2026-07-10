@@ -33,7 +33,13 @@ public class AiCoreControllerTests
             new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
             new FacePerformerPropagationService(context),
             Array.Empty<IFaceLifecycleParticipant>(),
-            NullLogger<FacesController>.Instance);
+            NullLogger<FacesController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext(),
+            },
+        };
 
         var firstCreate = await controller.Create(new FaceCreateDto("Lead", null, false, "ext:ai.faces"), CancellationToken.None);
         var firstCreated = Assert.IsType<CreatedAtActionResult>(firstCreate.Result);
@@ -80,6 +86,27 @@ public class AiCoreControllerTests
                 Vector = new Vector(new[] { 0.95f, 0.05f, 0f }),
                 SourceKey = "ext:ai.faces",
             });
+        var hostImage = new Image { Title = "Still" };
+        context.Images.Add(hostImage);
+        await context.SaveChangesAsync();
+
+        var representativeDetection = new Detection
+        {
+            HostType = DetectionHostType.Image,
+            HostId = hostImage.Id,
+            FrameWidth = 1200,
+            FrameHeight = 1600,
+            Class = "face",
+            Score = 0.92f,
+            X = 120,
+            Y = 180,
+            W = 240,
+            H = 300,
+            RefKind = "face",
+            RefId = secondFace.Id,
+            SourceKey = "ext:ai.faces",
+        };
+        context.Detections.Add(representativeDetection);
         await context.SaveChangesAsync();
 
         var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, 1, 5, 5, CancellationToken.None);
@@ -87,6 +114,7 @@ public class AiCoreControllerTests
         var similarFaces = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(similarOk.Value);
         var match = Assert.Single(similarFaces.Items);
         Assert.Equal(secondFace.Id, match.Id);
+        Assert.Contains($"/api/stream/detection/{representativeDetection.Id}/crop", match.CoverImageUrl, StringComparison.Ordinal);
 
         var mergeResult = await controller.MergeInto(secondFace.Id, new FaceMergeDto(firstFace.Id), CancellationToken.None);
         var mergeOk = Assert.IsType<OkObjectResult>(mergeResult.Result);
@@ -97,6 +125,68 @@ public class AiCoreControllerTests
         var ignoreOk = Assert.IsType<OkObjectResult>(ignoreResult.Result);
         var ignoredFace = Assert.IsType<FaceDto>(ignoreOk.Value);
         Assert.True(ignoredFace.Ignored);
+    }
+
+    [Fact]
+    public async Task FacesController_GetSimilar_HonorsExactCandidateLimitAcrossPages()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var sourceFace = new Face { Label = "Source", PrimarySourceKey = "ext:ai.faces" };
+        context.Faces.Add(sourceFace);
+        await context.SaveChangesAsync();
+
+        var candidateFaces = Enumerable.Range(1, 8)
+            .Select(index => new Face { Label = $"Candidate {index}", PrimarySourceKey = $"candidate:{index}" })
+            .ToArray();
+        context.Faces.AddRange(candidateFaces);
+        await context.SaveChangesAsync();
+
+        context.Embeddings.Add(new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = sourceFace.Id,
+            Kind = "face.arcface",
+            KindFamily = "face.arcface",
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = 3,
+            Vector = new Vector(new[] { 1f, 0f, 0f }),
+            SourceKey = "ext:ai.faces",
+        });
+        context.Embeddings.AddRange(candidateFaces.Select((face, index) => new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = face.Id,
+            Kind = "face.arcface",
+            KindFamily = "face.arcface",
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = 3,
+            Vector = new Vector(new[] { 1f, (index + 1) * 0.1f, 0f }),
+            SourceKey = "ext:ai.faces",
+        }));
+        await context.SaveChangesAsync();
+
+        var controller = new FacesController(
+            context,
+            new EmbeddingService(context, []),
+            new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>()),
+            new FacePerformerPropagationService(context),
+            Array.Empty<IFaceLifecycleParticipant>(),
+            NullLogger<FacesController>.Instance);
+
+        var firstResult = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, 1, 5, 5, CancellationToken.None);
+        var firstOk = Assert.IsType<OkObjectResult>(firstResult.Result);
+        var firstPage = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(firstOk.Value);
+        var result = await controller.GetSimilar(sourceFace.Id, "face.arcface", null, null, null, 2, 2, 5, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var page = Assert.IsType<PaginatedResponse<FaceSimilarDto>>(ok.Value);
+
+        Assert.Equal(5, firstPage.TotalCount);
+        Assert.Equal(5, page.TotalCount);
+        Assert.Equal(2, page.Items.Count);
+        Assert.Equal(firstPage.Items.Skip(2).Take(2).Select(face => face.Id), page.Items.Select(face => face.Id));
     }
 
     [Fact]

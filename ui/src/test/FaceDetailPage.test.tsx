@@ -135,6 +135,7 @@ describe("FaceDetailPage", () => {
 
     expect(await screen.findByText("Nearest neighbors from the face embedding index.")).toBeInTheDocument();
     expect(await screen.findByText("Similar Jane")).toBeInTheDocument();
+    expect(mockFaces.similar).toHaveBeenCalledWith(7, expect.objectContaining({ k: 250 }));
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(2);
 
     fireEvent.click(screen.getByRole("link", { name: "Open face Similar Jane" }));
