@@ -464,6 +464,7 @@ export function ImagesPage({ onNavigate }: Props) {
           onClose={closeLightbox}
           slideshowDelay={config?.ui.slideshowDelay}
           autoPlay={lightboxAutoPlay}
+          canEngage={canEngageImage}
         />
       ) : null}
       {quickViewId !== null ? (
