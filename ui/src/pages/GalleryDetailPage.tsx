@@ -437,7 +437,7 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
   // Honor the user's default "videos" saved filter for this embedded list; the gallery constraint
   // stays applied separately via the query params.
   useDefaultSavedFilterOnMount("videos", (findFilter, defaultObjectFilter) => {
-    if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
+    if (findFilter) setFilter({ ...filter, ...findFilter, page: 1 });
     if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
   });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;

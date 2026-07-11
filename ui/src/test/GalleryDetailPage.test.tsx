@@ -211,6 +211,20 @@ describe("GalleryDetailPage", () => {
     expect(await screen.findByTestId("detail-page-size")).toHaveTextContent("20");
   });
 
+  it("applies the saved gallery video page size", async () => {
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { sort: "date", direction: "desc", perPage: 40 },
+    }));
+    mockGalleries.get.mockResolvedValue(buildGallery({ videoCount: 1 }));
+    mockImages.find.mockResolvedValue({ items: [{ id: 91, title: "Cover Frame" }], totalCount: 1 });
+    mockVideos.find.mockResolvedValue({ items: [{ id: 4, title: "Video One" }], totalCount: 1 });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("tab", { name: /videos/i }));
+
+    expect(await screen.findByTestId("detail-page-size")).toHaveTextContent("40");
+  });
+
   it("renders the shared layout with images, videos, and file info tabs", async () => {
     mockGalleries.get.mockResolvedValue(buildGallery());
     mockImages.find.mockResolvedValue({
