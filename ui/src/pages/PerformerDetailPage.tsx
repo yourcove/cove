@@ -32,6 +32,8 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
+import { MetadataServerLinks } from "../components/MetadataServerLinks";
+import { useAppConfig } from "../state/AppConfigContext";
 
 interface Props {
   id: number;
@@ -71,6 +73,7 @@ const TEXT_SORT = [
 ];
 
 export function PerformerDetailPage({ id, onNavigate }: Props) {
+  const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const { data: performer, isLoading } = useQuery({
     queryKey: ["performer", id],
@@ -298,9 +301,10 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
               {performer.careerStart && <InfoItem label="Career" value={`${performer.careerStart}${performer.careerEnd ? ` – ${performer.careerEnd}` : " – present"}`} fieldProvenance={performer.fieldProvenance} fieldKey={["career_start", "careerStart"]} />}
             </div>
 
-            {performer.urls.length > 0 ? (
+            {(performer.urls.length > 0 || performer.remoteIds.length > 0) ? (
               <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="urls" block className="mt-4 space-y-2">
                 <div ref={urlsRef} className={`flex flex-wrap gap-2 ${urlsExpanded ? "" : "max-h-[4.5rem] overflow-hidden"}`}>
+                  <MetadataServerLinks remoteIds={performer.remoteIds} entityType="performers" metadataServers={config?.scraping?.metadataServers} />
                   {performer.urls.map((url, i) => (
                     <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover">
                       <ExternalLink className="h-3 w-3" />

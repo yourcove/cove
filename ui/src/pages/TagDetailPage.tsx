@@ -15,6 +15,8 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
+import { MetadataServerLinks } from "../components/MetadataServerLinks";
+import { useAppConfig } from "../state/AppConfigContext";
 import { InteractiveRating } from "../components/Rating";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
@@ -87,6 +89,7 @@ interface Props {
 type TabKey = "videos" | "performers" | "images" | "galleries" | "audios" | "texts" | "segments" | "studios" | "groups" | (string & {});
 
 export function TagDetailPage({ id, onNavigate }: Props) {
+  const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const { data: tag, isLoading } = useQuery({
     queryKey: ["tag", id],
@@ -265,6 +268,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
             <div className="mb-3 shrink-0">
               <InteractiveRating value={tagRating} onChange={(value) => setTagRating(value)} readOnly={!canEngageTag} />
             </div>
+            <MetadataServerLinks className="mb-3 flex flex-wrap gap-2" remoteIds={tag.remoteIds} entityType="tags" metadataServers={config?.scraping?.metadataServers} />
             <CustomFieldsDisplay customFields={tag.customFields} entityType="tag" />
           </>
         )}
@@ -742,4 +746,3 @@ function EmptyPanel({ icon, message }: { icon: React.ReactNode; message: string 
     </div>
   );
 }
-

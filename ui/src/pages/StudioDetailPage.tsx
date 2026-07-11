@@ -28,6 +28,7 @@ import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
+import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
@@ -293,9 +294,10 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                 ))}
               </div>
             ) : null}
-            {studio.urls.length > 0 ? (
+            {(studio.urls.length > 0 || studio.remoteIds.length > 0) ? (
               <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="urls" block className="mt-3">
                 <div className="flex flex-wrap gap-2">
+                  <MetadataServerLinks remoteIds={studio.remoteIds} entityType="studios" metadataServers={metadataServers} />
                   {studio.urls.map((url, index) => (
                     <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-xs items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover">
                       <LinkIcon className="h-3 w-3 flex-shrink-0" />
@@ -906,4 +908,3 @@ function EmptyPanel({ icon, message }: { icon: React.ReactNode; message: string 
     </div>
   );
 }
-
