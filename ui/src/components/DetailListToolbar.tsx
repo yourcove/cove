@@ -6,7 +6,7 @@ import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandom
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
 import { PageSizeSelect } from "./PageSizeSelect";
-import { SavedFilterMenu } from "./SavedFilterMenu";
+import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -125,6 +125,14 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
   const goTo = (nextPage: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, nextPage)) });
   const activeObjectFilter = objectFilter ?? {};
+
+  // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
+  // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
+  useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter) => {
+    if (!filterMode) return;
+    if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
+    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
+  });
 
   return (
     <>
@@ -301,4 +309,3 @@ function inferCardSizeEntityType(sortOptions?: { value: string; label: string }[
   if (values.has("image_count") && values.has("path")) return "galleries";
   return undefined;
 }
-

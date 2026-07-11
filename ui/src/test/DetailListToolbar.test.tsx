@@ -1,10 +1,25 @@
-import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 
+vi.mock("../api/client", () => ({
+  savedFilters: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
+function renderWithQueryClient(ui: React.ReactNode) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 describe("DetailListToolbar", () => {
@@ -59,5 +74,35 @@ describe("DetailListToolbar", () => {
     );
 
     expect(screen.getByRole("slider")).toHaveAttribute("max", "8");
+  });
+
+  it("applies the complete saved default for an embedded list", async () => {
+    localStorage.setItem("cove-default-filter-galleries", JSON.stringify({
+      findFilter: { page: 7, perPage: 40, sort: "title", direction: "asc", q: "summer" },
+      objectFilter: { favorite: true },
+    }));
+    const onFilterChange = vi.fn();
+    const onObjectFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 3, perPage: 18, direction: "desc" }}
+        onFilterChange={onFilterChange}
+        totalCount={100}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        filterMode="galleries"
+        objectFilter={{}}
+        onObjectFilterChange={onObjectFilterChange}
+      />,
+    );
+
+    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({
+      page: 1,
+      perPage: 40,
+      sort: "title",
+      direction: "asc",
+      q: "summer",
+    }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({ favorite: true });
   });
 });

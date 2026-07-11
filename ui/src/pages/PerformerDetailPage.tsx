@@ -12,7 +12,6 @@ import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListToolbar } from "../components/DetailListToolbar";
-import { useDefaultSavedFilterOnMount } from "../components/SavedFilterMenu";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
@@ -863,12 +862,6 @@ function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  // Honor the user's default "videos" saved filter for this embedded list (sort/direction + object
-  // filter), while the performer constraint stays applied separately via the query params.
-  useDefaultSavedFilterOnMount("videos", (findFilter, defaultObjectFilter) => {
-    if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
-    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
-  });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["performer-videos", performerId, objectFilter],
@@ -1194,4 +1187,3 @@ function EmptyPanel({ icon, message }: { icon: React.ReactNode; message: string 
     </div>
   );
 }
-

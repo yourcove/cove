@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GalleryDetailPage } from "../pages/GalleryDetailPage";
 
@@ -47,6 +47,11 @@ vi.mock("../api/client", () => ({
   images: mockImages,
   videos: mockVideos,
   entityImages: mockEntityImages,
+  savedFilters: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 
 vi.mock("../hooks/useEntityEngagement", () => ({
@@ -95,12 +100,6 @@ vi.mock("../components/GalleryDownloadDialog", () => ({
 
 vi.mock("../components/Rating", () => ({
   InteractiveRating: ({ value }: { value: number }) => <div>Rating {value}</div>,
-}));
-
-vi.mock("../components/DetailListToolbar", () => ({
-  DetailListToolbar: ({ filter }: { filter: { perPage?: number } }) => (
-    <div>Detail Toolbar <span data-testid="detail-page-size">{filter.perPage}</span></div>
-  ),
 }));
 
 vi.mock("../components/EntityCards", () => ({
@@ -208,7 +207,7 @@ describe("GalleryDetailPage", () => {
 
     renderPage();
 
-    expect(await screen.findByTestId("detail-page-size")).toHaveTextContent("20");
+    await waitFor(() => expect(screen.getByTitle("Items per page")).toHaveValue("20"));
   });
 
   it("applies the saved gallery video page size", async () => {
@@ -222,7 +221,7 @@ describe("GalleryDetailPage", () => {
     renderPage();
     fireEvent.click(await screen.findByRole("tab", { name: /videos/i }));
 
-    expect(await screen.findByTestId("detail-page-size")).toHaveTextContent("40");
+    await waitFor(() => expect(screen.getByTitle("Items per page")).toHaveValue("40"));
   });
 
   it("renders the shared layout with images, videos, and file info tabs", async () => {
