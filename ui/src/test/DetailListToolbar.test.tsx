@@ -80,9 +80,11 @@ describe("DetailListToolbar", () => {
     localStorage.setItem("cove-default-filter-galleries", JSON.stringify({
       findFilter: { page: 7, perPage: 40, sort: "title", direction: "asc", q: "summer" },
       objectFilter: { favorite: true },
+      uiOptions: { displayMode: "list" },
     }));
     const onFilterChange = vi.fn();
     const onObjectFilterChange = vi.fn();
+    const onDisplayModeChange = vi.fn();
 
     renderWithQueryClient(
       <DetailListToolbar
@@ -93,6 +95,9 @@ describe("DetailListToolbar", () => {
         filterMode="galleries"
         objectFilter={{}}
         onObjectFilterChange={onObjectFilterChange}
+        displayMode="grid"
+        onDisplayModeChange={onDisplayModeChange}
+        availableDisplayModes={["grid", "list"]}
       />,
     );
 
@@ -104,5 +109,6 @@ describe("DetailListToolbar", () => {
       q: "summer",
     }));
     expect(onObjectFilterChange).toHaveBeenCalledWith({ favorite: true });
+    expect(onDisplayModeChange).toHaveBeenCalledWith("list");
   });
 });

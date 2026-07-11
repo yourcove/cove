@@ -128,10 +128,12 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
-  useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter) => {
+  useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter, defaultUIOptions) => {
     if (!filterMode) return;
     if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
     if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
+    const defaultDisplayMode = typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
+    if (defaultDisplayMode) onDisplayModeChange?.(defaultDisplayMode as DetailListDisplayMode);
   });
 
   return (
@@ -202,8 +204,13 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             defaultFilterKey={filterDefaultKey}
             currentFilter={filter}
             currentObjectFilter={activeObjectFilter}
+            currentUIOptions={displayMode ? { displayMode } : undefined}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, { ...nextFilter, page: 1 }))}
             onApplyObjectFilter={onObjectFilterChange}
+            onApplyUIOptions={(options) => {
+              const nextDisplayMode = typeof options.displayMode === "string" ? options.displayMode : undefined;
+              if (nextDisplayMode) onDisplayModeChange?.(nextDisplayMode as DetailListDisplayMode);
+            }}
           />
         ) : null}
 
