@@ -42,6 +42,13 @@ interface Props {
 
 type TabKey = "images" | "videos" | "fileinfo" | (string & {});
 
+// Gallery contents are bounded collections (typically no more than hundreds of items), so users can
+// safely default them to Infinite without also making the global Images/Videos pages attempt to load
+// potentially millions of records. Filters created with "Save current filter" are available in both
+// gallery and global lists, while "Set current as default" is stored separately for gallery contents.
+const GALLERY_IMAGES_DEFAULT_FILTER_KEY = "gallery-images";
+const GALLERY_VIDEOS_DEFAULT_FILTER_KEY = "gallery-videos";
+
 export function GalleryDetailPage({ id, onNavigate }: Props) {
   const { hasPermission, user } = useAuth();
   const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 60, direction: "desc" });
@@ -468,6 +475,7 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      filterDefaultKey={GALLERY_VIDEOS_DEFAULT_FILTER_KEY}
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
@@ -533,7 +541,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="images"
-      filterDefaultKey="gallery-images"
+      filterDefaultKey={GALLERY_IMAGES_DEFAULT_FILTER_KEY}
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}

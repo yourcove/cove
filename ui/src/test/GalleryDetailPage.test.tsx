@@ -212,6 +212,9 @@ describe("GalleryDetailPage", () => {
 
   it("applies the saved gallery video page size", async () => {
     localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { sort: "date", direction: "desc", perPage: 20 },
+    }));
+    localStorage.setItem("cove-default-filter-gallery-videos", JSON.stringify({
       findFilter: { sort: "date", direction: "desc", perPage: 40 },
     }));
     mockGalleries.get.mockResolvedValue(buildGallery({ videoCount: 1 }));
