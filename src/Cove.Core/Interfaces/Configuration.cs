@@ -229,7 +229,7 @@ public class UiConfig
     public bool WallShowTitle { get; set; } = true;
     public int WallPlayback { get; set; } = 1; // 0=Audio, 1=Silent
     public string WallPreviewType { get; set; } = "video";
-    public string ImageObjectFit { get; set; } = "cover";
+    public string ImageObjectFit { get; set; } = "contain";
     public string VideoObjectFit { get; set; } = "cover";
     public string FeedVideoSource { get; set; } = "preview";
     public bool FeedVideoSound { get; set; }

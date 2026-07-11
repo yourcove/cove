@@ -1400,7 +1400,7 @@ public record UiConfigDto
     public bool WallShowTitle { get; init; } = true;
     public int WallPlayback { get; init; } = 1;
     public string WallPreviewType { get; init; } = "video";
-    public string ImageObjectFit { get; init; } = "cover";
+    public string ImageObjectFit { get; init; } = "contain";
     public string VideoObjectFit { get; init; } = "cover";
     public string FeedVideoSource { get; init; } = "preview";
     public bool FeedVideoSound { get; init; }
