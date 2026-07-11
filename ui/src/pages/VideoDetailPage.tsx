@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import type { Detection, Face, PerformerSummary, ResolvedSpan, Video, VideoUpdate, Segment, TagApplication, TagProvenance } from "../api/types";
+import type { Detection, Face, MetadataServer, PerformerSummary, ResolvedSpan, Video, VideoUpdate, Segment, TagApplication, TagProvenance } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
@@ -48,6 +48,7 @@ import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailable } from ".
 import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailable } from "../components/AudioSimilarityPanel";
 import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { MetadataServerLinks } from "../components/MetadataServerLinks";
 
 const GenerateDialog = lazy(() => import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })));
 const DetailMergeDialog = lazy(() => import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })));
@@ -648,6 +649,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const activeTabContent = activeTab === "details" ? (
     <DetailsTab
       video={video}
+      metadataServers={config?.scraping?.metadataServers}
       onNavigate={onNavigate}
       videoFaces={videoFaces}
       onMarkFaceNotPresent={canWriteFaces ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
@@ -995,7 +997,7 @@ function describeTagEvidence(tag: { effectiveDurationSec?: number | null; effect
 }
 
 // Details Tab Content
-export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onRequestReportTag?: (tag: any) => void }) {
+export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; metadataServers?: MetadataServer[]; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onRequestReportTag?: (tag: any) => void }) {
   const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", video?.performers?.map((p) => p.id) ?? []);
   return (
     <div className="space-y-4">
@@ -1179,11 +1181,13 @@ export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPr
       )}
 
       {/* URLs */}
-      {video.urls && video.urls.length > 0 && (
+      {(video.urls?.length > 0 || video.remoteIds?.length > 0) && (
         <div>
           <h6 className="text-sm text-muted mb-2">URLs</h6>
-          <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="urls" block>
-            <div className="space-y-1">
+          <div className="space-y-2">
+            <MetadataServerLinks className="flex flex-wrap gap-2" remoteIds={video.remoteIds} entityType="scenes" metadataServers={metadataServers} />
+            {video.urls?.length > 0 ? <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="urls" block>
+              <div className="space-y-1">
               {video.urls.map((url: string, i: number) => (
                 <a
                   key={i}
@@ -1195,8 +1199,9 @@ export function DetailsTab({ video, onNavigate, videoFaces = [], onMarkFaceNotPr
                   {url}
                 </a>
               ))}
-            </div>
-          </FieldProvenanceHover>
+              </div>
+            </FieldProvenanceHover> : null}
+          </div>
         </div>
       )}
 
@@ -2348,4 +2353,3 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
     </div>
   );
 }
-

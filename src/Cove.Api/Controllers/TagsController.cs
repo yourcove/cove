@@ -166,6 +166,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             .AsNoTracking()
             .Include(t => t.Aliases)
             .Include(t => t.TagGroup)
+            .Include(t => t.RemoteIds)
             .Include(t => t.ParentRelations).ThenInclude(tp => tp.Parent).ThenInclude(parent => parent!.TagGroup)
             .Include(t => t.ChildRelations).ThenInclude(tp => tp.Child).ThenInclude(child => child!.TagGroup)
             .AsSplitQuery()
@@ -941,4 +942,3 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         return Ok(result);
     }
 }
-

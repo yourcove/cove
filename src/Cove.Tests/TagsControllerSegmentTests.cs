@@ -12,6 +12,31 @@ namespace Cove.Tests;
 public class TagsControllerSegmentTests
 {
     [Fact]
+    public async Task TagDetail_IncludesRemoteIds()
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "Linked tag" };
+        tag.RemoteIds.Add(new TagRemoteId
+        {
+            Endpoint = "https://stashdb.org/graphql",
+            RemoteId = "remote-tag-1",
+        });
+        context.Tags.Add(tag);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
+
+        var result = await controller.GetById(tag.Id, CancellationToken.None);
+        var detail = Assert.IsType<OkObjectResult>(result.Result).Value as TagDetailDto;
+
+        Assert.NotNull(detail);
+        var remoteId = Assert.Single(detail.RemoteIds!);
+        Assert.Equal("https://stashdb.org/graphql", remoteId.Endpoint);
+        Assert.Equal("remote-tag-1", remoteId.RemoteId);
+    }
+
+    [Fact]
     public async Task TagDetail_UsesVideoSegmentCountsAndReturnsTagSegments()
     {
         await using var context = CreateContext();
@@ -357,4 +382,3 @@ public class TagsControllerSegmentTests
         }
     }
 }
-
