@@ -98,7 +98,9 @@ vi.mock("../components/Rating", () => ({
 }));
 
 vi.mock("../components/DetailListToolbar", () => ({
-  DetailListToolbar: () => <div>Detail Toolbar</div>,
+  DetailListToolbar: ({ filter }: { filter: { perPage?: number } }) => (
+    <div>Detail Toolbar <span data-testid="detail-page-size">{filter.perPage}</span></div>
+  ),
 }));
 
 vi.mock("../components/EntityCards", () => ({
@@ -193,6 +195,20 @@ function renderPage() {
 describe("GalleryDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("applies the saved gallery image page size", async () => {
+    localStorage.setItem("cove-default-filter-gallery-images", JSON.stringify({
+      findFilter: { sort: "path", direction: "asc", perPage: 20 },
+    }));
+    mockGalleries.get.mockResolvedValue(buildGallery());
+    mockImages.find.mockResolvedValue({ items: [{ id: 91, title: "Cover Frame" }], totalCount: 78 });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+
+    renderPage();
+
+    expect(await screen.findByTestId("detail-page-size")).toHaveTextContent("20");
   });
 
   it("renders the shared layout with images, videos, and file info tabs", async () => {
@@ -244,4 +260,3 @@ describe("GalleryDetailPage", () => {
     expect(await screen.findByText("Edit Gallery Modal")).toBeInTheDocument();
   });
 });
-

@@ -522,7 +522,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
   // random + resolution-filtered Images page, but filename-sorted full listings inside a gallery. The
   // gallery constraint stays applied separately via the query params.
   useDefaultSavedFilterOnMount("gallery-images", (findFilter, defaultObjectFilter) => {
-    if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
+    if (findFilter) setFilter({ ...filter, ...findFilter, page: 1 });
     if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
   });
   const items = galleryImages?.items ?? [];
