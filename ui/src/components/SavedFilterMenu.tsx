@@ -54,18 +54,23 @@ export function getDefaultFilter(mode: string): { findFilter?: FindFilter; objec
 /**
  * Applies a mode's default saved filter exactly once on mount. Lets embedded list views inside
  * detail pages (a performer's videos, a studio's galleries, …) honor the user's default the same
- * way the top-level list pages do. `apply` receives the default's findFilter/objectFilter (if any).
+ * way the top-level list pages do. `apply` receives the default's findFilter, objectFilter, and
+ * UI options (if any).
  */
 export function useDefaultSavedFilterOnMount(
   mode: string,
-  apply: (findFilter: FindFilter | undefined, objectFilter: Record<string, unknown> | undefined) => void,
+  apply: (
+    findFilter: FindFilter | undefined,
+    objectFilter: Record<string, unknown> | undefined,
+    uiOptions: Record<string, unknown> | undefined,
+  ) => void,
 ) {
   const appliedRef = useRef(false);
   useEffect(() => {
     if (appliedRef.current) return;
     appliedRef.current = true;
     const def = getDefaultFilter(mode);
-    if (def) apply(def.findFilter, def.objectFilter);
+    if (def) apply(def.findFilter, def.objectFilter, def.uiOptions);
     // Intentionally mount-only: the default is a starting point the user can then change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -288,4 +293,3 @@ export function SavedFilterMenu({
     </div>
   );
 }
-

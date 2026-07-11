@@ -6,7 +6,7 @@ import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandom
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
 import { PageSizeSelect } from "./PageSizeSelect";
-import { SavedFilterMenu } from "./SavedFilterMenu";
+import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -126,6 +126,16 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const goTo = (nextPage: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, nextPage)) });
   const activeObjectFilter = objectFilter ?? {};
 
+  // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
+  // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
+  useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter, defaultUIOptions) => {
+    if (!filterMode) return;
+    if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
+    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
+    const defaultDisplayMode = typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
+    if (defaultDisplayMode) onDisplayModeChange?.(defaultDisplayMode as DetailListDisplayMode);
+  });
+
   return (
     <>
       <div className="mx-auto mb-2 flex max-w-7xl flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 text-sm shadow-sm shadow-black/20 sm:px-2.5 sm:py-2">
@@ -194,8 +204,13 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             defaultFilterKey={filterDefaultKey}
             currentFilter={filter}
             currentObjectFilter={activeObjectFilter}
+            currentUIOptions={displayMode ? { displayMode } : undefined}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, { ...nextFilter, page: 1 }))}
             onApplyObjectFilter={onObjectFilterChange}
+            onApplyUIOptions={(options) => {
+              const nextDisplayMode = typeof options.displayMode === "string" ? options.displayMode : undefined;
+              if (nextDisplayMode) onDisplayModeChange?.(nextDisplayMode as DetailListDisplayMode);
+            }}
           />
         ) : null}
 
@@ -301,4 +316,3 @@ function inferCardSizeEntityType(sortOptions?: { value: string; label: string }[
   if (values.has("image_count") && values.has("path")) return "galleries";
   return undefined;
 }
-

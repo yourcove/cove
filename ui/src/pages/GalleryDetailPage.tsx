@@ -11,7 +11,6 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { InteractiveRating } from "../components/Rating";
 import { DetailListToolbar } from "../components/DetailListToolbar";
-import { useDefaultSavedFilterOnMount } from "../components/SavedFilterMenu";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { PerformerBadgeRow } from "../components/EntityCards";
 import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS, HERO_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
@@ -42,6 +41,13 @@ interface Props {
 }
 
 type TabKey = "images" | "videos" | "fileinfo" | (string & {});
+
+// Gallery contents are bounded collections (typically no more than hundreds of items), so users can
+// safely default them to Infinite without also making the global Images/Videos pages attempt to load
+// potentially millions of records. Filters created with "Save current filter" are available in both
+// gallery and global lists, while "Set current as default" is stored separately for gallery contents.
+const GALLERY_IMAGES_DEFAULT_FILTER_KEY = "gallery-images";
+const GALLERY_VIDEOS_DEFAULT_FILTER_KEY = "gallery-videos";
 
 export function GalleryDetailPage({ id, onNavigate }: Props) {
   const { hasPermission, user } = useAuth();
@@ -434,12 +440,6 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
   const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("videos");
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
-  // Honor the user's default "videos" saved filter for this embedded list; the gallery constraint
-  // stays applied separately via the query params.
-  useDefaultSavedFilterOnMount("videos", (findFilter, defaultObjectFilter) => {
-    if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
-    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
-  });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["gallery-videos", galleryId, objectFilter],
@@ -475,6 +475,7 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
+      filterDefaultKey={GALLERY_VIDEOS_DEFAULT_FILTER_KEY}
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
@@ -517,14 +518,6 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
 }) {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("images");
-  // Honor the user's default filter for images-in-a-gallery. This is keyed separately from the standalone
-  // Images list ("gallery-images" vs "images") so the two views can have independent defaults — e.g. a
-  // random + resolution-filtered Images page, but filename-sorted full listings inside a gallery. The
-  // gallery constraint stays applied separately via the query params.
-  useDefaultSavedFilterOnMount("gallery-images", (findFilter, defaultObjectFilter) => {
-    if (findFilter) setFilter({ ...filter, sort: findFilter.sort ?? filter.sort, direction: findFilter.direction ?? filter.direction, page: 1 });
-    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) setObjectFilter(defaultObjectFilter);
-  });
   const items = galleryImages?.items ?? [];
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
@@ -548,7 +541,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       filterMode="images"
-      filterDefaultKey="gallery-images"
+      filterDefaultKey={GALLERY_IMAGES_DEFAULT_FILTER_KEY}
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
