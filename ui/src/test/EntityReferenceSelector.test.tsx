@@ -118,6 +118,22 @@ describe("EntityReferenceMultiSelector", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith([12]));
   });
 
+  it("can suppress creation for selector contexts that only accept existing entities", async () => {
+    const user = userEvent.setup();
+    mocks.tagsFind.mockResolvedValue({ items: [] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} creatable={false} />
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search tags..."), "Missing");
+    expect(await screen.findByText("No tags found")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Create/i })).not.toBeInTheDocument();
+  });
+
   it("does not render a remove button for locked tag chips", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["entity-reference-selector", "tag", "selected", 1], { id: 1, label: "Manual" });

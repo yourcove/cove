@@ -101,6 +101,8 @@ export function EntityReferenceSelector({
   disabled = false,
   inputClassName,
   excludeIds,
+  creatable = true,
+  resultsMaxHeight,
   selectedDisplay = "chip",
   selectedLabel,
 }: {
@@ -111,6 +113,8 @@ export function EntityReferenceSelector({
   disabled?: boolean;
   inputClassName?: string;
   excludeIds?: Iterable<number>;
+  creatable?: boolean;
+  resultsMaxHeight?: number;
   selectedDisplay?: "chip" | "input";
   selectedLabel?: string;
 }) {
@@ -183,7 +187,7 @@ export function EntityReferenceSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatable && creatableTypes[entityType] && !exactMatchExists;
   const autocompleteItems = useMemo(
     () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending),
     [createMutation.isPending, showCreateOption, trimmedSearch, visibleResults],
@@ -259,6 +263,7 @@ export function EntityReferenceSelector({
         <AutocompleteDropdown
           anchorRef={autocomplete.inputRef}
           containerRef={autocomplete.listboxRef}
+          maxHeight={resultsMaxHeight}
           className="rounded border border-border bg-surface"
           {...autocomplete.listboxProps}
         >
@@ -316,6 +321,7 @@ export function EntityReferenceMultiSelector({
   containerClassName,
   excludeIds,
   lockedIds,
+  creatable = true,
   selectedProvenanceById,
   reportableIds,
   onReportIncorrect,
@@ -337,6 +343,7 @@ export function EntityReferenceMultiSelector({
   seedOptions?: EntityReferenceOption[];
   excludeIds?: Iterable<number>;
   lockedIds?: Iterable<number>;
+  creatable?: boolean;
   selectedProvenanceById?: Record<number, TagProvenance[] | undefined>;
   // Locked chips whose id is in reportableIds get the same "⋯" correction menu as the Details tab.
   reportableIds?: Iterable<number>;
@@ -412,7 +419,7 @@ export function EntityReferenceMultiSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatable && creatableTypes[entityType] && !exactMatchExists;
   const autocompleteItems = useMemo(
     () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending),
     [createMutation.isPending, showCreateOption, trimmedSearch, visibleResults],
@@ -647,10 +654,13 @@ function toPerformerOption(performer: Performer): EntityReferenceOption {
 }
 
 function toFaceOption(face: Face): EntityReferenceOption {
+  const label = face.label?.trim() || face.performerName?.trim() || "Unidentified face";
   return {
     id: face.id,
-    label: face.label?.trim() || face.performerName?.trim() || `Face #${face.id}`,
-    secondaryLabel: face.performerName && face.label?.trim() ? face.performerName : undefined,
+    label,
+    secondaryLabel: face.performerName && face.performerName !== label
+      ? face.performerName
+      : face.primarySourceKey || undefined,
   };
 }
 
