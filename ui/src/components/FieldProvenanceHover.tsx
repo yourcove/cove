@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { FieldProvenance } from "../api/types";
+import { formatDateTime } from "../utils/dateFormat";
 
 export function FieldProvenanceHover({
   fieldProvenance,
@@ -308,7 +309,7 @@ function formatProvenanceDate(value?: string) {
   }
 
   try {
-    return new Date(value).toLocaleString();
+    return formatDateTime(value);
   } catch {
     return value;
   }

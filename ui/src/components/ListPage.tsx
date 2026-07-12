@@ -6,6 +6,7 @@ import { tags as tagsApi, performers as performersApi, studios as studiosApi, gr
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { SavedFilterMenu } from "./SavedFilterMenu";
 import { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
+import { IsoDateInput } from "./IsoDateInput";
 import { FilterDialog, FilterButton, type CriterionDefinition, type CriterionType, type EntityType, type FilterDialogCustomSection } from "./FilterDialog";
 import { EntityReferenceSelector, getEntityReferenceLabel, isEntityReferenceType, parseEntityReferenceId } from "./EntityReferenceSelector";
 import { useResolvedKeybindingOverrides } from "../hooks/useResolvedKeybindingOverrides";
@@ -493,18 +494,20 @@ function CustomFieldValueInput({
     longText: "text",
     number: "number",
     boolean: "text",
-    date: "date",
-    timestamp: "datetime-local",
+    date: "text",
+    timestamp: "text",
     url: "url",
     enum: "text",
     duration: "number",
     percent: "number",
   };
 
+  const Input = definition.type === "date" || definition.type === "timestamp" ? IsoDateInput : "input";
   return (
     <label className="block text-xs text-muted">
       {label}
-      <input
+      <Input
+        {...(definition.type === "timestamp" ? { pickerType: "datetime-local" as const } : {})}
         type={inputType[definition.type] ?? "text"}
         disabled={disabled}
         value={value}
@@ -1567,4 +1570,3 @@ function getPageNumbers(current: number, total: number): number[] {
   pages.push(total);
   return pages;
 }
-

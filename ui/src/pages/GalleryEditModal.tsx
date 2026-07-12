@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { galleries } from "../api/client";
 import type { Gallery, GalleryUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
@@ -73,8 +74,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
           <TextInput value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
         </Field>
         <Field label="Date" fieldProvenance={gallery.fieldProvenance} fieldKey="date">
-          <input
-            type="date"
+          <IsoDateInput
             value={form.date}
             onChange={(event) => setForm({ ...form, date: event.target.value })}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"

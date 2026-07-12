@@ -4,6 +4,7 @@ import { ExternalLink, Loader2, Search, Sparkles, X } from "lucide-react";
 import { scrapeAttempts, system } from "../api/client";
 import type { ScrapeAttempt, ScraperSummary } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
+import { formatDateTime } from "../utils/dateFormat";
 import {
   buildMatchInfo,
   buildRelationActionMap,
@@ -94,11 +95,8 @@ const URL_PLACEHOLDERS: Record<MediaEntityType, string> = {
 };
 
 function formatAttemptTime(value: string) {
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+  const formatted = formatDateTime(value);
+  return formatted === "Invalid Date" ? value : formatted;
 }
 
 function statusTone(status: string) {

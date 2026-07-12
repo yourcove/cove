@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { formatDuration, formatFileSize, formatDate, getResolutionLabel } from "../components/shared";
+import { formatDateTime } from "../utils/dateFormat";
 
 describe("formatDuration", () => {
   it("returns 0:00 for zero seconds", () => {
@@ -70,14 +71,26 @@ describe("formatDate", () => {
     expect(formatDate("")).toBe("");
   });
 
-  it("formats a valid date string", () => {
-    const result = formatDate("2024-01-15");
-    expect(result).toBeTruthy();
-    expect(typeof result).toBe("string");
+  it("formats date-only values as yyyy-MM-dd", () => {
+    expect(formatDate("2024-01-15")).toBe("2024-01-15");
+  });
+
+  it("formats timestamps as yyyy-MM-dd", () => {
+    expect(formatDate("2024-01-15T23:30:00Z")).toBe("2024-01-15");
+  });
+
+  it("preserves the supplied calendar date when a timestamp has an offset", () => {
+    expect(formatDate("2024-01-15T23:30:00-05:00")).toBe("2024-01-15");
   });
 
   it("returns Invalid Date string for unparseable dates", () => {
     expect(formatDate("not-a-date")).toBe("Invalid Date");
+  });
+});
+
+describe("formatDateTime", () => {
+  it("formats timestamps consistently in UTC", () => {
+    expect(formatDateTime("2024-01-15T23:30:00-05:00")).toBe("2024-01-16 04:30:00 UTC");
   });
 });
 

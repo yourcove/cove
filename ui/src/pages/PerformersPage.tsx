@@ -9,6 +9,7 @@ import { GENDER_OPTIONS } from "./PerformerEditModal";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { PERFORMER_CRITERIA } from "../components/FilterDialog";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { Users, Heart, Merge, User } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
 import { PerformerTagger } from "../components/PerformerTagger";
@@ -361,10 +362,10 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
             </select>
           </Field>
           <Field label="Birthdate">
-            <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className={SELECT_CLASS} />
+            <IsoDateInput value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className={SELECT_CLASS} />
           </Field>
           <Field label="Death Date">
-            <input type="date" value={deathDate} onChange={(e) => setDeathDate(e.target.value)} className={SELECT_CLASS} />
+            <IsoDateInput value={deathDate} onChange={(e) => setDeathDate(e.target.value)} className={SELECT_CLASS} />
           </Field>
           <Field label="Country">
             <TextInput value={country} onChange={setCountry} placeholder="e.g. US" />

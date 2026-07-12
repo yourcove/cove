@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { InteractiveRating } from "./Rating";
+import { IsoDateInput } from "./IsoDateInput";
 import type { BulkUpdateMode } from "../api/types";
 import { tagGroups } from "../api/client";
 import { StudioSelector } from "./StudioSelector";
@@ -195,8 +196,7 @@ function BulkFieldEditor({
             />
           )}
           {field.type === "date" && (
-            <input
-              type="date"
+            <IsoDateInput
               value={(value as string) ?? ""}
               onChange={(e) => onValueChange(e.target.value)}
               className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"

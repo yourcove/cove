@@ -7,6 +7,7 @@ import { PerformerContextTagEditor, buildPerformerContextTagIds, syncPerformerCo
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { EntityReferenceMultiSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 
 interface Props {
@@ -83,7 +84,7 @@ export function TextEditPanel({ text, onSaved }: Props) {
           <input value={title} onChange={(event) => setTitle(event.target.value)} className={inputCls} />
         </Field>
         <Field label="Date" fieldProvenance={text.fieldProvenance} fieldKey="date">
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputCls} />
+          <IsoDateInput value={date} onChange={(event) => setDate(event.target.value)} className={inputCls} />
         </Field>
       </div>
 
