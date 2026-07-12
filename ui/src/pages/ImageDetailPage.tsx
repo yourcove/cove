@@ -613,6 +613,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         initialIndex={0}
         open={lightboxOpen && lightboxImages.length > 0}
         onClose={closeLightbox}
+        canEngage={canEngageImage}
       />
       <MediaDetailLayout
         title={<FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="title">{displayTitle}</FieldProvenanceHover>}

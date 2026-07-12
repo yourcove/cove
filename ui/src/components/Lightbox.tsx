@@ -10,10 +10,15 @@ import {
   ZoomOut,
   Maximize2,
   Minimize2,
+  ThumbsUp,
 } from "lucide-react";
-import { playback } from "../api/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { images as imageApi, playback } from "../api/client";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
 import { pushOverlay } from "../utils/overlayState";
+import { useEntityEngagement } from "../hooks/useEntityEngagement";
+import { InteractiveRating } from "./Rating";
+import type { EntityEngagement } from "../api/types";
 
 // Movement (px) past which a pointer gesture counts as a pan rather than a click. Below it, releasing
 // the pointer toggles zoom; above it the gesture is a drag and must not also toggle zoom on release.
@@ -34,6 +39,7 @@ export interface LightboxProps {
   onClose: () => void;
   slideshowDelay?: number;
   autoPlay?: boolean;
+  canEngage?: boolean;
 }
 
 export function Lightbox({
@@ -43,6 +49,7 @@ export function Lightbox({
   onClose,
   slideshowDelay = 5000,
   autoPlay = false,
+  canEngage = false,
 }: LightboxProps) {
   const [index, setIndex] = useState(initialIndex);
   const [loading, setLoading] = useState(true);
@@ -66,6 +73,22 @@ export function Lightbox({
 
   const count = images.length;
   const current = images[index];
+  const queryClient = useQueryClient();
+  const { engagement, rating, setRating, ratingPending } = useEntityEngagement("image", current?.id ?? 0, { enabled: open && Boolean(current) });
+  const likeMutation = useMutation({
+    mutationFn: (imageId: number) => imageApi.incrementLike(imageId),
+    onSuccess: (likeCount, imageId) => {
+      queryClient.setQueryData(["engagement", "image", imageId], (existing: EntityEngagement | undefined) => existing ? { ...existing, likeCount } : existing);
+      queryClient.invalidateQueries({ queryKey: ["engagement", "image", imageId] });
+      queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] });
+      queryClient.invalidateQueries({ queryKey: ["image", imageId] });
+    },
+  });
+  const likeCount = likeMutation.data ?? engagement?.likeCount ?? 0;
+
+  useEffect(() => {
+    likeMutation.reset();
+  }, [current?.id]);
 
   const trackCurrentImageInteraction = useCallback((kind: string, extraMeta?: Record<string, unknown>) => {
     if (!current) {
@@ -519,6 +542,23 @@ export function Lightbox({
           }}
         />
       </div>
+
+      {current ? (
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 flex items-center gap-2 rounded-lg border border-white/15 bg-black/65 px-3 py-2 text-white shadow-lg backdrop-blur-sm">
+          <InteractiveRating value={rating} onChange={setRating} readOnly={!canEngage || ratingPending} />
+          <button
+            type="button"
+            disabled={!canEngage || likeMutation.isPending}
+            onClick={() => likeMutation.mutate(current.id)}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label={`Like image (${likeCount} likes)`}
+            title={likeMutation.isPending ? "Saving like" : "Like image"}
+          >
+            <ThumbsUp className={likeCount > 0 ? "h-4 w-4 fill-current text-accent" : "h-4 w-4"} />
+            <span className="text-sm tabular-nums">{likeCount}</span>
+          </button>
+        </div>
+      ) : null}
     </div>,
     document.body,
   );
