@@ -8,7 +8,8 @@ import { InteractiveRatingField } from "../components/Rating";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
-import { GroupedTagOptionList, SelectedTagChips, type SelectableTag } from "../components/TagSelector";
+import { SelectedTagChips, type SelectableTag } from "../components/TagSelector";
+import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
 
 interface Props {
   performer: Performer;
@@ -31,6 +32,9 @@ export const CIRCUMCISED_OPTIONS = [
 ];
 
 type SelectedTagOption = SelectableTag;
+type TagAutocompleteValue =
+  | { kind: "tag"; tag: SelectedTagOption }
+  | { kind: "create"; query: string };
 
 function buildSelectedTagLookup(tags: Performer["tags"]): Record<number, SelectedTagOption> {
   return Object.fromEntries(tags.map((tag) => [tag.id, tag])) as Record<number, SelectedTagOption>;
@@ -151,9 +155,14 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
 
   const filteredTags = tagResults?.items.filter((tag) => !selectedTagIds.includes(tag.id)) ?? [];
   const tagExactMatchExists = useMemo(
-    () => trimmedTagSearch && filteredTags.some((tag) => tag.name.toLowerCase() === trimmedTagSearch.toLowerCase()),
-    [filteredTags, trimmedTagSearch],
+    () => trimmedTagSearch && tagResults?.items.some((tag) => tag.name.toLowerCase() === trimmedTagSearch.toLowerCase()),
+    [tagResults?.items, trimmedTagSearch],
   );
+  const addTag = (tag: SelectedTagOption) => {
+    setSelectedTagIds((current) => current.includes(tag.id) ? current : [...current, tag.id]);
+    setSelectedTagsById((current) => ({ ...current, [tag.id]: tag }));
+    setTagSearch("");
+  };
   const tagCreateMutation = useMutation({
     mutationFn: async (name: string) => tagsApi.create({ name }),
     onSuccess: (result) => {
@@ -162,16 +171,36 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     },
   });
   const showTagCreateOption = trimmedTagSearch && !tagResultsLoading && !tagExactMatchExists;
+  const tagAutocompleteItems = useMemo<AutocompleteItem<TagAutocompleteValue>[]>(() => {
+    const items: AutocompleteItem<TagAutocompleteValue>[] = filteredTags.map((tag) => ({
+      key: `tag:${tag.id}`,
+      value: { kind: "tag", tag },
+    }));
+    if (showTagCreateOption) {
+      items.push({
+        key: `create:${trimmedTagSearch.toLowerCase()}`,
+        value: { kind: "create", query: trimmedTagSearch },
+        disabled: tagCreateMutation.isPending,
+      });
+    }
+    return items;
+  }, [filteredTags, showTagCreateOption, tagCreateMutation.isPending, trimmedTagSearch]);
+  const tagAutocomplete = useAutocomplete({
+    items: tagAutocompleteItems,
+    inputValue: tagSearch,
+    onInputValueChange: setTagSearch,
+    onSelect: (item) => {
+      if (item.kind === "create") {
+        tagCreateMutation.mutate(item.query);
+        return false;
+      }
+      addTag(item.tag);
+    },
+  });
   const selectedTags = selectedTagIds
     .map((tagId) => selectedTagsById[tagId])
     .filter((tag): tag is SelectedTagOption => Boolean(tag));
   const tagProvenanceById = buildTagProvenanceById(performer.tags, performer.fieldProvenance);
-
-  const addTag = (tag: SelectedTagOption) => {
-    setSelectedTagIds((current) => current.includes(tag.id) ? current : [...current, tag.id]);
-    setSelectedTagsById((current) => ({ ...current, [tag.id]: tag }));
-    setTagSearch("");
-  };
 
   return (
     <EditModal title="Edit Performer" open={open} onClose={onClose}>
@@ -311,28 +340,40 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       <Field label="Tags" fieldProvenance={performer.fieldProvenance} fieldKey="tags">
         <SelectedTagChips tags={selectedTags} onRemove={(tag) => setSelectedTagIds((current) => current.filter((id) => id !== tag.id))} className="mb-2 flex flex-wrap gap-1.5" provenanceById={tagProvenanceById} />
         <input
+          ref={tagAutocomplete.inputRef}
+          {...tagAutocomplete.inputProps}
           type="text"
           value={tagSearch}
-          onChange={(e) => setTagSearch(e.target.value)}
           placeholder="Search tags..."
           className="w-full bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent mb-1"
         />
-        {trimmedTagSearch && (
-          <div className="max-h-32 overflow-y-auto bg-card rounded border border-border">
+        {trimmedTagSearch && tagAutocomplete.isOpen && (
+          <div
+            ref={tagAutocomplete.listboxRef}
+            {...tagAutocomplete.listboxProps}
+            className="max-h-32 overflow-y-auto bg-card rounded border border-border"
+          >
             {tagResultsLoading ? (
               <div className="px-3 py-1.5 text-sm text-secondary">Loading...</div>
             ) : filteredTags.length === 0 && !showTagCreateOption ? (
               <div className="px-3 py-1.5 text-sm text-secondary">No tags found</div>
             ) : null}
-            {filteredTags.length > 0 ? (
-              <GroupedTagOptionList tags={filteredTags} maxItems={20} className="border-0 bg-transparent" onSelect={addTag} preserveOrder />
-            ) : null}
+            {filteredTags.map((tag, index) => (
+              <button
+                key={tag.id}
+                {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
+                type="button"
+                className={`block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-card ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-card" : ""}`}
+              >
+                {tag.name}
+              </button>
+            ))}
             {showTagCreateOption ? (
               <button
+                {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[tagAutocompleteItems.length - 1])}
                 type="button"
-                onClick={() => tagCreateMutation.mutate(trimmedTagSearch)}
                 disabled={tagCreateMutation.isPending}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50"
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-card" : ""}`}
               >
                 {tagCreateMutation.isPending ? (
                   <span className="text-secondary">Creating...</span>

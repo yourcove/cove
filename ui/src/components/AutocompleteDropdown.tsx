@@ -1,8 +1,9 @@
-import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useState, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-interface Props {
+interface Props extends Omit<HTMLAttributes<HTMLDivElement>, "children" | "className"> {
   anchorRef: RefObject<HTMLElement | null>;
+  containerRef?: RefObject<HTMLDivElement | null>;
   children: ReactNode;
   className?: string;
   maxHeight?: number;
@@ -16,7 +17,7 @@ interface Position {
   placement: "above" | "below";
 }
 
-export function AutocompleteDropdown({ anchorRef, children, className, maxHeight = 160 }: Props) {
+export function AutocompleteDropdown({ anchorRef, containerRef, children, className, maxHeight = 160, ...containerProps }: Props) {
   const [position, setPosition] = useState<Position | null>(null);
 
   useLayoutEffect(() => {
@@ -64,6 +65,8 @@ export function AutocompleteDropdown({ anchorRef, children, className, maxHeight
 
   return createPortal(
     <div
+      ref={containerRef}
+      {...containerProps}
       className={`absolute z-[200] overflow-x-hidden overflow-y-auto shadow-lg ${className ?? ""}`}
       style={{
         left: position.left,

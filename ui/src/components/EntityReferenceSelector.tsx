@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { faces, galleries, groups, images, performers, videos, studios, tags } from "../api/client";
@@ -7,6 +7,7 @@ import { TagProvenanceHover } from "./TagProvenanceHover";
 import { TagActionMenu } from "./shared";
 import { rankSearchOptions } from "../utils/searchRanking";
 import { AutocompleteDropdown } from "./AutocompleteDropdown";
+import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
 
 export type EntityReferenceType = Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group"> | "face";
 
@@ -14,6 +15,31 @@ export interface EntityReferenceOption {
   id: number;
   label: string;
   secondaryLabel?: string;
+}
+
+type ReferenceAutocompleteValue =
+  | { kind: "entity"; option: EntityReferenceOption }
+  | { kind: "create"; query: string };
+
+function buildReferenceAutocompleteItems(
+  options: EntityReferenceOption[],
+  createQuery: string | false | undefined,
+  createPending: boolean,
+  optionsDisabled = false,
+): AutocompleteItem<ReferenceAutocompleteValue>[] {
+  const items: AutocompleteItem<ReferenceAutocompleteValue>[] = options.map((option) => ({
+    key: `entity:${option.id}`,
+    value: { kind: "entity", option },
+    disabled: optionsDisabled,
+  }));
+  if (createQuery) {
+    items.push({
+      key: `create:${createQuery.toLowerCase()}`,
+      value: { kind: "create", query: createQuery },
+      disabled: createPending,
+    });
+  }
+  return items;
 }
 
 const REFERENCE_TYPES = new Set<string>(["tag", "performer", "studio", "video", "gallery", "image", "group", "face"]);
@@ -77,6 +103,8 @@ export function EntityReferenceSelector({
   disabled = false,
   inputClassName,
   excludeIds,
+  creatable = true,
+  resultsMaxHeight,
   selectedDisplay = "chip",
   selectedLabel,
 }: {
@@ -87,11 +115,12 @@ export function EntityReferenceSelector({
   disabled?: boolean;
   inputClassName?: string;
   excludeIds?: Iterable<number>;
+  creatable?: boolean;
+  resultsMaxHeight?: number;
   selectedDisplay?: "chip" | "input";
   selectedLabel?: string;
 }) {
   const [searchText, setSearchText] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedSearch = searchText.trim();
   const labels = getEntityReferenceLabel(entityType);
   const queryClient = useQueryClient();
@@ -107,7 +136,7 @@ export function EntityReferenceSelector({
     return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading, isFetching } = useQuery({
+  const { data: searchResults, isLoading, isFetching, isPlaceholderData } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
@@ -160,7 +189,26 @@ export function EntityReferenceSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatable && creatableTypes[entityType] && !exactMatchExists;
+  const autocompleteItems = useMemo(
+    () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
+    [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
+  );
+  const autocomplete = useAutocomplete({
+    items: autocompleteItems,
+    inputValue: searchText,
+    onInputValueChange: setSearchText,
+    disabled,
+    busy: isPlaceholderData,
+    onSelect: (item) => {
+      if (item.kind === "create") {
+        createMutation.mutate(item.query);
+        return false;
+      }
+      onChange(item.option.id, item.option);
+      setSearchText("");
+    },
+  });
 
   return (
     <div className="relative flex min-w-0 flex-col gap-2">
@@ -184,11 +232,12 @@ export function EntityReferenceSelector({
 
       <div className="relative">
         <input
-          ref={inputRef}
+          ref={autocomplete.inputRef}
+          {...autocomplete.inputProps}
           type="text"
           value={showSelectedInInput ? selectedInputLabel : searchText}
-          onChange={(event) => setSearchText(event.target.value)}
           onFocus={(event) => {
+            autocomplete.inputProps.onFocus(event);
             if (showSelectedInInput) {
               event.currentTarget.select();
             }
@@ -213,21 +262,24 @@ export function EntityReferenceSelector({
         ) : null}
       </div>
 
-      {trimmedSearch ? (
-        <AutocompleteDropdown anchorRef={inputRef} className="rounded border border-border bg-surface">
+      {trimmedSearch && autocomplete.isOpen ? (
+        <AutocompleteDropdown
+          anchorRef={autocomplete.inputRef}
+          containerRef={autocomplete.listboxRef}
+          maxHeight={resultsMaxHeight}
+          className="rounded border border-border bg-surface"
+          {...autocomplete.listboxProps}
+        >
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 && !showCreateOption ? (
             <div className="px-3 py-2 text-sm text-muted">No {labels.plural} found</div>
           ) : null}
-          {visibleResults.map((option) => (
+          {visibleResults.map((option, index) => (
             <button
               key={option.id}
+              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
               type="button"
-              onClick={() => {
-                onChange(option.id, option);
-                setSearchText("");
-              }}
-              className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card"
+              className={`flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-card" : ""}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <Plus className="h-3 w-3" />
@@ -238,10 +290,10 @@ export function EntityReferenceSelector({
           ))}
           {showCreateOption ? (
             <button
+              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
               type="button"
-              onClick={() => createMutation.mutate(trimmedSearch)}
               disabled={createMutation.isPending}
-              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50"
+              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-card" : ""}`}
             >
               {createMutation.isPending ? (
                 <span className="text-muted">Creating...</span>
@@ -272,6 +324,7 @@ export function EntityReferenceMultiSelector({
   containerClassName,
   excludeIds,
   lockedIds,
+  creatable = true,
   selectedProvenanceById,
   reportableIds,
   onReportIncorrect,
@@ -293,6 +346,7 @@ export function EntityReferenceMultiSelector({
   seedOptions?: EntityReferenceOption[];
   excludeIds?: Iterable<number>;
   lockedIds?: Iterable<number>;
+  creatable?: boolean;
   selectedProvenanceById?: Record<number, TagProvenance[] | undefined>;
   // Locked chips whose id is in reportableIds get the same "⋯" correction menu as the Details tab.
   reportableIds?: Iterable<number>;
@@ -300,7 +354,6 @@ export function EntityReferenceMultiSelector({
   onAdjustThreshold?: (id: number) => void;
 }) {
   const [searchText, setSearchText] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedSearch = searchText.trim();
   const labels = getEntityReferenceLabel(entityType);
   const queryClient = useQueryClient();
@@ -316,7 +369,7 @@ export function EntityReferenceMultiSelector({
     return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading, isFetching } = useQuery({
+  const { data: searchResults, isLoading, isFetching, isPlaceholderData } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
@@ -369,7 +422,26 @@ export function EntityReferenceMultiSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatable && creatableTypes[entityType] && !exactMatchExists;
+  const autocompleteItems = useMemo(
+    () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
+    [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
+  );
+  const autocomplete = useAutocomplete({
+    items: autocompleteItems,
+    inputValue: searchText,
+    onInputValueChange: setSearchText,
+    disabled,
+    busy: isPlaceholderData,
+    onSelect: (item) => {
+      if (item.kind === "create") {
+        createMutation.mutate(item.query);
+        return false;
+      }
+      onChange([...values, item.option.id]);
+      setSearchText("");
+    },
+  });
 
   return (
     <div className={`relative ${containerClassName ?? "flex flex-col gap-2"}`}>
@@ -410,30 +482,33 @@ export function EntityReferenceMultiSelector({
       ) : null}
 
       <input
-        ref={inputRef}
+        ref={autocomplete.inputRef}
+        {...autocomplete.inputProps}
         type="text"
         value={searchText}
-        onChange={(event) => setSearchText(event.target.value)}
         placeholder={placeholder ?? `Search ${labels.plural}...`}
         disabled={disabled}
         className={inputClassName ?? "w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted disabled:opacity-50 focus:border-accent focus:outline-none"}
       />
 
-      {trimmedSearch ? (
-        <AutocompleteDropdown anchorRef={inputRef} maxHeight={resultsMaxHeight} className={resultsClassName ?? "rounded border border-border bg-surface"}>
+      {trimmedSearch && autocomplete.isOpen ? (
+        <AutocompleteDropdown
+          anchorRef={autocomplete.inputRef}
+          containerRef={autocomplete.listboxRef}
+          maxHeight={resultsMaxHeight}
+          className={resultsClassName ?? "rounded border border-border bg-surface"}
+          {...autocomplete.listboxProps}
+        >
           {isLoading ? <div className="px-3 py-2 text-sm text-muted">Loading...</div> : null}
           {!isLoading && visibleResults.length === 0 && !showCreateOption ? (
             <div className="px-3 py-2 text-sm text-muted">{emptyMessage ?? `No ${labels.plural} found`}</div>
           ) : null}
-          {visibleResults.map((option) => (
+          {visibleResults.map((option, index) => (
             <button
               key={option.id}
+              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
               type="button"
-              onClick={() => {
-                onChange([...values, option.id]);
-                setSearchText("");
-              }}
-              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card"
+              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-card" : ""}`}
             >
               <span className="inline-flex items-center gap-2">
                 <Plus className="h-3 w-3" />
@@ -444,10 +519,10 @@ export function EntityReferenceMultiSelector({
           ))}
           {showCreateOption ? (
             <button
+              {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
               type="button"
-              onClick={() => createMutation.mutate(trimmedSearch)}
               disabled={createMutation.isPending}
-              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50"
+              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-card" : ""}`}
             >
               {createMutation.isPending ? (
                 <span className="text-muted">Creating...</span>
@@ -583,10 +658,13 @@ function toPerformerOption(performer: Performer): EntityReferenceOption {
 }
 
 function toFaceOption(face: Face): EntityReferenceOption {
+  const label = face.label?.trim() || face.performerName?.trim() || "Unidentified face";
   return {
     id: face.id,
-    label: face.label?.trim() || face.performerName?.trim() || `Face #${face.id}`,
-    secondaryLabel: face.performerName && face.label?.trim() ? face.performerName : undefined,
+    label,
+    secondaryLabel: face.performerName && face.performerName !== label
+      ? face.performerName
+      : face.primarySourceKey || undefined,
   };
 }
 

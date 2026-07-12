@@ -7,6 +7,7 @@ import type { Performer } from "../api/types";
 
 const mocks = vi.hoisted(() => ({
   performersUpdate: vi.fn(),
+  tagsCreate: vi.fn(),
   tagsFind: vi.fn(),
   performerImageUrl: vi.fn(),
   uploadPerformerImage: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../api/client", () => ({
   performers: { update: mocks.performersUpdate },
-  tags: { find: mocks.tagsFind },
+  tags: { create: mocks.tagsCreate, find: mocks.tagsFind },
   entityImages: {
     performerImageUrl: mocks.performerImageUrl,
     uploadPerformerImage: mocks.uploadPerformerImage,
@@ -144,11 +145,53 @@ describe("PerformerEditModal", () => {
       });
     });
 
-    await user.click(await screen.findByRole("button", { name: "Shaved Pussy" }));
+    await user.click(await screen.findByRole("option", { name: "Shaved Pussy" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })));
     expect(screen.getByText("Shaved Pussy")).toBeInTheDocument();
+  });
+
+  it("creates and selects a metadata-rich tag with the shared keyboard interaction", async () => {
+    const user = userEvent.setup();
+    const performer: Performer = {
+      id: 1,
+      name: "Sample Performer",
+      favorite: false,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      groupCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    };
+    mocks.tagsFind.mockResolvedValue({ items: [] });
+    mocks.tagsCreate.mockResolvedValue({
+      id: 9,
+      name: "Novel tag",
+      color: "#123456",
+      tagGroupName: "Qualities",
+      tagGroupColor: "#654321",
+    });
+
+    renderModal(performer);
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    await user.type(input, "Novel tag");
+    const createOption = await screen.findByRole("option", { name: "Create “Novel tag”" });
+    expect(input).toHaveAttribute("aria-controls", createOption.parentElement?.id);
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    await waitFor(() => expect(mocks.tagsCreate).toHaveBeenCalledWith({ name: "Novel tag" }));
+    expect(await screen.findByText("Qualities")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [9] })));
   });
 
   it("saves aliases from separate list inputs", async () => {
