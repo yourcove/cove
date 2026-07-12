@@ -157,6 +157,68 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag) VALUES (1, 'Legacy 
         Assert.Null(performer.CareerEnd);
     }
 
+    [Fact]
+    public async Task ImportPerformersAsync_ImportsCurrentCareerDateColumns()
+    {
+        await using var context = CreateContext();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE performers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  disambiguation TEXT,
+  gender TEXT,
+  birthdate TEXT,
+  ethnicity TEXT,
+  country TEXT,
+  eye_color TEXT,
+  hair_color TEXT,
+  height INTEGER,
+  weight INTEGER,
+  measurements TEXT,
+  fake_tits TEXT,
+  penis_length REAL,
+  circumcised TEXT,
+  career_length TEXT,
+  career_start TEXT,
+  career_end TEXT,
+  death_date TEXT,
+  tattoos TEXT,
+  piercings TEXT,
+  favorite INTEGER NOT NULL,
+  rating INTEGER,
+  details TEXT,
+  ignore_auto_tag INTEGER NOT NULL,
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
+);
+INSERT INTO performers (id, name, career_length, career_start, career_end, favorite, ignore_auto_tag) VALUES
+  (1, 'Current Performer', '1999-2001', '2008-01-01', '2020-01-01', 0, 0),
+  (2, 'Partial Current Performer', '1995-2005', NULL, '2010-01-01', 0, 0);
+");
+
+        var service = CreateService(context);
+        await InvokePrivateAsync(
+            service,
+            "ImportPerformersAsync",
+            stash,
+            new Dictionary<string, string>(),
+            new Dictionary<int, int>(),
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        var performers = await context.Performers.ToDictionaryAsync(performer => performer.Name);
+        Assert.Equal(new DateOnly(2008, 1, 1), performers["Current Performer"].CareerStart);
+        Assert.Equal(new DateOnly(2020, 1, 1), performers["Current Performer"].CareerEnd);
+        Assert.Equal(new DateOnly(1995, 1, 1), performers["Partial Current Performer"].CareerStart);
+        Assert.Equal(new DateOnly(2010, 1, 1), performers["Partial Current Performer"].CareerEnd);
+    }
+
         [Fact]
         public async Task ImportPerformersAsync_ImportsMultiplePerformersWithUrls()
         {

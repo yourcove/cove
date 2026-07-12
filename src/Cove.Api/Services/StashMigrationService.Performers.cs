@@ -27,15 +27,20 @@ public partial class StashMigrationService
         var rows = new List<(int Id, string Name, string? Disambiguation, string? Gender, string? Birthdate,
             string? Ethnicity, string? Country, string? EyeColor, string? HairColor, int? Height, int? Weight,
             string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
-            string? CareerLength, string? DeathDate,
+            string? CareerLength, string? CareerStart, string? CareerEnd, string? DeathDate,
             string? Tattoos, string? Piercings, bool Favorite, int? Rating, string? Details,
             string? ImageBlob, string CreatedAt, string UpdatedAt)>();
         var hasCareerLength = await ColumnExistsAsync(conn, "performers", "career_length", ct);
+        var hasCareerStart = await ColumnExistsAsync(conn, "performers", "career_start", ct);
+        var hasCareerEnd = await ColumnExistsAsync(conn, "performers", "career_end", ct);
         await using (var cmd = conn.CreateCommand())
         {
             var careerLengthExpr = hasCareerLength ? "career_length" : "NULL";
+            var careerStartExpr = hasCareerStart ? "career_start" : "NULL";
+            var careerEndExpr = hasCareerEnd ? "career_end" : "NULL";
             cmd.CommandText = @"SELECT id, name, disambiguation, gender, birthdate, ethnicity, country, eye_color,
                 hair_color, height, weight, measurements, fake_tits, penis_length, circumcised, " + careerLengthExpr + @" AS career_length,
+                " + careerStartExpr + @" AS career_start, " + careerEndExpr + @" AS career_end,
                 death_date, tattoos, piercings, favorite, rating, details, image_blob, created_at, updated_at
                 FROM performers";
             await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -45,8 +50,9 @@ public partial class StashMigrationService
                     ReadStringNull(r, 8), ReadIntNull(r, 9), ReadIntNull(r, 10), ReadStringNull(r, 11),
                     ReadStringNull(r, 12), r.IsDBNull(13) ? null : (double?)r.GetDouble(13),
                     ReadStringNull(r, 14), ReadStringNull(r, 15), ReadStringNull(r, 16),
-                    ReadStringNull(r, 17), ReadStringNull(r, 18), ReadBool(r, 19), ReadIntNull(r, 20),
-                    ReadStringNull(r, 21), ReadStringNull(r, 22), r.GetString(23), r.GetString(24)));
+                    ReadStringNull(r, 17), ReadStringNull(r, 18), ReadStringNull(r, 19), ReadStringNull(r, 20),
+                    ReadBool(r, 21), ReadIntNull(r, 22), ReadStringNull(r, 23), ReadStringNull(r, 24),
+                    r.GetString(25), r.GetString(26)));
         }
         var urls = await ReadUrlsAsync(conn, "performer_urls", "performer_id", ct);
         var aliases = await ReadAliasesAsync(conn, "performer_aliases", "performer_id", ct);
@@ -125,7 +131,9 @@ public partial class StashMigrationService
             var performerRemoteIds = performerStashIds.GetValueOrDefault(row.Id, [])
                 .DistinctBy(s => (s.Ep, s.Rid))
                 .ToList();
-            var (careerStart, careerEnd) = ParseCareerLength(row.CareerLength);
+            var (legacyCareerStart, legacyCareerEnd) = ParseCareerLength(row.CareerLength);
+            var careerStart = ParseDate(row.CareerStart) ?? legacyCareerStart;
+            var careerEnd = ParseDate(row.CareerEnd) ?? legacyCareerEnd;
             var imageBlobId = GetBlobId(blobMap, row.ImageBlob);
             if (imageBlobId is null && string.IsNullOrWhiteSpace(row.ImageBlob))
             {
