@@ -71,15 +71,15 @@ describe("BulkEditDialog", () => {
     await user.click(screen.getByRole("checkbox", { name: "Tags" }));
     await user.click(screen.getByRole("button", { name: "Overwrite" }));
   await user.type(screen.getByPlaceholderText("Search tags..."), "Tag");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Tag One/i })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /Tag One/i }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Tag One/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("option", { name: /Tag One/i }));
 
     await user.click(screen.getByRole("checkbox", { name: "Groups" }));
     const overwriteButtons = screen.getAllByRole("button", { name: "Overwrite" });
     await user.click(overwriteButtons[1]);
   await user.type(screen.getByPlaceholderText("Search groups..."), "Series");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Series One/i })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /Series One/i }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Series One/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("option", { name: /Series One/i }));
 
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
@@ -111,8 +111,8 @@ describe("BulkEditDialog", () => {
     await user.click(screen.getByRole("checkbox", { name: "Studio" }));
     const searchInput = screen.getByPlaceholderText("Search studios...");
     await user.type(searchInput, "Alpha");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Alpha Studio/i })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /Alpha Studio/i }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Alpha Studio/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("option", { name: /Alpha Studio/i }));
 
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
