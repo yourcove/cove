@@ -8,6 +8,8 @@ import {
   parseEntityReferenceIds,
 } from "./EntityReferenceSelector";
 import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
+import { formatDate } from "../utils/dateFormat";
+import { IsoDateInput } from "./IsoDateInput";
 
 export function CustomFieldsDisplay({
   customFields,
@@ -236,16 +238,18 @@ function ConfiguredFieldInput({
     longText: "text",
     number: "number",
     boolean: "text",
-    date: "date",
-    timestamp: "datetime-local",
+    date: "text",
+    timestamp: "text",
     url: "url",
     enum: "text",
     duration: "number",
     percent: "number",
   };
 
+  const Input = definition.type === "date" || definition.type === "timestamp" ? IsoDateInput : "input";
   return (
-    <input
+    <Input
+      {...(definition.type === "timestamp" ? { pickerType: "datetime-local" as const } : {})}
       type={inputType[definition.type] ?? "text"}
       value={serializeScalarValue(value)}
       onChange={(event) => onChange(event.target.value)}
@@ -310,12 +314,8 @@ function formatDateValue(value: unknown): string {
     return String(value ?? "");
   }
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleDateString();
+  const formatted = formatDate(value);
+  return formatted === "Invalid Date" ? value : formatted;
 }
 
 function normalizeDefinedFieldValue(value: string, type: CustomFieldType): unknown {

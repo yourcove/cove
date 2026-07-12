@@ -8,6 +8,7 @@ import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../co
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { CustomFieldsEditor } from "../components/shared";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { EntityReferencePopovers, TextTile } from "../components/EntityCards";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
@@ -314,7 +315,7 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
 
       <div className="grid grid-cols-2 gap-4">
         <Field label="Title"><TextInput value={title} onChange={setTitle} placeholder="Text title" /></Field>
-        <Field label="Date"><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none" /></Field>
+        <Field label="Date"><IsoDateInput value={date} onChange={(event) => setDate(event.target.value)} className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none" /></Field>
       </div>
       <Field label="Studio Code"><TextInput value={code} onChange={setCode} placeholder="Text code" /></Field>
       <Field label="Details"><TextArea value={details} onChange={setDetails} placeholder="Text notes" rows={3} /></Field>

@@ -3,6 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus, Star } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi } from "../api/client";
 import { GroupedTagOptionList } from "./TagSelector";
+import { IsoDateInput } from "./IsoDateInput";
 import { EntityReferenceSelector } from "./EntityReferenceSelector";
 import {
   convertToRatingFormat,
@@ -1738,8 +1739,7 @@ function DateEditor({ value, onChange, modifiers }: { value?: DateCriterion; onC
       <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
       {!isNull && (
         <div className="flex items-center gap-2">
-          <input
-            type="date"
+          <IsoDateInput
             value={value?.value ?? ""}
             onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
             className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
@@ -1747,8 +1747,7 @@ function DateEditor({ value, onChange, modifiers }: { value?: DateCriterion; onC
           {isBetween && (
             <>
               <span className="text-xs text-muted">and</span>
-              <input
-                type="date"
+              <IsoDateInput
                 value={value?.value2 ?? ""}
                 onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
                 className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
@@ -1795,8 +1794,8 @@ function TimestampEditor({ value, onChange, modifiers }: { value?: TimestampCrit
       />
       {!isNull && (
         <div className="flex items-center gap-2">
-          <input
-            type="datetime-local"
+          <IsoDateInput
+            pickerType="datetime-local"
             value={value?.value ?? ensureTimestampValue(value?.value)}
             onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
             className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
@@ -1804,8 +1803,8 @@ function TimestampEditor({ value, onChange, modifiers }: { value?: TimestampCrit
           {isBetween && (
             <>
               <span className="text-xs text-muted">and</span>
-              <input
-                type="datetime-local"
+              <IsoDateInput
+                pickerType="datetime-local"
                 value={value?.value2 ?? ensureTimestampValue(value?.value2)}
                 onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
                 className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
@@ -2317,4 +2316,3 @@ export function FilterButton({
     </button>
   );
 }
-

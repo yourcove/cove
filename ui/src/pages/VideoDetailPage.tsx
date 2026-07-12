@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { IsoDateInput } from "../components/IsoDateInput";
 import type { Detection, Face, MetadataServer, PerformerSummary, ResolvedSpan, Video, VideoUpdate, Segment, TagApplication, TagProvenance } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
@@ -43,6 +44,7 @@ import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLa
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
 import { trackInteraction } from "../utils/interactionTracking";
+import { formatDateTime } from "../utils/dateFormat";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
 import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailable } from "../components/AudioSimilarityPanel";
@@ -529,13 +531,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {video.date ? (
           <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="date">
-            <span>
-              {new Date(`${video.date}T00:00:00`).toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </span>
+            <span>{formatDate(video.date)}</span>
           </FieldProvenanceHover>
         ) : null}
 
@@ -1392,7 +1388,7 @@ function HistoryTab({
         {history?.playHistory && history.playHistory.length > 0 && (
           <div className="max-h-40 overflow-y-auto space-y-0.5 border-t border-border pt-2">
             {history.playHistory.map((date, i) => (
-              <div key={i} className="text-xs text-secondary">{new Date(date).toLocaleString()}</div>
+              <div key={i} className="text-xs text-secondary">{formatDateTime(date)}</div>
             ))}
           </div>
         )}
@@ -1418,7 +1414,7 @@ function HistoryTab({
                       <span>{session.intervals.length} intervals</span>
                     </div>
                   </div>
-                  <div className="shrink-0 text-xs text-secondary">{new Date(session.startedAt).toLocaleString()}</div>
+                  <div className="shrink-0 text-xs text-secondary">{formatDateTime(session.startedAt)}</div>
                 </div>
                 {session.intervals.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -2228,7 +2224,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
           <label className="space-y-1"><span className="text-xs text-secondary">Title</span><input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} /></label>
         </FieldProvenanceHover>
         <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="date" block>
-          <label className="space-y-1"><span className="text-xs text-secondary">Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} /></label>
+          <label className="space-y-1"><span className="text-xs text-secondary">Date</span><IsoDateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} /></label>
         </FieldProvenanceHover>
       </div>
       <div className="grid grid-cols-2 gap-3">

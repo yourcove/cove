@@ -1834,7 +1834,7 @@ export function FaceTile({ face, onClick, selected, onSelect, selecting, childre
       body={(
         <>
           <h3 className="card-title truncate text-sm font-semibold text-foreground group-hover:text-accent">{title}</h3>
-          <div className="truncate text-xs text-secondary">{face.performerId && face.performerName ? `Updated ${new Date(face.updatedAt).toLocaleDateString()}` : face.performerName || `Updated ${new Date(face.updatedAt).toLocaleDateString()}`}</div>
+          <div className="truncate text-xs text-secondary">{face.performerId && face.performerName ? `Updated ${formatDate(face.updatedAt)}` : face.performerName || `Updated ${formatDate(face.updatedAt)}`}</div>
         </>
       )}
       footer={(

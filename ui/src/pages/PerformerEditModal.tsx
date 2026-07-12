@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { performers, tags as tagsApi } from "../api/client";
 import type { Performer, PerformerUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, NumberInput, SaveButton } from "../components/EditModal";
@@ -199,16 +200,14 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
           </select>
         </Field>
         <Field label="Birthdate" fieldProvenance={performer.fieldProvenance} fieldKey="birthdate">
-          <input
-            type="date"
+          <IsoDateInput
             value={birthdate}
             onChange={(e) => setBirthdate(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
           />
         </Field>
         <Field label="Death Date" fieldProvenance={performer.fieldProvenance} fieldKey="deathDate">
-          <input
-            type="date"
+          <IsoDateInput
             value={deathDate}
             onChange={(e) => setDeathDate(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
@@ -275,16 +274,14 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
 
       <div className="grid grid-cols-2 gap-4">
         <Field label="Career Start" fieldProvenance={performer.fieldProvenance} fieldKey="careerStart">
-          <input
-            type="date"
+          <IsoDateInput
             value={careerStart}
             onChange={(e) => setCareerStart(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
           />
         </Field>
         <Field label="Career End" fieldProvenance={performer.fieldProvenance} fieldKey="careerEnd">
-          <input
-            type="date"
+          <IsoDateInput
             value={careerEnd}
             onChange={(e) => setCareerEnd(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"

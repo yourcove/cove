@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as signalR from "@microsoft/signalr";
+import { formatDate } from "../components/shared";
 import {
   ChevronDown,
   ChevronRight,
@@ -7080,7 +7081,7 @@ function FindAndInstallExtensions() {
               >
                 {selectedExtension.versions.map(v => (
                   <option key={v.version} value={v.version}>
-                    v{v.version}{v.releasedAt ? ` — ${new Date(v.releasedAt).toLocaleDateString()}` : ""}
+                    v{v.version}{v.releasedAt ? ` — ${formatDate(v.releasedAt)}` : ""}
                   </option>
                 ))}
               </select>
@@ -7297,6 +7298,5 @@ function ExtBadge({ label }: { label: string }) {
     </span>
   );
 }
-
 
 

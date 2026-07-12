@@ -68,7 +68,7 @@ describe("GalleryEditModal", () => {
     vi.clearAllMocks();
   });
 
-  it("omits rating, organized, and videos while using a date input", async () => {
+  it("omits rating, organized, and videos while using an ISO date field", async () => {
     mockGalleries.update.mockResolvedValue({});
 
     renderModal();
@@ -79,7 +79,8 @@ describe("GalleryEditModal", () => {
     expect(screen.queryByText("video selector")).not.toBeInTheDocument();
 
     const dateInput = screen.getByDisplayValue("2026-05-01");
-    expect(dateInput).toHaveAttribute("type", "date");
+    expect(dateInput).toHaveAttribute("type", "text");
+    expect(dateInput).toHaveAttribute("placeholder", "yyyy-MM-dd");
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 

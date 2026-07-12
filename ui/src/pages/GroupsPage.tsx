@@ -10,6 +10,7 @@ import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { Layers, Trash2, Loader2, Edit } from "lucide-react";
 import { GroupTile } from "../components/EntityCards";
 import { GROUP_CRITERIA } from "../components/FilterDialog";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { BulkEditDialog, GROUP_BULK_FIELDS } from "../components/BulkEditDialog";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
@@ -399,7 +400,7 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
         <DynamicGroupFilterEditor queryJson={form.queryJson} onChange={(queryJson) => setForm({ ...form, queryJson })} />
       ) : null}
       <Field label="Date">
-        <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none" />
+        <IsoDateInput value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none" />
       </Field>
       <Field label="Director">
         <TextInput value={form.director} onChange={(v) => setForm({ ...form, director: v })} />

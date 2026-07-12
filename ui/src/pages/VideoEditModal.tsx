@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { videos, tagApplications } from "../api/client";
 import type { Video, VideoUpdate, TagApplication } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StudioSelector } from "../components/StudioSelector";
@@ -129,8 +130,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
           <TextInput value={title} onChange={setTitle} placeholder="Video title" />
         </Field>
         <Field label="Date" fieldProvenance={video.fieldProvenance} fieldKey="date">
-          <input
-            type="date"
+          <IsoDateInput
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
@@ -348,4 +348,3 @@ async function syncPerformerContextTags(videoId: number, existingApplications: T
     }
   }
 }
-

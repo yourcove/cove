@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { images, system } from "../api/client";
 import type { DownloaderMatch, Image, ImageCreate, VideoGroupInput } from "../api/types";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { RatingField } from "../components/Rating";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
@@ -233,8 +234,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
           <TextInput value={form.title} onChange={(value) => setForm({ ...form, title: value })} placeholder="Image title" />
         </Field>
         <Field label="Date" fieldProvenance={image?.fieldProvenance} fieldKey="date">
-          <input
-            type="date"
+          <IsoDateInput
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
@@ -565,4 +565,3 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
     </>
   );
 }
-

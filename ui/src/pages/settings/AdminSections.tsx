@@ -23,6 +23,7 @@ import { SettingsButton as Btn, SettingsField as Field, SettingsSection as Secti
 import { EditModal } from "../../components/EditModal";
 import { buildRoutePath } from "../../router/location";
 import { EntityReferenceSelector } from "../../components/EntityReferenceSelector";
+import { formatDateTime } from "../../utils/dateFormat";
 
 const ENTITY_KINDS = ["video", "performer", "tag", "studio", "gallery", "image", "group", "segment"] as const;
 const SCOPE_KINDS = ["all", "tag", "studio", "attribute", "expression"] as const;
@@ -408,7 +409,7 @@ export function UsersTab() {
                 <div className="mt-3 flex flex-wrap gap-1">
                   {userRow.roles.length ? userRow.roles.map((role) => <span key={role} className="rounded border border-border bg-surface px-2 py-0.5 text-xs">{role}</span>) : <span className="text-xs text-secondary">No roles</span>}
                 </div>
-                <div className="mt-3 text-xs text-secondary">Last login: {userRow.lastLoginAt ? new Date(userRow.lastLoginAt).toLocaleString() : "never"}</div>
+                <div className="mt-3 text-xs text-secondary">Last login: {userRow.lastLoginAt ? formatDateTime(userRow.lastLoginAt) : "never"}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {canWriteUsers ? <Btn onClick={() => setEditing(userRow)}>Edit</Btn> : null}
                   {canInviteUsers ? <Btn onClick={() => setInviteUser(userRow)}>{userRow.hasPassword ? "Reset password" : "Copy invite link"}</Btn> : null}
@@ -450,7 +451,7 @@ export function UsersTab() {
                     <td className="px-2 py-2">
                       <UserStatus user={u} />
                     </td>
-                    <td className="px-2 py-2 text-secondary">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}</td>
+                    <td className="px-2 py-2 text-secondary">{u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "—"}</td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap justify-end gap-1">
                       {canWriteUsers ? <Btn onClick={() => setEditing(u)}>Edit</Btn> : null}
@@ -859,7 +860,7 @@ export function AuditTab() {
               <tbody>
                 {q.data.items.map((e) => (
                   <tr key={e.id} className="border-b border-border/40">
-                    <td className="px-2 py-2 whitespace-nowrap text-secondary">{new Date(e.occurredAt).toLocaleString()}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-secondary">{formatDateTime(e.occurredAt)}</td>
                     <td className="px-2 py-2">{e.actorUsername ?? <span className="text-secondary">{e.actorKind}</span>}</td>
                     <td className="px-2 py-2"><code className="text-xs">{e.action}</code></td>
                     <td className="px-2 py-2 text-secondary">{e.targetKind ? `${e.targetKind}:${e.targetId ?? ""}` : "—"}</td>
@@ -1028,7 +1029,7 @@ function ContentRuleTable({ rules, canWrite, onDelete }: { rules: ContentRuleRow
               </td>
               <td className="px-2 py-2 text-xs text-secondary">{formatContentRuleScope(rule)}</td>
               <td className="px-2 py-2">{rule.appliesTo}</td>
-              <td className="px-2 py-2 text-secondary">{new Date(rule.updatedAt).toLocaleString()}</td>
+              <td className="px-2 py-2 text-secondary">{formatDateTime(rule.updatedAt)}</td>
               <td className="px-2 py-2 text-right">
                 {canWrite ? <Btn variant="danger" onClick={() => { if (confirm("Delete this content rule?")) onDelete(rule.id); }}>Delete</Btn> : null}
               </td>
@@ -1070,7 +1071,7 @@ function EntityOverrideTable({ overrides, canWrite, onDelete }: { overrides: Ent
                 <span className={overrideItem.effect === "deny" ? "text-amber-400" : "text-emerald-400"}>{overrideItem.effect}</span>
               </td>
               <td className="px-2 py-2">{overrideItem.appliesTo}</td>
-              <td className="px-2 py-2 text-secondary">{new Date(overrideItem.createdAt).toLocaleString()}</td>
+              <td className="px-2 py-2 text-secondary">{formatDateTime(overrideItem.createdAt)}</td>
               <td className="px-2 py-2 text-right">
                 {canWrite ? <Btn variant="danger" onClick={() => { if (confirm("Delete this entity override?")) onDelete(overrideItem.id); }}>Delete</Btn> : null}
               </td>
@@ -1283,9 +1284,9 @@ function ApiTokensTable({ tokens, onRevoke }: { tokens: ApiTokenRow[]; onRevoke:
               <td className="px-2 py-2 font-medium">{token.name}</td>
               <td className="px-2 py-2 font-mono text-xs">{token.prefix}…</td>
               <td className="px-2 py-2 text-secondary">{token.scope?.length ? `${token.scope.length} perms` : "full"}</td>
-              <td className="px-2 py-2 text-secondary">{new Date(token.createdAt).toLocaleString()}</td>
-              <td className="px-2 py-2 text-secondary">{token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleString() : "—"}</td>
-              <td className="px-2 py-2 text-secondary">{token.expiresAt ? new Date(token.expiresAt).toLocaleString() : "never"}</td>
+              <td className="px-2 py-2 text-secondary">{formatDateTime(token.createdAt)}</td>
+              <td className="px-2 py-2 text-secondary">{token.lastUsedAt ? formatDateTime(token.lastUsedAt) : "—"}</td>
+              <td className="px-2 py-2 text-secondary">{token.expiresAt ? formatDateTime(token.expiresAt) : "never"}</td>
               <td className="px-2 py-2 text-right">
                 <Btn variant="danger" onClick={() => { if (confirm(`Revoke token "${token.name}"?`)) onRevoke(token.id); }}>Revoke</Btn>
               </td>
@@ -1368,7 +1369,7 @@ function ShareLinksTable({ links, onRevoke }: { links: ShareLinkRow[]; onRevoke:
               <td className="px-2 py-2">{formatEntityKind(link.entityKind)}</td>
               <td className="px-2 py-2 text-secondary">{link.entityIds.length}</td>
               <td className="px-2 py-2 text-secondary">{link.viewCount}</td>
-              <td className="px-2 py-2 text-secondary">{link.expiresAt ? new Date(link.expiresAt).toLocaleString() : "never"}</td>
+              <td className="px-2 py-2 text-secondary">{link.expiresAt ? formatDateTime(link.expiresAt) : "never"}</td>
               <td className="px-2 py-2">
                 {link.revoked ? <span className="text-red-400">revoked</span> : link.hasPassword ? "password-gated" : "active"}
               </td>
@@ -1472,4 +1473,3 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
     </EditModal>
   );
 }
-

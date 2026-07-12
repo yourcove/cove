@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, entityImages, videos } from "../api/client";
 import type { BoolCriterion, EntityEngagement, FindFilter, Group, Video, VideoCreate, VideoFilterCriteria, VideoListEntry } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { EntityCardGrid } from "../components/EntityCardGrid";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { usePaginatedInfiniteQuery } from "../hooks/usePaginatedInfiniteQuery";
@@ -1185,8 +1186,7 @@ function VideoCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
           <TextInput value={title} onChange={setTitle} placeholder="Video title" />
         </Field>
         <Field label="Date">
-          <input
-            type="date"
+          <IsoDateInput
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"

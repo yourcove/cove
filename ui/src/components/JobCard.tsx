@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle, XCircle, Ban, Clock, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 import type { JobInfo } from "../api/types";
+import { formatDateTime } from "../utils/dateFormat";
 
 /** Format a millisecond duration as a compact human string (e.g. "45s", "3m 20s", "1h 15m"). */
 export function formatJobDuration(ms: number): string {
@@ -140,11 +141,11 @@ export function JobCard({ job, variant = "drawer", onCancel, onMoveUp, onMoveDow
           {isFinished && job.completedAt && (
             <div className="mt-1 space-y-0.5">
               <p className="text-xs text-muted">
-                Started {new Date(job.startedAt).toLocaleString()}
+                Started {formatDateTime(job.startedAt)}
                 {" · "}
                 Took {formatJobDuration(new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime())}
                 {" · "}
-                Finished {new Date(job.completedAt).toLocaleTimeString()}
+                Finished {formatDateTime(job.completedAt)}
               </p>
               {counts && <p className="text-xs text-muted">{counts}</p>}
             </div>

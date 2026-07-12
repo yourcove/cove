@@ -312,16 +312,8 @@ export function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
-export function formatDate(dateStr?: string): string {
-  if (!dateStr) return "";
-  try {
-    return new Date(dateStr).toLocaleDateString();
-  } catch {
-    return dateStr;
-  }
-}
+export { formatDate } from "../utils/dateFormat";
 
 export function getResolutionLabel(width: number, height: number): string | null {
   return getResolutionBucketLabel(width, height);
 }
-

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { groups } from "../api/client";
 import type { Group, GroupUpdate } from "../api/types";
 import { EditModal, Field, TextInput, TextArea, SaveButton } from "../components/EditModal";
+import { IsoDateInput } from "../components/IsoDateInput";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
@@ -181,8 +182,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
           <TextInput value={director} onChange={setDirector} placeholder="Director name" />
         </Field>
         <Field label="Date" fieldProvenance={group.fieldProvenance} fieldKey="date">
-          <input
-            type="date"
+          <IsoDateInput
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
@@ -233,4 +233,3 @@ function splitAliases(value?: string) {
 function joinAliases(values: string[]) {
   return values.map((alias) => alias.trim()).filter(Boolean).join(", ");
 }
-

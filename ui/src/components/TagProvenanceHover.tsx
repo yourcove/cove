@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { TagProvenance } from "../api/types";
+import { formatDateTime } from "../utils/dateFormat";
 
 // Hover-intent timings: the popup opens only after a deliberate pause (sweeping the cursor across a
 // tag list must not flash popups) and closes shortly after the pointer settles outside both the chip
@@ -262,7 +263,7 @@ function formatTagProvenanceDate(value?: string) {
   }
 
   try {
-    return new Date(value).toLocaleString();
+    return formatDateTime(value);
   } catch {
     return value;
   }
