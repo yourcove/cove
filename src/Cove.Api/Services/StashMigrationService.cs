@@ -480,10 +480,16 @@ public partial class StashMigrationService
                 () => ImportImagesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, progress, ImagesStart, ImagesEnd, ct));
             _db.ChangeTracker.Clear();
 
-            var (galleryCount, galleryFileIdMap) = await RunBulkInsertPhaseAsync(
+            var (galleryCount, galleryFileIdMap, galleryIdMap) = await RunBulkInsertPhaseAsync(
                 "galleries",
                 sw,
                 () => ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, progress, GalleriesStart, GalleriesEnd, ct));
+            _db.ChangeTracker.Clear();
+
+            await RunBulkInsertPhaseAsync(
+                "video-gallery relationships",
+                sw,
+                () => ImportVideoGalleryRelationshipsAsync(conn, sceneIdMap, galleryIdMap, ct));
             _db.ChangeTracker.Clear();
 
             await RunMigrationPhaseAsync(

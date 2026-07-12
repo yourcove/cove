@@ -914,10 +914,168 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
             1d,
             CancellationToken.None);
 
-                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap)>(result);
+                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap, Dictionary<int, int> GalleryIdMap)>(result);
                 Assert.Equal(1, galleryImport.Count);
         var gallery = await context.Galleries.SingleAsync();
         Assert.Equal("Summer Set", gallery.Title);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ImportsSceneGalleryRelationships()
+    {
+        await using var context = CreateContext();
+        var dbPath = await CreateSqliteDatabaseAsync(@"
+CREATE TABLE blobs (checksum TEXT NOT NULL, blob BLOB);
+CREATE TABLE folders (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+    parent_folder_id INTEGER,
+    zip_file_id INTEGER,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE studios (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id INTEGER,
+    details TEXT,
+    rating INTEGER,
+    favorite INTEGER NOT NULL,
+    image_blob TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    sort_name TEXT,
+    description TEXT,
+    favorite INTEGER NOT NULL,
+    image_blob TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE performers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    disambiguation TEXT,
+    gender TEXT,
+    birthdate TEXT,
+    ethnicity TEXT,
+    country TEXT,
+    eye_color TEXT,
+    hair_color TEXT,
+    height INTEGER,
+    weight INTEGER,
+    measurements TEXT,
+    fake_tits TEXT,
+    penis_length REAL,
+    circumcised TEXT,
+    career_length TEXT,
+    death_date TEXT,
+    tattoos TEXT,
+    piercings TEXT,
+    favorite INTEGER NOT NULL,
+    rating INTEGER,
+    details TEXT,
+    image_blob TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    aliases TEXT,
+    duration INTEGER,
+    date TEXT,
+    rating INTEGER,
+    studio_id INTEGER,
+    director TEXT,
+    description TEXT
+);
+CREATE TABLE scenes (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+    details TEXT,
+    date TEXT,
+    rating INTEGER,
+    studio_id INTEGER,
+    organized INTEGER NOT NULL,
+    code TEXT,
+    director TEXT,
+    resume_time REAL NOT NULL,
+    play_duration REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
+CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
+CREATE TABLE files (
+    id INTEGER PRIMARY KEY,
+    basename TEXT NOT NULL,
+    parent_folder_id INTEGER NOT NULL,
+    zip_file_id INTEGER,
+    size INTEGER NOT NULL,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE video_files (
+    file_id INTEGER PRIMARY KEY,
+    duration REAL NOT NULL,
+    video_codec TEXT NOT NULL,
+    format TEXT NOT NULL,
+    audio_codec TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    frame_rate REAL NOT NULL,
+    bit_rate INTEGER NOT NULL
+);
+CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint);
+CREATE TABLE galleries (
+    id INTEGER PRIMARY KEY,
+    folder_id INTEGER,
+    title TEXT,
+    date TEXT,
+    details TEXT,
+    studio_id INTEGER,
+    rating INTEGER,
+    organized INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    code TEXT,
+    photographer TEXT
+);
+CREATE TABLE scenes_galleries (scene_id INTEGER NOT NULL, gallery_id INTEGER NOT NULL);
+INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
+VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO galleries (id, title, organized, created_at, updated_at)
+VALUES (20, 'Imported Gallery', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
+    (10, 20),
+    (10, 20),
+    (999, 20),
+    (10, 999);
+", "cove-scene-gallery-migration");
+
+        try
+        {
+            var service = CreateService(context);
+            var result = await service.ImportAsync(
+                dbPath,
+                new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false));
+
+            Assert.Equal(1, result.Videos);
+            Assert.Equal(1, result.Galleries);
+            var video = await context.Videos.SingleAsync();
+            var gallery = await context.Galleries.SingleAsync();
+            var relationship = await context.Set<VideoGallery>().SingleAsync();
+            Assert.Equal(video.Id, relationship.VideoId);
+            Assert.Equal(gallery.Id, relationship.GalleryId);
+        }
+        finally
+        {
+            TryDeleteFile(dbPath);
+        }
     }
 
     [Fact]
@@ -1292,7 +1450,7 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
                         1d,
                         CancellationToken.None));
 
-                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap)>(await InvokePrivateAsync(
+                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap, Dictionary<int, int> GalleryIdMap)>(await InvokePrivateAsync(
                         service,
                         "ImportGalleriesAsync",
                         stash,
