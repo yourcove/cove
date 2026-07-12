@@ -450,6 +450,12 @@ public partial class StashMigrationService
                 () => ImportTagsAsync(conn, blobMap, progress, TagsStart, TagsEnd, ct));
             _db.ChangeTracker.Clear();
 
+            await RunBulkInsertPhaseAsync(
+                "studio-tag relationships",
+                sw,
+                () => ImportStudioTagRelationshipsAsync(conn, studioIdMap, tagIdMap, ct));
+            _db.ChangeTracker.Clear();
+
             var performerIdMap = await RunBulkInsertPhaseAsync(
                 "performers",
                 sw,
@@ -460,6 +466,18 @@ public partial class StashMigrationService
                 "groups",
                 sw,
                 () => ImportGroupsAsync(conn, blobMap, studioIdMap, progress, GroupsStart, GroupsEnd, ct));
+            _db.ChangeTracker.Clear();
+
+            await RunBulkInsertPhaseAsync(
+                "group-tag relationships",
+                sw,
+                () => ImportGroupTagRelationshipsAsync(conn, groupIdMap, tagIdMap, ct));
+            _db.ChangeTracker.Clear();
+
+            await RunBulkInsertPhaseAsync(
+                "group relations",
+                sw,
+                () => ImportGroupRelationsAsync(conn, groupIdMap, ct));
             _db.ChangeTracker.Clear();
 
             var (sceneCount, sceneIdMap, sceneGeneratedMap) = await RunBulkInsertPhaseAsync(
@@ -480,10 +498,16 @@ public partial class StashMigrationService
                 () => ImportImagesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, progress, ImagesStart, ImagesEnd, ct));
             _db.ChangeTracker.Clear();
 
-            var (galleryCount, galleryFileIdMap) = await RunBulkInsertPhaseAsync(
+            var (galleryCount, galleryFileIdMap, galleryIdMap) = await RunBulkInsertPhaseAsync(
                 "galleries",
                 sw,
                 () => ImportGalleriesAsync(conn, folderIdMap, studioIdMap, tagIdMap, performerIdMap, imageIdMap, progress, GalleriesStart, GalleriesEnd, ct));
+            _db.ChangeTracker.Clear();
+
+            await RunBulkInsertPhaseAsync(
+                "video-gallery relationships",
+                sw,
+                () => ImportVideoGalleryRelationshipsAsync(conn, sceneIdMap, galleryIdMap, ct));
             _db.ChangeTracker.Clear();
 
             await RunMigrationPhaseAsync(

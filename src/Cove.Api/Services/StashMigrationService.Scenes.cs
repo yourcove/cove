@@ -138,6 +138,20 @@ public partial class StashMigrationService
             }
         }
 
+        var captions = new Dictionary<int, List<(string LanguageCode, string Filename, string CaptionType)>>();
+        if (await TableExistsAsync(conn, "video_captions", ct))
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT file_id, language_code, filename, caption_type FROM video_captions";
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                var fileId = r.GetInt32(0);
+                if (!captions.TryGetValue(fileId, out var list)) captions[fileId] = list = [];
+                list.Add((r.GetString(1), r.GetString(2), r.GetString(3)));
+            }
+        }
+
         var count = 0;
         var skippedFailedScenes = 0;
         var idMap = new Dictionary<int, int>();
@@ -337,6 +351,7 @@ public partial class StashMigrationService
             _db.ChangeTracker.Clear();
             ReportPhase(progress, startProgress, endProgress, count, sceneRows.Count, $"Importing scenes ({count}/{sceneRows.Count})");
         }
+        await ImportVideoCaptionsAsync(captions, fileData, folderIdMap, ct);
         await AddImportedOverallRatingsAsync(
             sceneRows.Select(row => new ImportedRatingSeed(row.Id, row.Rating)),
             idMap,
@@ -384,6 +399,102 @@ public partial class StashMigrationService
         }
 
         return (count, idMap, generatedMap);
+    }
+
+    private async Task<int> ImportVideoCaptionsAsync(
+        IReadOnlyDictionary<int, List<(string LanguageCode, string Filename, string CaptionType)>> captionsByStashFileId,
+        IReadOnlyDictionary<int, (string Basename, int FolderId, long Size, DateTime ModTime, DateTime CreatedAt)> fileData,
+        IReadOnlyDictionary<int, int> folderIdMap,
+        CancellationToken ct)
+    {
+        if (captionsByStashFileId.Count == 0)
+            return 0;
+
+        var stashFileIdsByTargetKey = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var parentFolderIds = new HashSet<int>();
+        var basenames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var stashFileId in captionsByStashFileId.Keys)
+        {
+            if (!fileData.TryGetValue(stashFileId, out var file)
+                || !folderIdMap.TryGetValue(file.FolderId, out var parentFolderId))
+            {
+                continue;
+            }
+
+            var targetKey = GetImportedBaseFileKey(parentFolderId, file.Basename);
+            if (!stashFileIdsByTargetKey.TryGetValue(targetKey, out var stashFileIds))
+                stashFileIdsByTargetKey[targetKey] = stashFileIds = [];
+            stashFileIds.Add(stashFileId);
+            parentFolderIds.Add(parentFolderId);
+            basenames.Add(file.Basename);
+        }
+
+        if (stashFileIdsByTargetKey.Count == 0)
+            return 0;
+
+        var parentFolderIdValues = parentFolderIds.ToArray();
+        var basenameValues = basenames.ToArray();
+        var targetFiles = await _db.Set<VideoFile>()
+            .AsNoTracking()
+            .Where(file => parentFolderIdValues.Contains(file.ParentFolderId) && basenameValues.Contains(file.Basename))
+            .Select(file => new { file.Id, file.ParentFolderId, file.Basename })
+            .ToListAsync(ct);
+        var targetFileIdByKey = targetFiles
+            .GroupBy(file => GetImportedBaseFileKey(file.ParentFolderId, file.Basename), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderBy(file => file.Id).First().Id, StringComparer.Ordinal);
+
+        var targetFileIds = targetFileIdByKey.Values.Distinct().ToList();
+        var existingCaptionKeys = (await _db.VideoCaptions
+                .AsNoTracking()
+                .Where(caption => targetFileIds.Contains(caption.FileId))
+                .Select(caption => new { caption.FileId, caption.LanguageCode, caption.CaptionType })
+                .ToListAsync(ct))
+            .Select(caption => (caption.FileId, caption.LanguageCode, caption.CaptionType))
+            .ToHashSet();
+
+        var imported = 0;
+        foreach (var (targetKey, stashFileIds) in stashFileIdsByTargetKey)
+        {
+            if (!targetFileIdByKey.TryGetValue(targetKey, out var targetFileId))
+                continue;
+
+            var sourceCaptions = stashFileIds
+                .SelectMany(stashFileId => captionsByStashFileId.GetValueOrDefault(stashFileId, []))
+                .DistinctBy(caption => (caption.LanguageCode, caption.CaptionType));
+            foreach (var caption in sourceCaptions)
+            {
+                if (!existingCaptionKeys.Add((targetFileId, caption.LanguageCode, caption.CaptionType)))
+                    continue;
+
+                _db.VideoCaptions.Add(new VideoCaption
+                {
+                    FileId = targetFileId,
+                    LanguageCode = caption.LanguageCode,
+                    Filename = caption.Filename,
+                    CaptionType = caption.CaptionType,
+                });
+                imported++;
+
+                if (imported % 500 == 0)
+                {
+                    await _db.SaveChangesAsync(ct);
+                    _db.ChangeTracker.Clear();
+                }
+            }
+        }
+
+        if (imported % 500 != 0)
+        {
+            await _db.SaveChangesAsync(ct);
+            _db.ChangeTracker.Clear();
+        }
+
+        _logger.LogInformation(
+            "Imported {CaptionCount} video captions for {MatchedFileCount}/{SourceFileCount} Stash files",
+            imported,
+            targetFileIdByKey.Keys.Count(stashFileIdsByTargetKey.ContainsKey),
+            captionsByStashFileId.Count);
+        return imported;
     }
 
     private async Task<int> ImportSceneMarkerSegmentsAsync(

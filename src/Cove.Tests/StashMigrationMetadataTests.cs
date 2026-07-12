@@ -157,6 +157,68 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag) VALUES (1, 'Legacy 
         Assert.Null(performer.CareerEnd);
     }
 
+    [Fact]
+    public async Task ImportPerformersAsync_ImportsCurrentCareerDateColumns()
+    {
+        await using var context = CreateContext();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE performers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  disambiguation TEXT,
+  gender TEXT,
+  birthdate TEXT,
+  ethnicity TEXT,
+  country TEXT,
+  eye_color TEXT,
+  hair_color TEXT,
+  height INTEGER,
+  weight INTEGER,
+  measurements TEXT,
+  fake_tits TEXT,
+  penis_length REAL,
+  circumcised TEXT,
+  career_length TEXT,
+  career_start TEXT,
+  career_end TEXT,
+  death_date TEXT,
+  tattoos TEXT,
+  piercings TEXT,
+  favorite INTEGER NOT NULL,
+  rating INTEGER,
+  details TEXT,
+  ignore_auto_tag INTEGER NOT NULL,
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
+);
+INSERT INTO performers (id, name, career_length, career_start, career_end, favorite, ignore_auto_tag) VALUES
+  (1, 'Current Performer', '1999-2001', '2008-01-01', '2020-01-01', 0, 0),
+  (2, 'Partial Current Performer', '1995-2005', NULL, '2010-01-01', 0, 0);
+");
+
+        var service = CreateService(context);
+        await InvokePrivateAsync(
+            service,
+            "ImportPerformersAsync",
+            stash,
+            new Dictionary<string, string>(),
+            new Dictionary<int, int>(),
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        var performers = await context.Performers.ToDictionaryAsync(performer => performer.Name);
+        Assert.Equal(new DateOnly(2008, 1, 1), performers["Current Performer"].CareerStart);
+        Assert.Equal(new DateOnly(2020, 1, 1), performers["Current Performer"].CareerEnd);
+        Assert.Equal(new DateOnly(1995, 1, 1), performers["Partial Current Performer"].CareerStart);
+        Assert.Equal(new DateOnly(2010, 1, 1), performers["Partial Current Performer"].CareerEnd);
+    }
+
         [Fact]
         public async Task ImportPerformersAsync_ImportsMultiplePerformersWithUrls()
         {
@@ -726,6 +788,12 @@ CREATE TABLE video_files (
   interactive INTEGER NOT NULL,
   interactive_speed INTEGER
 );
+CREATE TABLE video_captions (
+  file_id INTEGER NOT NULL,
+  language_code TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  caption_type TEXT NOT NULL
+);
 CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint TEXT NOT NULL);
 INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at, last_played_at)
 VALUES (1, 'Imported Scene', 0, 15, 45, '2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z', '2024-03-01T00:00:00Z');
@@ -735,6 +803,9 @@ INSERT INTO files (id, basename, parent_folder_id, size, mod_time, created_at)
 VALUES (10, 'clip.mp4', 99, 2048, '2024-04-01T00:00:00Z', '2024-01-05T00:00:00Z');
 INSERT INTO video_files (file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate, interactive, interactive_speed)
 VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
+INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALUES
+  (10, 'en', 'clip.en.vtt', 'vtt'),
+  (10, 'es', 'clip.es.srt', 'srt');
 ");
 
         var service = CreateService(context);
@@ -753,8 +824,13 @@ VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
             1d,
             CancellationToken.None);
 
-        var scene = await context.Videos.Include(s => s.Files).SingleAsync();
+        var scene = await context.Videos.Include(s => s.Files).ThenInclude(file => file.Captions).SingleAsync();
         var file = Assert.Single(scene.Files);
+        Assert.Equal(
+            [("en", "clip.en.vtt", "vtt"), ("es", "clip.es.srt", "srt")],
+            file.Captions.OrderBy(caption => caption.LanguageCode)
+                .Select(caption => (caption.LanguageCode, caption.Filename, caption.CaptionType))
+                .ToArray());
         var affinity = await context.UserEntityAffinities.SingleAsync(item => item.HostType == AffinityHostType.Video && item.HostId == scene.Id);
         Assert.Equal(new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), affinity.LastConsumedAt);
         Assert.Equal(1, affinity.ViewCount);
@@ -764,6 +840,93 @@ VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
         Assert.Equal(new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), scene.UpdatedAt);
         Assert.Equal(new DateTime(2024, 1, 5, 0, 0, 0, DateTimeKind.Utc), file.CreatedAt);
         Assert.Equal(new DateTime(2024, 4, 1, 0, 0, 0, DateTimeKind.Utc), file.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task ImportScenesAsync_ImportsCaptionsForMatchingPersistedVideoFiles()
+    {
+        await using var context = CreateContext();
+        var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
+        var existingVideo = new Scene
+        {
+            Title = "Existing video",
+            Files =
+            [
+                new VideoFile
+                {
+                    Basename = "sample-captioned-video.mp4",
+                    ParentFolder = folder,
+                    Format = "mp4",
+                    VideoCodec = "H264",
+                    AudioCodec = "AAC",
+                },
+            ],
+        };
+        context.Videos.Add(existingVideo);
+        await context.SaveChangesAsync();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE scenes (
+  id INTEGER PRIMARY KEY, title TEXT, details TEXT, date TEXT, rating INTEGER, studio_id INTEGER,
+  organized INTEGER NOT NULL, code TEXT, director TEXT, resume_time REAL NOT NULL,
+  play_duration REAL NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE scenes_tags (scene_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+CREATE TABLE performers_scenes (scene_id INTEGER NOT NULL, performer_id INTEGER NOT NULL);
+CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
+CREATE TABLE scene_urls (scene_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE scenes_o_dates (scene_id INTEGER NOT NULL, o_date TEXT NOT NULL);
+CREATE TABLE scenes_view_dates (scene_id INTEGER NOT NULL, view_date TEXT NOT NULL);
+CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
+CREATE TABLE files (
+  id INTEGER PRIMARY KEY, basename TEXT NOT NULL, parent_folder_id INTEGER NOT NULL,
+  size INTEGER NOT NULL, mod_time TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE video_files (
+  file_id INTEGER PRIMARY KEY, duration REAL NOT NULL, video_codec TEXT NOT NULL,
+  format TEXT NOT NULL, audio_codec TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+  frame_rate REAL NOT NULL, bit_rate INTEGER NOT NULL, interactive INTEGER NOT NULL,
+  interactive_speed INTEGER
+);
+CREATE TABLE video_captions (
+  file_id INTEGER NOT NULL, language_code TEXT NOT NULL, filename TEXT NOT NULL,
+  caption_type TEXT NOT NULL
+);
+CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint TEXT NOT NULL);
+INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
+VALUES (1, 'Captioned Video', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+INSERT INTO scenes_files (scene_id, file_id, [primary]) VALUES (1, 10, 1);
+INSERT INTO files (id, basename, parent_folder_id, size, mod_time, created_at)
+VALUES (10, 'sample-captioned-video.mp4', 99, 2048, '2024-04-01T00:00:00Z', '2024-01-05T00:00:00Z');
+INSERT INTO video_files (file_id, duration, video_codec, format, audio_codec, width, height, frame_rate, bit_rate, interactive, interactive_speed)
+VALUES (10, 120, 'H264', 'mp4', 'AAC', 1920, 1080, 30, 2000000, 0, NULL);
+INSERT INTO video_captions (file_id, language_code, filename, caption_type)
+VALUES (10, '00', 'sample-captioned-video.srt', 'srt');
+");
+
+        var service = CreateService(context);
+        await InvokePrivateAsync(
+            service,
+            "ImportScenesAsync",
+            stash,
+            new Dictionary<string, string>(),
+            new Dictionary<int, int> { [99] = folder.Id },
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        var file = await context.Set<VideoFile>().Include(item => item.Captions).SingleAsync();
+        var caption = Assert.Single(file.Captions);
+        Assert.Equal("00", caption.LanguageCode);
+        Assert.Equal("sample-captioned-video.srt", caption.Filename);
+        Assert.Equal("srt", caption.CaptionType);
     }
 
         [Fact]
@@ -914,10 +1077,273 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
             1d,
             CancellationToken.None);
 
-                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap)>(result);
+                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap, Dictionary<int, int> GalleryIdMap)>(result);
                 Assert.Equal(1, galleryImport.Count);
         var gallery = await context.Galleries.SingleAsync();
         Assert.Equal("Summer Set", gallery.Title);
+    }
+
+    [Fact]
+    public async Task ImportGalleriesAsync_ImportsSelectedCoverImage()
+    {
+        await using var context = CreateContext();
+        var image = new Image { Title = "Selected Cover" };
+        var otherImage = new Image { Title = "Other Image" };
+        context.Images.AddRange(image, otherImage);
+        await context.SaveChangesAsync();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE galleries (
+  id INTEGER PRIMARY KEY,
+  folder_id INTEGER,
+  title TEXT,
+  date TEXT,
+  details TEXT,
+  studio_id INTEGER,
+  rating INTEGER,
+  organized INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  code TEXT,
+  photographer TEXT
+);
+CREATE TABLE galleries_images (gallery_id INTEGER NOT NULL, image_id INTEGER NOT NULL, cover INTEGER NOT NULL);
+CREATE TABLE files (
+  id INTEGER PRIMARY KEY,
+  basename TEXT NOT NULL,
+  parent_folder_id INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  mod_time TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+INSERT INTO galleries (id, title, organized, created_at, updated_at)
+VALUES (10, 'Imported Gallery', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO galleries_images (gallery_id, image_id, cover) VALUES (10, 20, 1), (10, 21, 0);
+");
+
+        var service = CreateService(context);
+        await InvokePrivateAsync(
+            service,
+            "ImportGalleriesAsync",
+            stash,
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int> { [20] = image.Id, [21] = otherImage.Id },
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        var gallery = await context.Galleries.Include(item => item.ImageGalleries).SingleAsync();
+        Assert.Equal(image.Id, gallery.CoverImageId);
+        Assert.Equal([image.Id, otherImage.Id], gallery.ImageGalleries.Select(link => link.ImageId).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task ImportAsync_ImportsRelationshipsThatRequireDeferredIdMaps()
+    {
+        await using var context = CreateContext();
+        var dbPath = await CreateSqliteDatabaseAsync(@"
+CREATE TABLE blobs (checksum TEXT NOT NULL, blob BLOB);
+CREATE TABLE folders (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+    parent_folder_id INTEGER,
+    zip_file_id INTEGER,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE studios (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id INTEGER,
+    details TEXT,
+    rating INTEGER,
+    favorite INTEGER NOT NULL,
+    image_blob TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    sort_name TEXT,
+    description TEXT,
+    favorite INTEGER NOT NULL,
+    image_blob TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE studios_tags (studio_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+CREATE TABLE performers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    disambiguation TEXT,
+    gender TEXT,
+    birthdate TEXT,
+    ethnicity TEXT,
+    country TEXT,
+    eye_color TEXT,
+    hair_color TEXT,
+    height INTEGER,
+    weight INTEGER,
+    measurements TEXT,
+    fake_tits TEXT,
+    penis_length REAL,
+    circumcised TEXT,
+    career_length TEXT,
+    death_date TEXT,
+    tattoos TEXT,
+    piercings TEXT,
+    favorite INTEGER NOT NULL,
+    rating INTEGER,
+    details TEXT,
+    image_blob TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    aliases TEXT,
+    duration INTEGER,
+    date TEXT,
+    rating INTEGER,
+    studio_id INTEGER,
+    director TEXT,
+    description TEXT,
+    front_image_blob TEXT,
+    back_image_blob TEXT
+);
+CREATE TABLE groups_tags (group_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+CREATE TABLE groups_relations (containing_id INTEGER NOT NULL, sub_id INTEGER NOT NULL, order_index INTEGER NOT NULL, description TEXT);
+CREATE TABLE scenes (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+    details TEXT,
+    date TEXT,
+    rating INTEGER,
+    studio_id INTEGER,
+    organized INTEGER NOT NULL,
+    code TEXT,
+    director TEXT,
+    resume_time REAL NOT NULL,
+    play_duration REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
+CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
+CREATE TABLE files (
+    id INTEGER PRIMARY KEY,
+    basename TEXT NOT NULL,
+    parent_folder_id INTEGER NOT NULL,
+    zip_file_id INTEGER,
+    size INTEGER NOT NULL,
+    mod_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE video_files (
+    file_id INTEGER PRIMARY KEY,
+    duration REAL NOT NULL,
+    video_codec TEXT NOT NULL,
+    format TEXT NOT NULL,
+    audio_codec TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    frame_rate REAL NOT NULL,
+    bit_rate INTEGER NOT NULL
+);
+CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint);
+CREATE TABLE galleries (
+    id INTEGER PRIMARY KEY,
+    folder_id INTEGER,
+    title TEXT,
+    date TEXT,
+    details TEXT,
+    studio_id INTEGER,
+    rating INTEGER,
+    organized INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    code TEXT,
+    photographer TEXT
+);
+CREATE TABLE scenes_galleries (scene_id INTEGER NOT NULL, gallery_id INTEGER NOT NULL);
+INSERT INTO studios (id, name, favorite, created_at, updated_at)
+VALUES (30, 'Imported Studio', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO tags (id, name, favorite, created_at, updated_at)
+VALUES (40, 'Imported Tag', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO studios_tags (studio_id, tag_id) VALUES
+    (30, 40),
+    (30, 40),
+    (999, 40),
+    (30, 999);
+INSERT INTO groups (id, name, front_image_blob) VALUES
+    (50, 'Containing Group', NULL),
+    (51, 'Sub Group', NULL),
+    (52, 'Containing Group', 'cover-only-group');
+INSERT INTO groups_tags (group_id, tag_id) VALUES
+    (50, 40),
+    (50, 40),
+    (999, 40),
+    (50, 999);
+INSERT INTO groups_relations (containing_id, sub_id, order_index, description) VALUES
+    (50, 51, 3, 'Imported relation'),
+    (52, 51, 7, 'Collapsed duplicate relation'),
+    (50, 52, 8, 'Collapsed self relation'),
+    (999, 51, 4, 'Missing containing group'),
+    (50, 999, 5, 'Missing subgroup');
+INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
+VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO groups_scenes (group_id, scene_id, scene_index) VALUES (50, 10, 1);
+INSERT INTO galleries (id, title, organized, created_at, updated_at)
+VALUES (20, 'Imported Gallery', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
+    (10, 20),
+    (10, 20),
+    (999, 20),
+    (10, 999);
+", "cove-scene-gallery-migration");
+
+        try
+        {
+            var service = CreateService(context);
+            var result = await service.ImportAsync(
+                dbPath,
+                new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false));
+
+            Assert.Equal(1, result.Videos);
+            Assert.Equal(1, result.Galleries);
+            var video = await context.Videos.SingleAsync();
+            var gallery = await context.Galleries.SingleAsync();
+            var relationship = await context.Set<VideoGallery>().SingleAsync();
+            Assert.Equal(video.Id, relationship.VideoId);
+            Assert.Equal(gallery.Id, relationship.GalleryId);
+            var studio = await context.Studios.SingleAsync();
+            var tag = await context.Tags.SingleAsync();
+            var studioTag = await context.Set<StudioTag>().SingleAsync();
+            Assert.Equal(studio.Id, studioTag.StudioId);
+            Assert.Equal(tag.Id, studioTag.TagId);
+            var group = await context.Groups.SingleAsync(item => item.Name == "Containing Group");
+            var groupTag = await context.Set<GroupTag>().SingleAsync();
+            Assert.Equal(group.Id, groupTag.GroupId);
+            Assert.Equal(tag.Id, groupTag.TagId);
+            var subGroup = await context.Groups.SingleAsync(item => item.Name == "Sub Group");
+            var groupRelation = await context.Set<GroupRelation>().SingleAsync();
+            Assert.Equal(group.Id, groupRelation.ContainingGroupId);
+            Assert.Equal(subGroup.Id, groupRelation.SubGroupId);
+            Assert.Equal(3, groupRelation.OrderIndex);
+            Assert.Equal("Imported relation", groupRelation.Description);
+        }
+        finally
+        {
+            TryDeleteFile(dbPath);
+        }
     }
 
     [Fact]
@@ -1292,7 +1718,7 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
                         1d,
                         CancellationToken.None));
 
-                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap)>(await InvokePrivateAsync(
+                var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap, Dictionary<int, int> GalleryIdMap)>(await InvokePrivateAsync(
                         service,
                         "ImportGalleriesAsync",
                         stash,

@@ -6,7 +6,7 @@ namespace Cove.Api.Services;
 
 public partial class StashMigrationService
 {
-    private async Task<(int Count, Dictionary<int, int> GalleryFileIdMap)> ImportGalleriesAsync(
+    private async Task<(int Count, Dictionary<int, int> GalleryFileIdMap, Dictionary<int, int> GalleryIdMap)> ImportGalleriesAsync(
         SqliteConnection conn,
         Dictionary<int, int> folderIdMap,
         Dictionary<int, int> studioIdMap,
@@ -21,7 +21,7 @@ public partial class StashMigrationService
         if (!await TableExistsAsync(conn, "galleries", ct))
         {
             _logger.LogInformation("No galleries table found, skipping");
-            return (0, new Dictionary<int, int>());
+            return (0, new Dictionary<int, int>(), new Dictionary<int, int>());
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -43,16 +43,21 @@ public partial class StashMigrationService
         }
 
         var galleryImages = new Dictionary<int, List<int>>();
+        var galleryCoverImages = new Dictionary<int, int>();
         if (await TableExistsAsync(conn, "galleries_images", ct))
         {
+            var hasCoverColumn = await ColumnExistsAsync(conn, "galleries_images", "cover", ct);
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT gallery_id, image_id FROM galleries_images";
+            cmd.CommandText = $"SELECT gallery_id, image_id, {(hasCoverColumn ? "cover" : "0")} AS cover FROM galleries_images";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
                 var gid = r.GetInt32(0);
                 if (!galleryImages.TryGetValue(gid, out var list)) galleryImages[gid] = list = [];
-                list.Add(r.GetInt32(1));
+                var imageId = r.GetInt32(1);
+                list.Add(imageId);
+                if (r.GetBoolean(2))
+                    galleryCoverImages[gid] = imageId;
             }
         }
 
@@ -136,6 +141,9 @@ public partial class StashMigrationService
                 Organized = row.Organized,
                 FolderId = row.FolderId.HasValue && folderIdMap.TryGetValue(row.FolderId.Value, out var fid) ? fid : null,
                 StudioId = row.StudioId.HasValue && studioIdMap.TryGetValue(row.StudioId.Value, out var sid) ? sid : null,
+                CoverImageId = galleryCoverImages.TryGetValue(stashId, out var coverImageId) && imageIdMap.TryGetValue(coverImageId, out var coveCoverImageId)
+                    ? coveCoverImageId
+                    : null,
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
                 Urls = galleryUrls.GetValueOrDefault(stashId, []).Select(u => new GalleryUrl { Url = u }).ToList(),
@@ -213,6 +221,56 @@ public partial class StashMigrationService
             RatingHostType.Gallery,
             ct);
         _logger.LogInformation("Imported {Count} galleries in {Elapsed}", count, stopwatch.Elapsed);
-        return (count, galleryFileIdMap);
+        return (count, galleryFileIdMap, galleryIdMap);
+    }
+
+    private async Task<int> ImportVideoGalleryRelationshipsAsync(
+        SqliteConnection conn,
+        IReadOnlyDictionary<int, int> sceneIdMap,
+        IReadOnlyDictionary<int, int> galleryIdMap,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "scenes_galleries", ct))
+        {
+            _logger.LogInformation("No scenes_galleries table found, skipping video-gallery relationships");
+            return 0;
+        }
+
+        const int RelationshipBatchSize = 5000;
+        var relationships = new List<VideoGallery>(RelationshipBatchSize);
+        var mappedRelationships = new HashSet<(int VideoId, int GalleryId)>();
+        var count = 0;
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT scene_id, gallery_id FROM scenes_galleries";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!sceneIdMap.TryGetValue(reader.GetInt32(0), out var videoId)
+                || !galleryIdMap.TryGetValue(reader.GetInt32(1), out var galleryId)
+                || !mappedRelationships.Add((videoId, galleryId)))
+            {
+                continue;
+            }
+
+            relationships.Add(new VideoGallery { VideoId = videoId, GalleryId = galleryId });
+            if (relationships.Count < RelationshipBatchSize)
+                continue;
+
+            _db.Set<VideoGallery>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+            relationships.Clear();
+            _db.ChangeTracker.Clear();
+        }
+
+        if (relationships.Count > 0)
+        {
+            _db.Set<VideoGallery>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+        }
+
+        _logger.LogInformation("Imported {Count} video-gallery relationships", count);
+        return count;
     }
 }
