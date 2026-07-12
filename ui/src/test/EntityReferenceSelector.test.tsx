@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
+import { EntityReferenceMultiSelector, EntityReferenceSelector } from "../components/EntityReferenceSelector";
 
 const mocks = vi.hoisted(() => ({ tagsCreate: vi.fn(), tagsFind: vi.fn() }));
 
@@ -89,9 +89,38 @@ describe("EntityReferenceMultiSelector", () => {
 
     expect(input).toHaveValue("mass");
     expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).not.toHaveAttribute("aria-controls");
     expect(input).not.toHaveAttribute("aria-activedescendant");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     expect(document.activeElement).toBe(input);
+  });
+
+  it("closes on Tab and an outside pointer interaction while preserving native editable keys", async () => {
+    const user = userEvent.setup();
+    mocks.tagsFind.mockResolvedValue({ items: [{ id: 1, name: "Massage" }] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    await user.type(input, "mass");
+    await screen.findByRole("option", { name: /Massage/i });
+
+    expect(fireEvent.keyDown(input, { key: "Home" })).toBe(true);
+    expect(fireEvent.keyDown(input, { key: "End" })).toBe(true);
+    await user.keyboard("{Tab}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(input).toHaveValue("mass");
+
+    await user.click(input);
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    await user.click(document.body);
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(input).toHaveValue("mass");
   });
 
   it("activates the create option from the keyboard", async () => {
@@ -228,5 +257,30 @@ describe("EntityReferenceMultiSelector", () => {
     resolveNextSearch({ items: [{ id: 2, name: "Makeup" }] });
     expect(await screen.findByRole("option", { name: /Makeup/i })).toBeInTheDocument();
     expect(input).not.toHaveAttribute("aria-activedescendant");
+  });
+});
+
+describe("EntityReferenceSelector", () => {
+  it("selects an active option from the keyboard and returns its metadata", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    mocks.tagsFind.mockResolvedValue({ items: [{ id: 7, name: "Massage" }] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceSelector entityType="tag" onChange={onChange} creatable={false} />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    await user.type(input, "mass");
+    const option = await screen.findByRole("option", { name: /Massage/i });
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(onChange).toHaveBeenCalledWith(7, expect.objectContaining({ id: 7, label: "Massage" }));
+    expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(option).not.toBeInTheDocument();
   });
 });

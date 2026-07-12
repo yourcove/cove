@@ -32,7 +32,7 @@ interface AutocompleteInputProps {
   role: "combobox";
   "aria-autocomplete": "list";
   "aria-expanded": boolean;
-  "aria-controls": string;
+  "aria-controls": string | undefined;
   "aria-activedescendant": string | undefined;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onFocus: (event: FocusEvent<HTMLInputElement>) => void;
@@ -140,7 +140,7 @@ export function useAutocomplete<T>({
     role: "combobox",
     "aria-autocomplete": "list",
     "aria-expanded": isOpen,
-    "aria-controls": listboxId,
+    "aria-controls": isOpen ? listboxId : undefined,
     "aria-activedescendant": activeKey == null ? undefined : getOptionId(activeKey),
     onChange: (event) => {
       const nextValue = event.target.value;
@@ -165,16 +165,6 @@ export function useAutocomplete<T>({
           if (selectableKeys.length === 0) return;
           event.preventDefault();
           moveActive(-1);
-          break;
-        case "Home":
-          if (!isOpen || selectableKeys.length === 0) return;
-          event.preventDefault();
-          setActiveKey(selectableKeys[0]);
-          break;
-        case "End":
-          if (!isOpen || selectableKeys.length === 0) return;
-          event.preventDefault();
-          setActiveKey(selectableKeys[selectableKeys.length - 1]);
           break;
         case "Enter": {
           if (!isOpen || activeKey == null) return;
