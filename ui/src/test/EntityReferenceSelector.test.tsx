@@ -181,6 +181,7 @@ describe("EntityReferenceMultiSelector", () => {
 
   it("keeps the dropdown results mounted while the next search is loading", async () => {
     const user = userEvent.setup();
+    const onChange = vi.fn();
     let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
     const nextSearch = new Promise<{ items: Array<{ id: number; name: string }> }>((resolve) => {
       resolveNextSearch = resolve;
@@ -192,7 +193,7 @@ describe("EntityReferenceMultiSelector", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={onChange} />
       </QueryClientProvider>,
     );
 
@@ -215,7 +216,12 @@ describe("EntityReferenceMultiSelector", () => {
     await user.type(input, "a");
     await waitFor(() => expect(mocks.tagsFind).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("option", { name: /Massage/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Massage/i })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
     expect(input).not.toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{ArrowDown}{Enter}");
+    await user.click(screen.getByRole("option", { name: /Massage/i }));
+    expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Create “ma”" })).not.toBeInTheDocument();
 

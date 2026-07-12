@@ -25,6 +25,7 @@ interface UseAutocompleteOptions<T> {
   onInputValueChange: (value: string) => void;
   onSelect: (value: T) => boolean | void;
   disabled?: boolean;
+  busy?: boolean;
 }
 
 interface AutocompleteInputProps {
@@ -44,6 +45,7 @@ export function useAutocomplete<T>({
   onInputValueChange,
   onSelect,
   disabled = false,
+  busy = false,
 }: UseAutocompleteOptions<T>) {
   const generatedId = useId();
   const listboxId = `autocomplete-${generatedId}`;
@@ -80,6 +82,12 @@ export function useAutocomplete<T>({
       close();
     }
   }, [close, onSelect]);
+
+  useEffect(() => {
+    if (disabled) {
+      close();
+    }
+  }, [close, disabled]);
 
   useEffect(() => {
     if (previousInputValue.current === inputValue) return;
@@ -192,6 +200,7 @@ export function useAutocomplete<T>({
   const listboxProps: HTMLAttributes<HTMLDivElement> = {
     id: listboxId,
     role: "listbox",
+    "aria-busy": busy || undefined,
   };
 
   const getOptionProps = <TElement extends HTMLElement>(item: AutocompleteItem<T>): HTMLAttributes<TElement> & { ref: RefCallback<TElement> } => ({
