@@ -3,12 +3,13 @@ import { galleries, images, videos, fileOps } from "../api/client";
 import type { FindFilter, Gallery, Image, ImageFilterCriteria, Video, VideoFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, formatFileSize, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { Film, FolderOpen, HardDrive, ImageIcon, Link as LinkIcon, Pencil, Plus, Trash2, Loader2, MoreVertical, RefreshCw, Star } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GalleryEditModal } from "./GalleryEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
+import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 import { InteractiveRating } from "../components/Rating";
 import { DetailListToolbar } from "../components/DetailListToolbar";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
@@ -58,15 +59,16 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     queryKey: ["gallery", id],
     queryFn: () => galleries.get(id),
   });
+  const queryGalleryImages = useCallback((nextFilter: FindFilter) => hasImageObjectFilter
+    ? images.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(imageObjectFilter as ImageFilterCriteria, "galleriesCriterion", id),
+      })
+    : images.find(nextFilter, { galleryId: id }), [hasImageObjectFilter, id, imageObjectFilter]);
   const { data: galleryImages, infinitePageSize: imageInfinitePageSize, infiniteQuery: imageInfiniteQuery, infiniteFilterKey: imageInfiniteFilterKey, fetchAllIds: fetchAllImageIds, loadMore: loadMoreImages } = useDetailListQuery<Image>({
     queryKey: ["gallery-images", id, imageObjectFilter],
     filter: imageFilter,
-    queryFn: (nextFilter) => hasImageObjectFilter
-      ? images.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(imageObjectFilter as ImageFilterCriteria, "galleriesCriterion", id),
-        })
-      : images.find(nextFilter, { galleryId: id }),
+    queryFn: queryGalleryImages,
     enabled: !!gallery,
   });
   const effectiveImageCount = galleryImages?.totalCount ?? gallery?.imageCount ?? 0;
@@ -80,6 +82,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   ]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxPageBounds, setLightboxPageBounds] = useState(() => ({ first: imageFilter.page ?? 1, last: imageFilter.page ?? 1 }));
   const [imageZoom, setImageZoom] = useState(0);
   const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
   const [showAddImages, setShowAddImages] = useState(false);
@@ -224,6 +227,20 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     [galleryImages, id],
   );
 
+  const openGalleryLightbox = useCallback((imageId: number) => {
+    const visibleImages = galleryImages?.items ?? [];
+    const page = imageFilter.page ?? 1;
+    setLightboxPageBounds({ first: page, last: page });
+    setLightboxIndex(Math.max(0, visibleImages.findIndex((image) => image.id === imageId)));
+    setLightboxOpen(true);
+  }, [galleryImages, imageFilter.page]);
+
+  const loadGalleryLightboxPage = useCallback(async (page: number, direction: "previous" | "next") => {
+    const response = await queryGalleryImages({ ...imageFilter, page });
+    setLightboxPageBounds((bounds) => extendLightboxPageBounds(bounds, page, direction));
+    return response.items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: img.title, interactionSource: "galleryDetailPage", interactionMeta: { galleryId: id } }));
+  }, [id, imageFilter, queryGalleryImages]);
+
   if (isLoading) {
     return (
       <div className="px-1 py-2">
@@ -255,7 +272,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
               fetchAllIds={fetchAllImageIds}
               loadMore={loadMoreImages}
             onShowAddImages={() => setShowAddImages(true)}
-            onLightbox={(idx) => { setLightboxIndex(idx); setLightboxOpen(true); }}
+            onLightbox={openGalleryLightbox}
             imageZoom={imageZoom}
             setImageZoom={setImageZoom}
             canWriteGallery={canWriteGallery}
@@ -427,6 +444,11 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         open={lightboxOpen}
         onClose={() => setLightboxOpen(false)}
         canEngage={canEngageImages}
+        hasPrevious={!imageInfinitePageSize && lightboxPageBounds.first > 1}
+        hasNext={!imageInfinitePageSize && lightboxPageBounds.last * (imageFilter.perPage ?? 60) < (galleryImages?.totalCount ?? 0)}
+        loadPrevious={() => loadGalleryLightboxPage(lightboxPageBounds.first - 1, "previous")}
+        loadNext={() => loadGalleryLightboxPage(lightboxPageBounds.last + 1, "next")}
+        wrap={imageInfinitePageSize}
       />
     </div>
   );
@@ -513,7 +535,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
   fetchAllIds: () => Promise<Array<Image["id"]>>;
   loadMore: () => void;
   onShowAddImages: () => void;
-  onLightbox: (idx: number) => void;
+  onLightbox: (imageId: number) => void;
   imageZoom: number;
   setImageZoom: (z: number) => void;
   canWriteGallery: boolean;
@@ -572,7 +594,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
           <Plus className="w-3 h-3" /> Add Images
         </button>
       </div> : null}
-      <RelatedEntityListView entityType="images" items={items} displayMode={displayMode} zoomLevel={imageZoom} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} onImagePreview={(_image, index) => onLightbox(index)} onImageDetails={(image) => onNavigate({ page: "image", id: image.id })} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+      <RelatedEntityListView entityType="images" items={items} displayMode={displayMode} zoomLevel={imageZoom} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} onImagePreview={(image) => onLightbox(image.id)} onImageDetails={(image) => onNavigate({ page: "image", id: image.id })} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
       {quickViewId !== null && (
         <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}

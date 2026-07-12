@@ -40,6 +40,11 @@ export interface LightboxProps {
   slideshowDelay?: number;
   autoPlay?: boolean;
   canEngage?: boolean;
+  loadPrevious?: () => Promise<LightboxImage[]>;
+  loadNext?: () => Promise<LightboxImage[]>;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  wrap?: boolean;
 }
 
 export function Lightbox({
@@ -50,7 +55,13 @@ export function Lightbox({
   slideshowDelay = 5000,
   autoPlay = false,
   canEngage = false,
+  loadPrevious,
+  loadNext,
+  hasPrevious = false,
+  hasNext = false,
+  wrap = true,
 }: LightboxProps) {
+  const [queuedImages, setQueuedImages] = useState(images);
   const [index, setIndex] = useState(initialIndex);
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
@@ -59,6 +70,7 @@ export function Lightbox({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [boundaryLoading, setBoundaryLoading] = useState(false);
 
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
@@ -71,8 +83,8 @@ export function Lightbox({
   const trackedOpen = useRef(false);
   const lastTrackedIndex = useRef<number | null>(null);
 
-  const count = images.length;
-  const current = images[index];
+  const count = queuedImages.length;
+  const current = queuedImages[index];
   const queryClient = useQueryClient();
   const { engagement, rating, setRating, ratingPending } = useEntityEngagement("image", current?.id ?? 0, { enabled: open && Boolean(current) });
   const likeMutation = useMutation({
@@ -110,6 +122,7 @@ export function Lightbox({
   // Sync index when initialIndex or open changes
   useEffect(() => {
     if (open) {
+      setQueuedImages(images);
       setIndex(initialIndex);
       setZoom(1);
       setPan({ x: 0, y: 0 });
@@ -227,8 +240,48 @@ export function Lightbox({
     [count, resetView],
   );
 
-  const goPrev = useCallback(() => goTo(index - 1), [goTo, index]);
-  const goNext = useCallback(() => goTo(index + 1), [goTo, index]);
+  const goPrev = useCallback(async () => {
+    if (index > 0 || !hasPrevious || !loadPrevious) {
+      if (index === 0 && !wrap) return;
+      goTo(index - 1);
+      return;
+    }
+    if (boundaryLoading) return;
+    setBoundaryLoading(true);
+    try {
+      const loaded = await loadPrevious();
+      if (loaded.length === 0) return;
+      setQueuedImages((currentImages) => [...loaded, ...currentImages]);
+      setIndex(loaded.length - 1);
+      setLoading(true);
+      resetView();
+    } catch {
+      // Keep the current image visible when an adjacent page cannot be loaded.
+    } finally {
+      setBoundaryLoading(false);
+    }
+  }, [boundaryLoading, goTo, hasPrevious, index, loadPrevious, resetView, wrap]);
+  const goNext = useCallback(async () => {
+    if (index < count - 1 || !hasNext || !loadNext) {
+      if (index === count - 1 && !wrap) return;
+      goTo(index + 1);
+      return;
+    }
+    if (boundaryLoading) return;
+    setBoundaryLoading(true);
+    try {
+      const loaded = await loadNext();
+      if (loaded.length === 0) return;
+      setQueuedImages((currentImages) => [...currentImages, ...loaded]);
+      setIndex(index + 1);
+      setLoading(true);
+      resetView();
+    } catch {
+      // Keep the current image visible when an adjacent page cannot be loaded.
+    } finally {
+      setBoundaryLoading(false);
+    }
+  }, [boundaryLoading, count, goTo, hasNext, index, loadNext, resetView, wrap]);
 
   const toggleSlideshow = useCallback(() => setPlaying((p) => !p), []);
 
@@ -388,11 +441,11 @@ export function Lightbox({
     if (!open || count <= 1) return;
     const preload = (i: number) => {
       const img = new Image();
-      img.src = images[((i % count) + count) % count].src;
+      img.src = queuedImages[((i % count) + count) % count]?.src ?? "";
     };
     preload(index + 1);
     preload(index - 1);
-  }, [open, index, images, count]);
+  }, [open, index, queuedImages, count]);
 
   if (!open) return <></>;
 
@@ -483,9 +536,10 @@ export function Lightbox({
       </div>
 
       {/* Previous button */}
-      {count > 1 && (
+      {(count > 1 || hasPrevious) && (
         <button
           onClick={goPrev}
+          disabled={boundaryLoading || (!wrap && index === 0 && !hasPrevious)}
           className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-2 text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors"
           aria-label="Previous image"
         >
@@ -494,9 +548,10 @@ export function Lightbox({
       )}
 
       {/* Next button */}
-      {count > 1 && (
+      {(count > 1 || hasNext) && (
         <button
           onClick={goNext}
+          disabled={boundaryLoading || (!wrap && index === count - 1 && !hasNext)}
           className="absolute right-4 top-1/2 -translate-y-1/2 z-10 p-2 text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors"
           aria-label="Next image"
         >

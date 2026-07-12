@@ -13,6 +13,7 @@ import { IMAGE_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog, IMAGE_BULK_FIELDS } from "../components/BulkEditDialog";
 import { ImageTile } from "../components/EntityCards";
 import type { LightboxImage } from "../components/Lightbox";
+import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
@@ -74,6 +75,7 @@ export function ImagesPage({ onNavigate }: Props) {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxAutoPlay, setLightboxAutoPlay] = useState(false);
   const [lightboxScopeIds, setLightboxScopeIds] = useState<Set<number> | null>(null);
+  const [lightboxPageBounds, setLightboxPageBounds] = useState(() => ({ first: filter.page ?? 1, last: filter.page ?? 1 }));
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const lastPagedFilterRef = useRef<Pick<FindFilter, "page" | "perPage">>({ page: defaultState.filter.page ?? 1, perPage: defaultState.filter.perPage });
@@ -156,22 +158,23 @@ export function ImagesPage({ onNavigate }: Props) {
     }
   }, [defaultState.filter.perPage, filter, setDisplayMode, setFilter]);
 
+  const queryImagesPage = useCallback((nextFilter: FindFilter) => {
+    if (visualSearchActive) {
+      return visualSimilarity.searchImages({
+        findFilter: nextFilter,
+        objectFilter: hasObjectFilter ? objectFilter as ImageFilterCriteria : undefined,
+      });
+    }
+    return hasObjectFilter
+      ? images.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as ImageFilterCriteria })
+      : images.find(nextFilter);
+  }, [hasObjectFilter, objectFilter, visualSearchActive, visualSimilarity]);
+
   const listData = useInfiniteListData<Image>({
     queryKey: ["images", objectFilter, searchMode],
     filter,
     chunkSize: infiniteChunkSize,
-    queryPage: (nextFilter) => {
-      if (visualSearchActive) {
-        return visualSimilarity.searchImages({
-          findFilter: nextFilter,
-          objectFilter: hasObjectFilter ? objectFilter as ImageFilterCriteria : undefined,
-        });
-      }
-
-      return hasObjectFilter
-        ? images.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as ImageFilterCriteria })
-        : images.find(nextFilter);
-    },
+    queryPage: queryImagesPage,
   });
 
   const items = listData.items;
@@ -210,6 +213,21 @@ export function ImagesPage({ onNavigate }: Props) {
     setLightboxAutoPlay(false);
     setLightboxScopeIds(null);
   }, []);
+
+  const openListLightbox = useCallback((imageId: number) => {
+    setLightboxScopeIds(null);
+    const page = filter.page ?? 1;
+    setLightboxPageBounds({ first: page, last: page });
+    setLightboxAutoPlay(false);
+    setLightboxIndex(Math.max(0, items.findIndex((item) => item.id === imageId)));
+    setLightboxOpen(true);
+  }, [filter.page, items]);
+
+  const loadLightboxPage = useCallback(async (page: number, direction: "previous" | "next") => {
+    const response = await queryImagesPage({ ...filter, page });
+    setLightboxPageBounds((bounds) => extendLightboxPageBounds(bounds, page, direction));
+    return response.items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: getImageDisplayTitle(img), interactionSource: "imagesPage", interactionMeta: { pageKey: "images" } }));
+  }, [filter, queryImagesPage]);
 
   const playSelectedImages = useCallback(() => {
     if (selectedVisibleImages.length === 0) {
@@ -397,7 +415,7 @@ export function ImagesPage({ onNavigate }: Props) {
           hasNextPage={listData.infiniteQuery.hasNextPage}
           isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
           loadMore={listData.loadMore}
-          renderItem={(img, idx) => (
+          renderItem={(img) => (
             <ImageTile
               image={img}
               engagement={engagementById.get(img.id)}
@@ -407,10 +425,7 @@ export function ImagesPage({ onNavigate }: Props) {
               }}
               onPreview={(toggleOptions) => {
                 if (selecting) { toggle(img.id, toggleOptions); return; }
-                setLightboxScopeIds(null);
-                setLightboxAutoPlay(false);
-                setLightboxIndex(idx);
-                setLightboxOpen(true);
+                openListLightbox(img.id);
               }}
               onDetails={() => {
                 if (selecting) { toggle(img.id); return; }
@@ -465,6 +480,11 @@ export function ImagesPage({ onNavigate }: Props) {
           slideshowDelay={config?.ui.slideshowDelay}
           autoPlay={lightboxAutoPlay}
           canEngage={canEngageImage}
+          hasPrevious={!lightboxScopeIds && !infinitePageSize && lightboxPageBounds.first > 1}
+          hasNext={!lightboxScopeIds && !infinitePageSize && lightboxPageBounds.last * (filter.perPage ?? 40) < totalCount}
+          loadPrevious={() => loadLightboxPage(lightboxPageBounds.first - 1, "previous")}
+          loadNext={() => loadLightboxPage(lightboxPageBounds.last + 1, "next")}
+          wrap={lightboxScopeIds !== null || infinitePageSize}
         />
       ) : null}
       {quickViewId !== null ? (
