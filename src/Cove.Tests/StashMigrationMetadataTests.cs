@@ -921,6 +921,66 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
     }
 
     [Fact]
+    public async Task ImportGalleriesAsync_ImportsSelectedCoverImage()
+    {
+        await using var context = CreateContext();
+        var image = new Image { Title = "Selected Cover" };
+        var otherImage = new Image { Title = "Other Image" };
+        context.Images.AddRange(image, otherImage);
+        await context.SaveChangesAsync();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, @"
+CREATE TABLE galleries (
+  id INTEGER PRIMARY KEY,
+  folder_id INTEGER,
+  title TEXT,
+  date TEXT,
+  details TEXT,
+  studio_id INTEGER,
+  rating INTEGER,
+  organized INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  code TEXT,
+  photographer TEXT
+);
+CREATE TABLE galleries_images (gallery_id INTEGER NOT NULL, image_id INTEGER NOT NULL, cover INTEGER NOT NULL);
+CREATE TABLE files (
+  id INTEGER PRIMARY KEY,
+  basename TEXT NOT NULL,
+  parent_folder_id INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  mod_time TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+INSERT INTO galleries (id, title, organized, created_at, updated_at)
+VALUES (10, 'Imported Gallery', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO galleries_images (gallery_id, image_id, cover) VALUES (10, 20, 1), (10, 21, 0);
+");
+
+        var service = CreateService(context);
+        await InvokePrivateAsync(
+            service,
+            "ImportGalleriesAsync",
+            stash,
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>(),
+            new Dictionary<int, int> { [20] = image.Id, [21] = otherImage.Id },
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        var gallery = await context.Galleries.Include(item => item.ImageGalleries).SingleAsync();
+        Assert.Equal(image.Id, gallery.CoverImageId);
+        Assert.Equal([image.Id, otherImage.Id], gallery.ImageGalleries.Select(link => link.ImageId).Order().ToArray());
+    }
+
+    [Fact]
     public async Task ImportAsync_ImportsSceneGalleryRelationships()
     {
         await using var context = CreateContext();

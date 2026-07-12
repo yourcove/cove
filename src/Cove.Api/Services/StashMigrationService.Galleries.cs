@@ -43,16 +43,21 @@ public partial class StashMigrationService
         }
 
         var galleryImages = new Dictionary<int, List<int>>();
+        var galleryCoverImages = new Dictionary<int, int>();
         if (await TableExistsAsync(conn, "galleries_images", ct))
         {
+            var hasCoverColumn = await ColumnExistsAsync(conn, "galleries_images", "cover", ct);
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT gallery_id, image_id FROM galleries_images";
+            cmd.CommandText = $"SELECT gallery_id, image_id, {(hasCoverColumn ? "cover" : "0")} AS cover FROM galleries_images";
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
                 var gid = r.GetInt32(0);
                 if (!galleryImages.TryGetValue(gid, out var list)) galleryImages[gid] = list = [];
-                list.Add(r.GetInt32(1));
+                var imageId = r.GetInt32(1);
+                list.Add(imageId);
+                if (r.GetBoolean(2))
+                    galleryCoverImages[gid] = imageId;
             }
         }
 
@@ -136,6 +141,9 @@ public partial class StashMigrationService
                 Organized = row.Organized,
                 FolderId = row.FolderId.HasValue && folderIdMap.TryGetValue(row.FolderId.Value, out var fid) ? fid : null,
                 StudioId = row.StudioId.HasValue && studioIdMap.TryGetValue(row.StudioId.Value, out var sid) ? sid : null,
+                CoverImageId = galleryCoverImages.TryGetValue(stashId, out var coverImageId) && imageIdMap.TryGetValue(coverImageId, out var coveCoverImageId)
+                    ? coveCoverImageId
+                    : null,
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
                 Urls = galleryUrls.GetValueOrDefault(stashId, []).Select(u => new GalleryUrl { Url = u }).ToList(),
