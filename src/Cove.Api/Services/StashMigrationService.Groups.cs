@@ -104,6 +104,56 @@ public partial class StashMigrationService
         return idMap;
     }
 
+    private async Task<int> ImportGroupTagRelationshipsAsync(
+        SqliteConnection conn,
+        IReadOnlyDictionary<int, int> groupIdMap,
+        IReadOnlyDictionary<int, int> tagIdMap,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "groups_tags", ct))
+        {
+            _logger.LogInformation("No groups_tags table found, skipping group-tag relationships");
+            return 0;
+        }
+
+        const int RelationshipBatchSize = 5000;
+        var relationships = new List<GroupTag>(RelationshipBatchSize);
+        var mappedRelationships = new HashSet<(int GroupId, int TagId)>();
+        var count = 0;
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT group_id, tag_id FROM groups_tags";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!groupIdMap.TryGetValue(reader.GetInt32(0), out var groupId)
+                || !tagIdMap.TryGetValue(reader.GetInt32(1), out var tagId)
+                || !mappedRelationships.Add((groupId, tagId)))
+            {
+                continue;
+            }
+
+            relationships.Add(new GroupTag { GroupId = groupId, TagId = tagId });
+            if (relationships.Count < RelationshipBatchSize)
+                continue;
+
+            _db.Set<GroupTag>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+            relationships.Clear();
+            _db.ChangeTracker.Clear();
+        }
+
+        if (relationships.Count > 0)
+        {
+            _db.Set<GroupTag>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+        }
+
+        _logger.LogInformation("Imported {Count} group-tag relationships", count);
+        return count;
+    }
+
     private sealed record StashGroupImportUnit(
         IReadOnlyList<int> StashIds,
         string Name,

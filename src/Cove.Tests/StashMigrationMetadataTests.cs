@@ -1116,6 +1116,7 @@ CREATE TABLE groups (
     director TEXT,
     description TEXT
 );
+CREATE TABLE groups_tags (group_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
 CREATE TABLE scenes (
     id INTEGER PRIMARY KEY,
     title TEXT,
@@ -1178,6 +1179,12 @@ INSERT INTO studios_tags (studio_id, tag_id) VALUES
     (30, 40),
     (999, 40),
     (30, 999);
+INSERT INTO groups (id, name) VALUES (50, 'Imported Group');
+INSERT INTO groups_tags (group_id, tag_id) VALUES
+    (50, 40),
+    (50, 40),
+    (999, 40),
+    (50, 999);
 INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
 VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
 INSERT INTO galleries (id, title, organized, created_at, updated_at)
@@ -1208,6 +1215,10 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             var studioTag = await context.Set<StudioTag>().SingleAsync();
             Assert.Equal(studio.Id, studioTag.StudioId);
             Assert.Equal(tag.Id, studioTag.TagId);
+            var group = await context.Groups.SingleAsync();
+            var groupTag = await context.Set<GroupTag>().SingleAsync();
+            Assert.Equal(group.Id, groupTag.GroupId);
+            Assert.Equal(tag.Id, groupTag.TagId);
         }
         finally
         {
