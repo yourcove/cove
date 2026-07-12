@@ -154,6 +154,64 @@ public partial class StashMigrationService
         return count;
     }
 
+    private async Task<int> ImportGroupRelationsAsync(
+        SqliteConnection conn,
+        IReadOnlyDictionary<int, int> groupIdMap,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "groups_relations", ct))
+        {
+            _logger.LogInformation("No groups_relations table found, skipping group relations");
+            return 0;
+        }
+
+        const int RelationshipBatchSize = 5000;
+        var relationships = new List<GroupRelation>(RelationshipBatchSize);
+        var mappedRelationships = new HashSet<(int ContainingGroupId, int SubGroupId)>();
+        var count = 0;
+        await using var cmd = conn.CreateCommand();
+        // Distinct Stash groups can collapse to one Cove group. Process source IDs deterministically so
+        // the lowest ordered source pair supplies order/description when multiple pairs map to one link.
+        cmd.CommandText = "SELECT containing_id, sub_id, order_index, description FROM groups_relations ORDER BY containing_id, sub_id";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!groupIdMap.TryGetValue(reader.GetInt32(0), out var containingGroupId)
+                || !groupIdMap.TryGetValue(reader.GetInt32(1), out var subGroupId)
+                || containingGroupId == subGroupId
+                || !mappedRelationships.Add((containingGroupId, subGroupId)))
+            {
+                continue;
+            }
+
+            relationships.Add(new GroupRelation
+            {
+                ContainingGroupId = containingGroupId,
+                SubGroupId = subGroupId,
+                OrderIndex = reader.GetInt32(2),
+                Description = ReadStringNull(reader, 3),
+            });
+            if (relationships.Count < RelationshipBatchSize)
+                continue;
+
+            _db.Set<GroupRelation>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+            relationships.Clear();
+            _db.ChangeTracker.Clear();
+        }
+
+        if (relationships.Count > 0)
+        {
+            _db.Set<GroupRelation>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+        }
+
+        _logger.LogInformation("Imported {Count} group relations", count);
+        return count;
+    }
+
     private sealed record StashGroupImportUnit(
         IReadOnlyList<int> StashIds,
         string Name,

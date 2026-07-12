@@ -474,6 +474,12 @@ public partial class StashMigrationService
                 () => ImportGroupTagRelationshipsAsync(conn, groupIdMap, tagIdMap, ct));
             _db.ChangeTracker.Clear();
 
+            await RunBulkInsertPhaseAsync(
+                "group relations",
+                sw,
+                () => ImportGroupRelationsAsync(conn, groupIdMap, ct));
+            _db.ChangeTracker.Clear();
+
             var (sceneCount, sceneIdMap, sceneGeneratedMap) = await RunBulkInsertPhaseAsync(
                 "scenes",
                 sw,

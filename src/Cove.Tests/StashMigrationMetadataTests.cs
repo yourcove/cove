@@ -1114,9 +1114,12 @@ CREATE TABLE groups (
     rating INTEGER,
     studio_id INTEGER,
     director TEXT,
-    description TEXT
+    description TEXT,
+    front_image_blob TEXT,
+    back_image_blob TEXT
 );
 CREATE TABLE groups_tags (group_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+CREATE TABLE groups_relations (containing_id INTEGER NOT NULL, sub_id INTEGER NOT NULL, order_index INTEGER NOT NULL, description TEXT);
 CREATE TABLE scenes (
     id INTEGER PRIMARY KEY,
     title TEXT,
@@ -1179,14 +1182,24 @@ INSERT INTO studios_tags (studio_id, tag_id) VALUES
     (30, 40),
     (999, 40),
     (30, 999);
-INSERT INTO groups (id, name) VALUES (50, 'Imported Group');
+INSERT INTO groups (id, name, front_image_blob) VALUES
+    (50, 'Containing Group', NULL),
+    (51, 'Sub Group', NULL),
+    (52, 'Containing Group', 'cover-only-group');
 INSERT INTO groups_tags (group_id, tag_id) VALUES
     (50, 40),
     (50, 40),
     (999, 40),
     (50, 999);
+INSERT INTO groups_relations (containing_id, sub_id, order_index, description) VALUES
+    (50, 51, 3, 'Imported relation'),
+    (52, 51, 7, 'Collapsed duplicate relation'),
+    (50, 52, 8, 'Collapsed self relation'),
+    (999, 51, 4, 'Missing containing group'),
+    (50, 999, 5, 'Missing subgroup');
 INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
 VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO groups_scenes (group_id, scene_id, scene_index) VALUES (50, 10, 1);
 INSERT INTO galleries (id, title, organized, created_at, updated_at)
 VALUES (20, 'Imported Gallery', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
 INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
@@ -1215,10 +1228,16 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             var studioTag = await context.Set<StudioTag>().SingleAsync();
             Assert.Equal(studio.Id, studioTag.StudioId);
             Assert.Equal(tag.Id, studioTag.TagId);
-            var group = await context.Groups.SingleAsync();
+            var group = await context.Groups.SingleAsync(item => item.Name == "Containing Group");
             var groupTag = await context.Set<GroupTag>().SingleAsync();
             Assert.Equal(group.Id, groupTag.GroupId);
             Assert.Equal(tag.Id, groupTag.TagId);
+            var subGroup = await context.Groups.SingleAsync(item => item.Name == "Sub Group");
+            var groupRelation = await context.Set<GroupRelation>().SingleAsync();
+            Assert.Equal(group.Id, groupRelation.ContainingGroupId);
+            Assert.Equal(subGroup.Id, groupRelation.SubGroupId);
+            Assert.Equal(3, groupRelation.OrderIndex);
+            Assert.Equal("Imported relation", groupRelation.Description);
         }
         finally
         {
