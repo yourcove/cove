@@ -1222,11 +1222,11 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("HostType", "HostId");
 
-                    b.HasIndex("HostType", "HostId", "Modality", "SectionIndex");
-
                     b.HasIndex("Kind", "Dim");
 
                     b.HasIndex("KindFamily", "Modality");
+
+                    b.HasIndex("HostType", "HostId", "Modality", "SectionIndex");
 
                     b.ToTable("embeddings", (string)null);
                 });
@@ -1585,7 +1585,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("Type", "Value");
 
-                    b.ToTable("file_fingerprints");
+                    b.ToTable("file_fingerprints", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Folder", b =>
@@ -1827,7 +1827,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("GalleryId");
 
-                    b.ToTable("gallery_urls");
+                    b.ToTable("gallery_urls", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Group", b =>
@@ -2064,7 +2064,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("GroupId");
 
-                    b.ToTable("group_urls");
+                    b.ToTable("group_urls", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Image", b =>
@@ -2297,7 +2297,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("ImageId");
 
-                    b.ToTable("image_urls");
+                    b.ToTable("image_urls", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Interaction", b =>
@@ -2492,7 +2492,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("PerformerId");
 
-                    b.ToTable("performer_aliases");
+                    b.ToTable("performer_aliases", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PerformerRemoteId", b =>
@@ -2555,7 +2555,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("PerformerId");
 
-                    b.ToTable("performer_urls");
+                    b.ToTable("performer_urls", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PlaybackInterval", b =>
@@ -2639,7 +2639,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("UserId", "Surface", "RecordedAt");
 
-                    b.ToTable("playback_intervals");
+                    b.ToTable("playback_intervals", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.PlaybackSession", b =>
@@ -2769,7 +2769,7 @@ namespace Cove.Data.Migrations
                     b.HasIndex("UserId", "HostType", "HostId", "UserSessionId")
                         .IsUnique();
 
-                    b.ToTable("playback_sessions");
+                    b.ToTable("playback_sessions", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Rating", b =>
@@ -3242,7 +3242,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("StudioId");
 
-                    b.ToTable("studio_aliases");
+                    b.ToTable("studio_aliases", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.StudioRemoteId", b =>
@@ -3305,7 +3305,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("StudioId");
 
-                    b.ToTable("studio_urls");
+                    b.ToTable("studio_urls", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Tag", b =>
@@ -3380,6 +3380,11 @@ namespace Cove.Data.Migrations
                     b.Property<string>("SegmentColorOverride")
                         .HasColumnType("text");
 
+                    b.Property<int>("SegmentCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int?>("SegmentLaneOverride")
                         .HasColumnType("integer");
 
@@ -3405,11 +3410,6 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<int>("SegmentCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.HasKey("Id");
 
                     b.HasIndex("Favorite");
@@ -3431,11 +3431,11 @@ namespace Cove.Data.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "gin");
 
+                    b.HasIndex("SegmentCount");
+
                     b.HasIndex("StudioCount");
 
                     b.HasIndex("TagGroupId");
-
-                    b.HasIndex("SegmentCount");
 
                     b.HasIndex("VideoCount");
 
@@ -3461,7 +3461,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("TagId");
 
-                    b.ToTable("tag_aliases");
+                    b.ToTable("tag_aliases", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.TagApplication", b =>
@@ -3861,6 +3861,16 @@ namespace Cove.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
+                    b.Property<double>("MaxDwellSec")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double precision")
+                        .HasDefaultValue(0.0);
+
+                    b.Property<double>("MaxDwellStartSec")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double precision")
+                        .HasDefaultValue(0.0);
+
                     b.Property<int>("NavigateCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -3902,16 +3912,6 @@ namespace Cove.Data.Migrations
                         .HasDefaultValue(0);
 
                     b.Property<double>("TotalConsumedSec")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("double precision")
-                        .HasDefaultValue(0.0);
-
-                    b.Property<double>("MaxDwellSec")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("double precision")
-                        .HasDefaultValue(0.0);
-
-                    b.Property<double>("MaxDwellStartSec")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("double precision")
                         .HasDefaultValue(0.0);
@@ -3980,7 +3980,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("UserId", "LastSeenAt");
 
-                    b.ToTable("user_sessions");
+                    b.ToTable("user_sessions", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Video", b =>
@@ -4260,7 +4260,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("VideoId");
 
-                    b.ToTable("video_play_history");
+                    b.ToTable("video_play_history", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.VideoRemoteId", b =>
@@ -4323,7 +4323,7 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("VideoId");
 
-                    b.ToTable("video_urls");
+                    b.ToTable("video_urls", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.AudioFile", b =>
@@ -4390,9 +4390,9 @@ namespace Cove.Data.Migrations
                     b.Property<int>("Width")
                         .HasColumnType("integer");
 
-                    b.HasIndex("ImageId", "Path");
-
                     b.HasIndex("ImageId", "Basename");
+
+                    b.HasIndex("ImageId", "Path");
 
                     b.ToTable("files", t =>
                         {

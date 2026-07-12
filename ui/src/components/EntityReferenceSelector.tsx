@@ -276,6 +276,7 @@ export function EntityReferenceMultiSelector({
   reportableIds,
   onReportIncorrect,
   onAdjustThreshold,
+  seedOptions,
 }: {
   entityType: EntityReferenceType;
   values: number[];
@@ -287,6 +288,9 @@ export function EntityReferenceMultiSelector({
   resultsClassName?: string;
   resultsMaxHeight?: number;
   containerClassName?: string;
+  // Known id→label options for already-selected values (e.g. from the parent entity's payload),
+  // so selected chips render instantly without a per-id fetch each. See useEntityReferenceOptions.
+  seedOptions?: EntityReferenceOption[];
   excludeIds?: Iterable<number>;
   lockedIds?: Iterable<number>;
   selectedProvenanceById?: Record<number, TagProvenance[] | undefined>;
@@ -324,7 +328,15 @@ export function EntityReferenceMultiSelector({
     () => cachedSearchOptions ?? rankSearchOptions(searchResults ?? [], trimmedSearch).slice(0, 25),
     [cachedSearchOptions, searchResults, trimmedSearch],
   );
-  const selectedOptions = useEntityReferenceOptions(entityType, values, searchOptions);
+  // Resolve chip labels from options we already have in memory before falling back to per-id fetches:
+  // caller-provided seeds (parent entity payload), the warm "all" list, then the current search results.
+  // Without this, each selected chip fires its own authz-gated GET-by-id, which both shows "Loading…"
+  // for seconds and saturates the browser connection pool so the search request queues behind it.
+  const chipSeedOptions = useMemo(
+    () => [...(seedOptions ?? []), ...(cachedOptions ?? []), ...searchOptions],
+    [seedOptions, cachedOptions, searchOptions],
+  );
+  const selectedOptions = useEntityReferenceOptions(entityType, values, chipSeedOptions);
   const excluded = useMemo(() => new Set(excludeIds ?? []), [excludeIds]);
   const locked = useMemo(() => new Set(lockedIds ?? []), [lockedIds]);
   const reportable = useMemo(() => new Set(reportableIds ?? []), [reportableIds]);
@@ -532,7 +544,9 @@ async function searchEntityReferences(entityType: EntityReferenceType, searchTex
   const filter = { q: query, perPage: 100, sort: labels.sort, direction: "asc" as const };
 
   switch (entityType) {
-    case "tag": return (await tags.find(filter)).items.map(toTagOption);
+    // includeCounts=false skips the per-tag usage-count aggregates server-side; the dropdown only
+    // shows names, and the counts are what made tag autocomplete take seconds on large libraries.
+    case "tag": return (await tags.find(filter, { includeCounts: false })).items.map(toTagOption);
     case "performer": return (await performers.find(filter)).items.map(toPerformerOption);
     case "face": return (await faces.list(filter)).items.map(toFaceOption);
     case "studio": return (await studios.find(filter)).items.map(toStudioOption);

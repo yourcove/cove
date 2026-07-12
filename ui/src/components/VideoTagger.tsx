@@ -51,7 +51,6 @@ interface TaggerConfig {
   showUnmatched: boolean;
   setCoverImage: boolean;
   setTags: boolean;
-  tagOperation: "merge" | "overwrite";
   setPerformers: boolean;
   setStudio: boolean;
   onlyExistingTags: boolean;
@@ -60,6 +59,7 @@ interface TaggerConfig {
   markOrganized: boolean;
   preferFingerprints: boolean;
   queryMode: TaggerQueryMode;
+  defaultScraperInputKind: InputKind | "auto";
   blacklist: string[];
   createParentStudios: boolean;
   createParentTags: boolean;
@@ -250,7 +250,7 @@ function getVideoImageReplace(video: Video, result: UnifiedVideoMatch, state: Vi
 function buildDefaultVideoCollectionModes(result: UnifiedVideoMatch, state: VideoSearchState | undefined, taggerConfig: TaggerConfig): Record<string, CollectionMode> {
   return {
     urls: result.urls.length > 0 ? "merge" : "skip",
-    tags: taggerConfig.setTags && result.tagNames.length > 0 ? taggerConfig.tagOperation === "overwrite" ? "replace" : "merge" : "skip",
+    tags: taggerConfig.setTags && result.tagNames.length > 0 ? "merge" : "skip",
     performers: taggerConfig.setPerformers && result.performerNames.length > 0 ? "merge" : "skip",
     studio: taggerConfig.setStudio && !state?.skipStudio && result.studioName ? "replace" : "skip",
   };
@@ -388,7 +388,6 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     showUnmatched: true,
     setCoverImage: true,
     setTags: true,
-    tagOperation: "merge",
     setPerformers: true,
     setStudio: true,
     onlyExistingTags: false,
@@ -397,6 +396,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     markOrganized: false,
     preferFingerprints: true,
     queryMode: "auto",
+    defaultScraperInputKind: "auto",
     blacklist: [...DEFAULT_TAGGER_BLACKLIST],
     createParentStudios: true,
     createParentTags: true,
@@ -490,9 +490,16 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
       return "name";
     }
 
-    const preferred = video.urls?.some((url) => url.trim()) ? "url" : "name";
-    return scraperInputKinds[video.id] ?? findDefaultKind(source.scraper, preferred);
-  }, [scraperInputKinds]);
+    const override = scraperInputKinds[video.id];
+    if (override) {
+      return override;
+    }
+    const configured = taggerConfig.defaultScraperInputKind;
+    const preferred: InputKind = configured !== "auto"
+      ? configured
+      : video.urls?.some((url) => url.trim()) ? "url" : "name";
+    return findDefaultKind(source.scraper, preferred);
+  }, [scraperInputKinds, taggerConfig.defaultScraperInputKind]);
 
   const getSourceQuery = useCallback(
     (video: Video, source: TaggerSource | undefined): string => {
@@ -763,12 +770,6 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
                     <input type="checkbox" checked={taggerConfig.setTags} onChange={(e) => setTaggerConfig((c) => ({ ...c, setTags: e.target.checked }))} className="rounded border-border" />
                     Set tags
                   </label>
-                  {taggerConfig.setTags && (
-                    <select value={taggerConfig.tagOperation} onChange={(e) => setTaggerConfig((c) => ({ ...c, tagOperation: e.target.value as "merge" | "overwrite" }))} className="bg-input border border-border rounded px-2 py-0.5 text-xs text-foreground focus:outline-none focus:border-accent">
-                      <option value="merge">Merge</option>
-                      <option value="overwrite">Overwrite</option>
-                    </select>
-                  )}
                 </div>
                 {taggerConfig.setTags && (
                   <label className="flex items-center gap-2 text-xs text-foreground ml-5 mt-1">
@@ -793,6 +794,30 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
                 </div>
                 <p className="text-[10px] text-muted mt-0.5">Uses metadata if present, or filename</p>
               </div>
+
+              {/* Default scraper input (only relevant when the source is a scraper) */}
+              {selectedSource?.kind === "scraper" && (
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted">Scraper Input:</span>
+                    <select
+                      value={taggerConfig.defaultScraperInputKind}
+                      onChange={(e) => {
+                        setTaggerConfig((c) => ({ ...c, defaultScraperInputKind: e.target.value as TaggerConfig["defaultScraperInputKind"] }));
+                        setScraperInputKinds({});
+                        setQueryOverrides({});
+                      }}
+                      className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="url">URL</option>
+                      <option value="name">Title</option>
+                      <option value="fragment">Fragment</option>
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-muted mt-0.5">Default scrape input for scraper sources. Auto uses the URL when present, otherwise the title. Falls back to a supported mode if the scraper lacks the chosen one, and can be overridden per video.</p>
+                </div>
+              )}
 
               {/* Mark organized */}
               <div>
@@ -1078,7 +1103,7 @@ function TaggerVideoRow({
               onRefresh={handleRefreshFromRemote}
             />
           )}
-          {detailMode && isScraperSource && (
+          {isScraperSource && (
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
               <select
                 value={scraperInputKind}

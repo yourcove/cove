@@ -95,6 +95,31 @@ public sealed class TagProvenanceService(CoveContext db, IServiceScopeFactory? s
         }
     }
 
+    public async Task RemoveHostSourceApplicationsExceptAsync(
+        AffinityHostType hostType,
+        int hostId,
+        string sourceKey,
+        IReadOnlyCollection<int> keepTagIds,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedSourceKey = NormalizeSourceKey(sourceKey);
+        var keep = NormalizeTagIds(keepTagIds);
+
+        var stale = await _db.TagApplications
+            .Where(application => application.HostType == hostType
+                && application.HostId == hostId
+                && application.ContextType == null
+                && application.ContextId == null
+                && application.SourceKey == normalizedSourceKey
+                && !keep.Contains(application.TagId))
+            .ToListAsync(cancellationToken);
+
+        if (stale.Count > 0)
+        {
+            _db.TagApplications.RemoveRange(stale);
+        }
+    }
+
     public async Task RemoveForHostAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
         var applications = await _db.TagApplications

@@ -1837,7 +1837,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
     queryKey: ["multi-id-selector", entityType, trimmedSearchText],
     queryFn: async () => {
       switch (entityType) {
-        case "tags": return (await tagsApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "name", direction: "asc" })).items;
+        case "tags": return (await tagsApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "name", direction: "asc" }, { includeCounts: false })).items;
         case "tagGroups": return await tagGroupsApi.list();
         case "performers": return (await performersApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "name", direction: "asc" })).items;
         case "studios": return (await studiosApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "name", direction: "asc" })).items;

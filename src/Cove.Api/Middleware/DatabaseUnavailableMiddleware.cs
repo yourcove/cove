@@ -18,14 +18,23 @@ public sealed class DatabaseUnavailableMiddleware
 
     public async Task InvokeAsync(HttpContext context, MaintenanceState maintenance, ILogger<DatabaseUnavailableMiddleware> logger)
     {
-        // A restore tears the schema down and rebuilds it; don't let requests run queries against the
-        // half-built database (they'd 500 with "relation ... does not exist"). Short-circuit to 503 so
-        // clients retry once it finishes. The request that triggered the restore is already past this
-        // middleware, so it isn't affected.
-        if (maintenance.IsRestoreInProgress && !context.Response.HasStarted)
+        // A restore (or the first-boot baseline migration) builds the schema from nothing; don't let
+        // requests run queries against the missing/half-built database (they'd 500 with "relation ...
+        // does not exist"). Short-circuit to 503 so clients retry once it finishes. The request that
+        // triggered a restore is already past this middleware, so it isn't affected.
+        if (!context.Response.HasStarted)
         {
-            await WriteUnavailableAsync(context, CreateRestoreInProgressResponse());
-            return;
+            if (maintenance.IsRestoreInProgress)
+            {
+                await WriteUnavailableAsync(context, CreateRestoreInProgressResponse());
+                return;
+            }
+
+            if (maintenance.IsInitializing)
+            {
+                await WriteUnavailableAsync(context, CreateInitializingResponse());
+                return;
+            }
         }
 
         try
@@ -90,6 +99,12 @@ public sealed class DatabaseUnavailableMiddleware
     {
         code = "DATABASE_RESTORE_IN_PROGRESS",
         message = "A database restore is in progress. The server will be available again shortly.",
+    };
+
+    public static object CreateInitializingResponse() => new
+    {
+        code = "DATABASE_INITIALIZING",
+        message = "The database is being initialized. The server will be available again shortly.",
     };
 }
 

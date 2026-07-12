@@ -46,6 +46,17 @@ public interface ITagProvenanceService
         int hostId,
         CancellationToken cancellationToken = default);
 
+    // Removes a single source's context-null tag applications for a host EXCEPT the given tag ids.
+    // Used when a tag "replace"/"overwrite" apply rebuilds a source's contribution: the manual join
+    // rows are cleared directly, but without this the source's provenance rows would linger and keep
+    // surfacing removed tags as "derived" effective tags.
+    Task RemoveHostSourceApplicationsExceptAsync(
+        AffinityHostType hostType,
+        int hostId,
+        string sourceKey,
+        IReadOnlyCollection<int> keepTagIds,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyDictionary<int, List<TagProvenanceDto>>> GetLookupAsync(
         AffinityHostType hostType,
         int hostId,

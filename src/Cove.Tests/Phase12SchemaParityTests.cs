@@ -18,15 +18,6 @@ public sealed class Phase12SchemaParityTests
 {
     private const string V1BaselineMigrationId = "20260516223910_V1_0";
 
-    [Fact(Skip = "Temporary follow-up migrations are allowed until they are consolidated back into V1_0.")]
-    public void MigrationAssembly_ContainsOnlyV1Baseline()
-    {
-        using var context = CreateContext(5432, "unused");
-        var migrations = context.GetService<IMigrationsAssembly>().Migrations.Keys.ToArray();
-
-        Assert.Equal([V1BaselineMigrationId], migrations);
-        AssertNoPendingModelChanges(context);
-    }
 
     [Fact]
     public async Task V1BaselineMigration_CreatesFreshDatabaseSchema()

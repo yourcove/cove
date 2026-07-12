@@ -138,6 +138,13 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
   }, [initialState, open, resetSignal]);
   const showRating = Boolean(image);
   const tagProvenanceById = buildTagProvenanceById(image?.tags ?? [], image?.fieldProvenance);
+  // Seed chip labels from the loaded image so selected chips don't each re-fetch their name by id.
+  const tagSeedOptions = (image?.tags ?? []).map((tag) => ({ id: tag.id, label: tag.name }));
+  const performerSeedOptions = (image?.performers ?? []).map((performer) => ({
+    id: performer.id,
+    label: performer.name,
+    secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
+  }));
 
   const buildPayload = (): ImageCreate => {
     const urlList = form.urls.map((url) => url.trim()).filter(Boolean);
@@ -266,11 +273,11 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       </Field>
 
       <Field label="Tags" fieldProvenance={image?.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={form.selectedTagIds} onChange={(selectedTagIds) => setForm({ ...form, selectedTagIds })} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} />
+        <EntityReferenceMultiSelector entityType="tag" values={form.selectedTagIds} onChange={(selectedTagIds) => setForm({ ...form, selectedTagIds })} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} seedOptions={tagSeedOptions} />
       </Field>
 
       <Field label="Performers" fieldProvenance={image?.fieldProvenance} fieldKey="performers">
-        <EntityReferenceMultiSelector entityType="performer" values={form.selectedPerformerIds} onChange={(selectedPerformerIds) => setForm({ ...form, selectedPerformerIds })} placeholder="Search performers..." />
+        <EntityReferenceMultiSelector entityType="performer" values={form.selectedPerformerIds} onChange={(selectedPerformerIds) => setForm({ ...form, selectedPerformerIds })} placeholder="Search performers..." seedOptions={performerSeedOptions} />
       </Field>
 
       {form.selectedPerformerIds.length > 0 ? (

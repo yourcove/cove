@@ -1,11 +1,106 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { TagProvenance } from "../api/types";
 
+// Hover-intent timings: the popup opens only after a deliberate pause (sweeping the cursor across a
+// tag list must not flash popups) and closes shortly after the pointer settles outside both the chip
+// and the popup.
+const OPEN_DELAY_MS = 400;
+const CLOSE_GRACE_MS = 150;
+
+// At most one provenance popup is visible at a time; opening one hides the previous immediately.
+let activePopupHide: { current: () => void } | null = null;
+
 export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, className }: { provenance?: TagProvenance[]; sourceLabel?: string; children: ReactNode; className?: string }) {
   const wrapperRef = useRef<HTMLSpanElement>(null);
+  const popupRef = useRef<HTMLSpanElement>(null);
   const [showProvenance, setShowProvenance] = useState(false);
   const [popupPosition, setPopupPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const openTimer = useRef<number | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  const hideRef = useRef<() => void>(() => {});
+  // Set for the synchronous mousedown→focus window so pointer clicks (e.g. on the "⋯" trigger) don't
+  // re-open the popup via the focus handler; focus-opens are for keyboard navigation only.
+  const suppressFocusOpen = useRef(false);
+
+  const cancelOpenTimer = () => {
+    if (openTimer.current != null) {
+      window.clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+  };
+  const cancelCloseTimer = () => {
+    if (closeTimer.current != null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+
+  const hidePopup = () => {
+    cancelOpenTimer();
+    cancelCloseTimer();
+    setShowProvenance(false);
+    if (activePopupHide === hideRef) activePopupHide = null;
+  };
+  hideRef.current = hidePopup;
+
+  const showPopup = () => {
+    cancelOpenTimer();
+    cancelCloseTimer();
+    if (activePopupHide && activePopupHide !== hideRef) activePopupHide.current();
+    activePopupHide = hideRef;
+    setShowProvenance(true);
+  };
+
+  const scheduleOpen = () => {
+    if (showProvenance) {
+      cancelCloseTimer();
+      return;
+    }
+    if (openTimer.current == null) {
+      openTimer.current = window.setTimeout(() => {
+        openTimer.current = null;
+        showPopup();
+      }, OPEN_DELAY_MS);
+    }
+  };
+
+  // While visible, track the pointer globally instead of relying on enter/leave pairs: anywhere
+  // inside the chip or the popup keeps it open (native mouseleave misfires when the pointer moves
+  // onto the popup's scrollbar), anywhere else schedules the close.
+  useEffect(() => {
+    if (!showProvenance) return;
+
+    const isInside = (x: number, y: number) => {
+      for (const el of [wrapperRef.current, popupRef.current]) {
+        const rect = el?.getBoundingClientRect();
+        if (rect && x >= rect.left - 4 && x <= rect.right + 4 && y >= rect.top - 4 && y <= rect.bottom + 4) return true;
+      }
+      return false;
+    };
+    const onMove = (event: MouseEvent) => {
+      if (isInside(event.clientX, event.clientY)) {
+        cancelCloseTimer();
+        return;
+      }
+      if (closeTimer.current == null) {
+        closeTimer.current = window.setTimeout(() => {
+          closeTimer.current = null;
+          hideRef.current();
+        }, CLOSE_GRACE_MS);
+      }
+    };
+
+    window.addEventListener("mousemove", onMove, true);
+    return () => window.removeEventListener("mousemove", onMove, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProvenance]);
+
+  useEffect(() => () => {
+    if (openTimer.current != null) window.clearTimeout(openTimer.current);
+    if (closeTimer.current != null) window.clearTimeout(closeTimer.current);
+    if (activePopupHide === hideRef) activePopupHide = null;
+  }, []);
 
   useLayoutEffect(() => {
     if (!showProvenance || !provenance?.length) {
@@ -43,12 +138,25 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
     <span
       ref={wrapperRef}
       className={["relative inline-flex cursor-help", className ?? ""].filter(Boolean).join(" ")}
-      onMouseEnter={() => setShowProvenance(true)}
-      onMouseLeave={() => setShowProvenance(false)}
-      onFocus={() => setShowProvenance(true)}
+      onMouseEnter={scheduleOpen}
+      onMouseLeave={cancelOpenTimer}
+      // Any press on the chip (navigating, removing, opening the "⋯" menu) dismisses the popup so it
+      // never sits on top of whatever the click opens. The pressed element takes focus right after
+      // mousedown, so suppress the focus-open for that synchronous window.
+      onMouseDown={() => {
+        suppressFocusOpen.current = true;
+        window.setTimeout(() => {
+          suppressFocusOpen.current = false;
+        }, 0);
+        hidePopup();
+      }}
+      onFocus={() => {
+        if (suppressFocusOpen.current) return;
+        showPopup();
+      }}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setShowProvenance(false);
+          hidePopup();
         }
       }}
     >
@@ -56,8 +164,12 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
       <span className="sr-only"><TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} /></span>
       {showProvenance && typeof document !== "undefined" ? createPortal(
         <span
-          className="pointer-events-none fixed z-[200] max-h-[min(70vh,24rem)] w-72 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
+          ref={popupRef}
+          className="fixed z-[200] max-h-[min(70vh,24rem)] w-72 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
           style={{ left: popupPosition.left, top: popupPosition.top }}
+          // Portal events bubble through the React tree to the chip wrapper, so without this a press
+          // anywhere on the popup (its scrollbar included) would hit the wrapper's dismiss handler.
+          onMouseDown={(event) => event.stopPropagation()}
         >
           <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
         </span>,

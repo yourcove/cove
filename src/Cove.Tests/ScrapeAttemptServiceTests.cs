@@ -376,6 +376,137 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
+    public async Task ApplyAttemptAsync_VideoTagReplaceRemovesCurrentTagsNotInScrapedSet()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var keptTag = new Tag { Name = "Big Dick" };          // scraped AND current — should survive
+        var currentOnlyTag = new Tag { Name = "adult interview" }; // current, NOT scraped — must be removed on replace
+        db.Tags.AddRange(keptTag, currentOnlyTag);
+
+        var video = new Video
+        {
+            Title = "Current Video",
+            VideoTags = [new VideoTag { Tag = keptTag }, new VideoTag { Tag = currentOnlyTag }],
+            TagIds = [],
+            PerformerIds = [],
+        };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync();
+        video.TagIds = [keptTag.Id, currentOnlyTag.Id];
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["Tags"] = new[] { "Big Dick", "Toys" },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync();
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["tags"] = "replace" },
+                CreateMissingTags: true,
+                TagSelections:
+                [
+                    new ScrapeCollectionItemSelectionDto("Big Dick", "include"),
+                    new ScrapeCollectionItemSelectionDto("Toys", "create"),
+                ]),
+            CancellationToken.None);
+
+        var updated = await db.Videos
+            .Include(item => item.VideoTags).ThenInclude(item => item.Tag)
+            .SingleAsync(item => item.Id == video.Id);
+
+        // Replace must leave ONLY the scraped tags; the current-only "adult interview" is gone.
+        Assert.Equal(["Big Dick", "Toys"], updated.VideoTags.Select(item => item.Tag!.Name).OrderBy(item => item).ToArray());
+        Assert.DoesNotContain(updated.TagIds, id => id == currentOnlyTag.Id);
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_VideoTagReplacePrunesStaleSameSourceProvenance()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        const string scraperId = "tests.fake-scraper/video";
+        var sourceKey = $"scraper:{scraperId}";
+
+        // "adult interview" was applied by this scraper before but has no VideoTag now — it survives
+        // only as a provenance row, which the effective-tag query surfaces as a derived tag.
+        var staleTag = new Tag { Name = "adult interview" };
+        var scrapedTag = new Tag { Name = "Big Dick" };
+        db.Tags.AddRange(staleTag, scrapedTag);
+        var video = new Video { Title = "Current Video", VideoTags = [], TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync();
+
+        db.TagApplications.Add(new TagApplication
+        {
+            HostType = AffinityHostType.Video,
+            HostId = video.Id,
+            TagId = staleTag.Id,
+            SourceKey = sourceKey,
+            SourceRunId = string.Empty,
+            ModelKey = string.Empty,
+        });
+        await db.SaveChangesAsync();
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = scraperId,
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?> { ["Tags"] = new[] { "Big Dick" } }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync();
+
+        // Uses the real provenance service (not the no-op) so the prune actually runs.
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new TagProvenanceService(db),
+            null!,
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["tags"] = "replace" },
+                CreateMissingTags: true,
+                TagSelections: [new ScrapeCollectionItemSelectionDto("Big Dick", "include")]),
+            CancellationToken.None);
+
+        // The stale scraper provenance must be pruned so "adult interview" no longer lingers as a derived tag.
+        Assert.False(await db.TagApplications.AnyAsync(item => item.TagId == staleTag.Id && item.HostId == video.Id));
+    }
+
+    [Fact]
     public async Task ApplyAttemptAsync_GroupAttemptAppliesMetadataAndRelations()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
@@ -607,6 +738,9 @@ public class ScrapeAttemptServiceTests
             => Task.CompletedTask;
 
         public Task RemoveForHostAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RemoveHostSourceApplicationsExceptAsync(AffinityHostType hostType, int hostId, string sourceKey, IReadOnlyCollection<int> keepTagIds, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         public Task<IReadOnlyDictionary<int, List<TagProvenanceDto>>> GetLookupAsync(AffinityHostType hostType, int hostId, IReadOnlyCollection<int> tagIds, CancellationToken cancellationToken = default)

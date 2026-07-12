@@ -776,7 +776,7 @@ export function ListPage({
   // Fetch entity names for active multiId filters (uses same cache key as FilterDialog)
   const { data: tagEntities } = useQuery({
     queryKey: ["tags", "all"],
-    queryFn: async () => (await tagsApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items,
+    queryFn: async () => (await tagsApi.find({ perPage: 5000, sort: "name", direction: "asc" }, { includeCounts: false })).items,
     staleTime: 60000,
     enabled: activeEntityTypes.has("tags"),
   });

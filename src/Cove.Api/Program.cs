@@ -660,6 +660,11 @@ try
         return;
     }
 
+    // Kestrel starts accepting requests here, but on first boot the database is still empty until the
+    // baseline migration below runs. Flag the schema as initializing so DatabaseUnavailableMiddleware
+    // returns a clean 503 to any request arriving in that window instead of a 500 ("relation ... does
+    // not exist"). Released as soon as the schema is confirmed ready (below).
+    var schemaInitToken = app.Services.GetRequiredService<Cove.Api.Services.MaintenanceState>().BeginInitialization();
     await app.StartAsync();
 
     if (!isIntegrationTest)
@@ -704,7 +709,7 @@ try
                     {
                         schemaCurrent = false;
                         Log.Warning(
-                            "Database has {Count} pending migration(s): {Migrations}. Startup will not apply them automatically; use the migration gate or POST /api/database/migrate.",
+                            "Database has {Count} pending migration(s): {Migrations}.",
                             pendingMigrations.Length,
                             string.Join(", ", pendingMigrations));
                     }
@@ -733,6 +738,9 @@ try
             {
                 await db.Database.EnsureCreatedAsync();
             }
+
+            // Schema is now present (freshly migrated or already current); allow DB-backed requests through.
+            schemaInitToken.Dispose();
 
             if (schemaCurrent)
             {

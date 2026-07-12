@@ -58,6 +58,33 @@ public sealed class DatabaseUnavailableMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_WhileInitializing_ShortCircuitsToServiceUnavailableWithoutCallingNext()
+    {
+        var nextCalled = false;
+        var middleware = new DatabaseUnavailableMiddleware(_ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        });
+        var maintenance = new MaintenanceState();
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        using (maintenance.BeginInitialization())
+        {
+            await middleware.InvokeAsync(context, maintenance, NullLogger<DatabaseUnavailableMiddleware>.Instance);
+        }
+
+        Assert.False(nextCalled); // the request must not reach DB-backed handlers before the schema exists
+        Assert.Equal((int)HttpStatusCode.ServiceUnavailable, context.Response.StatusCode);
+        Assert.Equal("5", context.Response.Headers.RetryAfter);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("DATABASE_INITIALIZING", body);
+    }
+
+    [Fact]
     public void MaintenanceState_BeginRestore_FlagClearsAfterDispose()
     {
         var maintenance = new MaintenanceState();
@@ -68,6 +95,22 @@ public sealed class DatabaseUnavailableMiddlewareTests
 
         scope.Dispose();
         Assert.False(maintenance.IsRestoreInProgress);
+    }
+
+    [Fact]
+    public void MaintenanceState_BeginInitialization_FlagClearsAfterDispose()
+    {
+        var maintenance = new MaintenanceState();
+        Assert.False(maintenance.IsInitializing);
+        Assert.False(maintenance.IsSchemaUnavailable);
+
+        var scope = maintenance.BeginInitialization();
+        Assert.True(maintenance.IsInitializing);
+        Assert.True(maintenance.IsSchemaUnavailable);
+
+        scope.Dispose();
+        Assert.False(maintenance.IsInitializing);
+        Assert.False(maintenance.IsSchemaUnavailable);
     }
 
     [Fact]

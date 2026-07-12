@@ -60,6 +60,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         [FromQuery] int? seed = null,
         [FromQuery] string? name = null, [FromQuery] bool? favorite = null,
         [FromQuery] int? rating = null,
+        [FromQuery] bool includeCounts = true,
         CancellationToken ct = default)
     {
         var filter = new TagFilter { Name = name, Favorite = favorite, Rating = rating };
@@ -71,7 +72,11 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         };
 
         var (items, totalCount) = await tagRepo.FindAsync(filter, findFilter, ct);
-        var usageCountsByTagId = await LoadTagUsageCountsAsync(items.Select(tag => tag.Id), ct);
+        // Usage counts aggregate over tag_applications/segments (millions of rows) and dominate this
+        // endpoint's latency; callers that only need id/name (autocomplete) opt out via includeCounts.
+        var usageCountsByTagId = includeCounts
+            ? await LoadTagUsageCountsAsync(items.Select(tag => tag.Id), ct)
+            : new Dictionary<int, TagUsageCounts>();
         var dtos = MapTagListDtos(items, usageCountsByTagId);
         return Ok(new PaginatedResponse<TagListDto>(dtos, totalCount, page, perPage));
     }

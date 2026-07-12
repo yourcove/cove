@@ -1594,7 +1594,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (selectedTagNames.Count == 0)
         {
             if (mode == "replace")
+            {
                 video.VideoTags.Clear();
+                await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, [], ct);
+            }
             return;
         }
 
@@ -1608,6 +1611,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         var existingTagIds = video.VideoTags.Select(item => item.TagId).ToHashSet();
         var appliedTagNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var appliedTagIds = new HashSet<int>();
         foreach (var selectedTag in selectedTagNames)
         {
             var tagName = selectedTag.Name;
@@ -1623,12 +1627,16 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             }
 
             appliedTagNames.Add(tag.Name);
+            appliedTagIds.Add(tag.Id);
 
             if (existingTagIds.Add(tag.Id))
                 video.VideoTags.Add(new VideoTag { VideoId = video.Id, TagId = tag.Id, Tag = tag });
 
             await tagProvenanceService.RecordAsync(AffinityHostType.Video, video.Id, tag, sourceKey, sourceRunId: sourceRunId, cancellationToken: ct);
         }
+
+        if (mode == "replace")
+            await tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, appliedTagIds, ct);
 
         await ApplyTagHierarchyAsync(root, tagLookup, selections == null && createMissing, appliedTagNames, ct);
     }
@@ -2396,7 +2404,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         return candidates
             .OrderByDescending(candidate => ScoreCandidate(candidate, normalizedSearchTerm))
-            .ThenBy(candidate => candidate.TryGetValue("Title", out _) ? 0 : 1)
+            .ThenBy(candidate => TryGetCandidateText(candidate, "Title", out _) ? 0 : 1)
             .ThenBy(candidate => GetCandidateTitle(candidate), StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -2407,7 +2415,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         var normalizedSearchTerm = NormalizeSearchText(searchTerm);
         foreach (var field in new[] { "Title", "Name", "URL", "Url" })
         {
-            if (!candidate.TryGetValue(field, out var value) || value is not string text || string.IsNullOrWhiteSpace(text))
+            if (!TryGetCandidateText(candidate, field, out var text))
                 continue;
 
             if (string.Equals(text, searchTerm, StringComparison.OrdinalIgnoreCase))
@@ -2433,11 +2441,40 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
     {
         foreach (var field in new[] { "Title", "Name", "URL", "Url" })
         {
-            if (candidate.TryGetValue(field, out var value) && value is string text && !string.IsNullOrWhiteSpace(text))
+            if (TryGetCandidateText(candidate, field, out var text))
                 return text;
         }
 
         return string.Empty;
+    }
+
+    // Candidate dictionaries come from two paths with different shapes: XPath/JSON scrapers yield string
+    // values with the field casing from the manifest, while extension scrapers are round-tripped through
+    // System.Text.Json (Web defaults), leaving camelCase keys and JsonElement values. Match keys
+    // case-insensitively and unwrap JsonElement strings so scoring works for both.
+    private static bool TryGetCandidateText(IReadOnlyDictionary<string, object> candidate, string field, out string text)
+    {
+        foreach (var (key, value) in candidate)
+        {
+            if (!string.Equals(key, field, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var candidateText = value switch
+            {
+                string s => s,
+                JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+                _ => null,
+            };
+
+            if (!string.IsNullOrWhiteSpace(candidateText))
+            {
+                text = candidateText;
+                return true;
+            }
+        }
+
+        text = string.Empty;
+        return false;
     }
 
     private static string NormalizeSearchText(string? value)

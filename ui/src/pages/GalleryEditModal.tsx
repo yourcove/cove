@@ -29,6 +29,13 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
   });
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(gallery.customFields ?? {}) });
   const tagProvenanceById = buildTagProvenanceById(gallery.tags, gallery.fieldProvenance);
+  // Seed chip labels from the loaded gallery so selected chips don't each re-fetch their name by id.
+  const tagSeedOptions = gallery.tags.map((tag) => ({ id: tag.id, label: tag.name }));
+  const performerSeedOptions = gallery.performers.map((performer) => ({
+    id: performer.id,
+    label: performer.name,
+    secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
+  }));
 
   const mutation = useMutation({
     mutationFn: (data: GalleryUpdate) => galleries.update(gallery.id, data),
@@ -89,12 +96,12 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
 
       {/* Tags picker */}
       <Field label="Tags" fieldProvenance={gallery.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={form.tagIds} onChange={(tagIds) => setForm({ ...form, tagIds })} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} />
+        <EntityReferenceMultiSelector entityType="tag" values={form.tagIds} onChange={(tagIds) => setForm({ ...form, tagIds })} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} seedOptions={tagSeedOptions} />
       </Field>
 
       {/* Performers picker */}
       <Field label="Performers" fieldProvenance={gallery.fieldProvenance} fieldKey="performers">
-        <EntityReferenceMultiSelector entityType="performer" values={form.performerIds} onChange={(performerIds) => setForm({ ...form, performerIds })} placeholder="Search performers..." />
+        <EntityReferenceMultiSelector entityType="performer" values={form.performerIds} onChange={(performerIds) => setForm({ ...form, performerIds })} placeholder="Search performers..." seedOptions={performerSeedOptions} />
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={gallery.fieldProvenance} fieldKey="customFields">

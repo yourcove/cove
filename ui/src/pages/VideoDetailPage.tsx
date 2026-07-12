@@ -1048,9 +1048,6 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                 tag={tag}
                 provenance={resolveTagProvenance(tag, video.fieldProvenance)}
                 onClick={() => onNavigate({ page: "tag", id: tag.id })}
-                reportable={Boolean(tag.canReportIncorrect && onRequestReportTag)}
-                onAdjustThreshold={() => onNavigate({ page: "tag", id: tag.id })}
-                onReportIncorrect={() => onRequestReportTag?.(tag)}
               />
             ))}
           </div>
@@ -2212,6 +2209,16 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
     setSelectedTagIds(tagIds.filter((tagId) => !locked.has(tagId)));
   };
 
+  // Chip labels are already on the loaded video, so seed the selectors with them instead of letting
+  // each selected chip re-fetch its name by id (30 tags = 30 authz-gated GETs that also starve the
+  // connection pool and delay the search requests fired while typing).
+  const tagSeedOptions = useMemo(() => video.tags.map((tag) => ({ id: tag.id, label: tag.name })), [video.tags]);
+  const performerSeedOptions = useMemo(() => video.performers.map((performer) => ({
+    id: performer.id,
+    label: performer.name,
+    secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
+  })), [video.performers]);
+
   const inputCls = "w-full bg-input border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
 
   return (
@@ -2258,6 +2265,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
           onChange={updateSelectedTagIds}
           placeholder="Search tags..."
           inputClassName={inputCls}
+          seedOptions={tagSeedOptions}
           selectedProvenanceById={tagProvenanceById}
           reportableIds={onRequestReportTag ? reportableTagIds : undefined}
           onReportIncorrect={onRequestReportTag ? (tagId) => onRequestReportTag(video.tags.find((tag) => tag.id === tagId)) : undefined}
@@ -2269,7 +2277,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="performers" block>
         <div className="space-y-1">
           <span className="text-xs text-secondary">Performers</span>
-          <EntityReferenceMultiSelector entityType="performer" values={selectedPerformerIds} onChange={setSelectedPerformerIds} placeholder="Search performers..." inputClassName={inputCls} />
+          <EntityReferenceMultiSelector entityType="performer" values={selectedPerformerIds} onChange={setSelectedPerformerIds} placeholder="Search performers..." inputClassName={inputCls} seedOptions={performerSeedOptions} />
         </div>
       </FieldProvenanceHover>
 
@@ -2302,6 +2310,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
                   placeholder="Search tags for this occurrence..."
                   emptyMessage="No tags found"
                   inputClassName={inputCls}
+                  seedOptions={tagSeedOptions}
                 />
               </div>
             );

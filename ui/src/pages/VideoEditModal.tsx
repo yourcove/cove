@@ -109,6 +109,14 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   const lockedTagIds = getLockedTagIds(video.tags);
   const displayedTagIds = mergeTagIds(lockedTagIds, selectedTagIds);
   const tagProvenanceById = buildTagProvenanceById(video.tags, video.fieldProvenance);
+  // Chip labels are already present on the loaded video, so seed the selectors with them instead of
+  // letting each chip re-fetch its name by id (which also frees the connection pool for search).
+  const tagSeedOptions = video.tags.map((tag) => ({ id: tag.id, label: tag.name }));
+  const performerSeedOptions = video.performers.map((performer) => ({
+    id: performer.id,
+    label: performer.name,
+    secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
+  }));
   const updateSelectedTagIds = (tagIds: number[]) => {
     const locked = new Set(lockedTagIds);
     setSelectedTagIds(tagIds.filter((tagId) => !locked.has(tagId)));
@@ -190,12 +198,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
 
       {/* Tags */}
       <Field label="Tags" fieldProvenance={video.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={displayedTagIds} lockedIds={lockedTagIds} onChange={updateSelectedTagIds} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} />
+        <EntityReferenceMultiSelector entityType="tag" values={displayedTagIds} lockedIds={lockedTagIds} onChange={updateSelectedTagIds} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} seedOptions={tagSeedOptions} />
       </Field>
 
       {/* Performers */}
       <Field label="Performers" fieldProvenance={video.fieldProvenance} fieldKey="performers">
-        <EntityReferenceMultiSelector entityType="performer" values={selectedPerformerIds} onChange={setSelectedPerformerIds} placeholder="Search performers..." />
+        <EntityReferenceMultiSelector entityType="performer" values={selectedPerformerIds} onChange={setSelectedPerformerIds} placeholder="Search performers..." seedOptions={performerSeedOptions} />
       </Field>
 
       {selectedPerformerIds.length > 0 ? (
@@ -216,6 +224,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
                     onChange={(nextTagIds) => setPerformerContextTagIds(performerId, nextTagIds)}
                     placeholder="Search tags for this occurrence..."
                     emptyMessage="No tags found"
+                    seedOptions={tagSeedOptions}
                     inputClassName="w-full rounded border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none focus:border-accent"
                   />
                 </div>

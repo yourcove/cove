@@ -1193,6 +1193,7 @@ query Me {
                 video.VideoTags.Clear();
 
             var appliedTagNames = new List<string>();
+            var appliedTagIds = new HashSet<int>();
 
             foreach (var remoteTag in remote.Tags)
             {
@@ -1205,6 +1206,8 @@ query Me {
                 if (tag == null)
                     continue;
                 appliedTagNames.Add(tag.Name);
+                if (tag.Id > 0)
+                    appliedTagIds.Add(tag.Id);
                 var alreadyLinkedTag = tag.Id == 0
                     ? video.VideoTags.Any(link => ReferenceEquals(link.Tag, tag))
                     : video.VideoTags.Any(link => link.TagId == tag.Id);
@@ -1215,6 +1218,11 @@ query Me {
 
                 await _tagProvenanceService.RecordAsync(AffinityHostType.Video, video.Id, tag, sourceKey, sourceRunId: endpoint, cancellationToken: ct);
             }
+
+            // Overwrite clears the manual VideoTags; also drop this source's stale provenance rows for
+            // tags no longer applied, or they'd linger as "derived" effective tags (see ApplyTagsAsync).
+            if (tagsStrategy == MetadataFieldStrategy.Overwrite)
+                await _tagProvenanceService.RemoveHostSourceApplicationsExceptAsync(AffinityHostType.Video, video.Id, sourceKey, appliedTagIds, ct);
 
             if (appliedTagNames.Count > 0)
                 fieldProvenance["tags"] = appliedTagNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();

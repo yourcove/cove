@@ -45,6 +45,30 @@ describe("EntityReferenceMultiSelector", () => {
     expect(screen.queryByRole("button", { name: /Derived/i })).not.toBeInTheDocument();
   });
 
+  it("renders selected chips from seedOptions without fetching each by id", async () => {
+    // No per-id cache is primed and `tags.get` is not mocked, so any per-chip fetch would fail/stall.
+    // Seeding with the labels the parent already has must resolve the chips synchronously instead.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={[10, 11]}
+          onChange={vi.fn()}
+          seedOptions={[
+            { id: 10, label: "Massage" },
+            { id: 11, label: "Outdoor" },
+          ]}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Massage")).toBeInTheDocument();
+    expect(screen.getByText("Outdoor")).toBeInTheDocument();
+    expect(screen.queryByText("Loading tag...")).not.toBeInTheDocument();
+  });
+
   it("keeps the dropdown results mounted while the next search is loading", async () => {
     const user = userEvent.setup();
     let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
