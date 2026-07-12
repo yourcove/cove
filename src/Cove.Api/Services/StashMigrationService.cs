@@ -450,6 +450,12 @@ public partial class StashMigrationService
                 () => ImportTagsAsync(conn, blobMap, progress, TagsStart, TagsEnd, ct));
             _db.ChangeTracker.Clear();
 
+            await RunBulkInsertPhaseAsync(
+                "studio-tag relationships",
+                sw,
+                () => ImportStudioTagRelationshipsAsync(conn, studioIdMap, tagIdMap, ct));
+            _db.ChangeTracker.Clear();
+
             var performerIdMap = await RunBulkInsertPhaseAsync(
                 "performers",
                 sw,

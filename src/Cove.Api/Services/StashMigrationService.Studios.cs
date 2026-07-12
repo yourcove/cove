@@ -124,4 +124,54 @@ public partial class StashMigrationService
         _logger.LogInformation("Imported {Count} studios in {Elapsed}", idMap.Count, stopwatch.Elapsed);
         return idMap;
     }
+
+    private async Task<int> ImportStudioTagRelationshipsAsync(
+        SqliteConnection conn,
+        IReadOnlyDictionary<int, int> studioIdMap,
+        IReadOnlyDictionary<int, int> tagIdMap,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(conn, "studios_tags", ct))
+        {
+            _logger.LogInformation("No studios_tags table found, skipping studio-tag relationships");
+            return 0;
+        }
+
+        const int RelationshipBatchSize = 5000;
+        var relationships = new List<StudioTag>(RelationshipBatchSize);
+        var mappedRelationships = new HashSet<(int StudioId, int TagId)>();
+        var count = 0;
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT studio_id, tag_id FROM studios_tags";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!studioIdMap.TryGetValue(reader.GetInt32(0), out var studioId)
+                || !tagIdMap.TryGetValue(reader.GetInt32(1), out var tagId)
+                || !mappedRelationships.Add((studioId, tagId)))
+            {
+                continue;
+            }
+
+            relationships.Add(new StudioTag { StudioId = studioId, TagId = tagId });
+            if (relationships.Count < RelationshipBatchSize)
+                continue;
+
+            _db.Set<StudioTag>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+            relationships.Clear();
+            _db.ChangeTracker.Clear();
+        }
+
+        if (relationships.Count > 0)
+        {
+            _db.Set<StudioTag>().AddRange(relationships);
+            await _db.SaveChangesAsync(ct);
+            count += relationships.Count;
+        }
+
+        _logger.LogInformation("Imported {Count} studio-tag relationships", count);
+        return count;
+    }
 }

@@ -1043,7 +1043,7 @@ INSERT INTO galleries_images (gallery_id, image_id, cover) VALUES (10, 20, 1), (
     }
 
     [Fact]
-    public async Task ImportAsync_ImportsSceneGalleryRelationships()
+    public async Task ImportAsync_ImportsRelationshipsThatRequireDeferredIdMaps()
     {
         await using var context = CreateContext();
         var dbPath = await CreateSqliteDatabaseAsync(@"
@@ -1077,6 +1077,7 @@ CREATE TABLE tags (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE studios_tags (studio_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
 CREATE TABLE performers (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1168,6 +1169,15 @@ CREATE TABLE galleries (
     photographer TEXT
 );
 CREATE TABLE scenes_galleries (scene_id INTEGER NOT NULL, gallery_id INTEGER NOT NULL);
+INSERT INTO studios (id, name, favorite, created_at, updated_at)
+VALUES (30, 'Imported Studio', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO tags (id, name, favorite, created_at, updated_at)
+VALUES (40, 'Imported Tag', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO studios_tags (studio_id, tag_id) VALUES
+    (30, 40),
+    (30, 40),
+    (999, 40),
+    (30, 999);
 INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
 VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
 INSERT INTO galleries (id, title, organized, created_at, updated_at)
@@ -1193,6 +1203,11 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             var relationship = await context.Set<VideoGallery>().SingleAsync();
             Assert.Equal(video.Id, relationship.VideoId);
             Assert.Equal(gallery.Id, relationship.GalleryId);
+            var studio = await context.Studios.SingleAsync();
+            var tag = await context.Tags.SingleAsync();
+            var studioTag = await context.Set<StudioTag>().SingleAsync();
+            Assert.Equal(studio.Id, studioTag.StudioId);
+            Assert.Equal(tag.Id, studioTag.TagId);
         }
         finally
         {
