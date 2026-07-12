@@ -219,7 +219,7 @@ describe("FilterDialog", () => {
 
     fireEvent.click(screen.getByText("Tag Duration"));
     fireEvent.change(screen.getByPlaceholderText("Search tags"), { target: { value: "Action" } });
-    fireEvent.click(screen.getByRole("button", { name: "Action" }));
+    fireEvent.click(screen.getByRole("option", { name: "Action" }));
 
     expect(screen.queryByRole("button", { name: "Remove Tag Duration filter chip" })).not.toBeInTheDocument();
 
@@ -248,7 +248,7 @@ describe("FilterDialog", () => {
     expect(screen.queryByRole("option", { name: "Any" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Search tags"), { target: { value: "Action" } });
-    fireEvent.click(screen.getByRole("button", { name: "Action" }));
+    fireEvent.click(screen.getByRole("option", { name: "Action" }));
     fireEvent.change(screen.getByLabelText("Tag duration time"), { target: { value: "1:30" } });
     fireEvent.blur(screen.getByLabelText("Tag duration time"));
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -299,14 +299,14 @@ describe("FilterDialog", () => {
 
     fireEvent.click(screen.getByText("Tag Duration"));
     fireEvent.change(screen.getByPlaceholderText("Search tags"), { target: { value: "Action" } });
-    fireEvent.click(screen.getByRole("button", { name: "Action" }));
+    fireEvent.click(screen.getByRole("option", { name: "Action" }));
     fireEvent.change(screen.getByLabelText("Tag duration time"), { target: { value: "0:30" } });
     fireEvent.blur(screen.getByLabelText("Tag duration time"));
     fireEvent.click(screen.getByRole("button", { name: "Add tag duration" }));
 
     const searchInputs = screen.getAllByPlaceholderText("Search tags");
     fireEvent.change(searchInputs[1], { target: { value: "Mood" } });
-    fireEvent.click(screen.getByRole("button", { name: "Mood" }));
+    fireEvent.click(screen.getByRole("option", { name: "Mood" }));
     fireEvent.change(screen.getAllByLabelText("Tag duration unit")[1], { target: { value: "percent" } });
     fireEvent.change(screen.getByLabelText("Tag duration percent"), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
