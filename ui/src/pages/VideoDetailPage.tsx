@@ -174,7 +174,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   });
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
-  const { queue, currentId: queueCurrentId, hasPrev, hasNext, prevId, nextId, currentPosition, queueLength, queueItems, goToIndex, clearQueue, autoplay: queueAutoplay, toggleAutoplay } = useVideoQueue();
+  const { queue, currentId: queueCurrentId, hasPrev, hasNext, currentPosition, queueLength, queueItems, goToIndex, goPrevious, goNext, clearQueue, autoplay: queueAutoplay, toggleAutoplay } = useVideoQueue();
   const { getTabsForPage, resolveComponent: resolveExtComponent, getFeature } = useExtensions();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
@@ -478,6 +478,14 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   }, [goToIndex, id, queue, queueCurrentId]);
 
   const queueSyncedToVideo = queueCurrentId === id;
+  const navigatePreviousVideo = useCallback(async () => {
+    const targetId = await goPrevious();
+    if (targetId != null) onNavigate({ page: "video", id: targetId });
+  }, [goPrevious, onNavigate]);
+  const navigateNextVideo = useCallback(async () => {
+    const targetId = await goNext();
+    if (targetId != null) onNavigate({ page: "video", id: targetId });
+  }, [goNext, onNavigate]);
 
   const videoKeyboardShortcuts = useMemo(() => [
     { key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
@@ -486,9 +494,9 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
     { key: "i", description: "Open file info tab", handler: () => canReadFiles && setActiveTab("file-info") },
     { key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
     { key: "o", description: "Toggle favorite", handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite) },
-    { key: "[", description: "Open previous video", handler: () => queueSyncedToVideo && hasPrev && prevId != null && onNavigate({ page: "video", id: prevId }) },
-    { key: "]", description: "Open next video", handler: () => queueSyncedToVideo && hasNext && nextId != null && onNavigate({ page: "video", id: nextId }) },
-  ], [canEngageVideo, canReadFiles, canReadSegments, canWriteVideo, hasNext, hasPrev, nextId, onNavigate, prevId, queueSyncedToVideo, video, videoFavorite, setVideoFavorite]);
+    { key: "[", description: "Open previous video", handler: () => { if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo(); } },
+    { key: "]", description: "Open next video", handler: () => { if (queueSyncedToVideo && hasNext) void navigateNextVideo(); } },
+  ], [canEngageVideo, canReadFiles, canReadSegments, canWriteVideo, hasNext, hasPrev, navigateNextVideo, navigatePreviousVideo, queueSyncedToVideo, video, videoFavorite, setVideoFavorite]);
 
   if (isLoading) {
     return (
@@ -725,9 +733,9 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
             autostart={config?.ui.autostartVideo}
             showAbLoop={config?.ui.showAbLoopControls}
             trackingEnabled={trackPlaybackActivity}
-            onEnded={() => { if (queueAutoplay && queueSyncedToVideo && hasNext && nextId != null) onNavigate({ page: "video", id: nextId }); }}
-            onPrev={queueSyncedToVideo && hasPrev && prevId != null ? () => onNavigate({ page: "video", id: prevId }) : undefined}
-            onNext={queueSyncedToVideo && hasNext && nextId != null ? () => onNavigate({ page: "video", id: nextId }) : undefined}
+            onEnded={() => { if (queueAutoplay && queueSyncedToVideo && hasNext) void navigateNextVideo(); }}
+            onPrev={queueSyncedToVideo && hasPrev ? () => { void navigatePreviousVideo(); } : undefined}
+            onNext={queueSyncedToVideo && hasNext ? () => { void navigateNextVideo(); } : undefined}
           />
         ) : (
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>

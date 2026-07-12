@@ -488,16 +488,54 @@ export function VideosPage({ onNavigate }: Props) {
 
   const navigateToVideo = useCallback((videoId: number) => {
     const ids = items.map((s) => s.id);
+    const queueItems = items.map((video) => ({
+      id: video.id,
+      title: video.title || video.files[0]?.basename || `Video ${video.id}`,
+      subtitle: video.studioName || video.date || undefined,
+      imagePath: videos.screenshotUrl(video.id, video.updatedAt),
+    }));
     if (ids.length > 0) {
-      setQueue(ids, videoId, items.map((video) => ({
+      const queryPage = (nextFilter: FindFilter) => {
+        if (visualSearchActive) {
+          return visualSimilarity.searchVideos({
+            findFilter: nextFilter,
+            objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+          });
+        }
+
+        return hasObjectFilter
+          ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+          : videos.find(nextFilter);
+      };
+      const toQueueItems = (pageItems: Video[]) => pageItems.map((video) => ({
         id: video.id,
         title: video.title || video.files[0]?.basename || `Video ${video.id}`,
         subtitle: video.studioName || video.date || undefined,
         imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-      })));
+      }));
+      const pageSize = filter.perPage ?? 40;
+      let firstPage = filter.page ?? 1;
+      let lastPage = firstPage;
+      const count = totalCount ?? ids.length;
+      setQueue(ids, videoId, queueItems, !infinitePageSize ? {
+        startIndex: (firstPage - 1) * pageSize,
+        totalCount: count,
+        loadPrevious: firstPage > 1 ? async () => {
+          const page = firstPage - 1;
+          const response = await queryPage({ ...filter, page });
+          firstPage = page;
+          return { items: toQueueItems(response.items), hasMore: page > 1 };
+        } : undefined,
+        loadNext: lastPage * pageSize < count ? async () => {
+          const page = lastPage + 1;
+          const response = await queryPage({ ...filter, page });
+          lastPage = page;
+          return { items: toQueueItems(response.items), hasMore: page * pageSize < response.totalCount };
+        } : undefined,
+      } : undefined);
     }
     onNavigate({ page: "video", id: videoId });
-  }, [items, setQueue, onNavigate]);
+  }, [backendObjectFilter, filter, hasObjectFilter, infinitePageSize, items, onNavigate, setQueue, totalCount, visualSearchActive, visualSimilarity]);
 
   const handlePlaySelected = useCallback(() => {
     const selectedVideos = items.filter((video) => selectedIds.has(video.id));
