@@ -91,4 +91,56 @@ public sealed class CoveContextDenormalizedIdArrayTests
         Assert.Equal([existingTag.Id, tag.Id], saved.TagIds);
     }
 
+    [Fact]
+    public async Task RecomputeAllDerivedCountsAsync_RepairsStaleMediaIdArrays()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        await using var context = new CoveContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        var performer = new Performer { Name = "Existing performer" };
+        var tag = new Tag { Name = "Existing tag" };
+        await context.AddRangeAsync(performer, tag);
+        await context.SaveChangesAsync();
+
+        var video = new Video { Title = "Existing video" };
+        video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
+        video.VideoTags.Add(new VideoTag { Tag = tag });
+        var image = new Image { Title = "Existing image" };
+        image.ImagePerformers.Add(new ImagePerformer { Performer = performer });
+        image.ImageTags.Add(new ImageTag { Tag = tag });
+        var gallery = new Gallery { Title = "Existing gallery" };
+        gallery.GalleryPerformers.Add(new GalleryPerformer { Performer = performer });
+        gallery.GalleryTags.Add(new GalleryTag { Tag = tag });
+        context.AddRange(video, image, gallery);
+        await context.SaveChangesAsync();
+
+        video.PerformerIds = [0];
+        video.TagIds = [];
+        image.PerformerIds = [0];
+        image.TagIds = [];
+        gallery.PerformerIds = [0];
+        gallery.TagIds = [];
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        await context.RecomputeAllDerivedCountsAsync();
+        context.ChangeTracker.Clear();
+
+        var repairedVideo = await context.Videos.SingleAsync();
+        var repairedImage = await context.Images.SingleAsync();
+        var repairedGallery = await context.Galleries.SingleAsync();
+        Assert.Equal([performer.Id], repairedVideo.PerformerIds);
+        Assert.Equal([tag.Id], repairedVideo.TagIds);
+        Assert.Equal([performer.Id], repairedImage.PerformerIds);
+        Assert.Equal([tag.Id], repairedImage.TagIds);
+        Assert.Equal([performer.Id], repairedGallery.PerformerIds);
+        Assert.Equal([tag.Id], repairedGallery.TagIds);
+    }
 }

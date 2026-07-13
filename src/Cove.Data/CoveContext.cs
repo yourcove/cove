@@ -1113,9 +1113,9 @@ public partial class CoveContext : DbContext
     }
 
     /// <summary>
-    /// Recomputes every denormalized summary/count column from source data for the whole library:
-    /// video/image file summaries (duration, resolution, file size, …), gallery image/video counts,
-    /// and studio/performer/tag rollup counts. The per-SaveChanges maintenance only touches entities
+    /// Recomputes denormalized state from source data for the whole library:
+    /// video/image/gallery tag and performer ids, video/image file summaries (duration, resolution, file size, …),
+    /// gallery image/video counts, and studio/performer/tag rollup counts. The per-SaveChanges maintenance only touches entities
     /// changed in a unit of work, so this is the catch-all used to repair data that predates a fix or
     /// was loaded through a path that didn't trigger maintenance (e.g. a bulk import). Idempotent.
     /// Returns the number of entities recomputed.
@@ -1128,9 +1128,9 @@ public partial class CoveContext : DbContext
         _persistingDerivedCounts = true;
         try
         {
-            total += await RecomputeAllAsync<Video>("videos", ids => RefreshVideoMetricsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
-            total += await RecomputeAllAsync<Image>("images", ids => RefreshImageMetricsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
-            total += await RecomputeAllAsync<Gallery>("galleries", ids => RefreshGalleryCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Video>("videos", ids => RefreshAllVideoDerivedStateAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Image>("images", ids => RefreshAllImageDerivedStateAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Gallery>("galleries", ids => RefreshAllGalleryDerivedStateAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
             total += await RecomputeAllAsync<Studio>("studios", ids => RefreshStudioCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
             total += await RecomputeAllAsync<Performer>("performers", ids => RefreshPerformerCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
             total += await RecomputeAllAsync<Tag>("tags", ids => RefreshTagCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
@@ -1141,6 +1141,27 @@ public partial class CoveContext : DbContext
         }
 
         return total;
+    }
+
+    private async Task RefreshAllVideoDerivedStateAsync(HashSet<int> videoIds, CancellationToken cancellationToken)
+    {
+        RebuildArray<Video, VideoTag>(videoIds, video => video.TagIds, link => link.VideoId, link => link.TagId);
+        RebuildArray<Video, VideoPerformer>(videoIds, video => video.PerformerIds, link => link.VideoId, link => link.PerformerId);
+        await RefreshVideoMetricsAsync(videoIds, cancellationToken);
+    }
+
+    private async Task RefreshAllImageDerivedStateAsync(HashSet<int> imageIds, CancellationToken cancellationToken)
+    {
+        RebuildArray<Image, ImageTag>(imageIds, image => image.TagIds, link => link.ImageId, link => link.TagId);
+        RebuildArray<Image, ImagePerformer>(imageIds, image => image.PerformerIds, link => link.ImageId, link => link.PerformerId);
+        await RefreshImageMetricsAsync(imageIds, cancellationToken);
+    }
+
+    private async Task RefreshAllGalleryDerivedStateAsync(HashSet<int> galleryIds, CancellationToken cancellationToken)
+    {
+        RebuildArray<Gallery, GalleryTag>(galleryIds, gallery => gallery.TagIds, link => link.GalleryId, link => link.TagId);
+        RebuildArray<Gallery, GalleryPerformer>(galleryIds, gallery => gallery.PerformerIds, link => link.GalleryId, link => link.PerformerId);
+        await RefreshGalleryCountsAsync(galleryIds, cancellationToken);
     }
 
     private async Task<int> RecomputeAllAsync<TEntity>(
@@ -2235,4 +2256,3 @@ public sealed class CoveModelCacheKeyFactory : Microsoft.EntityFrameworkCore.Inf
     public object Create(DbContext context, bool designTime)
         => (context.GetType(), CoveContext.ModelGeneration, designTime);
 }
-
