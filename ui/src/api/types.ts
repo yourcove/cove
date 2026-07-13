@@ -3220,6 +3220,7 @@ export interface ExtensionSettingsTab {
   description?: string;
   searchKeywords?: string[];
   aliases?: string[];
+  layout?: "panels" | "page";
 }
 
 export interface ExtensionSettingsPanel {
