@@ -64,6 +64,7 @@ describe("filter criteria definitions", () => {
     expect(videoCriteriaById.get("fileCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(videoCriteriaById.get("frameRate")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(videoCriteriaById.get("orientation")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS"]);
+    expect(videoCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
   });
 
   it("does not expose unsupported performer path filtering", () => {

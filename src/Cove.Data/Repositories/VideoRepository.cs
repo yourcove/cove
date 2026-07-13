@@ -69,11 +69,15 @@ public class VideoRepository : IVideoRepository
 
     public async Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchicalTagCriterion? expandedTags = null;
+        ExpandedHierarchyCriterion? expandedTags = null;
         if (filter?.TagsCriterion?.Depth == -1)
         {
-            expandedTags = await ExpandHierarchicalTagCriterionAsync(filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
             filter.TagsCriterion = expandedTags.Criterion;
+        }
+        if (filter?.StudiosCriterion?.Depth == -1)
+        {
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
@@ -785,66 +789,6 @@ public class VideoRepository : IVideoRepository
                     System.Linq.Expressions.Expression.GreaterThan(body, System.Linq.Expressions.Expression.Constant(val2))), param)),
             _ => query,
         };
-    }
-
-    private sealed record ExpandedHierarchicalTagCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);
-
-    private async Task<ExpandedHierarchicalTagCriterion> ExpandHierarchicalTagCriterionAsync(MultiIdCriterion criterion, CancellationToken ct)
-    {
-        var relationships = await _db.Set<TagParent>()
-            .AsNoTracking()
-            .Select(tp => new { tp.ParentId, tp.ChildId })
-            .ToListAsync(ct);
-
-        var childrenByParent = relationships
-            .GroupBy(tp => tp.ParentId)
-            .ToDictionary(group => group.Key, group => group.Select(tp => tp.ChildId).ToArray());
-
-        var valueGroups = criterion.Value
-            .Distinct()
-            .Select(tagId => ExpandTagGroup(tagId, childrenByParent))
-            .ToList();
-
-        var flatValue = valueGroups.SelectMany(group => group).Distinct().ToList();
-        var flatExcludes = criterion.Excludes?
-            .Distinct()
-            .SelectMany(tagId => ExpandTagGroup(tagId, childrenByParent))
-            .Distinct()
-            .ToList();
-
-        return new ExpandedHierarchicalTagCriterion(
-            new MultiIdCriterion
-            {
-                Value = flatValue,
-                Modifier = criterion.Modifier,
-                Excludes = flatExcludes is { Count: > 0 } ? flatExcludes : null,
-                Depth = criterion.Depth,
-            },
-            valueGroups);
-    }
-
-    private static int[] ExpandTagGroup(int rootTagId, IReadOnlyDictionary<int, int[]> childrenByParent)
-    {
-        var expanded = new HashSet<int> { rootTagId };
-        var queue = new Queue<int>();
-        queue.Enqueue(rootTagId);
-
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            if (!childrenByParent.TryGetValue(parentId, out var childIds))
-            {
-                continue;
-            }
-
-            foreach (var childId in childIds)
-            {
-                if (expanded.Add(childId))
-                    queue.Enqueue(childId);
-            }
-        }
-
-        return expanded.ToArray();
     }
 
     private static IQueryable<Video> ApplyMultiIdCriterion(

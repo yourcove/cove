@@ -9,6 +9,35 @@ namespace Cove.Tests;
 public class HierarchicalTagFilterTests
 {
     [Fact]
+    public async Task VideoStudiosCriterion_WithSubStudios_MatchesChildStudio()
+    {
+        await using var context = CreateContext();
+        var parent = new Studio { Name = "Parent" };
+        var child = new Studio { Name = "Child", Parent = parent };
+        context.Studios.AddRange(parent, child);
+        await context.SaveChangesAsync();
+
+        context.Videos.Add(new Video { Title = "child-video", StudioId = child.Id });
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            StudiosCriterion = new MultiIdCriterion
+            {
+                Value = [parent.Id],
+                Modifier = CriterionModifier.Includes,
+                Depth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["child-video"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task VideoTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
     {
         await using var context = CreateContext();
@@ -189,4 +218,3 @@ public class HierarchicalTagFilterTests
         }
     }
 }
-

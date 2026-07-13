@@ -311,10 +311,10 @@ public class PerformerRepository : IPerformerRepository
 
     public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchicalStudioCriterion? expandedStudios = null;
+        ExpandedHierarchyCriterion? expandedStudios = null;
         if (filter?.StudiosCriterion?.Depth == -1)
         {
-            expandedStudios = await ExpandHierarchicalStudioCriterionAsync(filter.StudiosCriterion, ct);
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct);
             filter.StudiosCriterion = expandedStudios.Criterion;
         }
 
@@ -638,66 +638,6 @@ public class PerformerRepository : IPerformerRepository
         return (sortedItems, totalCount);
     }
 
-    private sealed record ExpandedHierarchicalStudioCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);
-
-    private async Task<ExpandedHierarchicalStudioCriterion> ExpandHierarchicalStudioCriterionAsync(MultiIdCriterion criterion, CancellationToken ct)
-    {
-        var studios = await _db.Studios
-            .AsNoTracking()
-            .Select(studio => new { studio.Id, studio.ParentId })
-            .ToListAsync(ct);
-
-        var childrenByParent = studios
-            .Where(studio => studio.ParentId.HasValue)
-            .GroupBy(studio => studio.ParentId!.Value)
-            .ToDictionary(group => group.Key, group => group.Select(studio => studio.Id).ToArray());
-
-        var valueGroups = criterion.Value
-            .Distinct()
-            .Select(studioId => ExpandStudioGroup(studioId, childrenByParent))
-            .ToList();
-
-        var flatValue = valueGroups.SelectMany(group => group).Distinct().ToList();
-        var flatExcludes = criterion.Excludes?
-            .Distinct()
-            .SelectMany(studioId => ExpandStudioGroup(studioId, childrenByParent))
-            .Distinct()
-            .ToList();
-
-        return new ExpandedHierarchicalStudioCriterion(
-            new MultiIdCriterion
-            {
-                Value = flatValue,
-                Modifier = criterion.Modifier,
-                Excludes = flatExcludes is { Count: > 0 } ? flatExcludes : null,
-                Depth = criterion.Depth,
-            },
-            valueGroups);
-    }
-
-    private static int[] ExpandStudioGroup(int rootStudioId, IReadOnlyDictionary<int, int[]> childrenByParent)
-    {
-        var expanded = new HashSet<int> { rootStudioId };
-        var queue = new Queue<int>();
-        queue.Enqueue(rootStudioId);
-
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            if (!childrenByParent.TryGetValue(parentId, out var childIds))
-            {
-                continue;
-            }
-
-            foreach (var childId in childIds)
-            {
-                if (expanded.Add(childId))
-                    queue.Enqueue(childId);
-            }
-        }
-
-        return expanded.ToArray();
-    }
 }
 
 public class TagRepository : ITagRepository
@@ -2046,10 +1986,10 @@ public class ImageRepository : IImageRepository
 
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchicalTagCriterion? expandedTags = null;
+        ExpandedHierarchyCriterion? expandedTags = null;
         if (filter?.TagsCriterion?.Depth == -1)
         {
-            expandedTags = await ExpandHierarchicalTagCriterionAsync(filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
 
@@ -2507,65 +2447,6 @@ public class ImageRepository : IImageRepository
         };
     }
 
-    private sealed record ExpandedHierarchicalTagCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);
-
-    private async Task<ExpandedHierarchicalTagCriterion> ExpandHierarchicalTagCriterionAsync(MultiIdCriterion criterion, CancellationToken ct)
-    {
-        var relationships = await _db.Set<TagParent>()
-            .AsNoTracking()
-            .Select(tp => new { tp.ParentId, tp.ChildId })
-            .ToListAsync(ct);
-
-        var childrenByParent = relationships
-            .GroupBy(tp => tp.ParentId)
-            .ToDictionary(group => group.Key, group => group.Select(tp => tp.ChildId).ToArray());
-
-        var valueGroups = criterion.Value
-            .Distinct()
-            .Select(tagId => ExpandTagGroup(tagId, childrenByParent))
-            .ToList();
-
-        var flatValue = valueGroups.SelectMany(group => group).Distinct().ToList();
-        var flatExcludes = criterion.Excludes?
-            .Distinct()
-            .SelectMany(tagId => ExpandTagGroup(tagId, childrenByParent))
-            .Distinct()
-            .ToList();
-
-        return new ExpandedHierarchicalTagCriterion(
-            new MultiIdCriterion
-            {
-                Value = flatValue,
-                Modifier = criterion.Modifier,
-                Excludes = flatExcludes is { Count: > 0 } ? flatExcludes : null,
-                Depth = criterion.Depth,
-            },
-            valueGroups);
-    }
-
-    private static int[] ExpandTagGroup(int rootTagId, IReadOnlyDictionary<int, int[]> childrenByParent)
-    {
-        var expanded = new HashSet<int> { rootTagId };
-        var queue = new Queue<int>();
-        queue.Enqueue(rootTagId);
-
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            if (!childrenByParent.TryGetValue(parentId, out var childIds))
-            {
-                continue;
-            }
-
-            foreach (var childId in childIds)
-            {
-                if (expanded.Add(childId))
-                    queue.Enqueue(childId);
-            }
-        }
-
-        return expanded.ToArray();
-    }
 }
 
 public class GroupRepository : IGroupRepository
