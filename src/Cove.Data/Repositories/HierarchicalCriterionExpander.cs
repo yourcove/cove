@@ -4,11 +4,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Repositories;
 
-internal sealed record ExpandedHierarchyCriterion(
+public sealed record ExpandedHierarchyCriterion(
     MultiIdCriterion Criterion,
     IReadOnlyList<int[]> ValueGroups);
 
-internal static class HierarchicalCriterionExpander
+public static class HierarchicalCriterionExpander
 {
     public static async Task<ExpandedHierarchyCriterion> ExpandTagsAsync(
         CoveContext db,

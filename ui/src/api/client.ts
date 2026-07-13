@@ -760,7 +760,7 @@ export const studios = {
     request<PaginatedResponse<Studio>>(`/studios${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<StudioFilterCriteria>) =>
     request<PaginatedResponse<Studio>>("/studios/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
-  get: (id: number) => request<Studio>(`/studios/${id}`),
+  get: (id: number, depth?: number) => request<Studio>(`/studios/${id}${buildQuery(undefined, { depth })}`),
   create: (data: StudioCreate) => request<Studio>("/studios", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: StudioUpdate) => request<Studio>(`/studios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkStudioUpdate) => request<void>("/studios/bulk", { method: "POST", body: JSON.stringify(data) }),

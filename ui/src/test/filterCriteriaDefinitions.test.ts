@@ -125,12 +125,15 @@ describe("filter criteria definitions", () => {
     expect(galleryCriteriaById.get("hash")?.options?.map((option) => option.value)).toEqual(["md5", "phash"]);
     expect(galleryCriteriaById.has("checksum")).toBe(false);
     expect(galleryCriteriaById.get("tagCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(galleryCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
     expect(imageCriteriaById.get("hash")?.filterKey).toBe("fingerprintCriterion");
     expect(imageCriteriaById.get("hash")?.options?.map((option) => option.value)).toEqual(["md5", "phash"]);
     expect(imageCriteriaById.has("checksum")).toBe(false);
     expect(imageCriteriaById.get("performerCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(imageCriteriaById.get("tagCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(imageCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
     expect(groupCriteriaById.get("videoCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(groupCriteriaById.get("tagCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(groupCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
   });
 });

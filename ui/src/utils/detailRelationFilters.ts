@@ -68,18 +68,20 @@ export function constrainSingleIdCriterion(criterion: unknown, requiredId: numbe
   }
 }
 
-export function withRequiredMultiId<TFilter extends object>(filter: TFilter, key: keyof TFilter & string, requiredId: number): TFilter {
+export function withRequiredMultiId<TFilter extends object>(filter: TFilter, key: keyof TFilter & string, requiredId: number, depth?: number): TFilter {
   const source = filter as Record<string, unknown>;
+  const criterion = constrainMultiIdCriterion(source[key], requiredId);
   return {
     ...source,
-    [key]: constrainMultiIdCriterion(source[key], requiredId),
+    [key]: depth === undefined ? criterion : { ...criterion, depth },
   } as TFilter;
 }
 
-export function withRequiredSingleId<TFilter extends object>(filter: TFilter, key: keyof TFilter & string, requiredId: number): TFilter {
+export function withRequiredSingleId<TFilter extends object>(filter: TFilter, key: keyof TFilter & string, requiredId: number, depth?: number): TFilter {
   const source = filter as Record<string, unknown>;
+  const criterion = constrainSingleIdCriterion(source[key], requiredId);
   return {
     ...source,
-    [key]: constrainSingleIdCriterion(source[key], requiredId),
+    [key]: depth === undefined ? criterion : { ...criterion, depth },
   } as TFilter;
 }

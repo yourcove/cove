@@ -1473,6 +1473,9 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        if (filter?.StudiosCriterion?.Depth == -1)
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+
         var query = _db.Galleries.AsQueryable();
         if (filter != null)
         {
@@ -1992,6 +1995,8 @@ public class ImageRepository : IImageRepository
             expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
+        if (filter?.StudiosCriterion?.Depth == -1)
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
         var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
@@ -2492,6 +2497,9 @@ public class GroupRepository : IGroupRepository
 
     public async Task<(IReadOnlyList<Group> Items, int TotalCount)> FindAsync(GroupFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        if (filter?.StudiosCriterion?.Depth == -1)
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+
         var query = _db.Groups.AsQueryable();
         if (filter != null)
         {

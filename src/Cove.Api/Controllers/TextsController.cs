@@ -75,6 +75,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
         var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
+        if (req.ObjectFilter?.StudiosCriterion?.Depth == -1)
+            req.ObjectFilter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter.StudiosCriterion, ct)).Criterion;
 
         var query = db.TextDocuments.AsNoTracking().AsQueryable();
 
