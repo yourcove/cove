@@ -12,6 +12,29 @@ namespace Cove.Tests;
 public class TagsControllerSegmentTests
 {
     [Fact]
+    public async Task TagDetail_WithRecursiveDepth_AggregatesDistinctDescendantUsageCounts()
+    {
+        await using var context = CreateContext();
+        var parent = new Tag { Name = "Parent" };
+        var child = new Tag { Name = "Child" };
+        var image = new Image { Title = "Shared image" };
+        context.AddRange(parent, child, image);
+        await context.SaveChangesAsync();
+        context.AddRange(
+            new TagParent { ParentId = parent.Id, ChildId = child.Id },
+            new ImageTag { ImageId = image.Id, TagId = parent.Id },
+            new ImageTag { ImageId = image.Id, TagId = child.Id });
+        await context.SaveChangesAsync();
+
+        var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
+        var result = await controller.GetById(parent.Id, CancellationToken.None, -1);
+        var detail = Assert.IsType<OkObjectResult>(result.Result).Value as TagDetailDto;
+
+        Assert.NotNull(detail);
+        Assert.Equal(1, detail!.ImageCount);
+    }
+
+    [Fact]
     public async Task TagDetail_IncludesRemoteIds()
     {
         await using var context = CreateContext();

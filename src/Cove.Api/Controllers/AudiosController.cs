@@ -78,6 +78,12 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
         var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (req.ObjectFilter?.TagsCriterion?.Depth == -1)
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter.TagsCriterion, ct);
+            req.ObjectFilter.TagsCriterion = expandedTags.Criterion;
+        }
         if (req.ObjectFilter?.StudiosCriterion?.Depth == -1)
             req.ObjectFilter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter.StudiosCriterion, ct)).Criterion;
 
@@ -95,7 +101,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performerSelectors: [audio => audio.AudioPerformers.Where(ap => ap.Performer != null).Select(ap => ap.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter.Q, audio => audio.Files);
 
-        query = ApplyFilter(query, req.ObjectFilter);
+        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
@@ -551,7 +557,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         };
     }
 
-    private IQueryable<Audio> ApplyFilter(IQueryable<Audio> query, AudioFilter? filter)
+    private IQueryable<Audio> ApplyFilter(IQueryable<Audio> query, AudioFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null)
     {
         if (filter == null)
             return query;
@@ -583,7 +589,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FilterHelpers.ApplyInt(query, filter.ChannelsCriterion, audio => audio.Files.Max(file => file.Channels) ?? 0);
         query = ApplyEffectiveTagCountCriterion(query, filter.TagCountCriterion);
         query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, audio => audio.AudioPerformers.Count);
-        query = ApplyAudioTagCriterion(query, filter.TagsCriterion);
+        query = ApplyAudioTagCriterion(query, filter.TagsCriterion, hierarchicalTagGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, audio => audio.AudioPerformers.Select(link => link.PerformerId));
         query = ApplyPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
         query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, audio => audio.StudioId);
@@ -785,7 +791,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             .Count());
     }
 
-    private IQueryable<Audio> ApplyAudioTagCriterion(IQueryable<Audio> query, MultiIdCriterion? criterion)
+    private IQueryable<Audio> ApplyAudioTagCriterion(IQueryable<Audio> query, MultiIdCriterion? criterion, IReadOnlyList<int[]>? valueGroups = null)
     {
         if (criterion == null)
             return query;
@@ -802,6 +808,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             query = criterion.Modifier switch
             {
                 CriterionModifier.Excludes => query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
+                CriterionModifier.ExcludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: true),
+                CriterionModifier.IncludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: false),
                 CriterionModifier.ExcludesAll => ApplyAudioTagExcludesAll(query, effectiveTags, ids),
                 CriterionModifier.IncludesAll => ApplyAudioTagIncludesAll(query, effectiveTags, ids),
                 _ => query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
@@ -813,6 +821,18 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             query = query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && excludedIds.Contains(tag.TagId)));
 
         return query;
+    }
+
+    private static IQueryable<Audio> ApplyAudioTagGrouped(IQueryable<Audio> query, IQueryable<EffectiveHostTagRow> effectiveTags, IReadOnlyList<int[]> groups, bool excludeAll)
+    {
+        var matchingAll = query;
+        foreach (var group in groups)
+        {
+            var ids = group.Distinct().ToArray();
+            matchingAll = matchingAll.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId)));
+        }
+
+        return excludeAll ? query.Where(audio => !matchingAll.Any(match => match.Id == audio.Id)) : matchingAll;
     }
 
     private static IQueryable<Audio> ApplyAudioTagIncludesAll(IQueryable<Audio> query, IQueryable<EffectiveHostTagRow> effectiveTags, IReadOnlyCollection<int> tagIds)

@@ -7,6 +7,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
+using Cove.Data.Repositories;
 using Cove.Data.Services;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
 
@@ -165,7 +166,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
 
     [HttpGet("{id:int}")]
     [OutputCache(PolicyName = "ShortCache")]
-    public async Task<ActionResult<TagDetailDto>> GetById(int id, CancellationToken ct)
+    public async Task<ActionResult<TagDetailDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {
         var tag = await db.Tags
             .AsNoTracking()
@@ -178,7 +179,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             .FirstOrDefaultAsync(t => t.Id == id, ct);
         if (tag == null) return NotFound();
 
-        return Ok(await MapToDetailDtoAsync(tag, ct));
+        return Ok(await MapToDetailDtoAsync(tag, ct, depth));
     }
 
     [HttpGet("{id:int}/segments")]
@@ -487,10 +488,12 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         return ids.Distinct().ToList();
     }
 
-    private async Task<TagDetailDto> MapToDetailDtoAsync(Tag t, CancellationToken ct)
+    private async Task<TagDetailDto> MapToDetailDtoAsync(Tag t, CancellationToken ct, int? depth = null)
     {
-        var usageCounts = (await LoadTagUsageCountsAsync([t.Id], ct)).GetValueOrDefault(t.Id)
-            ?? new TagUsageCounts(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        var usageCounts = depth == -1
+            ? await LoadRecursiveTagUsageCountsAsync(t.Id, ct)
+            : (await LoadTagUsageCountsAsync([t.Id], ct)).GetValueOrDefault(t.Id)
+                ?? new TagUsageCounts(0, 0, 0, 0, 0, 0, 0, 0, 0);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Tag, t.Id, ct)).ToList();
@@ -538,6 +541,42 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             t.RemoteIds.Select(remoteId => new TagRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
             t.Organized,
             fieldProvenance);
+    }
+
+    private async Task<TagUsageCounts> LoadRecursiveTagUsageCountsAsync(int tagId, CancellationToken ct)
+    {
+        var expanded = await HierarchicalCriterionExpander.ExpandTagsAsync(db, new MultiIdCriterion
+        {
+            Value = [tagId],
+            Modifier = CriterionModifier.Includes,
+            Depth = -1,
+        }, ct);
+        var ids = expanded.Criterion.Value;
+
+        var scopedVideos = await ReadScopeListOptimization.ApplyAsync<Video>(db, EntityKinds.Video, Permissions.VideosRead, ct);
+        var scopedImages = await ReadScopeListOptimization.ApplyAsync<Image>(db, EntityKinds.Image, Permissions.ImagesRead, ct);
+        var scopedGalleries = await ReadScopeListOptimization.ApplyAsync<Gallery>(db, EntityKinds.Gallery, Permissions.GalleriesRead, ct);
+        var scopedGroups = await ReadScopeListOptimization.ApplyAsync<Group>(db, EntityKinds.Group, Permissions.GroupsRead, ct);
+        var scopedPerformers = await ReadScopeListOptimization.ApplyAsync<Performer>(db, EntityKinds.Performer, Permissions.PerformersRead, ct);
+        var scopedStudios = await ReadScopeListOptimization.ApplyAsync<Studio>(db, EntityKinds.Studio, Permissions.StudiosRead, ct);
+        var scopedAudios = await ReadScopeListOptimization.ApplyAsync<Audio>(db, EntityKinds.Audio, Permissions.AudiosRead, ct);
+        var scopedTexts = await ReadScopeListOptimization.ApplyAsync<TextDocument>(db, EntityKinds.Text, Permissions.TextsRead, ct);
+
+        var videoCount = await scopedVideos
+            .Join(EffectiveHostTagQuery.ForHostType(db, AffinityHostType.Video).Where(tag => ids.Contains(tag.TagId)), video => video.Id, tag => tag.HostId, (video, _) => video.Id)
+            .Distinct().CountAsync(ct);
+        var segmentCount = (await LoadVideoSegmentCountsAsync(ids, ct)).Values.Sum();
+        var imageCount = await scopedImages.CountAsync(image => image.ImageTags.Any(tag => ids.Contains(tag.TagId)), ct);
+        var galleryCount = await scopedGalleries.CountAsync(gallery => gallery.GalleryTags.Any(tag => ids.Contains(tag.TagId)), ct);
+        var groupCount = await scopedGroups.CountAsync(group => group.GroupTags.Any(tag => ids.Contains(tag.TagId)), ct);
+        var performerCount = await scopedPerformers.CountAsync(performer => performer.PerformerTags.Any(tag => ids.Contains(tag.TagId)), ct);
+        var studioCount = await scopedStudios.CountAsync(studio => studio.StudioTags.Any(tag => ids.Contains(tag.TagId)), ct);
+        var audioCount = await scopedAudios
+            .Join(EffectiveHostTagQuery.ForHostType(db, AffinityHostType.Audio).Where(tag => ids.Contains(tag.TagId)), audio => audio.Id, tag => tag.HostId, (audio, _) => audio.Id)
+            .Distinct().CountAsync(ct);
+        var textCount = await scopedTexts.CountAsync(text => text.TextTags.Any(tag => ids.Contains(tag.TagId)), ct);
+
+        return new TagUsageCounts(videoCount, segmentCount, imageCount, galleryCount, groupCount, performerCount, studioCount, audioCount, textCount);
     }
 
     private List<TagListDto> MapTagListDtos(IReadOnlyList<Tag> items, IReadOnlyDictionary<int, TagUsageCounts> usageCountsByTagId)

@@ -458,6 +458,7 @@ export const segmentLibrary = {
     videoTitle?: string;
     tagId?: number;
     tagIds?: string;
+    tagDepth?: number;
     kind?: string;
     sourceKey?: string;
     sourceCategory?: "user" | "extensions";
@@ -668,7 +669,7 @@ export const tags = {
     request<PaginatedResponse<Tag>>("/tags/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   graph: (req: FilteredQueryRequest<TagFilterCriteria>) =>
     request<TagGraphResponse>("/tags/graph", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
-  get: (id: number) => request<TagDetail>(`/tags/${id}`),
+  get: (id: number, depth?: number) => request<TagDetail>(`/tags/${id}${buildQuery(undefined, { depth })}`),
   segments: (id: number, count = 100) => request<TagSegmentWall[]>(`/tags/${id}/segments${buildQuery(undefined, { count })}`),
   create: (data: TagCreate) => request<TagDetail>("/tags", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: TagUpdate) => request<TagDetail>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -1679,4 +1680,3 @@ export const shareLinksApi = {
     request<ShareLinkIssuedRow>("/share-links", { method: "POST", body: JSON.stringify(req) }),
   revoke: (id: string) => request<void>(`/share-links/${id}`, { method: "DELETE" }),
 };
-
