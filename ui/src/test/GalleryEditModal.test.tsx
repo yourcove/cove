@@ -18,7 +18,25 @@ vi.mock("../components/StudioSelector", () => ({
 }));
 
 vi.mock("../components/EntityReferenceSelector", () => ({
-  EntityReferenceMultiSelector: ({ entityType }: { entityType: string }) => <div>{entityType} selector</div>,
+  EntityReferenceMultiSelector: ({
+    entityType,
+    values,
+    onChange,
+  }: {
+    entityType: string;
+    values: number[];
+    onChange: (values: number[]) => void;
+  }) => (
+    <div>
+      {entityType} selector: {values.join(",")}
+      {entityType === "video" ? (
+        <>
+          <button onClick={() => onChange([...values, 22])}>Add video 22</button>
+          <button onClick={() => onChange(values.filter((id) => id !== 14))}>Remove video 14</button>
+        </>
+      ) : null}
+    </div>
+  ),
 }));
 
 vi.mock("../components/shared", () => ({
@@ -61,6 +79,8 @@ function renderModal() {
       />
     </QueryClientProvider>,
   );
+
+  return queryClient;
 }
 
 describe("GalleryEditModal", () => {
@@ -68,15 +88,13 @@ describe("GalleryEditModal", () => {
     vi.clearAllMocks();
   });
 
-  it("omits rating, organized, and videos while using an ISO date field", async () => {
+  it("omits rating and organized while using an ISO date field", async () => {
     mockGalleries.update.mockResolvedValue({});
 
     renderModal();
 
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
-    expect(screen.queryByText("Videos")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.queryByText("video selector")).not.toBeInTheDocument();
 
     const dateInput = screen.getByDisplayValue("2026-05-01");
     expect(dateInput).toHaveAttribute("type", "text");
@@ -90,7 +108,37 @@ describe("GalleryEditModal", () => {
     expect(galleryId).toBe(21);
     expect(payload).not.toHaveProperty("rating");
     expect(payload).not.toHaveProperty("organized");
-    expect(payload).not.toHaveProperty("videoIds");
     expect(payload).toHaveProperty("date", "2026-05-01");
+  });
+
+  it("adds video relationships and refreshes the gallery videos", async () => {
+    mockGalleries.update.mockResolvedValue({});
+
+    const queryClient = renderModal();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    expect(screen.getByText("Videos")).toBeInTheDocument();
+    expect(screen.getByText("video selector: 14")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add video 22" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockGalleries.update).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["gallery-videos", 21] }));
+
+    expect(mockGalleries.update.mock.calls[0][1]).toHaveProperty("videoIds", [14, 22]);
+  });
+
+  it("removes existing video relationships", async () => {
+    mockGalleries.update.mockResolvedValue({});
+
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove video 14" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockGalleries.update).toHaveBeenCalledTimes(1));
+
+    expect(mockGalleries.update.mock.calls[0][1]).toHaveProperty("videoIds", []);
   });
 });
