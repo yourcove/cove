@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, galleries, groups, images, performers, videos, studios, texts, entityImages } from "../api/client";
-import type { Audio, AudioFilterCriteria, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, MetadataServer, MetadataServerStudioMatch, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, Studio, StudioFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
+import type { Audio, AudioFilterCriteria, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, MetadataServer, MetadataServerStudioMatch, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, Studio, StudioFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { ChevronDown, Building2, CloudDownload, CloudUpload, FileText, Film, FolderOpen, GitMerge, Headphones, ImageIcon, Layers, Link as LinkIcon, Loader2, MoreVertical, Music, Pencil, Search, Trash2, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +19,7 @@ import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { StudioMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
-import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
+import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, VIDEO_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
@@ -34,6 +34,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelationFilters";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
+import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = [
@@ -108,7 +109,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("videos");
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
   const [includeSubStudios, setIncludeSubStudios] = useState(false);
   const { data: recursiveStudio } = useQuery({
     queryKey: ["studio", id, "depth", -1],
@@ -125,14 +126,6 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     { key: "studios", label: "Sub-studios", count: studio?.childStudioCount },
     { key: "groups", label: "Groups", count: includeSubStudios ? recursiveStudio?.groupCount : studio?.groupCount },
   ], id);
-  const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
-  const [galleryFilter, setGalleryFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 30, direction: "desc" });
-  const [audioFilter, setAudioFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [textFilter, setTextFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [performerFilter, setPerformerFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
-  const [childFilter, setChildFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
-  const [groupFilter, setGroupFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "studios" }, onNavigate);
   const canWriteStudio = canWriteEntity("studio", hasPermission);
@@ -365,28 +358,28 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
 
         <div className="py-6">
           {activeTab === "videos" && (
-            <StudioVideosPanel studioId={id} includeSubStudios={includeSubStudios} filter={videoFilter} setFilter={setVideoFilter} onNavigate={onNavigate} />
+            <StudioVideosPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {activeTab === "performers" && (
-            <StudioPerformersPanel studioId={id} includeSubStudios={includeSubStudios} filter={performerFilter} setFilter={setPerformerFilter} onNavigate={onNavigate} />
+            <StudioPerformersPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {activeTab === "galleries" && (
-            <StudioGalleriesPanel studioId={id} includeSubStudios={includeSubStudios} filter={galleryFilter} setFilter={setGalleryFilter} onNavigate={onNavigate} />
+            <StudioGalleriesPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {activeTab === "images" && (
-            <StudioImagesPanel studioId={id} includeSubStudios={includeSubStudios} filter={imageFilter} setFilter={setImageFilter} onNavigate={onNavigate} />
+            <StudioImagesPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {activeTab === "audios" && (
-            <StudioAudiosPanel studioId={id} includeSubStudios={includeSubStudios} filter={audioFilter} setFilter={setAudioFilter} onNavigate={onNavigate} />
+            <StudioAudiosPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {activeTab === "texts" && (
-            <StudioTextsPanel studioId={id} includeSubStudios={includeSubStudios} filter={textFilter} setFilter={setTextFilter} onNavigate={onNavigate} />
+            <StudioTextsPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {activeTab === "studios" && (
-            <ChildStudiosPanel studioId={id} filter={childFilter} setFilter={setChildFilter} onNavigate={onNavigate} />
+            <ChildStudiosPanel studioId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "groups" && (
-            <StudioGroupsPanel studioId={id} includeSubStudios={includeSubStudios} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
+            <StudioGroupsPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
           {renderExtensionTab(activeTab, id, onNavigate)}
         </div>
@@ -599,17 +592,14 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
   );
 }
 
-function StudioVideosPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioVideosPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("videos");
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "studio-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" } });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["studio-videos", studioId, includeSubStudios, objectFilter],
@@ -642,16 +632,13 @@ function StudioVideosPanel({ studioId, includeSubStudios, filter, setFilter, onN
   );
 }
 
-function StudioGalleriesPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioGalleriesPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("galleries");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "studio-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
     queryKey: ["studio-galleries", studioId, includeSubStudios, objectFilter],
@@ -681,17 +668,14 @@ function StudioGalleriesPanel({ studioId, includeSubStudios, filter, setFilter, 
   );
 }
 
-function StudioImagesPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioImagesPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("images");
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "studio-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" } });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
     queryKey: ["studio-images", studioId, includeSubStudios, objectFilter],
@@ -724,16 +708,13 @@ function StudioImagesPanel({ studioId, includeSubStudios, filter, setFilter, onN
   );
 }
 
-function StudioAudiosPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioAudiosPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("audios");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "studio-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
     queryKey: ["studio-audios", studioId, includeSubStudios, objectFilter],
     filter,
@@ -760,16 +741,13 @@ function StudioAudiosPanel({ studioId, includeSubStudios, filter, setFilter, onN
   );
 }
 
-function StudioTextsPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioTextsPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("texts");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "studio-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
     queryKey: ["studio-texts", studioId, includeSubStudios, objectFilter],
     filter,
@@ -796,15 +774,12 @@ function StudioTextsPanel({ studioId, includeSubStudios, filter, setFilter, onNa
   );
 }
 
-function ChildStudiosPanel({ studioId, filter, setFilter, onNavigate }: {
+function ChildStudiosPanel({ studioId, onNavigate }: {
   studioId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("studios");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "studios", resetKey: "studio-children", entityType: "studios", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Studio>({
     queryKey: ["child-studios", studioId, objectFilter],
@@ -834,16 +809,13 @@ function ChildStudiosPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioPerformersPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioPerformersPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("performers");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "performers", resetKey: "studio-performers", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Performer>({
     queryKey: ["studio-performers", studioId, includeSubStudios, objectFilter],
@@ -873,16 +845,13 @@ function StudioPerformersPanel({ studioId, includeSubStudios, filter, setFilter,
   );
 }
 
-function StudioGroupsPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
+function StudioGroupsPanel({ studioId, includeSubStudios, onNavigate }: {
   studioId: number;
   includeSubStudios: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("groups");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "studio-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
     queryKey: ["studio-groups", studioId, includeSubStudios, objectFilter],

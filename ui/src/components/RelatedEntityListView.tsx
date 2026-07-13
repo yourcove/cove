@@ -14,6 +14,8 @@ import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { formatDuration, formatFileSize, getResolutionLabel } from "./shared";
 import type { DetailListDisplayMode } from "./DetailListToolbar";
+import { getRelatedEntityDisplayModes, type RelatedEntityType } from "./relatedEntityDisplayModes";
+export { getRelatedEntityDisplayModes, type RelatedEntityType } from "./relatedEntityDisplayModes";
 import { AudioTile, FaceTile, GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, SegmentTile, StudioTile, TagTile, TextTile } from "./EntityCards";
 import { FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedMetadataPill, FeedPortraitMediaFrame, getFeedMediaStyle } from "./FeedCardFrame";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
@@ -28,23 +30,7 @@ import { ScraperEntityTagger } from "./ScraperEntityTagger";
 import { TagGraphView } from "./TagGraphView";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
-export type RelatedEntityType = "videos" | "images" | "performers" | "galleries" | "studios" | "tags" | "groups" | "audios" | "texts" | "segments" | "faces";
-
 type RelatedEntityItem = Video | Image | Performer | Gallery | Studio | Tag | Group | Audio | TextDocument | SegmentRecord | Face;
-
-const RELATED_ENTITY_DISPLAY_MODES: Record<RelatedEntityType, DetailListDisplayMode[]> = {
-  videos: ["grid", "list", "wall", "tagger", "feed", "vertical"],
-  images: ["grid", "list", "wall", "tagger", "feed"],
-  performers: ["grid", "list", "wall", "tagger"],
-  galleries: ["grid", "list", "wall", "tagger"],
-  studios: ["grid", "list", "tagger"],
-  tags: ["grid", "list", "graph", "tagger"],
-  groups: ["grid", "list", "tagger"],
-  audios: ["grid", "list", "tagger"],
-  texts: ["grid", "list", "tagger"],
-  segments: ["grid", "list"],
-  faces: ["grid", "list"],
-};
 
 const ENTITY_CARD_SIZE_TYPE: Partial<Record<RelatedEntityType, string>> = {
   videos: "videos",
@@ -87,10 +73,6 @@ const RELATED_ENTITY_AFFINITY_HOST: Partial<Record<RelatedEntityType, AffinityHo
   audios: "audio",
   texts: "text",
 };
-
-export function getRelatedEntityDisplayModes(entityType: RelatedEntityType) {
-  return RELATED_ENTITY_DISPLAY_MODES[entityType];
-}
 
 export function useRelatedEntityDisplayMode(entityType: RelatedEntityType) {
   const availableDisplayModes = getRelatedEntityDisplayModes(entityType);

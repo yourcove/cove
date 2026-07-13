@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FindFilter } from "../api/types";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 
-interface ListUrlState<TDisplayMode extends string> {
+export interface ListUrlState<TDisplayMode extends string> {
   filter: FindFilter;
   objectFilter: Record<string, unknown>;
   displayMode: TDisplayMode;
   searchMode: string;
 }
 
-interface UseListUrlStateOptions<TDisplayMode extends string> {
+export interface UseListUrlStateOptions<TDisplayMode extends string> {
   resetKey: string;
   defaultFilter: FindFilter;
   defaultObjectFilter?: Record<string, unknown>;
@@ -18,9 +18,11 @@ interface UseListUrlStateOptions<TDisplayMode extends string> {
   defaultSearchMode?: string;
   allowedSearchModes?: readonly string[];
   allowInfinitePageSize?: boolean;
+  enabled?: boolean;
+  initialState?: ListUrlState<TDisplayMode>;
 }
 
-const MANAGED_KEYS = ["q", "page", "perPage", "sort", "direction", "view", "viewMode", "filters", "seed", "searchMode"];
+export const LIST_URL_MANAGED_KEYS = ["q", "page", "perPage", "sort", "direction", "view", "viewMode", "filters", "seed", "searchMode"] as const;
 const DEFAULT_SEARCH_MODE = "text";
 const MAX_RANDOM_SORT_SEED = 2147483647;
 
@@ -131,12 +133,23 @@ function readStateFromUrl<TDisplayMode extends string>(options: UseListUrlStateO
   };
 }
 
+function readDefaultState<TDisplayMode extends string>(options: UseListUrlStateOptions<TDisplayMode>): ListUrlState<TDisplayMode> {
+  const filter = cloneFilter(options.defaultFilter);
+  if (filter.sort === "random" && filter.seed == null) filter.seed = generateRandomSortSeed();
+  return {
+    filter,
+    objectFilter: cloneObjectFilter(options.defaultObjectFilter),
+    displayMode: options.defaultDisplayMode,
+    searchMode: options.defaultSearchMode ?? DEFAULT_SEARCH_MODE,
+  };
+}
+
 function writeStateToParams<TDisplayMode extends string>(
   params: URLSearchParams,
   state: ListUrlState<TDisplayMode>,
   options: UseListUrlStateOptions<TDisplayMode>,
 ) {
-  for (const key of MANAGED_KEYS) {
+  for (const key of LIST_URL_MANAGED_KEYS) {
     params.delete(key);
   }
 
@@ -173,7 +186,20 @@ function writeStateToParams<TDisplayMode extends string>(
 
 export function useListUrlState<TDisplayMode extends string>(options: UseListUrlStateOptions<TDisplayMode>) {
   const readState = useCallback(() => readStateFromUrl(options), [options]);
-  const [state, setState] = useState<ListUrlState<TDisplayMode>>(() => readState());
+  const [state, setState] = useState<ListUrlState<TDisplayMode>>(() => {
+    if (!options.initialState) {
+      return options.enabled === false ? readDefaultState(options) : readState();
+    }
+
+    const initialOptions = {
+      ...options,
+      defaultFilter: options.initialState.filter,
+      defaultObjectFilter: options.initialState.objectFilter,
+      defaultDisplayMode: options.initialState.displayMode,
+      defaultSearchMode: options.initialState.searchMode,
+    };
+    return options.enabled === false ? readDefaultState(initialOptions) : readStateFromUrl(initialOptions);
+  });
 
   const serializedState = useMemo(() => JSON.stringify(state), [state]);
 
@@ -187,6 +213,7 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
   }, [options.defaultDisplayMode, options.defaultFilter, options.defaultObjectFilter, options.defaultSearchMode]);
 
   useEffect(() => {
+    if (options.enabled === false) return;
     const applyUrlState = () => {
       const nextState = readState();
       setState((current) => {
@@ -217,6 +244,7 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
   }, [options.resetKey, reset]);
 
   useEffect(() => {
+    if (options.enabled === false) return;
     const params = new URLSearchParams(window.location.search);
     writeStateToParams(params, state, options);
 

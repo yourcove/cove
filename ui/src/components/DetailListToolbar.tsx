@@ -55,9 +55,11 @@ interface DetailListToolbarProps {
   // Optional separate storage key for the auto-applied default filter (defaults to filterMode). Lets an
   // embedded list keep its own default while still sharing filterMode's named-filter library.
   filterDefaultKey?: string;
+  // URL-backed detail lists resolve their saved default before the first query and must not apply it again after mount.
+  defaultFilterResolved?: boolean;
 }
 
-export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode, filterDefaultKey }: DetailListToolbarProps) {
+export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode, filterDefaultKey, defaultFilterResolved = false }: DetailListToolbarProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
   // Random sort with no seed (e.g. a default saved filter, or a re-mounted detail-page list) would
@@ -129,7 +131,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
   useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter, defaultUIOptions) => {
-    if (!filterMode) return;
+    if (!filterMode || defaultFilterResolved) return;
     if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
     if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
     const defaultDisplayMode = typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
