@@ -27,6 +27,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
     urls: gallery.urls.length > 0 ? gallery.urls : [""],
     tagIds: gallery.tags.map((t) => t.id),
     performerIds: gallery.performers.map((p) => p.id),
+    videoIds: gallery.videoIds,
   });
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(gallery.customFields ?? {}) });
   const tagProvenanceById = buildTagProvenanceById(gallery.tags, gallery.fieldProvenance);
@@ -42,6 +43,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
     mutationFn: (data: GalleryUpdate) => galleries.update(gallery.id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["gallery", gallery.id] });
+      qc.invalidateQueries({ queryKey: ["gallery-videos", gallery.id] });
       qc.invalidateQueries({ queryKey: ["galleries"] });
       onClose();
     },
@@ -58,6 +60,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
       urls: form.urls.map((url) => url.trim()).filter(Boolean),
       tagIds: form.tagIds,
       performerIds: form.performerIds,
+      videoIds: form.videoIds,
       customFields,
     });
   };
@@ -102,6 +105,10 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
       {/* Performers picker */}
       <Field label="Performers" fieldProvenance={gallery.fieldProvenance} fieldKey="performers">
         <EntityReferenceMultiSelector entityType="performer" values={form.performerIds} onChange={(performerIds) => setForm({ ...form, performerIds })} placeholder="Search performers..." seedOptions={performerSeedOptions} />
+      </Field>
+
+      <Field label="Videos" fieldProvenance={gallery.fieldProvenance} fieldKey="videos">
+        <EntityReferenceMultiSelector entityType="video" values={form.videoIds} onChange={(videoIds) => setForm({ ...form, videoIds })} placeholder="Search videos..." />
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={gallery.fieldProvenance} fieldKey="customFields">
