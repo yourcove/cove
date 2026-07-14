@@ -33,6 +33,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelationFilters";
+import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = [
@@ -108,15 +109,21 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("videos");
+  const [includeSubStudios, setIncludeSubStudios] = useState(false);
+  const { data: recursiveStudio } = useQuery({
+    queryKey: ["studio", id, "depth", -1],
+    queryFn: () => studios.get(id, -1),
+    enabled: includeSubStudios,
+  });
   const { allTabs: studioTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("studio", [
-    { key: "videos", label: "Videos", count: studio?.videoCount },
-    { key: "performers", label: "Performers", count: studio?.performerCount },
-    { key: "galleries", label: "Galleries", count: studio?.galleryCount },
-    { key: "images", label: "Images", count: studio?.imageCount },
-    { key: "audios", label: "Audios", count: studio?.audioCount },
-    { key: "texts", label: "Texts", count: studio?.textCount },
+    { key: "videos", label: "Videos", count: includeSubStudios ? recursiveStudio?.videoCount : studio?.videoCount },
+    { key: "performers", label: "Performers", count: includeSubStudios ? recursiveStudio?.performerCount : studio?.performerCount },
+    { key: "galleries", label: "Galleries", count: includeSubStudios ? recursiveStudio?.galleryCount : studio?.galleryCount },
+    { key: "images", label: "Images", count: includeSubStudios ? recursiveStudio?.imageCount : studio?.imageCount },
+    { key: "audios", label: "Audios", count: includeSubStudios ? recursiveStudio?.audioCount : studio?.audioCount },
+    { key: "texts", label: "Texts", count: includeSubStudios ? recursiveStudio?.textCount : studio?.textCount },
     { key: "studios", label: "Sub-studios", count: studio?.childStudioCount },
-    { key: "groups", label: "Groups", count: studio?.groupCount },
+    { key: "groups", label: "Groups", count: includeSubStudios ? recursiveStudio?.groupCount : studio?.groupCount },
   ], id);
   const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
   const [galleryFilter, setGalleryFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
@@ -155,6 +162,8 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   });
 
   useDocumentTitle(studio?.name);
+
+  useEffect(() => setIncludeSubStudios(false), [id]);
 
   // Close ops menu on outside click
   useEffect(() => {
@@ -348,31 +357,36 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         <ExtensionSlot slot="studio-detail-sidebar-bottom" context={{ studio, onNavigate }} />
 
         <EntityDetailTabs tabs={visibleStudioTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto max-w-7xl mt-6" />
+        {activeTab !== "studios" && (
+          <div className="mx-auto mt-4 max-w-7xl px-4">
+            <HierarchyContentToggle checked={includeSubStudios} label="Include sub-studio content" onChange={setIncludeSubStudios} />
+          </div>
+        )}
 
         <div className="py-6">
           {activeTab === "videos" && (
-            <StudioVideosPanel studioId={id} filter={videoFilter} setFilter={setVideoFilter} onNavigate={onNavigate} />
+            <StudioVideosPanel studioId={id} includeSubStudios={includeSubStudios} filter={videoFilter} setFilter={setVideoFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "performers" && (
-            <StudioPerformersPanel studioId={id} filter={performerFilter} setFilter={setPerformerFilter} onNavigate={onNavigate} />
+            <StudioPerformersPanel studioId={id} includeSubStudios={includeSubStudios} filter={performerFilter} setFilter={setPerformerFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "galleries" && (
-            <StudioGalleriesPanel studioId={id} filter={galleryFilter} setFilter={setGalleryFilter} onNavigate={onNavigate} />
+            <StudioGalleriesPanel studioId={id} includeSubStudios={includeSubStudios} filter={galleryFilter} setFilter={setGalleryFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "images" && (
-            <StudioImagesPanel studioId={id} filter={imageFilter} setFilter={setImageFilter} onNavigate={onNavigate} />
+            <StudioImagesPanel studioId={id} includeSubStudios={includeSubStudios} filter={imageFilter} setFilter={setImageFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "audios" && (
-            <StudioAudiosPanel studioId={id} filter={audioFilter} setFilter={setAudioFilter} onNavigate={onNavigate} />
+            <StudioAudiosPanel studioId={id} includeSubStudios={includeSubStudios} filter={audioFilter} setFilter={setAudioFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "texts" && (
-            <StudioTextsPanel studioId={id} filter={textFilter} setFilter={setTextFilter} onNavigate={onNavigate} />
+            <StudioTextsPanel studioId={id} includeSubStudios={includeSubStudios} filter={textFilter} setFilter={setTextFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "studios" && (
             <ChildStudiosPanel studioId={id} filter={childFilter} setFilter={setChildFilter} onNavigate={onNavigate} />
           )}
           {activeTab === "groups" && (
-            <StudioGroupsPanel studioId={id} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
+            <StudioGroupsPanel studioId={id} includeSubStudios={includeSubStudios} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
           )}
           {renderExtensionTab(activeTab, id, onNavigate)}
         </div>
@@ -585,8 +599,9 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
   );
 }
 
-function StudioVideosPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioVideosPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -597,12 +612,12 @@ function StudioVideosPanel({ studioId, filter, setFilter, onNavigate }: {
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
-    queryKey: ["studio-videos", studioId, objectFilter],
+    queryKey: ["studio-videos", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
+    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
       ? videos.findFiltered({
           findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as VideoFilterCriteria, "studiosCriterion", studioId),
+          objectFilter: withRequiredSingleId(objectFilter as VideoFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
         })
       : videos.find(nextFilter, { studioId: String(studioId) }),
   });
@@ -627,8 +642,9 @@ function StudioVideosPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioGalleriesPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioGalleriesPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -638,12 +654,12 @@ function StudioGalleriesPanel({ studioId, filter, setFilter, onNavigate }: {
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
-    queryKey: ["studio-galleries", studioId, objectFilter],
+    queryKey: ["studio-galleries", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
+    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
       ? galleries.findFiltered({
           findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as GalleryFilterCriteria, "studiosCriterion", studioId),
+          objectFilter: withRequiredSingleId(objectFilter as GalleryFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
         })
       : galleries.find(nextFilter, { studioId: String(studioId) }),
   });
@@ -665,8 +681,9 @@ function StudioGalleriesPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioImagesPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioImagesPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -677,12 +694,12 @@ function StudioImagesPanel({ studioId, filter, setFilter, onNavigate }: {
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
-    queryKey: ["studio-images", studioId, objectFilter],
+    queryKey: ["studio-images", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
+    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
       ? images.findFiltered({
           findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as ImageFilterCriteria, "studiosCriterion", studioId),
+          objectFilter: withRequiredSingleId(objectFilter as ImageFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
         })
       : images.find(nextFilter, { studioId: String(studioId) }),
   });
@@ -707,8 +724,9 @@ function StudioImagesPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioAudiosPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioAudiosPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -717,11 +735,11 @@ function StudioAudiosPanel({ studioId, filter, setFilter, onNavigate }: {
   const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("audios");
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
-    queryKey: ["studio-audios", studioId, objectFilter],
+    queryKey: ["studio-audios", studioId, includeSubStudios, objectFilter],
     filter,
     queryFn: (nextFilter) => audios.findFiltered({
       findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "studiosCriterion", studioId),
+      objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
     }),
   });
   const items = data?.items ?? [];
@@ -742,8 +760,9 @@ function StudioAudiosPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioTextsPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioTextsPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -752,11 +771,11 @@ function StudioTextsPanel({ studioId, filter, setFilter, onNavigate }: {
   const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("texts");
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
-    queryKey: ["studio-texts", studioId, objectFilter],
+    queryKey: ["studio-texts", studioId, includeSubStudios, objectFilter],
     filter,
     queryFn: (nextFilter) => texts.findFiltered({
       findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as TextFilterCriteria, "studiosCriterion", studioId),
+      objectFilter: withRequiredMultiId(objectFilter as TextFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
     }),
   });
   const items = data?.items ?? [];
@@ -815,8 +834,9 @@ function ChildStudiosPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioPerformersPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioPerformersPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -826,12 +846,12 @@ function StudioPerformersPanel({ studioId, filter, setFilter, onNavigate }: {
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Performer>({
-    queryKey: ["studio-performers", studioId, objectFilter],
+    queryKey: ["studio-performers", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
+    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
       ? performers.findFiltered({
           findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as PerformerFilterCriteria, "studiosCriterion", studioId),
+          objectFilter: withRequiredMultiId(objectFilter as PerformerFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
         })
       : performers.find(nextFilter, { studioId: String(studioId) }),
   });
@@ -853,8 +873,9 @@ function StudioPerformersPanel({ studioId, filter, setFilter, onNavigate }: {
   );
 }
 
-function StudioGroupsPanel({ studioId, filter, setFilter, onNavigate }: {
+function StudioGroupsPanel({ studioId, includeSubStudios, filter, setFilter, onNavigate }: {
   studioId: number;
+  includeSubStudios: boolean;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
@@ -864,12 +885,12 @@ function StudioGroupsPanel({ studioId, filter, setFilter, onNavigate }: {
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
-    queryKey: ["studio-groups", studioId, objectFilter],
+    queryKey: ["studio-groups", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
+    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
       ? groups.findFiltered({
           findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as GroupFilterCriteria, "studiosCriterion", studioId),
+          objectFilter: withRequiredSingleId(objectFilter as GroupFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
         })
       : groups.find(nextFilter, { studioId: String(studioId) }),
   });

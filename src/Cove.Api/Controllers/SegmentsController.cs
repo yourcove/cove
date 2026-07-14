@@ -6,6 +6,7 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
+using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -66,6 +67,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromQuery] string? updatedAtModifier = null,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 48,
+        [FromQuery] int? tagDepth = null,
         CancellationToken cancellationToken = default)
     {
         page = Math.Max(page, 1);
@@ -119,6 +121,13 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         }
 
         var parsedTagIds = ParseIdList(tagIds);
+        if (tagDepth == -1 && tagId.HasValue)
+        {
+            parsedTagIds = (await HierarchicalCriterionExpander.ExpandTagsAsync(db,
+                new MultiIdCriterion { Value = [tagId.Value], Modifier = CriterionModifier.Includes, Depth = -1 },
+                cancellationToken)).Criterion.Value;
+            tagId = null;
+        }
         if (tagId.HasValue)
             query = query.Where(item => item.Segment.TagId == tagId.Value);
         else if (parsedTagIds.Count > 0)

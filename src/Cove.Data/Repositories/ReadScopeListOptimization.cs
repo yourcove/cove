@@ -23,7 +23,7 @@ internal sealed record ReadScopeRootPlan<TEntity>(bool UseIgnoreQueryFilters, Ex
     }
 }
 
-internal static class ReadScopeListOptimization
+public static class ReadScopeListOptimization
 {
     private static readonly MethodInfo EnumerableContainsMethod = typeof(Enumerable)
         .GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -44,7 +44,25 @@ internal static class ReadScopeListOptimization
     private static readonly MethodInfo RegexIsMatchMethod = typeof(Regex)
         .GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!;
 
-    public static async Task<ReadScopeRootPlan<TEntity>?> TryBuildPlanAsync<TEntity>(
+    public static async Task<IQueryable<TEntity>> ApplyAsync<TEntity>(
+        CoveContext db,
+        string entityKind,
+        string readPermission,
+        CancellationToken ct)
+        where TEntity : BaseEntity
+    {
+        var principal = db.CurrentPrincipalForReadOptimization;
+        var plan = await TryBuildPlanAsync<TEntity>(
+            db,
+            entityKind,
+            principal?.Has(readPermission) == true,
+            principal?.ReadGrantedEntityKinds.Contains(entityKind) == true,
+            ct);
+
+        return (plan ?? new ReadScopeRootPlan<TEntity>(false, null)).Apply(db.Set<TEntity>().AsQueryable());
+    }
+
+    internal static async Task<ReadScopeRootPlan<TEntity>?> TryBuildPlanAsync<TEntity>(
         CoveContext db,
         string entityKind,
         bool hasDirectReadPermission,

@@ -142,6 +142,18 @@ public class EntityDetailCountControllerTests
         Assert.Equal(1, detail.GroupCount);
         Assert.Equal(2, detail.PerformerCount);
         Assert.Equal(1, detail.ChildStudioCount);
+
+        var childVideo = new Video { Title = "Child Video", StudioId = childStudio.Id };
+        context.Videos.Add(childVideo);
+        await context.SaveChangesAsync();
+        context.Set<VideoPerformer>().Add(new VideoPerformer { VideoId = childVideo.Id, PerformerId = performerA.Id });
+        await context.SaveChangesAsync();
+
+        var recursiveResult = await controller.GetById(studio.Id, CancellationToken.None, -1);
+        var recursiveDetail = Assert.IsType<OkObjectResult>(recursiveResult.Result).Value as StudioDto;
+        Assert.NotNull(recursiveDetail);
+        Assert.Equal(2, recursiveDetail!.VideoCount);
+        Assert.Equal(2, recursiveDetail.PerformerCount);
     }
 
     [Fact]

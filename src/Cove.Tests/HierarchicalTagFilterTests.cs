@@ -9,6 +9,35 @@ namespace Cove.Tests;
 public class HierarchicalTagFilterTests
 {
     [Fact]
+    public async Task VideoStudiosCriterion_WithSubStudios_MatchesChildStudio()
+    {
+        await using var context = CreateContext();
+        var parent = new Studio { Name = "Parent" };
+        var child = new Studio { Name = "Child", Parent = parent };
+        context.Studios.AddRange(parent, child);
+        await context.SaveChangesAsync();
+
+        context.Videos.Add(new Video { Title = "child-video", StudioId = child.Id });
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            StudiosCriterion = new MultiIdCriterion
+            {
+                Value = [parent.Id],
+                Modifier = CriterionModifier.Includes,
+                Depth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["child-video"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task VideoTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
     {
         await using var context = CreateContext();
@@ -139,6 +168,35 @@ public class HierarchicalTagFilterTests
         Assert.Equal(["children-only-match", "root-and-child-match"], titles);
     }
 
+    [Fact]
+    public async Task GalleryTagsCriterion_IncludesAll_WithSubTags_MatchesPerSelectedRoot()
+    {
+        await using var context = CreateContext();
+        var (parentA, childA, parentB, childB) = await SeedTagHierarchyAsync(context);
+        context.Galleries.AddRange(
+            CreateGallery("children-only-match", childA.Id, childB.Id),
+            CreateGallery("missing-second-root", childA.Id),
+            CreateGallery("root-and-child-match", parentA.Id, childB.Id));
+        await context.SaveChangesAsync();
+
+        var repository = new GalleryRepository(context);
+        var filter = new GalleryFilter
+        {
+            TagsCriterion = new MultiIdCriterion
+            {
+                Value = [parentA.Id, parentB.Id],
+                Modifier = CriterionModifier.IncludesAll,
+                Depth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var titles = items.Select(gallery => gallery.Title ?? string.Empty).OrderBy(title => title).ToArray();
+
+        Assert.Equal(2, totalCount);
+        Assert.Equal(["children-only-match", "root-and-child-match"], titles);
+    }
+
     private static async Task<(Tag ParentA, Tag ChildA, Tag ParentB, Tag ChildB)> SeedTagHierarchyAsync(CoveContext context)
     {
         var parentA = new Tag { Name = "Parent A" };
@@ -171,6 +229,13 @@ public class HierarchicalTagFilterTests
             ImageTags = tagIds.Select(tagId => new ImageTag { TagId = tagId }).ToList(),
         };
 
+    private static Gallery CreateGallery(string title, params int[] tagIds)
+        => new()
+        {
+            Title = title,
+            GalleryTags = tagIds.Select(tagId => new GalleryTag { TagId = tagId }).ToList(),
+        };
+
     private static CoveContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
@@ -189,4 +254,3 @@ public class HierarchicalTagFilterTests
         }
     }
 }
-

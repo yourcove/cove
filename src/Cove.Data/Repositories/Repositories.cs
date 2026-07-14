@@ -311,10 +311,17 @@ public class PerformerRepository : IPerformerRepository
 
     public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchicalStudioCriterion? expandedStudios = null;
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (filter?.TagsCriterion?.Depth == -1)
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+
+        ExpandedHierarchyCriterion? expandedStudios = null;
         if (filter?.StudiosCriterion?.Depth == -1)
         {
-            expandedStudios = await ExpandHierarchicalStudioCriterionAsync(filter.StudiosCriterion, ct);
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct);
             filter.StudiosCriterion = expandedStudios.Criterion;
         }
 
@@ -407,7 +414,7 @@ public class PerformerRepository : IPerformerRepository
                 query = query.Where(p => p.Favorite == filter.FavoriteCriterion.Value);
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, p => p.PerformerTags.Select(pt => pt.TagId));
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, p => p.PerformerTags.Select(pt => pt.TagId), expandedTags?.ValueGroups);
             if (filter.StudiosCriterion is { Modifier: CriterionModifier.IncludesAll, Value.Count: > 0 } studiosCriterion)
             {
                 if (expandedStudios?.ValueGroups is { Count: > 0 } studioGroups)
@@ -638,66 +645,6 @@ public class PerformerRepository : IPerformerRepository
         return (sortedItems, totalCount);
     }
 
-    private sealed record ExpandedHierarchicalStudioCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);
-
-    private async Task<ExpandedHierarchicalStudioCriterion> ExpandHierarchicalStudioCriterionAsync(MultiIdCriterion criterion, CancellationToken ct)
-    {
-        var studios = await _db.Studios
-            .AsNoTracking()
-            .Select(studio => new { studio.Id, studio.ParentId })
-            .ToListAsync(ct);
-
-        var childrenByParent = studios
-            .Where(studio => studio.ParentId.HasValue)
-            .GroupBy(studio => studio.ParentId!.Value)
-            .ToDictionary(group => group.Key, group => group.Select(studio => studio.Id).ToArray());
-
-        var valueGroups = criterion.Value
-            .Distinct()
-            .Select(studioId => ExpandStudioGroup(studioId, childrenByParent))
-            .ToList();
-
-        var flatValue = valueGroups.SelectMany(group => group).Distinct().ToList();
-        var flatExcludes = criterion.Excludes?
-            .Distinct()
-            .SelectMany(studioId => ExpandStudioGroup(studioId, childrenByParent))
-            .Distinct()
-            .ToList();
-
-        return new ExpandedHierarchicalStudioCriterion(
-            new MultiIdCriterion
-            {
-                Value = flatValue,
-                Modifier = criterion.Modifier,
-                Excludes = flatExcludes is { Count: > 0 } ? flatExcludes : null,
-                Depth = criterion.Depth,
-            },
-            valueGroups);
-    }
-
-    private static int[] ExpandStudioGroup(int rootStudioId, IReadOnlyDictionary<int, int[]> childrenByParent)
-    {
-        var expanded = new HashSet<int> { rootStudioId };
-        var queue = new Queue<int>();
-        queue.Enqueue(rootStudioId);
-
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            if (!childrenByParent.TryGetValue(parentId, out var childIds))
-            {
-                continue;
-            }
-
-            foreach (var childId in childIds)
-            {
-                if (expanded.Add(childId))
-                    queue.Enqueue(childId);
-            }
-        }
-
-        return expanded.ToArray();
-    }
 }
 
 public class TagRepository : ITagRepository
@@ -1329,6 +1276,13 @@ public class StudioRepository : IStudioRepository
 
     public async Task<(IReadOnlyList<Studio> Items, int TotalCount)> FindAsync(StudioFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (filter?.TagsCriterion?.Depth == -1)
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+
         var query = _db.Studios.AsQueryable();
         if (filter != null)
         {
@@ -1347,7 +1301,7 @@ public class StudioRepository : IStudioRepository
                 query = query.Where(s => s.Favorite == filter.FavoriteCriterion.Value);
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, s => s.StudioTags.Select(st => st.TagId));
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, s => s.StudioTags.Select(st => st.TagId), expandedTags?.ValueGroups);
 
             // String criteria
             if (filter.UrlCriterion != null)
@@ -1533,6 +1487,15 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (filter?.TagsCriterion?.Depth == -1)
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+        if (filter?.StudiosCriterion?.Depth == -1)
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+
         var query = _db.Galleries.AsQueryable();
         if (filter != null)
         {
@@ -1556,7 +1519,7 @@ public class GalleryRepository : IGalleryRepository
                     : query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.Favorite));
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.TagIds);
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.TagIds, expandedTags?.ValueGroups);
             query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, g => g.PerformerIds);
 
             query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
@@ -2046,12 +2009,14 @@ public class ImageRepository : IImageRepository
 
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchicalTagCriterion? expandedTags = null;
+        ExpandedHierarchyCriterion? expandedTags = null;
         if (filter?.TagsCriterion?.Depth == -1)
         {
-            expandedTags = await ExpandHierarchicalTagCriterionAsync(filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
+        if (filter?.StudiosCriterion?.Depth == -1)
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
         var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
@@ -2507,65 +2472,6 @@ public class ImageRepository : IImageRepository
         };
     }
 
-    private sealed record ExpandedHierarchicalTagCriterion(MultiIdCriterion Criterion, IReadOnlyList<int[]> ValueGroups);
-
-    private async Task<ExpandedHierarchicalTagCriterion> ExpandHierarchicalTagCriterionAsync(MultiIdCriterion criterion, CancellationToken ct)
-    {
-        var relationships = await _db.Set<TagParent>()
-            .AsNoTracking()
-            .Select(tp => new { tp.ParentId, tp.ChildId })
-            .ToListAsync(ct);
-
-        var childrenByParent = relationships
-            .GroupBy(tp => tp.ParentId)
-            .ToDictionary(group => group.Key, group => group.Select(tp => tp.ChildId).ToArray());
-
-        var valueGroups = criterion.Value
-            .Distinct()
-            .Select(tagId => ExpandTagGroup(tagId, childrenByParent))
-            .ToList();
-
-        var flatValue = valueGroups.SelectMany(group => group).Distinct().ToList();
-        var flatExcludes = criterion.Excludes?
-            .Distinct()
-            .SelectMany(tagId => ExpandTagGroup(tagId, childrenByParent))
-            .Distinct()
-            .ToList();
-
-        return new ExpandedHierarchicalTagCriterion(
-            new MultiIdCriterion
-            {
-                Value = flatValue,
-                Modifier = criterion.Modifier,
-                Excludes = flatExcludes is { Count: > 0 } ? flatExcludes : null,
-                Depth = criterion.Depth,
-            },
-            valueGroups);
-    }
-
-    private static int[] ExpandTagGroup(int rootTagId, IReadOnlyDictionary<int, int[]> childrenByParent)
-    {
-        var expanded = new HashSet<int> { rootTagId };
-        var queue = new Queue<int>();
-        queue.Enqueue(rootTagId);
-
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            if (!childrenByParent.TryGetValue(parentId, out var childIds))
-            {
-                continue;
-            }
-
-            foreach (var childId in childIds)
-            {
-                if (expanded.Add(childId))
-                    queue.Enqueue(childId);
-            }
-        }
-
-        return expanded.ToArray();
-    }
 }
 
 public class GroupRepository : IGroupRepository
@@ -2611,6 +2517,15 @@ public class GroupRepository : IGroupRepository
 
     public async Task<(IReadOnlyList<Group> Items, int TotalCount)> FindAsync(GroupFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (filter?.TagsCriterion?.Depth == -1)
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+        if (filter?.StudiosCriterion?.Depth == -1)
+            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+
         var query = _db.Groups.AsQueryable();
         if (filter != null)
         {
@@ -2637,7 +2552,7 @@ public class GroupRepository : IGroupRepository
             }
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.GroupTags.Select(gt => gt.TagId));
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.GroupTags.Select(gt => gt.TagId), expandedTags?.ValueGroups);
 
             query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
 

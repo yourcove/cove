@@ -8,6 +8,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
+using Cove.Data.Repositories;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
 
 namespace Cove.Api.Controllers;
@@ -57,11 +58,11 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
 
     [HttpGet("{id:int}")]
     [OutputCache(PolicyName = "ShortCache")]
-    public async Task<ActionResult<StudioDto>> GetById(int id, CancellationToken ct)
+    public async Task<ActionResult<StudioDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {
         var studio = await studioRepo.GetByIdWithRelationsAsync(id, ct);
         if (studio == null) return NotFound();
-        return Ok(await MapToDetailDtoAsync(studio, ct));
+        return Ok(await MapToDetailDtoAsync(studio, ct, depth));
     }
 
     [HttpPost]
@@ -208,14 +209,47 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
 
     // ===== Merge =====
 
-    private async Task<StudioDto> MapToDetailDtoAsync(Studio studio, CancellationToken ct)
+    private async Task<StudioDto> MapToDetailDtoAsync(Studio studio, CancellationToken ct, int? depth = null)
     {
-        var usageCounts = (await LoadStudioUsageCountsAsync([studio.Id], ct)).GetValueOrDefault(studio.Id);
+        var usageCounts = depth == -1
+            ? await LoadRecursiveStudioUsageCountsAsync(studio.Id, ct)
+            : (await LoadStudioUsageCountsAsync([studio.Id], ct)).GetValueOrDefault(studio.Id);
         var customFieldValues = await _customFields.GetValuesAsync(CustomFieldEntityTypes.Studio, studio.Id, ct);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Studio, studio.Id, ct)).ToList();
         return MapToDto(studio, usageCounts, customFieldValues, fieldProvenance);
+    }
+
+    private async Task<StudioUsageCounts> LoadRecursiveStudioUsageCountsAsync(int studioId, CancellationToken ct)
+    {
+        var expanded = await HierarchicalCriterionExpander.ExpandStudiosAsync(db, new MultiIdCriterion
+        {
+            Value = [studioId],
+            Modifier = CriterionModifier.Includes,
+            Depth = -1,
+        }, ct);
+        var ids = expanded.Criterion.Value;
+
+        var scopedVideos = await ReadScopeListOptimization.ApplyAsync<Video>(db, EntityKinds.Video, Permissions.VideosRead, ct);
+        var scopedImages = await ReadScopeListOptimization.ApplyAsync<Image>(db, EntityKinds.Image, Permissions.ImagesRead, ct);
+        var scopedGalleries = await ReadScopeListOptimization.ApplyAsync<Gallery>(db, EntityKinds.Gallery, Permissions.GalleriesRead, ct);
+        var scopedGroups = await ReadScopeListOptimization.ApplyAsync<Group>(db, EntityKinds.Group, Permissions.GroupsRead, ct);
+        var scopedPerformers = await ReadScopeListOptimization.ApplyAsync<Performer>(db, EntityKinds.Performer, Permissions.PerformersRead, ct);
+        var scopedStudios = await ReadScopeListOptimization.ApplyAsync<Studio>(db, EntityKinds.Studio, Permissions.StudiosRead, ct);
+        var scopedAudios = await ReadScopeListOptimization.ApplyAsync<Audio>(db, EntityKinds.Audio, Permissions.AudiosRead, ct);
+        var scopedTexts = await ReadScopeListOptimization.ApplyAsync<TextDocument>(db, EntityKinds.Text, Permissions.TextsRead, ct);
+
+        var videoCount = await scopedVideos.CountAsync(video => video.StudioId.HasValue && ids.Contains(video.StudioId.Value), ct);
+        var imageCount = await scopedImages.CountAsync(image => image.StudioId.HasValue && ids.Contains(image.StudioId.Value), ct);
+        var galleryCount = await scopedGalleries.CountAsync(gallery => gallery.StudioId.HasValue && ids.Contains(gallery.StudioId.Value), ct);
+        var groupCount = await scopedGroups.CountAsync(group => group.StudioId.HasValue && ids.Contains(group.StudioId.Value), ct);
+        var performerCount = await scopedPerformers.CountAsync(performer => performer.VideoPerformers.Any(relation => relation.Video != null && relation.Video.StudioId.HasValue && ids.Contains(relation.Video.StudioId.Value)), ct);
+        var childStudioCount = await scopedStudios.CountAsync(studio => studio.ParentId == studioId, ct);
+        var audioCount = await scopedAudios.CountAsync(audio => audio.StudioId.HasValue && ids.Contains(audio.StudioId.Value), ct);
+        var textCount = await scopedTexts.CountAsync(text => text.StudioId.HasValue && ids.Contains(text.StudioId.Value), ct);
+
+        return new StudioUsageCounts(videoCount, imageCount, galleryCount, groupCount, performerCount, childStudioCount, audioCount, textCount);
     }
 
     private StudioDto MapToDto(Studio s, StudioUsageCounts? usageCounts = null, Dictionary<string, object>? customFieldValues = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
@@ -553,4 +587,3 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         return ids.Distinct().ToList();
     }
 }
-
