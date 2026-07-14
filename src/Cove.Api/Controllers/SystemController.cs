@@ -394,10 +394,10 @@ public class SystemController(
         return Ok(scraperService.ReloadScrapers());
     }
 
-    // Recomputes every denormalized summary/count column (video durations/resolutions, gallery image
-    // counts, studio/performer/tag rollups) from source data. Use to repair libraries where these
-    // columns are stale or were never populated — e.g. data bulk-imported before the import recompute
-    // step existed — which otherwise makes count-based filters and sorts behave as if every value were 0.
+    // Recomputes denormalized state (video/image/gallery tag and performer ids, video
+    // durations/resolutions, gallery image counts, and studio/performer/tag rollups) from source data.
+    // Use to repair libraries where these values are stale or were never populated — e.g. data
+    // bulk-imported before the import recompute step existed — which otherwise breaks filters and sorts.
     [HttpPost("maintenance/recompute-derived-counts")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
     public async Task<ActionResult<RecomputeDerivedCountsResult>> RecomputeDerivedCounts(CancellationToken ct)
@@ -709,4 +709,3 @@ public class SystemController(
 }
 
 public record SetLogLevelRequest(string? Level);
-

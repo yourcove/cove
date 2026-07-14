@@ -464,6 +464,7 @@ public partial class CoveContext : DbContext
         var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
         var result = base.SaveChanges();
         AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
+        MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
         PersistDerivedCounts(derivedCountTargets);
         return result;
     }
@@ -583,6 +584,7 @@ public partial class CoveContext : DbContext
     {
         var result = await base.SaveChangesAsync(cancellationToken);
         AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
+        MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
         await PersistDerivedCountsAsync(derivedCountTargets, cancellationToken);
         return result;
     }
@@ -645,7 +647,13 @@ public partial class CoveContext : DbContext
 
     private readonly record struct PostSaveDerivedCountTargets(
         IReadOnlyList<VideoFile> VideoFilesWithDeferredVideoIds,
-        IReadOnlyList<ImageFile> ImageFilesWithDeferredImageIds);
+        IReadOnlyList<ImageFile> ImageFilesWithDeferredImageIds,
+        IReadOnlyList<VideoTag> VideoTagsWithDeferredIds,
+        IReadOnlyList<VideoPerformer> VideoPerformersWithDeferredIds,
+        IReadOnlyList<ImageTag> ImageTagsWithDeferredIds,
+        IReadOnlyList<ImagePerformer> ImagePerformersWithDeferredIds,
+        IReadOnlyList<GalleryTag> GalleryTagsWithDeferredIds,
+        IReadOnlyList<GalleryPerformer> GalleryPerformersWithDeferredIds);
 
     private PostSaveDerivedCountTargets CollectPostSaveDerivedCountTargets()
     {
@@ -659,8 +667,24 @@ public partial class CoveContext : DbContext
             .Select(entry => entry.Entity)
             .ToList();
 
-        return new PostSaveDerivedCountTargets(videoFiles, imageFiles);
+        return new PostSaveDerivedCountTargets(
+            videoFiles,
+            imageFiles,
+            CollectAddedLinksWithDeferredIds<VideoTag>(link => link.VideoId, link => link.TagId),
+            CollectAddedLinksWithDeferredIds<VideoPerformer>(link => link.VideoId, link => link.PerformerId),
+            CollectAddedLinksWithDeferredIds<ImageTag>(link => link.ImageId, link => link.TagId),
+            CollectAddedLinksWithDeferredIds<ImagePerformer>(link => link.ImageId, link => link.PerformerId),
+            CollectAddedLinksWithDeferredIds<GalleryTag>(link => link.GalleryId, link => link.TagId),
+            CollectAddedLinksWithDeferredIds<GalleryPerformer>(link => link.GalleryId, link => link.PerformerId));
     }
+
+    private IReadOnlyList<TLink> CollectAddedLinksWithDeferredIds<TLink>(Func<TLink, int> parentId, Func<TLink, int> childId)
+        where TLink : class =>
+        ChangeTracker.Entries<TLink>()
+            .Where(entry => entry.State == EntityState.Added
+                && (parentId(entry.Entity) <= 0 || childId(entry.Entity) <= 0))
+            .Select(entry => entry.Entity)
+            .ToList();
 
     private static void AddPostSaveDerivedCountTargets(DerivedCountTargets targets, PostSaveDerivedCountTargets postSaveTargets)
     {
@@ -675,6 +699,43 @@ public partial class CoveContext : DbContext
             AddIfPositive(targets.ImageIds, imageFile.ImageId);
             AddIfPositive(targets.ImageIds, imageFile.Image?.Id);
         }
+    }
+
+    private void MaintainPostSaveDenormalizedIdArrays(DerivedCountTargets targets, PostSaveDerivedCountTargets postSaveTargets)
+    {
+        RebuildPostSaveArray<Video, VideoTag>(postSaveTargets.VideoTagsWithDeferredIds, link => link.VideoId, video => video.TagIds, link => link.TagId);
+        RebuildPostSaveArray<Video, VideoPerformer>(postSaveTargets.VideoPerformersWithDeferredIds, link => link.VideoId, video => video.PerformerIds, link => link.PerformerId);
+        RebuildPostSaveArray<Image, ImageTag>(postSaveTargets.ImageTagsWithDeferredIds, link => link.ImageId, image => image.TagIds, link => link.TagId);
+        RebuildPostSaveArray<Image, ImagePerformer>(postSaveTargets.ImagePerformersWithDeferredIds, link => link.ImageId, image => image.PerformerIds, link => link.PerformerId);
+        RebuildPostSaveArray<Gallery, GalleryTag>(postSaveTargets.GalleryTagsWithDeferredIds, link => link.GalleryId, gallery => gallery.TagIds, link => link.TagId);
+        RebuildPostSaveArray<Gallery, GalleryPerformer>(postSaveTargets.GalleryPerformersWithDeferredIds, link => link.GalleryId, gallery => gallery.PerformerIds, link => link.PerformerId);
+
+        AddPostSaveChildIds(targets.TagIds, postSaveTargets.VideoTagsWithDeferredIds, link => link.TagId);
+        AddPostSaveChildIds(targets.PerformerIds, postSaveTargets.VideoPerformersWithDeferredIds, link => link.PerformerId);
+        AddPostSaveChildIds(targets.TagIds, postSaveTargets.ImageTagsWithDeferredIds, link => link.TagId);
+        AddPostSaveChildIds(targets.PerformerIds, postSaveTargets.ImagePerformersWithDeferredIds, link => link.PerformerId);
+        AddPostSaveChildIds(targets.TagIds, postSaveTargets.GalleryTagsWithDeferredIds, link => link.TagId);
+        AddPostSaveChildIds(targets.PerformerIds, postSaveTargets.GalleryPerformersWithDeferredIds, link => link.PerformerId);
+    }
+
+    private void RebuildPostSaveArray<TParent, TLink>(
+        IReadOnlyList<TLink> links,
+        Expression<Func<TLink, int>> parentId,
+        Expression<Func<TParent, int[]>> arrayProperty,
+        Expression<Func<TLink, int>> childId)
+        where TParent : class
+        where TLink : class
+    {
+        var parentIdSelector = parentId.Compile();
+        var parentIds = links.Select(parentIdSelector).Where(id => id > 0).ToHashSet();
+        if (parentIds.Count > 0)
+            RebuildArray<TParent, TLink>(parentIds, arrayProperty, parentId, childId);
+    }
+
+    private static void AddPostSaveChildIds<TLink>(HashSet<int> ids, IEnumerable<TLink> links, Func<TLink, int> childId)
+    {
+        foreach (var link in links)
+            AddIfPositive(ids, childId(link));
     }
 
     private DerivedCountTargets CollectDerivedCountTargets()
@@ -1052,9 +1113,9 @@ public partial class CoveContext : DbContext
     }
 
     /// <summary>
-    /// Recomputes every denormalized summary/count column from source data for the whole library:
-    /// video/image file summaries (duration, resolution, file size, …), gallery image/video counts,
-    /// and studio/performer/tag rollup counts. The per-SaveChanges maintenance only touches entities
+    /// Recomputes denormalized state from source data for the whole library:
+    /// video/image/gallery tag and performer ids, video/image file summaries (duration, resolution, file size, …),
+    /// gallery image/video counts, and studio/performer/tag rollup counts. The per-SaveChanges maintenance only touches entities
     /// changed in a unit of work, so this is the catch-all used to repair data that predates a fix or
     /// was loaded through a path that didn't trigger maintenance (e.g. a bulk import). Idempotent.
     /// Returns the number of entities recomputed.
@@ -1067,9 +1128,9 @@ public partial class CoveContext : DbContext
         _persistingDerivedCounts = true;
         try
         {
-            total += await RecomputeAllAsync<Video>("videos", ids => RefreshVideoMetricsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
-            total += await RecomputeAllAsync<Image>("images", ids => RefreshImageMetricsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
-            total += await RecomputeAllAsync<Gallery>("galleries", ids => RefreshGalleryCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Video>("videos", ids => RefreshAllVideoDerivedStateAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Image>("images", ids => RefreshAllImageDerivedStateAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
+            total += await RecomputeAllAsync<Gallery>("galleries", ids => RefreshAllGalleryDerivedStateAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
             total += await RecomputeAllAsync<Studio>("studios", ids => RefreshStudioCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
             total += await RecomputeAllAsync<Performer>("performers", ids => RefreshPerformerCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
             total += await RecomputeAllAsync<Tag>("tags", ids => RefreshTagCountsAsync(ids, cancellationToken), batchSize, progress, cancellationToken);
@@ -1080,6 +1141,27 @@ public partial class CoveContext : DbContext
         }
 
         return total;
+    }
+
+    private async Task RefreshAllVideoDerivedStateAsync(HashSet<int> videoIds, CancellationToken cancellationToken)
+    {
+        RebuildArray<Video, VideoTag>(videoIds, video => video.TagIds, link => link.VideoId, link => link.TagId);
+        RebuildArray<Video, VideoPerformer>(videoIds, video => video.PerformerIds, link => link.VideoId, link => link.PerformerId);
+        await RefreshVideoMetricsAsync(videoIds, cancellationToken);
+    }
+
+    private async Task RefreshAllImageDerivedStateAsync(HashSet<int> imageIds, CancellationToken cancellationToken)
+    {
+        RebuildArray<Image, ImageTag>(imageIds, image => image.TagIds, link => link.ImageId, link => link.TagId);
+        RebuildArray<Image, ImagePerformer>(imageIds, image => image.PerformerIds, link => link.ImageId, link => link.PerformerId);
+        await RefreshImageMetricsAsync(imageIds, cancellationToken);
+    }
+
+    private async Task RefreshAllGalleryDerivedStateAsync(HashSet<int> galleryIds, CancellationToken cancellationToken)
+    {
+        RebuildArray<Gallery, GalleryTag>(galleryIds, gallery => gallery.TagIds, link => link.GalleryId, link => link.TagId);
+        RebuildArray<Gallery, GalleryPerformer>(galleryIds, gallery => gallery.PerformerIds, link => link.GalleryId, link => link.PerformerId);
+        await RefreshGalleryCountsAsync(galleryIds, cancellationToken);
     }
 
     private async Task<int> RecomputeAllAsync<TEntity>(
@@ -2174,5 +2256,3 @@ public sealed class CoveModelCacheKeyFactory : Microsoft.EntityFrameworkCore.Inf
     public object Create(DbContext context, bool designTime)
         => (context.GetType(), CoveContext.ModelGeneration, designTime);
 }
-
-
