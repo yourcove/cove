@@ -660,6 +660,16 @@ public record UILayoutStyleDef(
     string? Description = null
 );
 
+/// <summary>How a settings tab's content is laid out.</summary>
+public enum SettingsTabLayout
+{
+    /// <summary>Host stacks the tab's contributed panels, each in its own card (default).</summary>
+    Panels,
+
+    /// <summary>Extension owns the tab canvas: host renders the tab's panels full-width, stacked without card chrome.</summary>
+    Page,
+}
+
 /// <summary>
 /// A dedicated tab rendered in the host's Extensions settings group.
 /// The key also acts as the route segment after /settings/.
@@ -673,8 +683,15 @@ public record UISettingsTab(
     string? ParentTabKey = null,
     string? Description = null,
     string[]? SearchKeywords = null,
-    string[]? Aliases = null
-);
+    string[]? Aliases = null)
+{
+    /// <summary>
+    /// How the host renders this tab's contributed panels; defaults to <see cref="SettingsTabLayout.Panels"/>.
+    /// Declared as an init property, not a primary-constructor parameter, so adding it does not change the
+    /// record's constructor signature — extensions compiled against the prior version stay binary-compatible.
+    /// </summary>
+    public SettingsTabLayout Layout { get; init; } = SettingsTabLayout.Panels;
+}
 
 /// <summary>A settings panel contributed by an extension. Appears in the Extensions settings tab by default, or in a specific tab or tab section when targeted.</summary>
 public record UISettingsPanel(

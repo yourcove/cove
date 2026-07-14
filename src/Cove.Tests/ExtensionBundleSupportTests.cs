@@ -39,6 +39,63 @@ public class ExtensionBundleSupportTests
     }
 
     [Fact]
+    public void AddSettingsTab_DefaultsToPanelsLayout()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new SettingsTabContributionExtension(), "local");
+
+        var tab = Assert.Single(manager.GetAggregatedManifest().SettingsTabs);
+        Assert.Equal(SettingsTabLayout.Panels, tab.Layout);
+    }
+
+    [Fact]
+    public void AddSettingsTab_WithPageLayout_SourcesContentFromItsPanels()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new SettingsPageContributionExtension(), "local");
+
+        var manifest = manager.GetAggregatedManifest();
+        var tab = Assert.Single(manifest.SettingsTabs);
+        Assert.Equal("extensions/example-page", tab.Key);
+        Assert.Equal(SettingsTabLayout.Page, tab.Layout);
+        // A page is just uncarded panels: the tab's content comes from the panels targeting it,
+        // exactly like the panels layout — only the host's chrome differs.
+        var panel = Assert.Single(manifest.SettingsPanels);
+        Assert.Equal("extensions/example-page", panel.TargetTab);
+        Assert.Equal("ExamplePage", panel.ComponentName);
+    }
+
+    [Fact]
+    public void AddSettingsTab_KeepsOriginalOverloadSignatureForBinaryCompatibility()
+    {
+        // The page-layout capability must be additive at the binary level: appending a parameter to
+        // this overload would compile fine but throw MissingMethodException in any extension already
+        // built against the prior signature (the layout lives on a NEW overload instead). Only a
+        // reflection check guards this — the compiler never will. If this fails, do not "fix" it by
+        // changing the assertion; restore the original signature and add capability via an overload.
+        var original = typeof(UIManifestBuilder).GetMethod(
+            nameof(UIManifestBuilder.AddSettingsTab),
+            [typeof(string), typeof(string), typeof(int), typeof(string), typeof(string), typeof(string), typeof(string[]), typeof(string[])]);
+        Assert.NotNull(original);
+
+        // The UISettingsTab primary constructor must likewise stay at its original arity — Layout is
+        // an init property, not a constructor parameter, for the same binary-compatibility reason.
+        Assert.DoesNotContain(
+            typeof(UISettingsTab).GetConstructors(),
+            ctor => ctor.GetParameters().Any(p => p.ParameterType == typeof(SettingsTabLayout)));
+    }
+
+    [Fact]
     public void AggregatedManifest_IncludesTabManualContexts()
     {
         var manager = new ExtensionManager(new ExtensionContext
@@ -432,6 +489,25 @@ public class ExtensionBundleSupportTests
                     "Example",
                     description: "Example settings tab from a normal extension.")
                 .AddSettingsSection("extensions/example", "Example Settings", "ExampleSettingsPanel")
+                .Build();
+    }
+
+    private sealed class SettingsPageContributionExtension : CoveExtensionBase
+    {
+        public const string ExtensionId = "com.example.settings-page";
+
+        public override string Id => ExtensionId;
+        public override string Name => "Settings Page Extension";
+        public override string Version => "1.0.0";
+
+        public override UIManifest GetUIManifest()
+            => ManifestBuilder()
+                .AddSettingsTab(
+                    "extensions/example-page",
+                    "Example Page",
+                    description: "A full-page settings tab owned by the extension.",
+                    layout: SettingsTabLayout.Page)
+                .AddSettingsSection("extensions/example-page", "Example Page", "ExamplePage")
                 .Build();
     }
 

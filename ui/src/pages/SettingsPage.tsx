@@ -144,6 +144,7 @@ type SettingsTabDefinition = {
   parentTabKey?: SettingsTab;
   description?: string;
   searchKeywords?: string[];
+  layout?: "panels" | "page";
 };
 type BuiltInSettingsTabDefinition = SettingsTabDefinition & { key: BuiltInSettingsTab };
 type SettingsTabGroupKey = "my-settings" | "library" | "operations" | "data-sources" | "extensions" | "security-access" | "server" | "system-info";
@@ -1161,6 +1162,7 @@ export function SettingsPage() {
         parentTabKey: tab.parentTabKey?.toLowerCase(),
         description: tab.description,
         searchKeywords: tab.searchKeywords ?? [],
+        layout: tab.layout,
       }))
       .sort((left, right) => (left.order ?? 100) - (right.order ?? 100) || left.label.localeCompare(right.label));
   }, [contributedSettingsTabs]);
@@ -1762,24 +1764,37 @@ export function SettingsPage() {
     }
   };
 
+  // Render the panels a settings tab contributes. The tab's layout decides the chrome: "panels"
+  // (default) stacks each panel in its own SectionCard; "page" renders the same components full-width
+  // with no card chrome, so the extension owns the whole canvas. Both layouts source content the same
+  // way — from the panels targeting the tab — so a page is just uncarded panels.
   const renderExtensionSettingsPanels = (
     tabKey: SettingsTab,
     emptyTitle: string,
     emptyDescription: string,
+    layout: "panels" | "page" = "panels",
   ) => {
     const panels = getSettingsPanelsForTab(tabKey);
 
     if (panels.length === 0) {
+      // Keep the empty state consistent with the layout: a page owns the canvas, so it stays
+      // card-less here too rather than falling back to the panels-style SectionCard.
+      if (layout === "page") {
+        return <p className="text-sm text-secondary">{emptyDescription}</p>;
+      }
       return (
         <SectionCard title={emptyTitle} description={emptyDescription}>
-          <p className="text-sm text-secondary">No installed AI extension contributes settings to this page yet.</p>
+          <p className="text-sm text-secondary">No installed extension contributes settings to this page yet.</p>
         </SectionCard>
       );
     }
 
-    return panels.map((panel) => {
+    const rendered = panels.map((panel) => {
       const Component = resolveComponent(panel.componentName);
       if (!Component) return null;
+      if (layout === "page") {
+        return <Component key={panel.id} />;
+      }
       return (
         <SectionCard
           key={panel.id}
@@ -1790,6 +1805,10 @@ export function SettingsPage() {
         </SectionCard>
       );
     });
+
+    // A page owns its canvas but may still contribute more than one component; keep them from
+    // sitting flush. The panels layout gets its spacing from the stacked SectionCards.
+    return layout === "page" ? <div className="space-y-6">{rendered}</div> : rendered;
   };
 
   const commitCustomFieldDraft = (definitions: CustomFieldDefinition[] | null = customFieldDraftState) => {
@@ -3787,7 +3806,9 @@ export function SettingsPage() {
             {renderExtensionSettingsPanels(
               activeExtensionSettingsTab.key,
               activeExtensionSettingsTab.label,
-              activeExtensionSettingsTab.description ?? `Settings provided by installed extensions for ${activeExtensionSettingsTab.label}.`,
+              activeExtensionSettingsTab.description ??
+                `Settings provided by installed extensions for ${activeExtensionSettingsTab.label}.`,
+              activeExtensionSettingsTab.layout,
             )}
           </>
         )}

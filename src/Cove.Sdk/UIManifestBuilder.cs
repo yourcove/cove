@@ -190,6 +190,46 @@ public class UIManifestBuilder
         return this;
     }
 
+    /// <summary>
+    /// Add a dedicated settings tab with an explicit layout. The tab's content comes from the panels
+    /// that target it (see <see cref="AddSettingsSection"/>) exactly like the default overload;
+    /// <paramref name="layout"/> only controls how the host renders them — stacked in cards
+    /// (<see cref="SettingsTabLayout.Panels"/>) or full-width with no card chrome
+    /// (<see cref="SettingsTabLayout.Page"/>).
+    /// </summary>
+    /// <remarks>
+    /// A separate overload rather than an added parameter on the overload above: appending an optional
+    /// parameter to an existing public method is source- but not binary-compatible, so it would break
+    /// extensions already compiled against the prior signature. <paramref name="layout"/> is required
+    /// here so the two overloads never resolve ambiguously.
+    /// </remarks>
+    public UIManifestBuilder AddSettingsTab(
+        string key,
+        string label,
+        SettingsTabLayout layout,
+        int order = 100,
+        string? icon = null,
+        string? parentTabKey = null,
+        string? description = null,
+        string[]? searchKeywords = null,
+        string[]? aliases = null)
+    {
+        _manifest.SettingsTabs.Add(new UISettingsTab(
+            key,
+            label,
+            _extensionId,
+            order,
+            icon,
+            parentTabKey,
+            description,
+            searchKeywords,
+            aliases)
+        {
+            Layout = layout,
+        });
+        return this;
+    }
+
     /// <summary>Add a settings panel to a specific settings tab (e.g. "library", "interface").</summary>
     public UIManifestBuilder AddSettingsSection(
         string targetTab,

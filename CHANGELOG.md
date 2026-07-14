@@ -8,6 +8,14 @@ The About page in the app shows the most recent entries by parsing this file dir
 (via `ui/src/data/changelog.ts`), so this is the single source of truth — edit only
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
+## [Unreleased]
+
+- Extensions: settings tabs can now render as a full page. Passing `SettingsTabLayout.Page` to
+  `AddSettingsTab` renders the tab's contributed panels full-width with no per-panel card chrome —
+  for rich, app-like configuration that doesn't fit a stack of uniform cards. Layout is purely
+  presentational: a page sources its content from the panels targeting it, exactly like the default
+  `panels` layout, which is unchanged.
+
 ## [0.9.0] - 2026-07-07
 
 - Scan/Rescan Fixes
