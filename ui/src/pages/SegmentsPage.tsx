@@ -281,6 +281,8 @@ export function SegmentsPage({ onNavigate }: Props) {
   }, []);
 
   const switchContentView = useCallback((nextView: SegmentsPageContentView, nextRawSegmentIds?: number[]) => {
+    if (nextView === contentView && nextRawSegmentIds == null) return;
+
     const saved = getDefaultFilter(segmentFilterMode(nextView));
     const savedDisplayMode = saved?.uiOptions?.displayMode;
     replaceState({
@@ -290,7 +292,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     });
     setActiveProfileId(typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined);
     updateContentView(nextView, nextRawSegmentIds);
-  }, [replaceState, updateContentView]);
+  }, [contentView, replaceState, updateContentView]);
 
   const profilesQuery = useQuery({
     queryKey: ["segment-display-profiles"],
