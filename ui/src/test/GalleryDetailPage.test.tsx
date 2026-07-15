@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryDetailPage } from "../pages/GalleryDetailPage";
 
 const {
@@ -192,6 +192,10 @@ function renderPage() {
 }
 
 describe("GalleryDetailPage", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/gallery/21");
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -208,6 +212,8 @@ describe("GalleryDetailPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByTitle("Items per page")).toHaveValue("20"));
+    expect(mockImages.find).toHaveBeenCalledTimes(1);
+    expect(mockImages.find).toHaveBeenCalledWith(expect.objectContaining({ perPage: 20 }), { galleryId: 21 });
   });
 
   it("applies the saved gallery video page size", async () => {

@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, faces, galleries, groups, images, performers, videos, texts, entityImages } from "../api/client";
-import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
+import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, Trash2, Users, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +19,7 @@ import { EntityDetailTabs } from "../components/EntityDetailTabs";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
-import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
+import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, VIDEO_CRITERIA, TEXT_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
@@ -34,6 +34,7 @@ import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { useAppConfig } from "../state/AppConfigContext";
+import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 interface Props {
   id: number;
@@ -83,14 +84,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [scrapeOpen, setScrapeOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("videos");
-  const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
-  const [galleryFilter, setGalleryFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 30, direction: "desc" });
-  const [audioFilter, setAudioFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [textFilter, setTextFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [groupFilter, setGroupFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
-  const [appearsWithFilter, setAppearsWithFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
   const [urlsExpanded, setUrlsExpanded] = useState(false);
   const [urlsOverflowing, setUrlsOverflowing] = useState(false);
   const urlsRef = useRef<HTMLDivElement>(null);
@@ -371,28 +365,28 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
 
         <div className="py-6">
           {activeTab === "videos" && (
-            <PerformerVideosPanel performerId={id} filter={videoFilter} setFilter={setVideoFilter} onNavigate={onNavigate} />
+            <PerformerVideosPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "galleries" && (
-            <PerformerGalleriesPanel performerId={id} filter={galleryFilter} setFilter={setGalleryFilter} onNavigate={onNavigate} />
+            <PerformerGalleriesPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "images" && (
-            <PerformerImagesPanel performerId={id} filter={imageFilter} setFilter={setImageFilter} onNavigate={onNavigate} />
+            <PerformerImagesPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "audios" && (
-            <PerformerAudiosPanel performerId={id} filter={audioFilter} setFilter={setAudioFilter} onNavigate={onNavigate} />
+            <PerformerAudiosPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "texts" && (
-            <PerformerTextsPanel performerId={id} filter={textFilter} setFilter={setTextFilter} onNavigate={onNavigate} />
+            <PerformerTextsPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "groups" && (
-            <PerformerGroupsPanel performerId={id} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
+            <PerformerGroupsPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "faces" && (
             <PerformerFacesPanel performerId={id} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
           {activeTab === "appearsWith" && (
-            <PerformerAppearsWithPanel performerId={id} filter={appearsWithFilter} setFilter={setAppearsWithFilter} onNavigate={onNavigate} />
+            <PerformerAppearsWithPanel performerId={id} onNavigate={onNavigate} />
           )}
           {activeTab === "similar" && (
             <PerformerSimilarPanel performer={performer} canReadFaces={canReadFaces} onNavigate={onNavigate} />
@@ -773,10 +767,9 @@ const FACE_SORT_OPTIONS = [
 
 function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { performerId: number; canReadFaces: boolean; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("faces");
   // Client-side sort over the (small) linked-face set so this tab gets the same toolbar (sort + zoom +
   // grid/list) as the other detail tabs without needing a separate paginated endpoint.
-  const [filter, setFilter] = useState<FindFilter>({ page: 1, perPage: 200, sort: "appearances", direction: "desc" });
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "faces", resetKey: "performer-faces", entityType: "faces", builtInFilter: { page: 1, perPage: 200, sort: "appearances", direction: "desc" } });
   // Shares the cache key with the similarity panel's linked-faces query so switching tabs is instant.
   const { data: linkedFaces = [], isLoading } = useQuery({
     queryKey: ["performer", performerId, "linked-faces"],
@@ -855,16 +848,13 @@ function InfoItem({ icon, label, value, fieldProvenance, fieldKey }: { icon?: Re
   );
 }
 
-function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerVideosPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("videos");
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "performer-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: "videos" });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
@@ -890,7 +880,7 @@ function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="videos" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="videos" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
@@ -907,15 +897,12 @@ function PerformerVideosPanel({ performerId, filter, setFilter, onNavigate }: {
   );
 }
 
-function PerformerGalleriesPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerGalleriesPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("galleries");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "performer-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "galleries" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
@@ -941,7 +928,7 @@ function PerformerGalleriesPanel({ performerId, filter, setFilter, onNavigate }:
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />;
@@ -955,16 +942,13 @@ function PerformerGalleriesPanel({ performerId, filter, setFilter, onNavigate }:
   );
 }
 
-function PerformerImagesPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerImagesPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("images");
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "performer-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" }, defaultFilterKey: "images" });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
@@ -990,7 +974,7 @@ function PerformerImagesPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />;
@@ -1007,15 +991,12 @@ function PerformerImagesPanel({ performerId, filter, setFilter, onNavigate }: {
   );
 }
 
-function PerformerAudiosPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerAudiosPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("audios");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "performer-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "audios" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
     queryKey: ["performer-audios", performerId, objectFilter],
@@ -1038,7 +1019,7 @@ function PerformerAudiosPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />;
@@ -1052,15 +1033,12 @@ function PerformerAudiosPanel({ performerId, filter, setFilter, onNavigate }: {
   );
 }
 
-function PerformerTextsPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerTextsPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("texts");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "performer-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "texts" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
     queryKey: ["performer-texts", performerId, objectFilter],
@@ -1083,7 +1061,7 @@ function PerformerTextsPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />;
@@ -1097,15 +1075,12 @@ function PerformerTextsPanel({ performerId, filter, setFilter, onNavigate }: {
   );
 }
 
-function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerGroupsPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("groups");
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "performer-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "groups" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
@@ -1131,7 +1106,7 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />;
@@ -1145,14 +1120,12 @@ function PerformerGroupsPanel({ performerId, filter, setFilter, onNavigate }: {
   );
 }
 
-function PerformerAppearsWithPanel({ performerId, filter, setFilter, onNavigate }: {
+function PerformerAppearsWithPanel({ performerId, onNavigate }: {
   performerId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("performers");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "appearsWith", resetKey: "performer-appears-with", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<PerformerModel>({
     queryKey: ["performer-appears-with", performerId, filter],
     filter,

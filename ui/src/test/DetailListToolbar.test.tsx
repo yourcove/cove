@@ -111,4 +111,24 @@ describe("DetailListToolbar", () => {
     expect(onObjectFilterChange).toHaveBeenCalledWith({ favorite: true });
     expect(onDisplayModeChange).toHaveBeenCalledWith("list");
   });
+
+  it("does not reapply a saved default that URL-backed state resolved before mount", async () => {
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 40, sort: "random", direction: "asc" },
+    }));
+    const onFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 40, sort: "random", direction: "asc", seed: 2468 }}
+        onFilterChange={onFilterChange}
+        totalCount={100}
+        sortOptions={[{ value: "random", label: "Random" }]}
+        filterMode="videos"
+        defaultFilterResolved
+      />,
+    );
+
+    await waitFor(() => expect(onFilterChange).not.toHaveBeenCalled());
+  });
 });

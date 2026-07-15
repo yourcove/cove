@@ -31,10 +31,11 @@ import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
-import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
+import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
+import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 interface Props {
   id: number;
@@ -52,8 +53,8 @@ const GALLERY_VIDEOS_DEFAULT_FILTER_KEY = "gallery-videos";
 
 export function GalleryDetailPage({ id, onNavigate }: Props) {
   const { hasPermission, user } = useAuth();
-  const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 60, direction: "desc" });
-  const [imageObjectFilter, setImageObjectFilter] = useState<Record<string, unknown>>({});
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("images");
+  const { filter: imageFilter, setFilter: setImageFilter, objectFilter: imageObjectFilter, setObjectFilter: setImageObjectFilter, displayMode: imageDisplayMode, setDisplayMode: setImageDisplayMode, availableDisplayModes: imageDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "gallery-images", entityType: "images", builtInFilter: { page: 1, perPage: 60, direction: "desc" }, defaultFilterKey: GALLERY_IMAGES_DEFAULT_FILTER_KEY, enabled: activeTab === "images" });
   const hasImageObjectFilter = Object.keys(imageObjectFilter).length > 0;
   const { data: gallery, isLoading } = useQuery({
     queryKey: ["gallery", id],
@@ -74,7 +75,6 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const effectiveImageCount = galleryImages?.totalCount ?? gallery?.imageCount ?? 0;
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("images");
   const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs("gallery", [
     { key: "images", label: "Images", count: effectiveImageCount },
     { key: "videos", label: "Videos", count: gallery?.videoCount ?? 0 },
@@ -84,7 +84,6 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxPageBounds, setLightboxPageBounds] = useState(() => ({ first: imageFilter.page ?? 1, last: imageFilter.page ?? 1 }));
   const [imageZoom, setImageZoom] = useState(0);
-  const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
   const [showAddImages, setShowAddImages] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
@@ -262,8 +261,11 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
             galleryId={id}
             filter={imageFilter}
             setFilter={setImageFilter}
-              objectFilter={imageObjectFilter}
-              setObjectFilter={setImageObjectFilter}
+            objectFilter={imageObjectFilter}
+            setObjectFilter={setImageObjectFilter}
+            displayMode={imageDisplayMode}
+            setDisplayMode={setImageDisplayMode}
+            availableDisplayModes={imageDisplayModes}
             onNavigate={onNavigate}
             galleryImages={galleryImages}
               infinitePageSize={imageInfinitePageSize}
@@ -279,7 +281,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
           />
         )
       : activeTab === "videos"
-        ? <GalleryVideosPanel galleryId={id} filter={videoFilter} setFilter={setVideoFilter} onNavigate={onNavigate} />
+        ? <GalleryVideosPanel galleryId={id} onNavigate={onNavigate} />
         : activeTab === "fileinfo"
           ? <GalleryFileInfo gallery={gallery} />
           : renderExtensionTab(activeTab, id, onNavigate);
@@ -454,16 +456,13 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   );
 }
 
-function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
+function GalleryVideosPanel({ galleryId, onNavigate }: {
   galleryId: number;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("videos");
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "gallery-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: GALLERY_VIDEOS_DEFAULT_FILTER_KEY });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["gallery-videos", galleryId, objectFilter],
@@ -500,6 +499,7 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
       onObjectFilterChange={setObjectFilter}
       filterMode="videos"
       filterDefaultKey={GALLERY_VIDEOS_DEFAULT_FILTER_KEY}
+      defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
@@ -521,12 +521,15 @@ function GalleryVideosPanel({ galleryId, filter, setFilter, onNavigate }: {
   );
 }
 
-function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObjectFilter, onNavigate, galleryImages, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore, onShowAddImages, onLightbox, imageZoom, setImageZoom, canWriteGallery }: {
+function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes, onNavigate, galleryImages, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore, onShowAddImages, onLightbox, imageZoom, setImageZoom, canWriteGallery }: {
   galleryId: number;
   filter: FindFilter;
   setFilter: (f: FindFilter) => void;
   objectFilter: Record<string, unknown>;
   setObjectFilter: (filter: Record<string, unknown>) => void;
+  displayMode: ReturnType<typeof useRelatedDetailListUrlState>["displayMode"];
+  setDisplayMode: ReturnType<typeof useRelatedDetailListUrlState>["setDisplayMode"];
+  availableDisplayModes: ReturnType<typeof useRelatedDetailListUrlState>["availableDisplayModes"];
   onNavigate: (r: any) => void;
   galleryImages: { items: any[]; totalCount: number } | undefined;
   infinitePageSize: boolean;
@@ -541,7 +544,6 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
   canWriteGallery: boolean;
 }) {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("images");
   const items = galleryImages?.items ?? [];
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
@@ -566,6 +568,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       onObjectFilterChange={setObjectFilter}
       filterMode="images"
       filterDefaultKey={GALLERY_IMAGES_DEFAULT_FILTER_KEY}
+      defaultFilterResolved
       allowInfinitePageSize
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}

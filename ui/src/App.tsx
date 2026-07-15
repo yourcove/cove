@@ -18,6 +18,7 @@ import { useKeySequence } from "./hooks/useKeySequence";
 import { useResolvedKeybindingOverrides } from "./hooks/useResolvedKeybindingOverrides";
 import { resolveKeybinding } from "./keyboard/keybindings";
 import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, buildRouteUrl, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, readStoredRoute, resolveCurrentRoute, syncRouteHistory } from "./router/location";
+import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -554,13 +555,13 @@ function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => 
       {route.page === "faces" && <FacesPage onNavigate={navigate} />}
       {route.page === "face" && route.id !== undefined && <FaceDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "performers" && <PerformersPage onNavigate={navigate} />}
-      {route.page === "performer" && route.id !== undefined && <PerformerDetailPage id={route.id} onNavigate={navigate} />}
+      {route.page === "performer" && route.id !== undefined && <DetailListStateCacheProvider key={`performer-${route.id}`}><PerformerDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
       {route.page === "studios" && <StudiosPage onNavigate={navigate} />}
-      {route.page === "studio" && route.id !== undefined && <StudioDetailPage id={route.id} onNavigate={navigate} />}
+      {route.page === "studio" && route.id !== undefined && <DetailListStateCacheProvider key={`studio-${route.id}`}><StudioDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
       {route.page === "tags" && <TagsPage onNavigate={navigate} />}
-      {route.page === "tag" && route.id !== undefined && <TagDetailPage id={route.id} onNavigate={navigate} />}
+      {route.page === "tag" && route.id !== undefined && <DetailListStateCacheProvider key={`tag-${route.id}`}><TagDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
       {route.page === "galleries" && <GalleriesPage onNavigate={navigate} />}
-      {route.page === "gallery" && route.id !== undefined && <GalleryDetailPage id={route.id} onNavigate={navigate} />}
+      {route.page === "gallery" && route.id !== undefined && <DetailListStateCacheProvider key={`gallery-${route.id}`}><GalleryDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
       {route.page === "groups" && <GroupsPage onNavigate={navigate} />}
       {route.page === "group" && route.id !== undefined && <GroupDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "compilation" && route.id !== undefined && <CompilationPlayerPage id={route.id} onNavigate={navigate} />}
@@ -588,4 +589,3 @@ function AccessDeniedPage({ navigate }: { navigate: (r: Route) => void }) {
     </div>
   );
 }
-

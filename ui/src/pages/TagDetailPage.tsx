@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, galleries, groups, images, performers, videos, segmentLibrary, studios, tags, texts, entityImages } from "../api/client";
-import type { Audio, FindFilter, Gallery, Group, Image, Performer, Video, VideoFilterCriteria, SegmentRecord, Studio, TagDetail as TagDetailModel, TextDocument } from "../api/types";
+import type { Audio, Gallery, Group, Image, Performer, Video, VideoFilterCriteria, SegmentRecord, Studio, TagDetail as TagDetailModel, TextDocument } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { Building2, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MoreVertical, Music, Pencil, Search, Tag as TagIcon, Trash2, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -21,7 +21,7 @@ import { InteractiveRating } from "../components/Rating";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { TagMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
-import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
+import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { VIDEO_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
@@ -36,6 +36,7 @@ import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
+import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = [
@@ -102,7 +103,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
   const [metadataTaggerOpen, setMetadataTaggerOpen] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("videos");
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
   const [includeSubTags, setIncludeSubTags] = useState(false);
   const { data: recursiveTag } = useQuery({
     queryKey: ["tag", id, "depth", -1],
@@ -121,15 +122,6 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     { key: "studios", label: "Studios", count: includeSubTags ? recursiveTag?.studioCount : tag?.studioCount },
     { key: "groups", label: "Groups", count: includeSubTags ? recursiveTag?.groupCount : tag?.groupCount },
   ], id);
-  const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc" });
-  const [performerFilter, setPerformerFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
-  const [imageFilter, setImageFilter] = useState<FindFilter>({ page: 1, perPage: 30, direction: "desc" });
-  const [galleryFilter, setGalleryFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [audioFilter, setAudioFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [textFilter, setTextFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "desc" });
-  const [segmentFilter, setSegmentFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "desc", sort: "updated_at" });
-  const [studioFilter, setStudioFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
-  const [groupFilter, setGroupFilter] = useState<FindFilter>({ page: 1, perPage: 18, direction: "asc" });
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "tags" }, onNavigate);
   const canWriteTag = canWriteEntity("tag", hasPermission);
@@ -322,31 +314,31 @@ export function TagDetailPage({ id, onNavigate }: Props) {
 
         <div className="py-6">
           {activeTab === "videos" && (
-            <TagVideosPanel tagId={id} includeSubTags={includeSubTags} filter={videoFilter} setFilter={setVideoFilter} onNavigate={onNavigate} />
+            <TagVideosPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "performers" && (
-            <TagPerformersPanel tagId={id} includeSubTags={includeSubTags} filter={performerFilter} setFilter={setPerformerFilter} onNavigate={onNavigate} />
+            <TagPerformersPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "images" && (
-            <TagImagesPanel tagId={id} includeSubTags={includeSubTags} filter={imageFilter} setFilter={setImageFilter} onNavigate={onNavigate} />
+            <TagImagesPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "galleries" && (
-            <TagGalleriesPanel tagId={id} includeSubTags={includeSubTags} filter={galleryFilter} setFilter={setGalleryFilter} onNavigate={onNavigate} />
+            <TagGalleriesPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "audios" && (
-            <TagAudiosPanel tagId={id} includeSubTags={includeSubTags} filter={audioFilter} setFilter={setAudioFilter} onNavigate={onNavigate} />
+            <TagAudiosPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "texts" && (
-            <TagTextsPanel tagId={id} includeSubTags={includeSubTags} filter={textFilter} setFilter={setTextFilter} onNavigate={onNavigate} />
+            <TagTextsPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "segments" && (
-            <TagSegmentsPanel tagId={id} includeSubTags={includeSubTags} filter={segmentFilter} setFilter={setSegmentFilter} onNavigate={onNavigate} />
+            <TagSegmentsPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "studios" && (
-            <TagStudiosPanel tagId={id} includeSubTags={includeSubTags} filter={studioFilter} setFilter={setStudioFilter} onNavigate={onNavigate} />
+            <TagStudiosPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {activeTab === "groups" && (
-            <TagGroupsPanel tagId={id} includeSubTags={includeSubTags} filter={groupFilter} setFilter={setGroupFilter} onNavigate={onNavigate} />
+            <TagGroupsPanel tagId={id} includeSubTags={includeSubTags} onNavigate={onNavigate} />
           )}
           {renderExtensionTab(activeTab, id, onNavigate)}
         </div>
@@ -437,17 +429,14 @@ function TagHierarchyLinks({
   );
 }
 
-function TagVideosPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagVideosPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("videos");
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "tag-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" } });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
-  const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["tag-videos", tagId, includeSubTags, objectFilter],
@@ -478,15 +467,13 @@ function TagVideosPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }
   );
 }
 
-function TagPerformersPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagPerformersPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("performers");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "performers", resetKey: "tag-performers", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Performer>({
     queryKey: ["tag-performers", tagId, includeSubTags, filter],
     filter,
@@ -510,15 +497,13 @@ function TagPerformersPanel({ tagId, includeSubTags, filter, setFilter, onNaviga
   );
 }
 
-function TagImagesPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagImagesPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("images");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "tag-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" } });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
     queryKey: ["tag-images", tagId, includeSubTags, filter],
@@ -546,15 +531,13 @@ function TagImagesPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }
   );
 }
 
-function TagGalleriesPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagGalleriesPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("galleries");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "tag-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
     queryKey: ["tag-galleries", tagId, includeSubTags, filter],
     filter,
@@ -578,15 +561,13 @@ function TagGalleriesPanel({ tagId, includeSubTags, filter, setFilter, onNavigat
   );
 }
 
-function TagAudiosPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagAudiosPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("audios");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "tag-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
     queryKey: ["tag-audios", tagId, includeSubTags, filter],
     filter,
@@ -613,15 +594,13 @@ function TagAudiosPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }
   );
 }
 
-function TagTextsPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagTextsPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("texts");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "tag-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
     queryKey: ["tag-texts", tagId, includeSubTags, filter],
     filter,
@@ -648,11 +627,11 @@ function TagTextsPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }:
   );
 }
 
-function TagSegmentsPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: { tagId: number; includeSubTags: boolean; filter: FindFilter; setFilter: (filter: FindFilter) => void; onNavigate: (r: any) => void }) {
+function TagSegmentsPanel({ tagId, includeSubTags, onNavigate }: { tagId: number; includeSubTags: boolean; onNavigate: (r: any) => void }) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const canEditSegments = hasPermission("segments.write");
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("segments");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "segments", resetKey: "tag-segments", entityType: "segments", builtInFilter: { page: 1, perPage: 24, direction: "desc", sort: "updated_at" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<SegmentRecord>({
     queryKey: ["tag-segments", tagId, includeSubTags, filter],
     filter,
@@ -696,15 +675,13 @@ function TagSegmentsPanel({ tagId, includeSubTags, filter, setFilter, onNavigate
   );
 }
 
-function TagStudiosPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagStudiosPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("studios");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "studios", resetKey: "tag-studios", entityType: "studios", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Studio>({
     queryKey: ["tag-studios", tagId, includeSubTags, filter],
     filter,
@@ -728,15 +705,13 @@ function TagStudiosPanel({ tagId, includeSubTags, filter, setFilter, onNavigate 
   );
 }
 
-function TagGroupsPanel({ tagId, includeSubTags, filter, setFilter, onNavigate }: {
+function TagGroupsPanel({ tagId, includeSubTags, onNavigate }: {
   tagId: number;
   includeSubTags: boolean;
-  filter: FindFilter;
-  setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { displayMode, setDisplayMode, availableDisplayModes } = useRelatedEntityDisplayMode("groups");
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "tag-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
     queryKey: ["tag-groups", tagId, includeSubTags, filter],
     filter,
