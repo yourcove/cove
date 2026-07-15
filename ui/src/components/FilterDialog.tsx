@@ -1832,7 +1832,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
   const [searchText, setSearchText] = useState("");
   const trimmedSearchText = searchText.trim();
 
-  const { data: entities } = useQuery({
+  const { data: entities, isPlaceholderData } = useQuery({
     queryKey: ["multi-id-selector", entityType, trimmedSearchText],
     queryFn: async () => {
       switch (entityType) {
@@ -1847,6 +1847,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
         default: return [];
       }
     },
+    placeholderData: (previousData) => previousData,
     staleTime: 60000,
   });
 
@@ -2023,7 +2024,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
           className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
         />
       </div>
-      <div className="max-h-32 overflow-y-auto border border-border rounded bg-input">
+      <div className="max-h-32 overflow-y-auto border border-border rounded bg-input" aria-busy={isPlaceholderData || undefined}>
         {entityType === "tags" ? (
           <GroupedTagOptionList
             tags={filteredEntities as any[]}
@@ -2037,16 +2038,18 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
                 <div className={`w-full px-2 py-1 text-xs flex items-center gap-1 ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}>
                   <button
                     onClick={() => isIncluded ? removeId(entity.id) : addInclude(entity.id)}
-                    className={`hover:text-green-400 ${isIncluded ? "text-green-400" : "text-muted"}`}
+                    className={`hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
                     title="Include"
+                    disabled={isPlaceholderData}
                   >
                     <Plus className="w-3 h-3" />
                   </button>
                   {supportsExclude && (
                     <button
                       onClick={() => isExcluded ? removeId(entity.id) : addExclude(entity.id)}
-                      className={`hover:text-red-400 ${isExcluded ? "text-red-400" : "text-muted"}`}
+                      className={`hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
                       title="Exclude"
+                      disabled={isPlaceholderData}
                     >
                       <Minus className="w-3 h-3" />
                     </button>
@@ -2066,16 +2069,18 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
             >
               <button
                 onClick={() => isIncluded ? removeId(entity.id) : addInclude(entity.id)}
-                className={`hover:text-green-400 ${isIncluded ? "text-green-400" : "text-muted"}`}
+                className={`hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
                 title="Include"
+                disabled={isPlaceholderData}
               >
                 <Plus className="w-3 h-3" />
               </button>
               {supportsExclude && (
                 <button
                   onClick={() => isExcluded ? removeId(entity.id) : addExclude(entity.id)}
-                  className={`hover:text-red-400 ${isExcluded ? "text-red-400" : "text-muted"}`}
+                  className={`hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
                   title="Exclude"
+                  disabled={isPlaceholderData}
                 >
                   <Minus className="w-3 h-3" />
                 </button>
