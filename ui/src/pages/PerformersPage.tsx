@@ -105,6 +105,8 @@ export function PerformersPage({ onNavigate }: Props) {
         onFilterChange={setFilter}
         totalCount={totalCount}
         isLoading={isLoading}
+        error={listData.loadError}
+        onRetry={() => { void listData.refetch(); }}
         sortOptions={SORT_OPTIONS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}

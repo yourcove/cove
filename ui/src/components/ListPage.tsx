@@ -21,6 +21,7 @@ import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import { ListQueryState } from "./ListQueryState";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -31,6 +32,8 @@ interface ListPageProps {
   onFilterChange: (f: FindFilter) => void;
   totalCount: number;
   isLoading: boolean;
+  error?: Error | null;
+  onRetry?: () => void;
   children: ReactNode;
   sortOptions?: { value: string; label: string }[];
   displayMode?: DisplayMode;
@@ -526,6 +529,8 @@ export function ListPage({
   onFilterChange,
   totalCount,
   isLoading,
+  error,
+  onRetry,
   children,
   sortOptions,
   displayMode,
@@ -828,10 +833,10 @@ export function ListPage({
         <div className="list-page-title-group mr-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2">
           <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
           <span className="text-xs text-muted hidden sm:inline">
-            {totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
+            {error ? "Unavailable" : totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
-            {totalCount > 0 ? totalCount.toLocaleString() : "0"}
+            {error ? "—" : totalCount > 0 ? totalCount.toLocaleString() : "0"}
           </span>
           {metadataByline}
         </div>
@@ -1186,11 +1191,16 @@ export function ListPage({
       )}
 
       {/* Content */}
-      {isLoading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
-        </div>
-      ) : (
+      <ListQueryState
+        isLoading={isLoading}
+        loadError={error ?? null}
+        isEmpty={false}
+        onRetry={onRetry}
+        errorTitle={`Could not load ${title}`}
+        errorClassName="mx-1 mt-3"
+        loading={<div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" /></div>}
+        empty={null}
+      >
         <ListPageCardSizeContext.Provider value={{ cardMinWidthPx, zoomLevel }}>
           <div className="list-page-content pt-3" style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}>
             {children}
@@ -1205,7 +1215,7 @@ export function ListPage({
             )}
           </div>
         </ListPageCardSizeContext.Provider>
-      )}
+      </ListQueryState>
 
       {/* Pagination bottom */}
       {showPagingControls && totalPages > 1 && (

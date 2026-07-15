@@ -531,6 +531,8 @@ export function FacesPage({ onNavigate }: Props) {
         onFilterChange={handleFilterChange}
         totalCount={totalCount}
         isLoading={isLoading}
+        error={listData.loadError}
+        onRetry={() => { void listData.refetch(); }}
         sortOptions={FACE_SORT_OPTIONS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}

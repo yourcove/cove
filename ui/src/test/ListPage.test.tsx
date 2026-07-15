@@ -35,6 +35,38 @@ beforeEach(() => {
 });
 
 describe("ListPage active filter chips", () => {
+  it("shows a load error instead of interpreting it as an empty collection", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+    const onRetry = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            error={new Error("Request failed: 502 Bad Gateway")}
+            onRetry={onRetry}
+          >
+            <div>empty collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText("Could not load Videos")).toBeInTheDocument();
+    expect(screen.getByText("Request failed: 502 Bad Gateway")).toBeInTheDocument();
+    expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 items")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it("formats criterion chips with human labels and modifiers", () => {
     const queryClient = new QueryClient({
       defaultOptions: {

@@ -115,6 +115,8 @@ export function TextsPage({ onNavigate }: Props) {
       onFilterChange={setFilter}
       totalCount={totalCount}
       isLoading={isLoading}
+      error={listData.loadError}
+      onRetry={() => { void listData.refetch(); }}
       searchPlaceholder="Search text, tags, performers..."
       sortOptions={SORT_OPTIONS}
       displayMode={displayMode}

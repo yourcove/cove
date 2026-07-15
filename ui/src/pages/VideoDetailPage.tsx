@@ -40,6 +40,7 @@ import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
+import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
@@ -52,6 +53,7 @@ import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceV
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { normalizeStoredResumeTime } from "../utils/playbackResume";
+import { getLoadError } from "../utils/queryLoadState";
 
 const GenerateDialog = lazy(() => import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })));
 const DetailMergeDialog = lazy(() => import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })));
@@ -315,29 +317,37 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
     setCoverFromCurrentFrameMut.mutate(videoTime);
   };
 
-  const { data: segments = [], isLoading: segmentsLoading } = useQuery({
+  const { data: segmentsData, isLoading: segmentsLoading, error: segmentsError, refetch: retrySegments } = useQuery({
     queryKey: ["video", id, "segments"],
     queryFn: () => videos.segments.list(id),
     enabled: canReadSegments,
   });
+  const segmentsLoadError = getLoadError(segmentsData, segmentsError);
+  const segments = segmentsData ?? [];
 
-  const { data: displayProfiles = [] } = useQuery({
+  const { data: displayProfilesData, error: displayProfilesError, refetch: retryDisplayProfiles } = useQuery({
     queryKey: ["segment-display-profiles"],
     queryFn: () => segmentDisplayProfiles.list(),
     enabled: canReadSegments,
   });
+  const displayProfilesLoadError = getLoadError(displayProfilesData, displayProfilesError);
+  const displayProfiles = displayProfilesData ?? [];
 
-  const { data: resolvedSpansResponse, isLoading: resolvedSpansLoading } = useQuery({
+  const { data: resolvedSpansResponse, isLoading: resolvedSpansLoading, error: resolvedSpansError, refetch: retryResolvedSpans } = useQuery({
     queryKey: ["video", id, "resolved-spans", selectedProfileId],
     queryFn: () => videos.segments.spans(id, selectedProfileId),
     enabled: canReadSegments,
   });
+  const resolvedSpansLoadError = getLoadError(resolvedSpansResponse, resolvedSpansError);
 
-  const { data: detections = [], isLoading: detectionsLoading } = useQuery({
+  const { data: detectionsData, isLoading: detectionsLoading, error: detectionsError, refetch: retryDetections } = useQuery({
     queryKey: ["video", id, "detections"],
     queryFn: () => videos.detections.list(id),
     enabled: canReadSegments,
   });
+  const detectionsLoadError = getLoadError(detectionsData, detectionsError);
+  const detections = detectionsData ?? [];
+  const segmentsTabLoadError = segmentsLoadError ?? displayProfilesLoadError ?? resolvedSpansLoadError;
 
   const videoFaceIds = useMemo(() => {
     const ids = new Set<number>();
@@ -650,14 +660,23 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   );
 
   const activeTabContent = activeTab === "details" ? (
-    <DetailsTab
-      video={video}
-      metadataServers={config?.scraping?.metadataServers}
-      onNavigate={onNavigate}
-      videoFaces={videoFaces}
-      onMarkFaceNotPresent={canWriteFaces ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
-      markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
-      onRequestReportTag={requestReportTag}
+    <>
+      {detectionsLoadError ? <ListLoadError error={detectionsLoadError} onRetry={() => { void retryDetections(); }} className="mb-4" /> : null}
+      <DetailsTab
+        video={video}
+        metadataServers={config?.scraping?.metadataServers}
+        onNavigate={onNavigate}
+        videoFaces={videoFaces}
+        onMarkFaceNotPresent={canWriteFaces ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
+        markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
+        onRequestReportTag={requestReportTag}
+      />
+    </>
+  ) : activeTab === "segments" && segmentsTabLoadError ? (
+    <ListLoadError
+      error={segmentsTabLoadError}
+      onRetry={() => { void retrySegments(); void retryDisplayProfiles(); void retryResolvedSpans(); }}
+      className="mt-3"
     />
   ) : activeTab === "segments" ? (
     <VideoSegmentsPanel

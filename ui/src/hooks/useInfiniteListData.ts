@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { FindFilter, PaginatedResponse } from "../api/types";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
+import { getLoadError } from "../utils/queryLoadState";
 import { usePaginatedInfiniteQuery } from "./usePaginatedInfiniteQuery";
 
 interface UseInfiniteListDataOptions<TItem extends { id: string | number }> {
@@ -53,6 +54,10 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
   const items = infinitePageSize ? infiniteQuery.items : (pageQuery.data?.items ?? []);
   const totalCount = infinitePageSize ? infiniteQuery.totalCount : (pageQuery.data?.totalCount ?? 0);
   const isLoading = infinitePageSize ? infiniteQuery.isPending : pageQuery.isLoading;
+  const loadError = infinitePageSize
+    ? getLoadError(infiniteQuery.data, infiniteQuery.error)
+    : getLoadError(pageQuery.data, pageQuery.error);
+  const refetch = infinitePageSize ? infiniteQuery.refetch : pageQuery.refetch;
 
   const infiniteScroll = infinitePageSize ? {
     hasNextPage: infiniteQuery.hasNextPage,
@@ -67,6 +72,8 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     items,
     totalCount,
     isLoading,
+    loadError,
+    refetch,
     infiniteQuery,
     infiniteFilterKey,
     loadMore,

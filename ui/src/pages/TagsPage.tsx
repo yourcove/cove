@@ -97,7 +97,7 @@ export function TagsPage({ onNavigate }: Props) {
         ? tags.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as TagFilterCriteria })
         : tags.find(nextFilter),
   });
-  const { data: graphData, isLoading: isGraphLoading } = useQuery({
+  const { data: graphData, isLoading: isGraphLoading, error: graphError, refetch: refetchGraph } = useQuery({
     queryKey: ["tags", "graph", graphFindFilter, objectFilter],
     queryFn: () => tags.graph({ findFilter: graphFindFilter, objectFilter: objectFilter as TagFilterCriteria }),
     enabled: displayMode === "graph",
@@ -142,6 +142,8 @@ export function TagsPage({ onNavigate }: Props) {
       onFilterChange={setFilter}
       totalCount={totalCount}
       isLoading={isLoading}
+      error={displayMode === "graph" ? (!graphData && graphError instanceof Error ? graphError : null) : listData.loadError}
+      onRetry={() => { void (displayMode === "graph" ? refetchGraph() : listData.refetch()); }}
       sortOptions={SORT_OPTIONS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}

@@ -116,6 +116,8 @@ export function AudiosPage({ onNavigate }: Props) {
       onFilterChange={setFilter}
       totalCount={totalCount}
       isLoading={isLoading}
+      error={listData.loadError}
+      onRetry={() => { void listData.refetch(); }}
       searchPlaceholder="Search audio, tags, performers..."
       sortOptions={SORT_OPTIONS}
       displayMode={displayMode}
