@@ -34,6 +34,23 @@ describe("route history", () => {
     expect(buildRouteUrl({ page: "video", id: 42, seekTo: 91.5 })).toBe("/video/42?t=91.5");
   });
 
+  it("includes saved list state in list route URLs", () => {
+    expect(buildRouteUrl({
+      page: "videos",
+      listFilter: { q: "favorite", page: 1, perPage: 60, sort: "rating", direction: "desc" },
+      listObjectFilter: { ratingCriterion: { modifier: "greater_than", value: 80 } },
+      listView: "list",
+    })).toBe("/videos?q=favorite&page=1&perPage=60&sort=rating&direction=desc&filters=%7B%22ratingCriterion%22%3A%7B%22modifier%22%3A%22greater_than%22%2C%22value%22%3A80%7D%7D&view=list");
+  });
+
+  it("preserves explicitly empty saved list state", () => {
+    expect(buildRouteUrl({
+      page: "videos",
+      listFilter: { q: "" },
+      listObjectFilter: {},
+    })).toBe("/videos?q=&filters=%7B%7D");
+  });
+
   it("keeps back labels aligned with browser back navigation after a popstate-style move", () => {
     window.history.replaceState(null, "", "/performers");
     syncRouteHistory("push");

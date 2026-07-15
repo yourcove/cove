@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomePage } from "../pages/HomePage";
 
 const MAX_RANDOM_SORT_SEED = 2147483647;
 
 const { mockHomePageContent, mocks } = vi.hoisted(() => {
-  const emptyPage = { items: [], totalCount: 0 };
+  const emptyPage = { items: [] as Record<string, unknown>[], totalCount: 0 };
   return {
     mockHomePageContent: {
       value: JSON.stringify([
@@ -59,14 +59,14 @@ vi.mock("../utils/userUiPreferences", () => ({
   updateAuthenticatedUserUiPreferences: vi.fn(),
 }));
 
-function renderHomePage() {
+function renderHomePage(onNavigate = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <HomePage onNavigate={vi.fn()} />
+      <HomePage onNavigate={onNavigate} />
     </QueryClientProvider>,
   );
 }
@@ -176,5 +176,52 @@ describe("HomePage random rows", () => {
       });
     });
     expect(mocks.tagsFind).not.toHaveBeenCalled();
+  });
+
+  it("opens a saved-filter row with the saved filter state", async () => {
+    const onNavigate = vi.fn();
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 7 }]);
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 7,
+      mode: "videos",
+      name: "Saved Videos",
+      findFilter: JSON.stringify({ q: "favorite", page: 4, perPage: 60, sort: "rating", direction: "desc" }),
+      objectFilter: JSON.stringify({ ratingCriterion: { modifier: "greater_than", value: 80 } }),
+      uiOptions: JSON.stringify({ displayMode: "list" }),
+    });
+    mocks.videosFindFiltered.mockResolvedValueOnce({ items: [{ id: 101, title: "Filtered result" }], totalCount: 1 });
+
+    renderHomePage(onNavigate);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View All" }));
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: "videos",
+      listFilter: { q: "favorite", page: 1, perPage: 60, sort: "rating", direction: "desc" },
+      listObjectFilter: { ratingCriterion: { modifier: "greater_than", value: 80 } },
+      listView: "list",
+    });
+  });
+
+  it("preserves empty saved-filter state so destination defaults are cleared", async () => {
+    const onNavigate = vi.fn();
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 8 }]);
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 8,
+      mode: "videos",
+      name: "Unfiltered Videos",
+      findFilter: JSON.stringify({ perPage: 40 }),
+    });
+    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 102, title: "Unfiltered result" }], totalCount: 1 });
+
+    renderHomePage(onNavigate);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View All" }));
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: "videos",
+      listFilter: { q: "", page: 1, perPage: 40, sort: "date", direction: "desc" },
+      listObjectFilter: {},
+    });
   });
 });

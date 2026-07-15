@@ -1,4 +1,4 @@
-import type { SegmentDerivedQueryDescriptor } from "../api/types";
+import type { FindFilter, SegmentDerivedQueryDescriptor } from "../api/types";
 
 export interface Route {
   page: string;
@@ -9,6 +9,9 @@ export interface Route {
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
   manualTopicId?: string;
   manualSlideId?: string;
+  listFilter?: FindFilter;
+  listObjectFilter?: Record<string, unknown>;
+  listView?: string;
 }
 
 interface RouteHistoryEntry {
@@ -109,6 +112,26 @@ export function buildRoutePath(route: Route): string {
 
 export function buildRouteUrl(route: Route): string {
   const params = new URLSearchParams();
+  const listFilterEntries: [keyof FindFilter, string][] = [
+    ["q", "q"],
+    ["page", "page"],
+    ["perPage", "perPage"],
+    ["sort", "sort"],
+    ["direction", "direction"],
+    ["seed", "seed"],
+  ];
+  for (const [filterKey, paramKey] of listFilterEntries) {
+    const value = route.listFilter?.[filterKey];
+    if (value != null && (value !== "" || filterKey === "q")) {
+      params.set(paramKey, filterKey === "perPage" && value === 0 ? "infinite" : String(value));
+    }
+  }
+  if (route.listObjectFilter !== undefined) {
+    params.set("filters", JSON.stringify(route.listObjectFilter));
+  }
+  if (route.listView) {
+    params.set("view", route.listView);
+  }
   if (route.seekTo != null && Number.isFinite(route.seekTo) && route.seekTo >= 0) {
     params.set("t", String(route.seekTo));
   }

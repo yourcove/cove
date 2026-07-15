@@ -301,6 +301,7 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
   const mode = normalizeFilterMode(filter?.mode);
   const parsedFilter = useMemo(() => parseJsonObject<FindFilter>(filter?.findFilter) ?? {}, [filter?.findFilter]);
   const parsedObjectFilter = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.objectFilter), [filter?.objectFilter]);
+  const parsedUIOptions = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.uiOptions), [filter?.uiOptions]);
   const hasObjectFilter = !!parsedObjectFilter && Object.keys(parsedObjectFilter).length > 0;
   const findFilter = useMemo((): FindFilter | undefined => {
     if (!mode) return undefined;
@@ -341,6 +342,15 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
     <RecommendationRowShell
       header={filter.name}
       viewAllPage={mode ?? "videos"}
+      viewAllFilter={{
+        ...parsedFilter,
+        q: parsedFilter.q ?? "",
+        page: 1,
+        sort: parsedFilter.sort ?? DEFAULT_SORT_BY_MODE[mode],
+        direction: parsedFilter.direction ?? "desc",
+      }}
+      viewAllObjectFilter={parsedObjectFilter ?? {}}
+      viewAllView={typeof parsedUIOptions?.displayMode === "string" ? parsedUIOptions.displayMode : undefined}
       onNavigate={onNavigate}
       loading={isLoading}
       count={items.length}
@@ -357,6 +367,9 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
 function RecommendationRowShell({
   header,
   viewAllPage,
+  viewAllFilter,
+  viewAllObjectFilter,
+  viewAllView,
   onNavigate,
   loading,
   count,
@@ -364,6 +377,9 @@ function RecommendationRowShell({
 }: {
   header: string;
   viewAllPage: string;
+  viewAllFilter?: FindFilter;
+  viewAllObjectFilter?: Record<string, unknown>;
+  viewAllView?: string;
   onNavigate: (r: any) => void;
   loading: boolean;
   count: number;
@@ -412,7 +428,12 @@ function RecommendationRowShell({
       <div className="flex items-center justify-between mb-2 px-1">
         <h2 className="text-base font-semibold text-foreground">{header}</h2>
         <button
-          onClick={() => onNavigate({ page: viewAllPage })}
+          onClick={() => onNavigate({
+            page: viewAllPage,
+            ...(viewAllFilter ? { listFilter: viewAllFilter } : {}),
+            ...(viewAllObjectFilter !== undefined ? { listObjectFilter: viewAllObjectFilter } : {}),
+            ...(viewAllView ? { listView: viewAllView } : {}),
+          })}
           className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-muted hover:text-accent sm:min-h-0 sm:px-0 sm:text-xs"
         >
           View All
