@@ -6,10 +6,14 @@ namespace Cove.Data.Repositories;
 
 public sealed record ExpandedHierarchyCriterion(
     MultiIdCriterion Criterion,
-    IReadOnlyList<int[]> ValueGroups);
+    IReadOnlyList<int[]> ValueGroups,
+    IReadOnlyList<int[]> RequiredIdGroups);
 
 public static class HierarchicalCriterionExpander
 {
+    public static bool RequiresExpansion(MultiIdCriterion? criterion)
+        => criterion is { Depth: -1 } or { RequiredIdsDepth: -1 };
+
     public static async Task<ExpandedHierarchyCriterion> ExpandTagsAsync(
         CoveContext db,
         MultiIdCriterion criterion,
@@ -45,15 +49,22 @@ public static class HierarchicalCriterionExpander
             .GroupBy(edge => edge.ParentId)
             .ToDictionary(group => group.Key, group => group.Select(edge => edge.ChildId).ToArray());
 
+        var expandValues = criterion.Depth == -1;
         var valueGroups = criterion.Value
             .Distinct()
-            .Select(rootId => ExpandRoot(rootId, childrenByParent))
+            .Select(rootId => expandValues ? ExpandRoot(rootId, childrenByParent) : [rootId])
             .ToList();
         var excludes = criterion.Excludes?
             .Distinct()
-            .SelectMany(rootId => ExpandRoot(rootId, childrenByParent))
+            .SelectMany(rootId => expandValues ? ExpandRoot(rootId, childrenByParent) : [rootId])
             .Distinct()
             .ToList();
+        var expandRequiredIds = criterion.RequiredIdsDepth == -1;
+        var requiredIdGroups = expandRequiredIds ? criterion.RequiredIds?
+            .Where(rootId => rootId > 0)
+            .Distinct()
+            .Select(rootId => ExpandRoot(rootId, childrenByParent))
+            .ToList() ?? [] : [];
 
         return new ExpandedHierarchyCriterion(
             new MultiIdCriterion
@@ -61,10 +72,12 @@ public static class HierarchicalCriterionExpander
                 Value = valueGroups.SelectMany(group => group).Distinct().ToList(),
                 Modifier = criterion.Modifier,
                 Excludes = excludes is { Count: > 0 } ? excludes : null,
-                RequiredIds = criterion.RequiredIds,
+                RequiredIds = requiredIdGroups.Count > 0 ? null : criterion.RequiredIds,
+                RequiredIdsDepth = criterion.RequiredIdsDepth,
                 Depth = criterion.Depth,
             },
-            valueGroups);
+            valueGroups,
+            requiredIdGroups);
     }
 
     private static int[] ExpandRoot(

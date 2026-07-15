@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { savedFilters } from "../api/client";
@@ -80,7 +80,40 @@ vi.mock("../components/MetadataTaggerDialog", () => ({ StudioMetadataTaggerDialo
 vi.mock("../components/CoverImageDialog", () => ({ CoverImageDialog: () => null }));
 
 describe("StudioDetailPage", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    window.history.replaceState(null, "", "/studio/25?perPage=100&sort=rating&filters=%7B%22favorite%22%3Atrue%7D");
+  });
+
+  it("persists include sub-studio content in the URL", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: "Include sub-studio content" }));
+
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("includeSubStudios")).toBe("true");
+      expect(params.get("perPage")).toBe("100");
+      expect(params.get("sort")).toBe("rating");
+      expect(params.get("filters")).toBe('{"favorite":true}');
+    });
+
+    unmount();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("checkbox", { name: "Include sub-studio content" })).toBeChecked();
+    expect(new URLSearchParams(window.location.search).get("includeSubStudios")).toBe("true");
+  });
 
   it("offers the matching saved-filter library on every relation tab", async () => {
     const user = userEvent.setup();

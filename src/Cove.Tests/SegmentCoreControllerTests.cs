@@ -733,6 +733,41 @@ public class SegmentCoreControllerTests
     }
 
     [Fact]
+    public async Task SegmentsController_DescendantTagConstraint_ComposesWithSavedTagIds()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Tagged segments" };
+        var parent = new Tag { Name = "Parent" };
+        var child = new Tag { Name = "Child" };
+        context.AddRange(video, parent, child);
+        await context.SaveChangesAsync();
+        context.Set<TagParent>().Add(new TagParent { ParentId = parent.Id, ChildId = child.Id });
+        context.Segments.AddRange(
+            new Segment { HostType = SegmentHostType.Video, HostId = video.Id, TagId = parent.Id, Title = "parent" },
+            new Segment { HostType = SegmentHostType.Video, HostId = video.Id, TagId = child.Id, Title = "child" });
+        await context.SaveChangesAsync();
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+
+        var result = await controller.List(
+            q: null, ids: null, videoId: null, videoIds: null, videoTitle: null,
+            tagId: parent.Id, tagIds: child.Id.ToString(), kind: null, sourceKey: null,
+            sourceCategory: null, refIds: null, performerIds: null, tagged: null,
+            minConfidence: null, minDurationSec: null, confidence: null, confidence2: null,
+            confidenceModifier: null, durationSec: null, durationSec2: null,
+            durationModifier: null, sort: null, direction: null, tagDepth: -1,
+            cancellationToken: CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var page = Assert.IsType<PaginatedResponse<SegmentRecordDto>>(ok.Value);
+        Assert.Equal("child", Assert.Single(page.Items).Title);
+    }
+
+    [Fact]
     public async Task SegmentsController_ListSupportsFocusedFiltersAndSorting()
     {
         await using var scope = await CreateContextAsync();
@@ -2012,4 +2047,3 @@ public class SegmentCoreControllerTests
         }
     }
 }
-

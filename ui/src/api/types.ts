@@ -2474,6 +2474,7 @@ export interface MultiIdCriterion {
   modifier: CriterionModifier;
   excludes?: number[];
   requiredIds?: number[];
+  requiredIdsDepth?: number;
   depth?: number;
 }
 

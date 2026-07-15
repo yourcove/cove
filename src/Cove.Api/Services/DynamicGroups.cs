@@ -615,11 +615,34 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         {
             "video" => (await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct)).TotalCount,
             "image" => (await imageRepository.FindAsync(DeserializeFilter<ImageFilter>(entityConfig.ObjectFilter) ?? new ImageFilter(), findFilter, ct)).TotalCount,
-            "audio" => await ApplyAudioFilter(ApplyAudioSearch(db.Audios.AsNoTracking(), findFilter.Q), DeserializeFilter<AudioFilter>(entityConfig.ObjectFilter)).CountAsync(ct),
-            "text" => await ApplyTextFilter(ApplyTextSearch(db.TextDocuments.AsNoTracking(), findFilter.Q), DeserializeFilter<TextDocumentFilter>(entityConfig.ObjectFilter)).CountAsync(ct),
-            "segment" => await ApplySegmentFilter(ApplySegmentSearch(db.VisibleSegments().AsNoTracking().Include(segment => segment.Tag), findFilter.Q), DeserializeFilter<SegmentFilter>(entityConfig.ObjectFilter)).CountAsync(ct),
+            "audio" => await CountAudiosAsync(entityConfig, findFilter, ct),
+            "text" => await CountTextsAsync(entityConfig, findFilter, ct),
+            "segment" => await CountSegmentsAsync(entityConfig, findFilter, ct),
             _ => 0,
         };
+    }
+
+    private async Task<int> CountAudiosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
+    {
+        var prepared = await PrepareAudioFilterAsync(entityConfig.ObjectFilter, ct);
+        return await ApplyAudioFilter(ApplyAudioSearch(db.Audios.AsNoTracking(), findFilter.Q), prepared.Filter,
+            prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups).CountAsync(ct);
+    }
+
+    private async Task<int> CountTextsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
+    {
+        var prepared = await PrepareTextFilterAsync(entityConfig.ObjectFilter, ct);
+        return await ApplyTextFilter(ApplyTextSearch(db.TextDocuments.AsNoTracking(), findFilter.Q), prepared.Filter,
+            prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups).CountAsync(ct);
+    }
+
+    private async Task<int> CountSegmentsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
+    {
+        var prepared = await PrepareSegmentFilterAsync(entityConfig.ObjectFilter, ct);
+        return await ApplySegmentFilter(ApplySegmentSearch(db.VisibleSegments().AsNoTracking().Include(segment => segment.Tag), findFilter.Q),
+            prepared.Filter, prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups).CountAsync(ct);
     }
 
     private async Task<DynamicGroupResolveResult> ResolveVideosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, int localOffset, int localLimit, CancellationToken ct)
@@ -657,8 +680,11 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     private async Task<DynamicGroupResolveResult> ResolveAudiosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, int localOffset, int localLimit, CancellationToken ct)
     {
         var query = db.Audios.AsNoTracking().AsQueryable();
+        var prepared = await PrepareAudioFilterAsync(entityConfig.ObjectFilter, ct);
         query = ApplyAudioSearch(query, findFilter.Q);
-        query = ApplyAudioFilter(query, DeserializeFilter<AudioFilter>(entityConfig.ObjectFilter));
+        query = ApplyAudioFilter(query, prepared.Filter,
+            prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
         query = ApplyAudioSort(query, findFilter.Sort, findFilter.Direction == SortDirection.Desc);
 
         var totalCount = await query.CountAsync(ct);
@@ -677,8 +703,11 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     private async Task<DynamicGroupResolveResult> ResolveTextsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, int localOffset, int localLimit, CancellationToken ct)
     {
         var query = db.TextDocuments.AsNoTracking().AsQueryable();
+        var prepared = await PrepareTextFilterAsync(entityConfig.ObjectFilter, ct);
         query = ApplyTextSearch(query, findFilter.Q);
-        query = ApplyTextFilter(query, DeserializeFilter<TextDocumentFilter>(entityConfig.ObjectFilter));
+        query = ApplyTextFilter(query, prepared.Filter,
+            prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
         query = ApplyTextSort(query, findFilter.Sort, findFilter.Direction == SortDirection.Desc);
 
         var totalCount = await query.CountAsync(ct);
@@ -697,8 +726,9 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     private async Task<DynamicGroupResolveResult> ResolveSegmentsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, int localOffset, int localLimit, CancellationToken ct)
     {
         var query = db.VisibleSegments().AsNoTracking().Include(segment => segment.Tag).AsQueryable();
+        var prepared = await PrepareSegmentFilterAsync(entityConfig.ObjectFilter, ct);
         query = ApplySegmentSearch(query, findFilter.Q);
-        query = ApplySegmentFilter(query, DeserializeFilter<SegmentFilter>(entityConfig.ObjectFilter));
+        query = ApplySegmentFilter(query, prepared.Filter, prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups);
 
         var desc = findFilter.Direction == SortDirection.Desc;
         query = (findFilter.Sort ?? "created_at") switch
@@ -842,6 +872,50 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     private static bool IsSupportedEntityType(string entityType)
         => entityType is "video" or "image" or "audio" or "text" or "segment";
 
+    private async Task<(AudioFilter? Filter, ExpandedHierarchyCriterion? Tags, ExpandedHierarchyCriterion? Studios)> PrepareAudioFilterAsync(JsonElement? objectFilter, CancellationToken ct)
+    {
+        var filter = DeserializeFilter<AudioFilter>(objectFilter);
+        var tags = await ExpandTagsAsync(filter?.TagsCriterion, ct);
+        var studios = await ExpandStudiosAsync(filter?.StudiosCriterion, ct);
+        if (filter != null)
+        {
+            if (tags != null) filter.TagsCriterion = tags.Criterion;
+            if (studios != null) filter.StudiosCriterion = studios.Criterion;
+        }
+        return (filter, tags, studios);
+    }
+
+    private async Task<(TextDocumentFilter? Filter, ExpandedHierarchyCriterion? Tags, ExpandedHierarchyCriterion? Studios)> PrepareTextFilterAsync(JsonElement? objectFilter, CancellationToken ct)
+    {
+        var filter = DeserializeFilter<TextDocumentFilter>(objectFilter);
+        var tags = await ExpandTagsAsync(filter?.TagsCriterion, ct);
+        var studios = await ExpandStudiosAsync(filter?.StudiosCriterion, ct);
+        if (filter != null)
+        {
+            if (tags != null) filter.TagsCriterion = tags.Criterion;
+            if (studios != null) filter.StudiosCriterion = studios.Criterion;
+        }
+        return (filter, tags, studios);
+    }
+
+    private async Task<(SegmentFilter? Filter, ExpandedHierarchyCriterion? Tags)> PrepareSegmentFilterAsync(JsonElement? objectFilter, CancellationToken ct)
+    {
+        var filter = DeserializeFilter<SegmentFilter>(objectFilter);
+        var tags = await ExpandTagsAsync(filter?.TagsCriterion, ct);
+        if (filter != null && tags != null) filter.TagsCriterion = tags.Criterion;
+        return (filter, tags);
+    }
+
+    private async Task<ExpandedHierarchyCriterion?> ExpandTagsAsync(MultiIdCriterion? criterion, CancellationToken ct)
+        => HierarchicalCriterionExpander.RequiresExpansion(criterion)
+            ? await HierarchicalCriterionExpander.ExpandTagsAsync(db, criterion!, ct)
+            : null;
+
+    private async Task<ExpandedHierarchyCriterion?> ExpandStudiosAsync(MultiIdCriterion? criterion, CancellationToken ct)
+        => HierarchicalCriterionExpander.RequiresExpansion(criterion)
+            ? await HierarchicalCriterionExpander.ExpandStudiosAsync(db, criterion!, ct)
+            : null;
+
     private static TFilter? DeserializeFilter<TFilter>(JsonElement? objectFilter)
     {
         if (!objectFilter.HasValue || objectFilter.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
@@ -945,7 +1019,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
             || (segment.Tag != null && EF.Functions.ILike(segment.Tag.Name, value)));
     }
 
-    private IQueryable<Segment> ApplySegmentFilter(IQueryable<Segment> query, SegmentFilter? filter)
+    private IQueryable<Segment> ApplySegmentFilter(IQueryable<Segment> query, SegmentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null)
     {
         if (filter == null)
             return query;
@@ -959,7 +1033,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyString(query, filter.SourceKeyCriterion, segment => segment.SourceKey);
         query = FilterHelpers.ApplyString(query, filter.SourceRunIdCriterion, segment => segment.SourceRunId);
         query = FilterHelpers.ApplyString(query, filter.ColorHintCriterion, segment => segment.ColorHint);
-        query = ApplySegmentTagCriterion(query, filter.TagsCriterion);
+        query = ApplySegmentTagCriterion(query, filter.TagsCriterion, hierarchicalTagGroups, requiredTagGroups);
         query = ApplySegmentFaceCriterion(query, filter.FacesCriterion);
         query = ApplySegmentPerformerCriterion(query, filter.PerformersCriterion);
         query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, segment => segment.CreatedAt);
@@ -975,15 +1049,26 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
     private IQueryable<Segment> ApplySegmentVideoCriterion(IQueryable<Segment> query, MultiIdCriterion? criterion)
     {
-        if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0)))
+        if (criterion == null)
             return query;
 
         var ids = criterion.Value.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length > 0)
+        if (criterion.Modifier == CriterionModifier.IsNull)
+        {
+            query = query.Where(segment => segment.HostType != SegmentHostType.Video);
+        }
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+        {
+            query = query.Where(segment => segment.HostType == SegmentHostType.Video);
+        }
+        else if (ids.Length > 0)
         {
             query = criterion.Modifier switch
             {
-                CriterionModifier.Excludes or CriterionModifier.ExcludesAll => query.Where(segment => segment.HostType != SegmentHostType.Video || !ids.Contains(segment.HostId)),
+                CriterionModifier.Excludes => query.Where(segment => segment.HostType != SegmentHostType.Video || !ids.Contains(segment.HostId)),
+                CriterionModifier.ExcludesAll when ids.Length == 1 => query.Where(segment => segment.HostType != SegmentHostType.Video || !ids.Contains(segment.HostId)),
+                CriterionModifier.ExcludesAll => query,
+                CriterionModifier.IncludesAll when ids.Length > 1 => query.Where(_ => false),
                 _ => query.Where(segment => segment.HostType == SegmentHostType.Video && ids.Contains(segment.HostId)),
             };
         }
@@ -991,6 +1076,14 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         var excludedIds = criterion.Excludes?.Where(id => id > 0).Distinct().ToArray() ?? [];
         if (excludedIds.Length > 0)
             query = query.Where(segment => segment.HostType != SegmentHostType.Video || !excludedIds.Contains(segment.HostId));
+
+        var requiredIds = criterion.RequiredIds?.Where(id => id > 0).Distinct().ToArray() ?? [];
+        query = requiredIds.Length switch
+        {
+            0 => query,
+            1 => query.Where(segment => segment.HostType == SegmentHostType.Video && segment.HostId == requiredIds[0]),
+            _ => query.Where(_ => false),
+        };
 
         return query;
     }
@@ -1039,8 +1132,8 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         };
     }
 
-    private static IQueryable<Segment> ApplySegmentTagCriterion(IQueryable<Segment> query, MultiIdCriterion? criterion)
-        => ApplySegmentNullableIntCriterion(query, criterion, segment => segment.TagId);
+    private static IQueryable<Segment> ApplySegmentTagCriterion(IQueryable<Segment> query, MultiIdCriterion? criterion, IReadOnlyList<int[]>? valueGroups = null, IReadOnlyList<int[]>? requiredIdGroups = null)
+        => FilterHelpers.ApplyStudioCriterion(query, criterion, segment => segment.TagId, valueGroups, requiredIdGroups);
 
     private static IQueryable<Segment> ApplySegmentFaceCriterion(IQueryable<Segment> query, MultiIdCriterion? criterion)
     {
@@ -1048,23 +1141,40 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
             return query;
 
         if (criterion.Modifier == CriterionModifier.IsNull)
-            return query.Where(segment => segment.Kind == null || segment.Kind.ToLower() != "face" || segment.RefId == null);
-        if (criterion.Modifier == CriterionModifier.NotNull)
-            return query.Where(segment => segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId != null);
-
-        var ids = criterion.Value.Where(id => id > 0).Select(id => (long)id).Distinct().ToArray();
-        if (ids.Length > 0)
         {
-            query = criterion.Modifier switch
+            query = query.Where(segment => segment.Kind == null || segment.Kind.ToLower() != "face" || segment.RefId == null);
+        }
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+        {
+            query = query.Where(segment => segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId != null);
+        }
+        else
+        {
+            var ids = criterion.Value.Where(id => id > 0).Select(id => (long)id).Distinct().ToArray();
+            if (ids.Length > 0)
             {
-                CriterionModifier.Excludes or CriterionModifier.ExcludesAll => query.Where(segment => segment.Kind == null || segment.Kind.ToLower() != "face" || !segment.RefId.HasValue || !ids.Contains(segment.RefId.Value)),
-                _ => query.Where(segment => segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && ids.Contains(segment.RefId.Value)),
-            };
+                query = criterion.Modifier switch
+                {
+                    CriterionModifier.Excludes => query.Where(segment => segment.Kind == null || segment.Kind.ToLower() != "face" || !segment.RefId.HasValue || !ids.Contains(segment.RefId.Value)),
+                    CriterionModifier.ExcludesAll when ids.Length > 1 => query,
+                    CriterionModifier.ExcludesAll => query.Where(segment => segment.Kind == null || segment.Kind.ToLower() != "face" || !segment.RefId.HasValue || !ids.Contains(segment.RefId.Value)),
+                    CriterionModifier.IncludesAll when ids.Length > 1 => query.Where(_ => false),
+                    _ => query.Where(segment => segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && ids.Contains(segment.RefId.Value)),
+                };
+            }
         }
 
         var excludedIds = criterion.Excludes?.Where(id => id > 0).Select(id => (long)id).Distinct().ToArray() ?? [];
         if (excludedIds.Length > 0)
             query = query.Where(segment => segment.Kind == null || segment.Kind.ToLower() != "face" || !segment.RefId.HasValue || !excludedIds.Contains(segment.RefId.Value));
+
+        var requiredIds = criterion.RequiredIds?.Where(id => id > 0).Select(id => (long)id).Distinct().ToArray() ?? [];
+        query = requiredIds.Length switch
+        {
+            0 => query,
+            1 => query.Where(segment => segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId == requiredIds[0]),
+            _ => query.Where(_ => false),
+        };
 
         return query;
     }
@@ -1079,26 +1189,36 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
             .Select(face => (long)face.Id);
 
         if (criterion.Modifier == CriterionModifier.IsNull)
-            return query.Where(segment => !((segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue)
-                || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && hasPerformerFaceIds.Contains(segment.RefId.Value))));
-        if (criterion.Modifier == CriterionModifier.NotNull)
-            return query.Where(segment => (segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue)
-                || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && hasPerformerFaceIds.Contains(segment.RefId.Value)));
-
-        var ids = criterion.Value.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length > 0)
         {
-            var performerIds = ids.Select(id => (long)id).ToArray();
-            var faceIds = db.Faces.AsNoTracking()
-                .Where(face => face.PerformerId.HasValue && ids.Contains(face.PerformerId.Value))
-                .Select(face => (long)face.Id);
-            query = criterion.Modifier switch
+            query = query.Where(segment => !((segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue)
+                || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && hasPerformerFaceIds.Contains(segment.RefId.Value))));
+        }
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+        {
+            query = query.Where(segment => (segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue)
+                || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && hasPerformerFaceIds.Contains(segment.RefId.Value)));
+        }
+        else
+        {
+            var ids = criterion.Value.Where(id => id > 0).Distinct().ToArray();
+            if (ids.Length > 0)
             {
-                CriterionModifier.Excludes or CriterionModifier.ExcludesAll => query.Where(segment => !((segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue && performerIds.Contains(segment.RefId.Value))
-                    || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && faceIds.Contains(segment.RefId.Value)))),
-                _ => query.Where(segment => (segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue && performerIds.Contains(segment.RefId.Value))
-                    || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && faceIds.Contains(segment.RefId.Value))),
-            };
+                var performerIds = ids.Select(id => (long)id).ToArray();
+                var faceIds = db.Faces.AsNoTracking()
+                    .Where(face => face.PerformerId.HasValue && ids.Contains(face.PerformerId.Value))
+                    .Select(face => (long)face.Id);
+                query = criterion.Modifier switch
+                {
+                    CriterionModifier.Excludes => query.Where(segment => !((segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue && performerIds.Contains(segment.RefId.Value))
+                        || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && faceIds.Contains(segment.RefId.Value)))),
+                    CriterionModifier.ExcludesAll when ids.Length > 1 => query,
+                    CriterionModifier.ExcludesAll => query.Where(segment => !((segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue && performerIds.Contains(segment.RefId.Value))
+                        || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && faceIds.Contains(segment.RefId.Value)))),
+                    CriterionModifier.IncludesAll when ids.Length > 1 => query.Where(_ => false),
+                    _ => query.Where(segment => (segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId.HasValue && performerIds.Contains(segment.RefId.Value))
+                        || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && faceIds.Contains(segment.RefId.Value))),
+                };
+            }
         }
 
         var excludedIds = criterion.Excludes?.Where(id => id > 0).Distinct().ToArray() ?? [];
@@ -1112,46 +1232,26 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
                 || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && excludedFaceIds.Contains(segment.RefId.Value))));
         }
 
+        var requiredIds = criterion.RequiredIds?.Where(id => id > 0).Distinct().ToArray() ?? [];
+        if (requiredIds.Length == 1)
+        {
+            var requiredPerformerId = (long)requiredIds[0];
+            var requiredFaceIds = db.Faces.AsNoTracking()
+                .Where(face => face.PerformerId == requiredIds[0])
+                .Select(face => (long)face.Id);
+            query = query.Where(segment => (segment.Kind != null && segment.Kind.ToLower() == "performer" && segment.RefId == requiredPerformerId)
+                || (segment.Kind != null && segment.Kind.ToLower() == "face" && segment.RefId.HasValue && requiredFaceIds.Contains(segment.RefId.Value)));
+        }
+        else if (requiredIds.Length > 1)
+        {
+            query = query.Where(_ => false);
+        }
+
         return query;
     }
 
     private static IQueryable<Segment> ApplySegmentNullableIntCriterion(IQueryable<Segment> query, MultiIdCriterion? criterion, Expression<Func<Segment, int?>> selector)
-    {
-        if (criterion == null)
-            return query;
-
-        if (criterion.Modifier == CriterionModifier.IsNull || criterion.Modifier == CriterionModifier.NotNull)
-        {
-            var hasValue = Expression.Property(selector.Body, nameof(Nullable<int>.HasValue));
-            Expression predicate = criterion.Modifier == CriterionModifier.IsNull ? Expression.Not(hasValue) : hasValue;
-            return query.Where(Expression.Lambda<Func<Segment, bool>>(predicate, selector.Parameters));
-        }
-
-        var ids = criterion.Value.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length > 0)
-            query = ApplySegmentNullableIntValues(query, selector, ids, criterion.Modifier is CriterionModifier.Excludes or CriterionModifier.ExcludesAll);
-
-        var excludedIds = criterion.Excludes?.Where(id => id > 0).Distinct().ToArray() ?? [];
-        if (excludedIds.Length > 0)
-            query = ApplySegmentNullableIntValues(query, selector, excludedIds, exclude: true);
-
-        return query;
-    }
-
-    private static IQueryable<Segment> ApplySegmentNullableIntValues(IQueryable<Segment> query, Expression<Func<Segment, int?>> selector, int[] ids, bool exclude)
-    {
-        var parameter = selector.Parameters[0];
-        var hasValue = Expression.Property(selector.Body, nameof(Nullable<int>.HasValue));
-        var value = Expression.Property(selector.Body, nameof(Nullable<int>.Value));
-        var contains = Expression.Call(
-            null,
-            typeof(Enumerable).GetMethods().First(method => method.Name == nameof(Enumerable.Contains) && method.GetParameters().Length == 2).MakeGenericMethod(typeof(int)),
-            Expression.Constant(ids),
-            value);
-        var match = Expression.AndAlso(hasValue, contains);
-        Expression predicate = exclude ? Expression.Not(match) : match;
-        return query.Where(Expression.Lambda<Func<Segment, bool>>(predicate, parameter));
-    }
+        => FilterHelpers.ApplyStudioCriterion(query, criterion, selector);
 
     private static IQueryable<Segment> ApplySegmentBool(IQueryable<Segment> query, BoolCriterion? criterion, Expression<Func<Segment, bool>> selector)
     {
@@ -1187,7 +1287,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         return query.Where(Expression.Lambda<Func<Segment, bool>>(predicate, parameter));
     }
 
-    private IQueryable<Audio> ApplyAudioFilter(IQueryable<Audio> query, AudioFilter? filter)
+    private IQueryable<Audio> ApplyAudioFilter(IQueryable<Audio> query, AudioFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null)
             return query;
@@ -1217,10 +1317,10 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyInt(query, filter.ChannelsCriterion, audio => audio.Files.Max(file => file.Channels) ?? 0);
         query = ApplyAudioEffectiveTagCountCriterion(query, filter.TagCountCriterion);
         query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, audio => audio.AudioPerformers.Count);
-        query = ApplyAudioTagCriterion(query, filter.TagsCriterion);
+        query = ApplyAudioTagCriterion(query, filter.TagsCriterion, hierarchicalTagGroups, requiredTagGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, audio => audio.AudioPerformers.Select(link => link.PerformerId));
         query = ApplyAudioPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
-        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, audio => audio.StudioId);
+        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, audio => audio.StudioId, hierarchicalStudioGroups, requiredStudioGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.GroupsCriterion, audio => db.GroupItems
             .Where(item => item.HostType == "audio" && item.HostId == audio.Id && item.Kind == GroupItemKind.Audio)
             .Select(item => item.GroupId));
@@ -1230,7 +1330,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         return query;
     }
 
-    private IQueryable<TextDocument> ApplyTextFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter)
+    private IQueryable<TextDocument> ApplyTextFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null)
             return query;
@@ -1256,10 +1356,10 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, text => text.FileCount);
         query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, text => text.TextTags.Count);
         query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, text => text.TextPerformers.Count);
-        query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, text => text.TextTags.Select(link => link.TagId));
+        query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, text => text.TextTags.Select(link => link.TagId), hierarchicalTagGroups, requiredTagGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, text => text.TextPerformers.Select(link => link.PerformerId));
         query = ApplyTextPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
-        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, text => text.StudioId);
+        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, text => text.StudioId, hierarchicalStudioGroups, requiredStudioGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.GroupsCriterion, text => db.GroupItems
             .Where(item => item.HostType == "text" && item.HostId == text.Id && item.Kind == GroupItemKind.Text)
             .Select(item => item.GroupId));
@@ -1282,34 +1382,60 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
             .Count());
     }
 
-    private IQueryable<Audio> ApplyAudioTagCriterion(IQueryable<Audio> query, MultiIdCriterion? criterion)
+    private IQueryable<Audio> ApplyAudioTagCriterion(IQueryable<Audio> query, MultiIdCriterion? criterion, IReadOnlyList<int[]>? valueGroups = null, IReadOnlyList<int[]>? requiredIdGroups = null)
     {
         if (criterion == null)
             return query;
 
         var effectiveTags = EffectiveHostTagQuery.ForHostType(db, AffinityHostType.Audio);
         if (criterion.Modifier == CriterionModifier.IsNull)
-            return query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id));
-        if (criterion.Modifier == CriterionModifier.NotNull)
-            return query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id));
-
-        var ids = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
-        if (ids.Length > 0)
         {
-            query = criterion.Modifier switch
+            query = query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id));
+        }
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+        {
+            query = query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id));
+        }
+        else
+        {
+            var ids = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
+            if (ids.Length > 0)
             {
-                CriterionModifier.Excludes => query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
-                CriterionModifier.ExcludesAll => ApplyAudioTagExcludesAll(query, effectiveTags, ids),
-                CriterionModifier.IncludesAll => ApplyAudioTagIncludesAll(query, effectiveTags, ids),
-                _ => query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
-            };
+                query = criterion.Modifier switch
+                {
+                    CriterionModifier.Excludes => query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
+                    CriterionModifier.ExcludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: true),
+                    CriterionModifier.IncludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: false),
+                    CriterionModifier.ExcludesAll => ApplyAudioTagExcludesAll(query, effectiveTags, ids),
+                    CriterionModifier.IncludesAll => ApplyAudioTagIncludesAll(query, effectiveTags, ids),
+                    _ => query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
+                };
+            }
         }
 
         var excludedIds = criterion.Excludes?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
         if (excludedIds.Length > 0)
             query = query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && excludedIds.Contains(tag.TagId)));
 
+        var requiredIds = criterion.RequiredIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
+        if (requiredIds.Length > 0)
+            query = ApplyAudioTagIncludesAll(query, effectiveTags, requiredIds);
+
+        if (requiredIdGroups is { Count: > 0 })
+            query = ApplyAudioTagGrouped(query, effectiveTags, requiredIdGroups, excludeAll: false);
+
         return query;
+    }
+
+    private static IQueryable<Audio> ApplyAudioTagGrouped(IQueryable<Audio> query, IQueryable<EffectiveHostTagRow> effectiveTags, IReadOnlyList<int[]> groups, bool excludeAll)
+    {
+        var matchingAll = query;
+        foreach (var group in groups.Where(group => group.Length > 0))
+        {
+            var groupIds = group;
+            matchingAll = matchingAll.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && groupIds.Contains(tag.TagId)));
+        }
+        return excludeAll ? query.Where(audio => !matchingAll.Select(match => match.Id).Contains(audio.Id)) : matchingAll;
     }
 
     private static IQueryable<Audio> ApplyAudioTagIncludesAll(IQueryable<Audio> query, IQueryable<EffectiveHostTagRow> effectiveTags, IReadOnlyCollection<int> tagIds)
@@ -1434,16 +1560,23 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     }
 
     private static int[] GetIncludedPerformerIds(AudioFilter filter)
-        => filter.PerformersCriterion?.Value is { Count: > 0 }
-            && filter.PerformersCriterion.Modifier is CriterionModifier.Includes or CriterionModifier.IncludesAll
-            ? filter.PerformersCriterion.Value.Where(id => id > 0).Distinct().ToArray()
-            : [];
+        => GetIncludedPerformerIds(filter.PerformersCriterion);
 
     private static int[] GetIncludedPerformerIds(TextDocumentFilter filter)
-        => filter.PerformersCriterion?.Value is { Count: > 0 }
-            && filter.PerformersCriterion.Modifier is CriterionModifier.Includes or CriterionModifier.IncludesAll
-            ? filter.PerformersCriterion.Value.Where(id => id > 0).Distinct().ToArray()
-            : [];
+        => GetIncludedPerformerIds(filter.PerformersCriterion);
+
+    private static int[] GetIncludedPerformerIds(MultiIdCriterion? criterion)
+    {
+        var ids = new HashSet<int>();
+        if (criterion?.Value is { Count: > 0 }
+            && criterion.Modifier is CriterionModifier.Includes or CriterionModifier.IncludesAll)
+            ids.UnionWith(criterion.Value.Where(id => id > 0));
+
+        if (criterion?.RequiredIds is { Count: > 0 })
+            ids.UnionWith(criterion.RequiredIds.Where(id => id > 0));
+
+        return ids.ToArray();
+    }
 
     private static GroupItemKind KindForEntityType(string entityType) => entityType switch
     {
@@ -1630,4 +1763,3 @@ public sealed class ContinueWatchingDynamicGroupSource(CoveContext db) : UserSco
         return await HydratePageAsync(filteredRows, context, ct);
     }
 }
-

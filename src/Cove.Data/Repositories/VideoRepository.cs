@@ -70,14 +70,16 @@ public class VideoRepository : IVideoRepository
     public async Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (filter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
-        if (filter?.StudiosCriterion?.Depth == -1)
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
         {
-            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
@@ -92,7 +94,7 @@ public class VideoRepository : IVideoRepository
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
 
         // Apply all filters to the lightweight query
-        filterQuery = ApplyFilters(filterQuery, filter, expandedTags?.ValueGroups);
+        filterQuery = ApplyFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
 
         filterQuery = ApplyVideoSearch(filterQuery, findFilter?.Q);
 
@@ -149,7 +151,7 @@ public class VideoRepository : IVideoRepository
         return (sorted, totalCount);
     }
 
-    private IQueryable<Video> ApplyFilters(IQueryable<Video> query, VideoFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null)
+    private IQueryable<Video> ApplyFilters(IQueryable<Video> query, VideoFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null) return query;
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db);
@@ -197,29 +199,11 @@ public class VideoRepository : IVideoRepository
             if (filter.FileCountCriterion != null)
                 query = ApplyIntCriterion(query, filter.FileCountCriterion, s => s.FileCount);
 
-            query = ApplyVideoTagCriterion(query, filter.TagsCriterion, hierarchicalTagGroups);
+            query = ApplyVideoTagCriterion(query, filter.TagsCriterion, hierarchicalTagGroups, requiredTagGroups);
             query = ApplyTagDurationCriterion(query, filter.TagDurationCriterion);
             query = ApplyMultiIdCriterion(query, filter.PerformersCriterion, s => s.PerformerIds);
 
-            if (filter.StudiosCriterion != null)
-            {
-                var ids = filter.StudiosCriterion.Value;
-                query = filter.StudiosCriterion.Modifier switch
-                {
-                    CriterionModifier.IsNull => query.Where(s => !s.StudioId.HasValue),
-                    CriterionModifier.NotNull => query.Where(s => s.StudioId.HasValue),
-                    CriterionModifier.Includes => query.Where(s => s.StudioId.HasValue && ids.Contains(s.StudioId.Value)),
-                    CriterionModifier.Excludes => query.Where(s => !s.StudioId.HasValue || !ids.Contains(s.StudioId.Value)),
-                    _ when ids.Count == 0 => query,
-                    _ => query.Where(s => s.StudioId.HasValue && ids.Contains(s.StudioId.Value)),
-                };
-
-                if (filter.StudiosCriterion.RequiredIds is { Count: > 0 })
-                {
-                    var requiredStudioIds = filter.StudiosCriterion.RequiredIds.Where(id => id > 0).Distinct().ToArray();
-                    query = query.Where(s => s.StudioId.HasValue && requiredStudioIds.Contains(s.StudioId.Value));
-                }
-            }
+            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, s => s.StudioId, hierarchicalStudioGroups, requiredStudioGroups);
 
             query = ApplyMultiIdCriterion(query, filter.GroupsCriterion, s => s.GroupItems.Select(item => item.GroupId));
 
@@ -804,7 +788,7 @@ public class VideoRepository : IVideoRepository
         IReadOnlyList<int[]>? valueGroups = null)
         => MultiIdCriterionQueryHelper.Apply(query, criterion, idsSelector, valueGroups);
 
-    private IQueryable<Video> ApplyVideoTagCriterion(IQueryable<Video> query, MultiIdCriterion? criterion, IReadOnlyList<int[]>? valueGroups = null)
+    private IQueryable<Video> ApplyVideoTagCriterion(IQueryable<Video> query, MultiIdCriterion? criterion, IReadOnlyList<int[]>? valueGroups = null, IReadOnlyList<int[]>? requiredIdGroups = null)
     {
         if (criterion == null)
             return query;
@@ -845,6 +829,9 @@ public class VideoRepository : IVideoRepository
 
         if (criterion.RequiredIds is { Count: > 0 })
             query = ApplyVideoTagIncludesAll(query, criterion.RequiredIds.Select(tagId => new[] { tagId }).ToArray());
+
+        if (requiredIdGroups is { Count: > 0 })
+            query = ApplyVideoTagIncludesAll(query, requiredIdGroups);
 
         return query;
     }
@@ -913,6 +900,12 @@ public class VideoRepository : IVideoRepository
             && filter.PerformersCriterion.Modifier is CriterionModifier.Includes or CriterionModifier.IncludesAll)
         {
             foreach (var performerId in filter.PerformersCriterion.Value.Where(id => id > 0))
+                ids.Add(performerId);
+        }
+
+        if (filter.PerformersCriterion?.RequiredIds is { Count: > 0 })
+        {
+            foreach (var performerId in filter.PerformersCriterion.RequiredIds.Where(id => id > 0))
                 ids.Add(performerId);
         }
 

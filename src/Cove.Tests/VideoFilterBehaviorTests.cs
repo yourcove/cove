@@ -234,7 +234,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task PerformerTagsCriterion_WithPerformerCriterion_MatchesSamePerformerOccurrence()
+    public async Task PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
         await using var context = CreateContext();
         var tag = new Tag { Name = "Occurrence Tag" };
@@ -274,7 +274,7 @@ public class VideoFilterBehaviorTests
         {
             PerformersCriterion = new MultiIdCriterion
             {
-                Value = [targetPerformer.Id],
+                RequiredIds = [targetPerformer.Id],
                 Modifier = CriterionModifier.Includes,
             },
             PerformerTagsCriterion = new MultiIdCriterion
@@ -323,7 +323,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task ImageFilter_PerformerTagsCriterion_WithPerformerCriterion_MatchesSamePerformerOccurrence()
+    public async Task ImageFilter_PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
         await using var context = CreateContext();
         var tag = new Tag { Name = "Image Occurrence Tag" };
@@ -347,7 +347,7 @@ public class VideoFilterBehaviorTests
         {
             PerformersCriterion = new MultiIdCriterion
             {
-                Value = [targetPerformer.Id],
+                RequiredIds = [targetPerformer.Id],
                 Modifier = CriterionModifier.Includes,
             },
             PerformerTagsCriterion = new MultiIdCriterion
@@ -364,7 +364,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task AudiosController_FindPost_PerformerTagsCriterion_WithPerformerCriterion_MatchesSamePerformerOccurrence()
+    public async Task AudiosController_FindPost_PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
         await using var context = CreateContext();
         var tag = new Tag { Name = "Audio Occurrence Tag" };
@@ -389,7 +389,7 @@ public class VideoFilterBehaviorTests
             FindFilter = new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
             ObjectFilter = new AudioFilter
             {
-                PerformersCriterion = new MultiIdCriterion { Value = [targetPerformer.Id], Modifier = CriterionModifier.Includes },
+                PerformersCriterion = new MultiIdCriterion { RequiredIds = [targetPerformer.Id], Modifier = CriterionModifier.Includes },
                 PerformerTagsCriterion = new MultiIdCriterion { Value = [tag.Id], Modifier = CriterionModifier.Includes },
             },
         }, CancellationToken.None);
@@ -402,7 +402,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task TextsController_FindPost_PerformerTagsCriterion_WithPerformerCriterion_MatchesSamePerformerOccurrence()
+    public async Task TextsController_FindPost_PerformerTagsCriterion_WithRequiredPerformerCriterion_MatchesSamePerformerOccurrence()
     {
         await using var context = CreateContext();
         var tag = new Tag { Name = "Text Occurrence Tag" };
@@ -427,7 +427,7 @@ public class VideoFilterBehaviorTests
             FindFilter = new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
             ObjectFilter = new TextDocumentFilter
             {
-                PerformersCriterion = new MultiIdCriterion { Value = [targetPerformer.Id], Modifier = CriterionModifier.Includes },
+                PerformersCriterion = new MultiIdCriterion { RequiredIds = [targetPerformer.Id], Modifier = CriterionModifier.Includes },
                 PerformerTagsCriterion = new MultiIdCriterion { Value = [tag.Id], Modifier = CriterionModifier.Includes },
             },
         }, CancellationToken.None);
@@ -1208,4 +1208,3 @@ public class VideoFilterBehaviorTests
         public Task<Video?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();
     }
 }
-

@@ -121,15 +121,18 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         }
 
         var parsedTagIds = ParseIdList(tagIds);
+        IReadOnlyCollection<int>? requiredTagIds = null;
         if (tagDepth == -1 && tagId.HasValue)
         {
-            parsedTagIds = (await HierarchicalCriterionExpander.ExpandTagsAsync(db,
+            requiredTagIds = (await HierarchicalCriterionExpander.ExpandTagsAsync(db,
                 new MultiIdCriterion { Value = [tagId.Value], Modifier = CriterionModifier.Includes, Depth = -1 },
                 cancellationToken)).Criterion.Value;
             tagId = null;
         }
         if (tagId.HasValue)
             query = query.Where(item => item.Segment.TagId == tagId.Value);
+        if (requiredTagIds is { Count: > 0 })
+            query = query.Where(item => item.Segment.TagId.HasValue && requiredTagIds.Contains(item.Segment.TagId.Value));
         if (parsedTagIds.Count > 0)
             query = query.Where(item => item.Segment.TagId.HasValue && parsedTagIds.Contains(item.Segment.TagId.Value));
 

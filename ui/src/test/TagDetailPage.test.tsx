@@ -105,6 +105,35 @@ describe("TagDetailPage", () => {
   beforeEach(() => {
     mocks.detailListOptions.length = 0;
     localStorage.clear();
+    window.history.replaceState(null, "", "/tag/1206?perPage=100&sort=rating");
+  });
+
+  it("persists include sub-tag content in the URL", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <TagDetailPage id={1206} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: "Include sub-tag content" }));
+
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("includeSubTags")).toBe("true");
+      expect(params.get("perPage")).toBe("100");
+      expect(params.get("sort")).toBe("rating");
+    });
+
+    unmount();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagDetailPage id={1206} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("checkbox", { name: "Include sub-tag content" })).toBeChecked();
   });
 
   it("offers saved filters for every supported relation tab", async () => {

@@ -9,13 +9,14 @@ internal static class MultiIdCriterionQueryHelper
         IQueryable<TEntity> query,
         MultiIdCriterion? criterion,
         Expression<Func<TEntity, IEnumerable<int>>> idsSelector,
-        IReadOnlyList<int[]>? valueGroups = null)
+        IReadOnlyList<int[]>? valueGroups = null,
+        IReadOnlyList<int[]>? requiredIdGroups = null)
     {
         if (criterion?.Modifier == CriterionModifier.IsNull || criterion?.Modifier == CriterionModifier.NotNull)
         {
             query = ApplyNullPresence(query, criterion.Modifier, idsSelector);
         }
-        else if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0) && (criterion.RequiredIds == null || criterion.RequiredIds.Count == 0)))
+        else if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0) && (criterion.RequiredIds == null || criterion.RequiredIds.Count == 0) && requiredIdGroups is not { Count: > 0 }))
         {
             return query;
         }
@@ -34,6 +35,11 @@ internal static class MultiIdCriterionQueryHelper
         if (criterion.RequiredIds?.Count > 0)
         {
             query = ApplyRequiredIds(query, criterion.RequiredIds, idsSelector);
+        }
+
+        if (requiredIdGroups is { Count: > 0 })
+        {
+            query = ApplyRequiredIdGroups(query, requiredIdGroups, idsSelector);
         }
 
         return query;
@@ -170,6 +176,15 @@ internal static class MultiIdCriterionQueryHelper
 
         var body = BuildAllEntityIdsPresent(idsSelector.Body, selectedIds);
         return query.Where(Expression.Lambda<Func<TEntity, bool>>(body, idsSelector.Parameters[0]));
+    }
+
+    private static IQueryable<TEntity> ApplyRequiredIdGroups<TEntity>(
+        IQueryable<TEntity> query,
+        IReadOnlyList<int[]> requiredIdGroups,
+        Expression<Func<TEntity, IEnumerable<int>>> idsSelector)
+    {
+        var criterion = new MultiIdCriterion { Modifier = CriterionModifier.IncludesAll };
+        return ApplyGroupedValues(query, criterion, requiredIdGroups, idsSelector);
     }
 
     private static Expression BuildAnyEntityIdEquals(Expression entityIds, IReadOnlyCollection<int> selectedIds)

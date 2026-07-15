@@ -58,7 +58,11 @@ export function useDetailListUrlState<TDisplayMode extends string>(options: UseD
     ? saved.uiOptions.displayMode as TDisplayMode
     : undefined;
 
-  const defaultFilter = saved?.findFilter ?? options.builtInFilter;
+  // A saved default is a starting configuration, not a request to reopen the page where it was
+  // captured. This also preserves the mount-time behavior used before URL-backed detail lists.
+  const defaultFilter = saved?.findFilter
+    ? { ...saved.findFilter, page: 1 }
+    : options.builtInFilter;
   const defaultObjectFilter = saved?.objectFilter ?? options.builtInObjectFilter;
   const defaultDisplayMode = savedDisplayMode
     ?? options.defaultDisplayMode;
@@ -148,4 +152,32 @@ export function useDetailTabUrlState<TTab extends string>(defaultTab: TTab) {
   }, [defaultTab]);
 
   return { activeTab, setActiveTab };
+}
+
+function readBooleanParam(paramKey: string) {
+  return new URLSearchParams(window.location.search).get(paramKey) === "true";
+}
+
+export function useDetailBooleanUrlState(paramKey: string) {
+  const [value, setValueState] = useState(() => readBooleanParam(paramKey));
+
+  useEffect(() => {
+    const applyUrlValue = () => setValueState(readBooleanParam(paramKey));
+    window.addEventListener("popstate", applyUrlValue);
+    window.addEventListener(LOCATION_CHANGE_EVENT, applyUrlValue);
+    return () => {
+      window.removeEventListener("popstate", applyUrlValue);
+      window.removeEventListener(LOCATION_CHANGE_EVENT, applyUrlValue);
+    };
+  }, [paramKey]);
+
+  const setValue = useCallback((nextValue: boolean) => {
+    const params = new URLSearchParams(window.location.search);
+    if (nextValue) params.set(paramKey, "true");
+    else params.delete(paramKey);
+    navigateToUrl(buildCurrentUrl(window.location.pathname, params), { replace: true });
+    setValueState(nextValue);
+  }, [paramKey]);
+
+  return [value, setValue] as const;
 }

@@ -55,4 +55,18 @@ describe("route history", () => {
       }),
     );
   });
+
+  it("replaces the current internal route when only URL state is replaced", () => {
+    window.history.replaceState(null, "", "/studio/46?sort=title");
+    syncRouteHistory("push");
+
+    window.history.replaceState(null, "", "/studio/46?includeSubStudios=true&sort=title");
+    syncRouteHistory("replace");
+
+    expect(getPreviousInternalRoute({ page: "studios" })).toEqual({
+      route: { page: "studios" },
+      label: "Studios",
+      hasHistory: false,
+    });
+  });
 });

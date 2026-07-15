@@ -468,6 +468,276 @@ public class DynamicGroupsAndBookmarksTests
     }
 
     [Fact]
+    public async Task FilterDynamicGroupSource_AppliesRequiredOnlySegmentRelations()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        principalAccessor.Set(CreatePrincipal(7));
+
+        var requiredTag = new Tag { Name = "Required Tag" };
+        var otherTag = new Tag { Name = "Other Tag" };
+        var requiredVideo = new Video { Title = "Required Video" };
+        var otherVideo = new Video { Title = "Other Video" };
+        context.AddRange(requiredTag, otherTag, requiredVideo, otherVideo);
+        await context.SaveChangesAsync();
+
+        var included = new Segment { HostType = SegmentHostType.Video, HostId = requiredVideo.Id, TagId = requiredTag.Id, StartSec = 1 };
+        var wrongVideo = new Segment { HostType = SegmentHostType.Video, HostId = otherVideo.Id, TagId = requiredTag.Id, StartSec = 2 };
+        var wrongTag = new Segment { HostType = SegmentHostType.Video, HostId = requiredVideo.Id, TagId = otherTag.Id, StartSec = 3 };
+        var group = new Group
+        {
+            Name = "Required Segment Relations",
+            Kind = GroupKind.Dynamic,
+            QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
+            QueryJson = JsonSerializer.Serialize(new
+            {
+                entityType = "segment",
+                objectFilter = new
+                {
+                    videosCriterion = new MultiIdCriterion { RequiredIds = [requiredVideo.Id] },
+                    tagsCriterion = new MultiIdCriterion { RequiredIds = [requiredTag.Id] },
+                },
+            }),
+        };
+        context.AddRange(included, wrongVideo, wrongTag, group);
+        await context.SaveChangesAsync();
+
+        var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
+        var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(included.Id, item.HostId);
+    }
+
+    [Fact]
+    public async Task FilterDynamicGroupSource_AppliesScalarSegmentFaceAndPerformerSemantics()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        principalAccessor.Set(CreatePrincipal(7));
+
+        var performerA = new Performer { Name = "Performer A" };
+        var performerB = new Performer { Name = "Performer B" };
+        context.AddRange(performerA, performerB);
+        await context.SaveChangesAsync();
+
+        var faceA = new Face { Label = "Face A", PerformerId = performerA.Id };
+        var faceB = new Face { Label = "Face B", PerformerId = performerB.Id };
+        var video = new Video { Title = "Host Video" };
+        context.AddRange(faceA, faceB, video);
+        await context.SaveChangesAsync();
+
+        var faceSegmentA = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, Kind = "face", RefId = faceA.Id, StartSec = 1 };
+        var faceSegmentB = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, Kind = "face", RefId = faceB.Id, StartSec = 2 };
+        var performerSegmentA = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, Kind = "performer", RefId = performerA.Id, StartSec = 3 };
+        var unrelatedSegment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 4 };
+        var group = new Group
+        {
+            Name = "Scalar Segment Relations",
+            Kind = GroupKind.Dynamic,
+            QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
+        };
+        context.AddRange(faceSegmentA, faceSegmentB, performerSegmentA, unrelatedSegment, group);
+        await context.SaveChangesAsync();
+
+        var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
+
+        async Task<PaginatedResponse<GroupItemDto>> ResolveAsync(MultiIdCriterion? facesCriterion = null, MultiIdCriterion? performersCriterion = null)
+        {
+            group.QueryJson = JsonSerializer.Serialize(new
+            {
+                entityType = "segment",
+                objectFilter = new { facesCriterion, performersCriterion },
+            });
+            await context.SaveChangesAsync();
+            return await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
+        }
+
+        var faceIncludesAll = await ResolveAsync(facesCriterion: new MultiIdCriterion
+        {
+            Value = [faceA.Id, faceB.Id],
+            Modifier = CriterionModifier.IncludesAll,
+        });
+        Assert.Empty(faceIncludesAll.Items);
+
+        var faceExcludesAll = await ResolveAsync(facesCriterion: new MultiIdCriterion
+        {
+            Value = [faceA.Id, faceB.Id],
+            Modifier = CriterionModifier.ExcludesAll,
+        });
+        Assert.Equal(4, faceExcludesAll.TotalCount);
+
+        var requiredFace = await ResolveAsync(facesCriterion: new MultiIdCriterion { RequiredIds = [faceA.Id] });
+        Assert.Equal(faceSegmentA.Id, Assert.Single(requiredFace.Items).HostId);
+
+        var performerIncludesAll = await ResolveAsync(performersCriterion: new MultiIdCriterion
+        {
+            Value = [performerA.Id, performerB.Id],
+            Modifier = CriterionModifier.IncludesAll,
+        });
+        Assert.Empty(performerIncludesAll.Items);
+
+        var performerExcludesAll = await ResolveAsync(performersCriterion: new MultiIdCriterion
+        {
+            Value = [performerA.Id, performerB.Id],
+            Modifier = CriterionModifier.ExcludesAll,
+        });
+        Assert.Equal(4, performerExcludesAll.TotalCount);
+
+        var requiredPerformer = await ResolveAsync(performersCriterion: new MultiIdCriterion { RequiredIds = [performerA.Id] });
+        Assert.Equal(
+            [faceSegmentA.Id, performerSegmentA.Id],
+            requiredPerformer.Items.Select(item => item.HostId).OrderBy(id => id).ToArray());
+    }
+
+    [Fact]
+    public async Task FilterDynamicGroupSource_AppliesRequiredOnlyAudioTags()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        principalAccessor.Set(CreatePrincipal(7));
+
+        var requiredTag = new Tag { Name = "Required Tag" };
+        var otherTag = new Tag { Name = "Other Tag" };
+        var included = new Audio { Title = "Included" };
+        var excluded = new Audio { Title = "Excluded" };
+        included.AudioTags.Add(new AudioTag { Audio = included, Tag = requiredTag });
+        excluded.AudioTags.Add(new AudioTag { Audio = excluded, Tag = otherTag });
+        var group = new Group
+        {
+            Name = "Required Audio Tag",
+            Kind = GroupKind.Dynamic,
+            QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
+            QueryJson = JsonSerializer.Serialize(new
+            {
+                entityType = "audio",
+                objectFilter = new
+                {
+                    tagsCriterion = new MultiIdCriterion { RequiredIds = new List<int>() },
+                },
+            }),
+        };
+        context.AddRange(requiredTag, otherTag, included, excluded, group);
+        await context.SaveChangesAsync();
+        group.QueryJson = JsonSerializer.Serialize(new
+        {
+            entityType = "audio",
+            objectFilter = new
+            {
+                tagsCriterion = new MultiIdCriterion { RequiredIds = [requiredTag.Id] },
+            },
+        });
+        await context.SaveChangesAsync();
+
+        var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
+        var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(included.Id, item.HostId);
+    }
+
+    [Fact]
+    public async Task FilterDynamicGroupSource_ScopesAudioOccurrenceTagsToRequiredPerformer()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        principalAccessor.Set(CreatePrincipal(7));
+
+        var target = new Performer { Name = "Target" };
+        var other = new Performer { Name = "Other" };
+        var tag = new Tag { Name = "Occurrence Tag" };
+        var targetTagged = new Audio
+        {
+            Title = "Target tagged",
+            AudioPerformers = [new AudioPerformer { Performer = target }],
+        };
+        var otherTagged = new Audio
+        {
+            Title = "Other tagged",
+            AudioPerformers =
+            [
+                new AudioPerformer { Performer = target },
+                new AudioPerformer { Performer = other },
+            ],
+        };
+        context.AddRange(tag, targetTagged, otherTagged);
+        await context.SaveChangesAsync();
+        context.TagApplications.AddRange(
+            new TagApplication { HostType = AffinityHostType.Audio, HostId = targetTagged.Id, ContextType = "performer", ContextId = target.Id, TagId = tag.Id, SourceKey = "test" },
+            new TagApplication { HostType = AffinityHostType.Audio, HostId = otherTagged.Id, ContextType = "performer", ContextId = other.Id, TagId = tag.Id, SourceKey = "test" });
+        var group = new Group
+        {
+            Name = "Required Performer Occurrence",
+            Kind = GroupKind.Dynamic,
+            QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
+            QueryJson = JsonSerializer.Serialize(new
+            {
+                entityType = "audio",
+                objectFilter = new
+                {
+                    performersCriterion = new MultiIdCriterion { RequiredIds = [target.Id] },
+                    performerTagsCriterion = new MultiIdCriterion { Value = [tag.Id], Modifier = CriterionModifier.Includes },
+                },
+            }),
+        };
+        context.Add(group);
+        await context.SaveChangesAsync();
+
+        var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
+        var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
+
+        Assert.Equal(targetTagged.Id, Assert.Single(page.Items).HostId);
+    }
+
+    [Fact]
+    public async Task FilterDynamicGroupSource_ExpandsAudioTagHierarchy()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        principalAccessor.Set(CreatePrincipal(7));
+
+        var parent = new Tag { Name = "Parent" };
+        var child = new Tag { Name = "Child" };
+        var included = new Audio { Title = "Included" };
+        included.AudioTags.Add(new AudioTag { Audio = included, Tag = child });
+        context.AddRange(parent, child, included);
+        await context.SaveChangesAsync();
+        context.Set<TagParent>().Add(new TagParent { ParentId = parent.Id, ChildId = child.Id });
+        var group = new Group
+        {
+            Name = "Hierarchical Audio Tag",
+            Kind = GroupKind.Dynamic,
+            QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
+            QueryJson = JsonSerializer.Serialize(new
+            {
+                entityType = "audio",
+                objectFilter = new
+                {
+                    tagsCriterion = new MultiIdCriterion
+                    {
+                        Value = [parent.Id],
+                        Modifier = CriterionModifier.Includes,
+                        Depth = -1,
+                    },
+                },
+            }),
+        };
+        context.Add(group);
+        await context.SaveChangesAsync();
+
+        var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
+        var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(included.Id, item.HostId);
+    }
+
+    [Fact]
     public async Task FilterDynamicGroupSource_ReturnsTotalAcrossEntityTypesWhenPageIsFilled()
     {
         await using var scope = CreateContext();
@@ -544,6 +814,57 @@ public class DynamicGroupsAndBookmarksTests
         Assert.Equal(["First", "Second", "Third"], items.Select(group => group.Name).ToArray());
     }
 
+    [Fact]
+    public async Task GroupRepository_PerformerCriterion_ComposesRequiredAndSavedPerformers()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var target = new Performer { Name = "Target" };
+        var saved = new Performer { Name = "Saved" };
+        var targetVideo = new Video { Title = "Target Video", VideoPerformers = [new VideoPerformer { Performer = target }] };
+        var savedVideo = new Video { Title = "Saved Video", VideoPerformers = [new VideoPerformer { Performer = saved }] };
+        context.AddRange(targetVideo, savedVideo);
+        await context.SaveChangesAsync();
+
+        var targetOnly = new Group
+        {
+            Name = "Target only",
+            GroupItems = [new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = targetVideo.Id, VideoId = targetVideo.Id }],
+        };
+        var savedOnly = new Group
+        {
+            Name = "Saved only",
+            GroupItems = [new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = savedVideo.Id, VideoId = savedVideo.Id }],
+        };
+        var both = new Group
+        {
+            Name = "Both",
+            GroupItems =
+            [
+                new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = targetVideo.Id, VideoId = targetVideo.Id },
+                new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = savedVideo.Id, VideoId = savedVideo.Id },
+            ],
+        };
+        context.AddRange(targetOnly, savedOnly, both);
+        await context.SaveChangesAsync();
+
+        var repository = new GroupRepository(context);
+        var filter = new GroupFilter
+        {
+            PerformersCriterion = new MultiIdCriterion
+            {
+                Value = [saved.Id],
+                Modifier = CriterionModifier.Includes,
+                RequiredIds = [target.Id],
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 10 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal("Both", Assert.Single(items).Name);
+    }
+
     private static DynamicGroupResolver CreateResolver(CoveContext context, CurrentPrincipalAccessor principalAccessor, bool includeFilterSource = false)
     {
         var sources = new List<IDynamicGroupSource>
@@ -590,4 +911,3 @@ public class DynamicGroupsAndBookmarksTests
         }
     }
 }
-

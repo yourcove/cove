@@ -18,7 +18,7 @@ interface RouteHistoryEntry {
 
 export const LOCATION_CHANGE_EVENT = "cove-locationchange";
 const ROUTE_HISTORY_KEY = "cove-route-history";
-type RouteHistoryMode = "push" | "history";
+type RouteHistoryMode = "push" | "replace" | "history";
 
 function isRouteState(value: unknown): value is Route {
   return value != null && typeof value === "object" && typeof (value as Route).page === "string";
@@ -162,8 +162,8 @@ export function buildCurrentUrl(pathname: string, search?: URLSearchParams | str
   return searchString ? `${pathname}?${searchString}` : pathname;
 }
 
-export function emitLocationChange() {
-  window.dispatchEvent(new Event(LOCATION_CHANGE_EVENT));
+export function emitLocationChange(options?: { replace?: boolean }) {
+  window.dispatchEvent(new CustomEvent(LOCATION_CHANGE_EVENT, { detail: options }));
 }
 
 export function navigateToUrl(url: string, options?: { replace?: boolean; state?: unknown }) {
@@ -178,7 +178,7 @@ export function navigateToUrl(url: string, options?: { replace?: boolean; state?
     window.history.pushState(options?.state ?? null, "", url);
   }
 
-  emitLocationChange();
+  emitLocationChange({ replace: options?.replace });
 }
 
 function readRouteHistory(): RouteHistoryEntry[] {
@@ -231,6 +231,13 @@ export function syncRouteHistory(mode: RouteHistoryMode = "push") {
   };
 
   const history = readRouteHistory();
+  if (mode === "replace" && history.length > 0)
+  {
+    history[history.length - 1] = currentEntry;
+    writeRouteHistory(history);
+    return;
+  }
+
   if (mode === "history")
   {
     for (let index = history.length - 1; index >= 0; index -= 1)

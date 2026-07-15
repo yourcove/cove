@@ -128,7 +128,8 @@ export default function App() {
 
   useEffect(() => {
     const handleLocationChange = (event: Event) => {
-      syncRouteHistory(event.type === "popstate" ? "history" : "push");
+      const replacesCurrentEntry = event instanceof CustomEvent && event.detail?.replace === true;
+      syncRouteHistory(event.type === "popstate" ? "history" : replacesCurrentEntry ? "replace" : "push");
       const currentUrl = buildCurrentUrl(window.location.pathname, window.location.search);
       // Recover route from history.state first, then from session-scoped route history.
       // This keeps derived-query provenance available even if a navigation path only preserved the URL.
