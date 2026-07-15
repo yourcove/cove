@@ -2473,6 +2473,8 @@ export interface MultiIdCriterion {
   value: number[];
   modifier: CriterionModifier;
   excludes?: number[];
+  requiredIds?: number[];
+  requiredIdsDepth?: number;
   depth?: number;
 }
 
@@ -3403,4 +3405,3 @@ export interface RegistryUninstallResult {
   dependents?: ExtensionDependencyImpact[];
   uninstalledExtensions?: string[];
 }
-

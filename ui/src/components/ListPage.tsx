@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
 import type { CriterionModifier, CustomFieldCriterion, CustomFieldDefinition, CustomFieldEntityType, CustomFieldType, ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
-import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, tagGroups as tagGroupsApi } from "../api/client";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { SavedFilterMenu } from "./SavedFilterMenu";
 import { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
@@ -22,6 +20,7 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
+import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -53,6 +52,8 @@ interface ListPageProps {
   onNew?: () => void;
   renderOperations?: () => ReactNode;
   filterMode?: string;
+  savedFilterUIOptions?: Record<string, unknown>;
+  onApplySavedFilterUIOptions?: (options: Record<string, unknown>) => void;
   searchMode?: string;
   searchModes?: { value: string; label: string; title?: string }[];
   searchPlaceholder?: string;
@@ -518,169 +519,6 @@ function CustomFieldValueInput({
   );
 }
 
-const CHIP_MODIFIER_LABELS: Record<string, string> = {
-  EQUALS: "=",
-  NOT_EQUALS: "≠",
-  GREATER_THAN: ">",
-  LESS_THAN: "<",
-  INCLUDES: "Includes",
-  EXCLUDES: "Excludes",
-  INCLUDES_ALL: "Includes All",
-  EXCLUDES_ALL: "Excludes All",
-  IS_NULL: "Is Null",
-  NOT_NULL: "Not Null",
-  BETWEEN: "Between",
-  NOT_BETWEEN: "Not Between",
-  MATCHES_REGEX: "Regex",
-  NOT_MATCHES_REGEX: "Not Regex",
-};
-
-function formatChipScalar(value: unknown): string {
-  if (typeof value === "boolean") {
-    return value ? "Yes" : "No";
-  }
-
-  if (value == null) {
-    return "";
-  }
-
-  if (typeof value === "object") {
-    const candidate = value as { label?: string; name?: string; title?: string; value?: string | number };
-    return candidate.label ?? candidate.name ?? candidate.title ?? String(candidate.value ?? "");
-  }
-
-  return String(value);
-}
-
-function formatChipEntityId(value: unknown, nameMap?: Map<number, string>): string {
-  if (typeof value === "number") {
-    return nameMap?.get(value) ?? "Unavailable item";
-  }
-
-  if (value && typeof value === "object") {
-    const candidate = value as { id?: number | string; label?: string; name?: string; title?: string };
-    if (candidate.label ?? candidate.name ?? candidate.title) {
-      return (candidate.label ?? candidate.name ?? candidate.title)!;
-    }
-    if (candidate.id != null && typeof candidate.id === "number") {
-      return nameMap?.get(candidate.id) ?? "Unavailable item";
-    }
-    return candidate.id != null ? "Unavailable item" : "";
-  }
-
-  return String(value ?? "");
-}
-
-function formatDurationChipSeconds(value: unknown): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "";
-  }
-
-  const totalSeconds = Math.max(0, Math.round(value));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-    : `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatPercentChipValue(value: unknown): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${Number(value.toFixed(1))}%` : "";
-}
-
-function formatFilterChipValue(def: CriterionDefinition | undefined, value: unknown, nameMap?: Map<number, string>): string {
-  if (Array.isArray(value)) {
-    return value.map((item) => formatChipScalar(item)).join(", ");
-  }
-
-  if (!value || typeof value !== "object") {
-    return String(value ?? "");
-  }
-
-  const criterion = value as {
-    value?: unknown;
-    value2?: unknown;
-    tagId?: number;
-    unit?: string;
-    clauses?: Array<{ tagId?: number; value?: unknown; value2?: unknown; modifier?: string; unit?: string }>;
-    excludes?: unknown[];
-    modifier?: string;
-    depth?: number;
-    _names?: Record<string, string>;
-  };
-
-  const modifier = criterion.modifier ? CHIP_MODIFIER_LABELS[criterion.modifier] ?? criterion.modifier : "";
-
-  // Merge _names (embedded by filter editor) with nameMap (from entity queries) for best coverage
-  const embeddedNames = criterion._names;
-  const resolveEntityName = (id: unknown): string => {
-    if (typeof id === "number") {
-      // First check embedded names (always available), then nameMap (from queries)
-      const name = embeddedNames?.[String(id)] ?? nameMap?.get(id);
-      return name ?? "Unavailable item";
-    }
-    return formatChipEntityId(id, nameMap);
-  };
-
-  if (def?.type === "tagDuration") {
-    const clauses = Array.isArray(criterion.clauses) && criterion.clauses.length > 0 ? criterion.clauses : [criterion];
-    const parts = clauses.map((clause) => {
-      if (!clause.tagId || typeof clause.value !== "number") {
-        return "";
-      }
-
-      const tagName = resolveEntityName(clause.tagId);
-      const clauseModifier = clause.modifier ? CHIP_MODIFIER_LABELS[clause.modifier] ?? clause.modifier : "";
-      const formatDurationValue = (clause.unit ?? "seconds") === "percent" ? formatPercentChipValue : formatDurationChipSeconds;
-      const valueText = formatDurationValue(clause.value);
-      const value2Text = formatDurationValue(clause.value2);
-
-      if (clause.modifier === "BETWEEN" || clause.modifier === "NOT_BETWEEN") {
-        return `${tagName} ${clauseModifier} ${valueText} and ${value2Text}`.trim();
-      }
-
-      return `${tagName} ${clauseModifier} ${valueText}`.trim();
-    }).filter(Boolean);
-
-    return parts.join(" · ") || JSON.stringify(value);
-  }
-
-  if (def?.type === "multiId") {
-    const included = Array.isArray(criterion.value)
-      ? criterion.value.map((item) => resolveEntityName(item)).filter(Boolean).join(", ")
-      : "";
-    const excluded = Array.isArray(criterion.excludes)
-      ? criterion.excludes.map((item) => resolveEntityName(item)).filter(Boolean).join(", ")
-      : "";
-
-    const parts = [
-      included ? `${modifier} ${included}`.trim() : "",
-      excluded ? `Except ${excluded}` : "",
-      criterion.depth === -1 ? "with sub-tags" : "",
-    ].filter(Boolean);
-
-    return parts.join(" · ");
-  }
-
-  if (criterion.modifier === "IS_NULL" || criterion.modifier === "NOT_NULL") {
-    return modifier;
-  }
-
-  const valueText = formatChipScalar(criterion.value);
-  const value2Text = formatChipScalar(criterion.value2);
-
-  if (criterion.modifier === "BETWEEN" || criterion.modifier === "NOT_BETWEEN") {
-    return `${modifier} ${valueText} and ${value2Text}`.trim();
-  }
-
-  if (valueText) {
-    return `${modifier} ${valueText}`.trim();
-  }
-
-  return JSON.stringify(value);
-}
-
 export function ListPage({
   title,
   pageKey,
@@ -709,6 +547,8 @@ export function ListPage({
   onNew,
   renderOperations,
   filterMode,
+  savedFilterUIOptions,
+  onApplySavedFilterUIOptions,
   searchMode,
   searchModes,
   searchPlaceholder,
@@ -765,64 +605,6 @@ export function ListPage({
     [customFilterSections, generatedCustomFieldSection]
   );
 
-  // Determine which entity types are used in active filters for name resolution
-  const activeEntityTypes = useMemo(() => {
-    if (!objectFilter || !mergedCriteriaDefinitions) return new Set<string>();
-    const types = new Set<string>();
-    for (const key of Object.keys(objectFilter)) {
-      const def = mergedCriteriaDefinitions.find((d) => d.id === key || d.filterKey === key);
-      if ((def?.type === "multiId" || def?.type === "tagDuration") && def.entityType) types.add(def.entityType);
-    }
-    return types;
-  }, [objectFilter, mergedCriteriaDefinitions]);
-
-  // Fetch entity names for active multiId filters (uses same cache key as FilterDialog)
-  const { data: tagEntities } = useQuery({
-    queryKey: ["tags", "all"],
-    queryFn: async () => (await tagsApi.find({ perPage: 5000, sort: "name", direction: "asc" }, { includeCounts: false })).items,
-    staleTime: 60000,
-    enabled: activeEntityTypes.has("tags"),
-  });
-  const { data: performerEntities } = useQuery({
-    queryKey: ["performers", "all"],
-    queryFn: async () => (await performersApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items,
-    staleTime: 60000,
-    enabled: activeEntityTypes.has("performers"),
-  });
-  const { data: studioEntities } = useQuery({
-    queryKey: ["studios", "all"],
-    queryFn: async () => (await studiosApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items,
-    staleTime: 60000,
-    enabled: activeEntityTypes.has("studios"),
-  });
-  const { data: groupEntities } = useQuery({
-    queryKey: ["groups", "all"],
-    queryFn: async () => (await groupsApi.find({ perPage: 5000, sort: "name", direction: "asc" })).items,
-    staleTime: 60000,
-    enabled: activeEntityTypes.has("groups"),
-  });
-  const { data: tagGroupEntities } = useQuery({
-    queryKey: ["tag-groups"],
-    queryFn: tagGroupsApi.list,
-    staleTime: 60000,
-    enabled: activeEntityTypes.has("tagGroups"),
-  });
-
-  // Build name maps per entity type
-  const entityNameMaps = useMemo(() => {
-    const maps: Record<string, Map<number, string>> = {};
-    const buildMap = (entities: any[] | undefined) => {
-      const m = new Map<number, string>();
-      if (entities) for (const e of entities) m.set(e.id, e.name || e.title || "Untitled item");
-      return m;
-    };
-    if (tagEntities) maps.tags = buildMap(tagEntities);
-    if (performerEntities) maps.performers = buildMap(performerEntities);
-    if (studioEntities) maps.studios = buildMap(studioEntities);
-    if (groupEntities) maps.groups = buildMap(groupEntities);
-    if (tagGroupEntities) maps.tagGroups = buildMap(tagGroupEntities);
-    return maps;
-  }, [tagEntities, performerEntities, studioEntities, groupEntities, tagGroupEntities]);
   const perPage = filter.perPage ?? 25;
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const page = filter.page ?? 1;
@@ -1149,12 +931,13 @@ export function ListPage({
             mode={filterMode}
             currentFilter={filter}
             currentObjectFilter={objectFilter}
-            currentUIOptions={{ displayMode }}
+            currentUIOptions={{ displayMode, ...savedFilterUIOptions }}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, nextFilter))}
             onApplyObjectFilter={onObjectFilterChange}
             onApplyUIOptions={(options) => {
               const mode = typeof options.displayMode === "string" ? options.displayMode : undefined;
               if (mode && onDisplayModeChange) onDisplayModeChange(mode as DisplayMode);
+              onApplySavedFilterUIOptions?.(options);
             }}
           />
         )}
@@ -1354,65 +1137,27 @@ export function ListPage({
 
       {/* Active filter tags (criterion badges) */}
       {objectFilter && onObjectFilterChange && mergedCriteriaDefinitions && Object.keys(objectFilter).length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 bg-surface/50 border border-border rounded-lg px-3 py-1.5 mx-1 mt-1">
-          {Object.entries(objectFilter).map(([key, value]) => {
-            const customSection = mergedCustomFilterSections?.find((section) => section.filterKey === key);
-            const def = mergedCriteriaDefinitions.find((d) => d.id === key || d.filterKey === key);
-            const label = customSection?.label ?? def?.label ?? key;
-            const nameMap = def?.entityType ? entityNameMaps[def.entityType] : undefined;
-            const displayValue = customSection?.summarize?.(value) ?? formatFilterChipValue(def, value, nameMap);
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  if (pageKey) {
-                    trackInteraction({
-                      hostType: "collection",
-                      kind: "filterClear",
-                      meta: {
-                        pageKey,
-                        source: "filterChip",
-                        criteriaKeys: [key],
-                      },
-                    });
-                  }
-                  const next = { ...objectFilter };
-                  delete next[key];
-                  onObjectFilterChange(next);
-                  onFilterChange({ ...filter, page: 1 });
-                }}
-                className="group flex items-center gap-1 rounded-full bg-card border border-border px-2.5 py-0.5 text-xs text-foreground hover:border-red-400 hover:text-red-300 transition-colors"
-                title={`Remove filter: ${label}`}
-              >
-                <span className="text-muted">{label}:</span>
-                <span className="max-w-[200px] truncate">{displayValue}</span>
-                <X className="w-3 h-3 opacity-50 group-hover:opacity-100" />
-              </button>
-            );
-          })}
-          {showClearAllObjectFilters && (
-            <button
-              onClick={() => {
-                if (pageKey) {
-                  trackInteraction({
-                    hostType: "collection",
-                    kind: "filterClear",
-                    meta: {
-                      pageKey,
-                      source: "filterChip",
-                      clearedAll: true,
-                    },
-                  });
-                }
-                onObjectFilterChange({});
-                onFilterChange({ ...filter, page: 1 });
-              }}
-              className="text-xs text-muted hover:text-red-300"
-            >
-              Clear all
-            </button>
-          )}
-        </div>
+        <ActiveObjectFilterChips
+          criteriaDefinitions={mergedCriteriaDefinitions}
+          objectFilter={objectFilter}
+          customFilterSections={mergedCustomFilterSections}
+          onRemove={(key) => {
+            if (pageKey) {
+              trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", criteriaKeys: [key] } });
+            }
+            const next = { ...objectFilter };
+            delete next[key];
+            onObjectFilterChange(next);
+            onFilterChange({ ...filter, page: 1 });
+          }}
+          onClearAll={showClearAllObjectFilters ? () => {
+            if (pageKey) {
+              trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", clearedAll: true } });
+            }
+            onObjectFilterChange({});
+            onFilterChange({ ...filter, page: 1 });
+          } : undefined}
+        />
       )}
 
       {/* Selection bar */}

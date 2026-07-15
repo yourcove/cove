@@ -31,6 +31,7 @@ import type {
   ExtensionAction,
   ExtensionListFilterContribution,
   ExtensionListSortContribution,
+  UserThemePreferences,
 } from "../api/types";
 
 // ============================================================================
@@ -226,7 +227,15 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
   const { config } = useAppConfig();
   const { user, hasPermission } = useAuth();
   const troubleshootingMode = config?.ui.troubleshootingModeEnabled === true;
-  const userThemePreferences = supportsServerBackedUiPreferences(user) ? user.uiPreferences?.theme ?? null : null;
+  const hasServerBackedUiPreferences = supportsServerBackedUiPreferences(user);
+  const userThemePreferencesJson = JSON.stringify(hasServerBackedUiPreferences ? user.uiPreferences?.theme ?? null : null);
+  // Auth-store updates for unrelated preferences (saved filters, playback, etc.) replace the user
+  // object. Keep the semantic theme value referentially stable so those updates cannot tear down and
+  // reapply component/layout styles for a frame.
+  const userThemePreferences = useMemo(
+    () => JSON.parse(userThemePreferencesJson) as UserThemePreferences | null,
+    [userThemePreferencesJson],
+  );
   const [manifest, setManifest] = useState<ExtensionManifest | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -256,16 +265,16 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
     [activeThemeId, availableThemes],
   );
   const hasUserComponentStyleOverride = useMemo(
-    () => supportsServerBackedUiPreferences(user)
+    () => hasServerBackedUiPreferences
       ? (userThemePreferences?.activeComponentStyles?.length ?? 0) > 0
       : Boolean(localStorage.getItem(COMPONENT_STYLE_STORAGE_KEY)),
-    [user, userThemePreferences],
+    [hasServerBackedUiPreferences, userThemePreferences],
   );
   const hasUserLayoutStyleOverride = useMemo(
-    () => supportsServerBackedUiPreferences(user)
+    () => hasServerBackedUiPreferences
       ? Boolean(userThemePreferences?.activeLayoutStyle?.trim())
       : Boolean(localStorage.getItem(LAYOUT_STYLE_STORAGE_KEY)),
-    [user, userThemePreferences],
+    [hasServerBackedUiPreferences, userThemePreferences],
   );
 
   const setActiveTheme = useCallback((id: string | null) => {
@@ -367,7 +376,7 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!supportsServerBackedUiPreferences(user)) {
+    if (!hasServerBackedUiPreferences) {
       return;
     }
 
@@ -380,7 +389,7 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
     setActiveComponentStylesState(parseStyleSet(nextTheme.activeComponentStyles?.join(" ") ?? null));
     setActiveLayoutStylesState(parseLayoutSet(nextTheme.activeLayoutStyle ?? null));
     setCustomThemeColorsState(nextTheme.customThemeColors ?? {});
-  }, [user, userThemePreferences]);
+  }, [hasServerBackedUiPreferences, userThemePreferences]);
 
   useEffect(() => {
     if (!loaded || !activeThemeId || activeThemeId === "custom" || activeThemeId === FALLBACK_DEFAULT_THEME.id) {

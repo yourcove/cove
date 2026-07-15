@@ -76,13 +76,17 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
         var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (req.ObjectFilter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter!.TagsCriterion!, ct);
             req.ObjectFilter.TagsCriterion = expandedTags.Criterion;
         }
-        if (req.ObjectFilter?.StudiosCriterion?.Depth == -1)
-            req.ObjectFilter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter.StudiosCriterion, ct)).Criterion;
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter!.StudiosCriterion!, ct);
+            req.ObjectFilter.StudiosCriterion = expandedStudios.Criterion;
+        }
 
         var query = db.TextDocuments.AsNoTracking().AsQueryable();
 
@@ -98,7 +102,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
-        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups);
+        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
@@ -518,7 +522,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         };
     }
 
-    private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null)
+    private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null)
             return query;
@@ -545,10 +549,10 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, text => text.FileCount);
         query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, text => text.TextTags.Count);
         query = FilterHelpers.ApplyInt(query, filter.PerformerCountCriterion, text => text.TextPerformers.Count);
-        query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, text => text.TextTags.Select(link => link.TagId), hierarchicalTagGroups);
+        query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, text => text.TextTags.Select(link => link.TagId), hierarchicalTagGroups, requiredTagGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, text => text.TextPerformers.Select(link => link.PerformerId));
         query = ApplyPerformerOccurrenceTagCriterion(query, filter.PerformerTagsCriterion, GetIncludedPerformerIds(filter));
-        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, text => text.StudioId);
+        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, text => text.StudioId, hierarchicalStudioGroups, requiredStudioGroups);
         query = FilterHelpers.ApplyMultiId(query, filter.GroupsCriterion, text => db.GroupItems
             .Where(item => item.HostType == "text" && item.HostId == text.Id && item.Kind == GroupItemKind.Text)
             .Select(item => item.GroupId));
@@ -580,13 +584,15 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
     private static int[] GetIncludedPerformerIds(TextDocumentFilter filter)
     {
-        if (filter.PerformersCriterion?.Value is not { Count: > 0 }
-            || filter.PerformersCriterion.Modifier is not (CriterionModifier.Includes or CriterionModifier.IncludesAll))
-        {
-            return [];
-        }
+        var ids = new HashSet<int>();
+        if (filter.PerformersCriterion?.Value is { Count: > 0 }
+            && filter.PerformersCriterion.Modifier is CriterionModifier.Includes or CriterionModifier.IncludesAll)
+            ids.UnionWith(filter.PerformersCriterion.Value.Where(id => id > 0));
 
-        return filter.PerformersCriterion.Value.Where(id => id > 0).Distinct().ToArray();
+        if (filter.PerformersCriterion?.RequiredIds is { Count: > 0 })
+            ids.UnionWith(filter.PerformersCriterion.RequiredIds.Where(id => id > 0));
+
+        return ids.ToArray();
     }
 
     private IQueryable<TextDocument> ApplyPerformerOccurrenceTagCriterion(IQueryable<TextDocument> query, MultiIdCriterion? criterion, IReadOnlyCollection<int> performerIds)

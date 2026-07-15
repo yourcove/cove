@@ -310,11 +310,12 @@ public static class FilterHelpers
         IQueryable<T> query,
         MultiIdCriterion? criterion,
         Expression<Func<T, IEnumerable<int>>> idsSelector,
-        IReadOnlyList<int[]>? valueGroups = null)
-        => MultiIdCriterionQueryHelper.Apply(query, criterion, idsSelector, valueGroups);
+        IReadOnlyList<int[]>? valueGroups = null,
+        IReadOnlyList<int[]>? requiredIdGroups = null)
+        => MultiIdCriterionQueryHelper.Apply(query, criterion, idsSelector, valueGroups, requiredIdGroups);
 
     /// <summary>Apply a studio (single FK) MultiIdCriterion.</summary>
-    public static IQueryable<T> ApplyStudioCriterion<T>(IQueryable<T> query, MultiIdCriterion? criterion, Expression<Func<T, int?>> studioIdSelector)
+    public static IQueryable<T> ApplyStudioCriterion<T>(IQueryable<T> query, MultiIdCriterion? criterion, Expression<Func<T, int?>> studioIdSelector, IReadOnlyList<int[]>? valueGroups = null, IReadOnlyList<int[]>? requiredIdGroups = null)
     {
         if (criterion?.Modifier == CriterionModifier.IsNull || criterion?.Modifier == CriterionModifier.NotNull)
         {
@@ -322,10 +323,9 @@ public static class FilterHelpers
             var nullBody = studioIdSelector.Body;
             var hasStudioValue = Expression.Property(nullBody, "HasValue");
             Expression nullPredicate = criterion.Modifier == CriterionModifier.IsNull ? Expression.Not(hasStudioValue) : hasStudioValue;
-            return query.Where(Expression.Lambda<Func<T, bool>>(nullPredicate, nullParam));
+            query = query.Where(Expression.Lambda<Func<T, bool>>(nullPredicate, nullParam));
         }
-
-        if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0)))
+        else if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0) && (criterion.RequiredIds == null || criterion.RequiredIds.Count == 0) && requiredIdGroups is not { Count: > 0 }))
         {
             return query;
         }
@@ -342,17 +342,42 @@ public static class FilterHelpers
             .MakeGenericMethod(typeof(int));
         Expression? predicate = null;
 
-        if (criterion.Value.Count > 0)
+        var criterionIds = criterion.Value.Where(id => id > 0).Distinct().ToArray();
+        if (valueGroups is { Count: > 0 }
+            && criterion.Modifier is CriterionModifier.IncludesAll or CriterionModifier.ExcludesAll)
         {
-            var idsConst = Expression.Constant(criterion.Value.ToArray());
+            Expression? allGroupsMatched = null;
+            foreach (var group in valueGroups)
+            {
+                var groupIds = group.Where(id => id > 0).Distinct().ToArray();
+                if (groupIds.Length == 0) continue;
+                var groupContains = Expression.Call(null, containsMethod, Expression.Constant(groupIds), value);
+                var groupMatched = Expression.AndAlso(hasValue, groupContains);
+                allGroupsMatched = allGroupsMatched == null
+                    ? groupMatched
+                    : Expression.AndAlso(allGroupsMatched, groupMatched);
+            }
+
+            if (allGroupsMatched != null)
+            {
+                predicate = criterion.Modifier == CriterionModifier.IncludesAll
+                    ? allGroupsMatched
+                    : Expression.Not(allGroupsMatched);
+            }
+        }
+        else if (criterionIds.Length > 0)
+        {
+            var idsConst = Expression.Constant(criterionIds);
             var contains = Expression.Call(null, containsMethod, idsConst, value);
 
             predicate = criterion.Modifier switch
             {
                 CriterionModifier.Includes => Expression.AndAlso(hasValue, contains),
                 CriterionModifier.Excludes => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
-                CriterionModifier.IncludesAll => Expression.AndAlso(hasValue, contains),
-                CriterionModifier.ExcludesAll => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
+                CriterionModifier.IncludesAll when criterionIds.Length == 1 => Expression.AndAlso(hasValue, contains),
+                CriterionModifier.IncludesAll => Expression.Constant(false),
+                CriterionModifier.ExcludesAll when criterionIds.Length == 1 => Expression.OrElse(Expression.Not(hasValue), Expression.Not(contains)),
+                CriterionModifier.ExcludesAll => null,
                 _ => Expression.AndAlso(hasValue, contains),
             };
         }
@@ -363,6 +388,32 @@ public static class FilterHelpers
             var excludedContains = Expression.Call(null, containsMethod, excludedConst, value);
             var excludesPredicate = Expression.OrElse(Expression.Not(hasValue), Expression.Not(excludedContains));
             predicate = predicate == null ? excludesPredicate : Expression.AndAlso(predicate, excludesPredicate);
+        }
+
+        if (criterion.RequiredIds is { Count: > 0 })
+        {
+            var requiredIds = criterion.RequiredIds.Where(id => id > 0).Distinct().ToArray();
+            Expression requiredPredicate = requiredIds.Length switch
+            {
+                0 => Expression.Constant(true),
+                1 => Expression.AndAlso(
+                    hasValue,
+                    Expression.Equal(value, Expression.Constant(requiredIds[0]))),
+                _ => Expression.Constant(false),
+            };
+            predicate = predicate == null ? requiredPredicate : Expression.AndAlso(predicate, requiredPredicate);
+        }
+
+        if (requiredIdGroups is { Count: > 0 })
+        {
+            foreach (var group in requiredIdGroups)
+            {
+                var groupIds = group.Where(id => id > 0).Distinct().ToArray();
+                if (groupIds.Length == 0) continue;
+                var groupContains = Expression.Call(null, containsMethod, Expression.Constant(groupIds), value);
+                var groupPredicate = Expression.AndAlso(hasValue, groupContains);
+                predicate = predicate == null ? groupPredicate : Expression.AndAlso(predicate, groupPredicate);
+            }
         }
 
         if (predicate == null)

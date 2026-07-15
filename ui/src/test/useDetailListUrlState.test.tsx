@@ -23,6 +23,7 @@ function DetailListProbe({ stateKey = "videos" }: { stateKey?: string }) {
   return (
     <div>
       <div data-testid="sort">{filter.sort}</div>
+      <div data-testid="page">{filter.page}</div>
       <div data-testid="seed">{filter.seed}</div>
       <div data-testid="display-mode">{displayMode}</div>
       <button type="button" onClick={() => setFilter({ ...filter, seed: 999 })}>Change seed</button>
@@ -51,7 +52,7 @@ describe("detail list URL state", () => {
 
   it("resolves the saved default before the first render and mints its random seed", async () => {
     localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40, sort: "random", direction: "asc" },
+      findFilter: { page: 3, perPage: 40, sort: "random", direction: "asc" },
       objectFilter: { favorite: true },
       uiOptions: { displayMode: "list" },
     }));
@@ -60,6 +61,7 @@ describe("detail list URL state", () => {
     render(<DetailListStateCacheProvider><DetailListProbe /></DetailListStateCacheProvider>);
 
     expect(screen.getByTestId("sort")).toHaveTextContent("random");
+    expect(screen.getByTestId("page")).toHaveTextContent("1");
     expect(screen.getByTestId("seed")).toHaveTextContent("1073741823");
     expect(screen.getByTestId("display-mode")).toHaveTextContent("list");
     await waitFor(() => {

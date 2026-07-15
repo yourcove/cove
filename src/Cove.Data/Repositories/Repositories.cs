@@ -312,16 +312,16 @@ public class PerformerRepository : IPerformerRepository
     public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (filter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
 
         ExpandedHierarchyCriterion? expandedStudios = null;
-        if (filter?.StudiosCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
         {
-            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct);
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
             filter.StudiosCriterion = expandedStudios.Criterion;
         }
 
@@ -414,7 +414,7 @@ public class PerformerRepository : IPerformerRepository
                 query = query.Where(p => p.Favorite == filter.FavoriteCriterion.Value);
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, p => p.PerformerTags.Select(pt => pt.TagId), expandedTags?.ValueGroups);
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, p => p.PerformerTags.Select(pt => pt.TagId), expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups);
             if (filter.StudiosCriterion is { Modifier: CriterionModifier.IncludesAll, Value.Count: > 0 } studiosCriterion)
             {
                 if (expandedStudios?.ValueGroups is { Count: > 0 } studioGroups)
@@ -448,7 +448,20 @@ public class PerformerRepository : IPerformerRepository
                     p => p.VideoPerformers
                         .Where(sp => sp.Video != null && sp.Video.StudioId.HasValue)
                         .Select(sp => sp.Video!.StudioId!.Value),
-                    expandedStudios?.ValueGroups);
+                    expandedStudios?.ValueGroups,
+                    expandedStudios?.RequiredIdGroups);
+            }
+
+            if (filter.StudiosCriterion is { Modifier: CriterionModifier.IncludesAll, Value.Count: > 0 }
+                && (expandedStudios?.RequiredIdGroups is { Count: > 0 }
+                    || filter.StudiosCriterion.RequiredIds is { Count: > 0 }))
+            {
+                foreach (var studioGroup in expandedStudios?.RequiredIdGroups
+                    ?? (filter.StudiosCriterion.RequiredIds ?? []).Where(id => id > 0).Distinct().Select(id => new[] { id }).ToArray())
+                {
+                    var requiredStudioIds = studioGroup;
+                    query = query.Where(p => p.VideoPerformers.Any(sp => sp.Video != null && sp.Video.StudioId.HasValue && requiredStudioIds.Contains(sp.Video.StudioId.Value)));
+                }
             }
 
             // Date criteria
@@ -1277,9 +1290,9 @@ public class StudioRepository : IStudioRepository
     public async Task<(IReadOnlyList<Studio> Items, int TotalCount)> FindAsync(StudioFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (filter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
 
@@ -1301,7 +1314,7 @@ public class StudioRepository : IStudioRepository
                 query = query.Where(s => s.Favorite == filter.FavoriteCriterion.Value);
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, s => s.StudioTags.Select(st => st.TagId), expandedTags?.ValueGroups);
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, s => s.StudioTags.Select(st => st.TagId), expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups);
 
             // String criteria
             if (filter.UrlCriterion != null)
@@ -1351,20 +1364,8 @@ public class StudioRepository : IStudioRepository
                 };
             }
 
-            // Parents (multi-ID on parent studios)
-            if (filter.ParentsCriterion != null)
-            {
-                var pIds = filter.ParentsCriterion.Value;
-                query = filter.ParentsCriterion.Modifier switch
-                {
-                    CriterionModifier.IsNull => query.Where(s => !s.ParentId.HasValue),
-                    CriterionModifier.NotNull => query.Where(s => s.ParentId.HasValue),
-                    CriterionModifier.Includes => query.Where(s => s.ParentId.HasValue && pIds.Contains(s.ParentId.Value)),
-                    CriterionModifier.Excludes => query.Where(s => !s.ParentId.HasValue || !pIds.Contains(s.ParentId.Value)),
-                    _ when pIds.Count == 0 => query,
-                    _ => query.Where(s => s.ParentId.HasValue && pIds.Contains(s.ParentId.Value)),
-                };
-            }
+            // Parents (multi-ID on the single parent studio FK)
+            query = FilterHelpers.ApplyStudioCriterion(query, filter.ParentsCriterion, s => s.ParentId);
 
             // Count criteria
             query = FilterHelpers.ApplyInt(query, filter.ParentCountCriterion, s => s.ParentId.HasValue ? 1 : 0);
@@ -1488,13 +1489,17 @@ public class GalleryRepository : IGalleryRepository
     public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (filter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
-        if (filter?.StudiosCriterion?.Depth == -1)
-            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
 
         var query = _db.Galleries.AsQueryable();
         if (filter != null)
@@ -1519,10 +1524,10 @@ public class GalleryRepository : IGalleryRepository
                     : query.Where(g => !g.GalleryPerformers.Any(gp => gp.Performer!.Favorite));
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.TagIds, expandedTags?.ValueGroups);
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.TagIds, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups);
             query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, g => g.PerformerIds);
 
-            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
+            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
 
             query = ApplyGalleryPathCriterion(query, filter.PathCriterion);
             query = ApplyGalleryFingerprintCriterion(query, filter.FingerprintCriterion);
@@ -2010,13 +2015,17 @@ public class ImageRepository : IImageRepository
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (filter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
-        if (filter?.StudiosCriterion?.Depth == -1)
-            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
         var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
@@ -2028,7 +2037,7 @@ public class ImageRepository : IImageRepository
 
         // Build filter query once (lightweight, no includes)
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
-        filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups);
+        filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
         var imageBase = filterQuery;
         var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
             i => i.Title,
@@ -2090,7 +2099,7 @@ public class ImageRepository : IImageRepository
         return (sorted, totalCount);
     }
 
-    private IQueryable<Image> ApplyImageFilters(IQueryable<Image> query, ImageFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null)
+    private IQueryable<Image> ApplyImageFilters(IQueryable<Image> query, ImageFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null) return query;
 
@@ -2117,11 +2126,11 @@ public class ImageRepository : IImageRepository
 
         // Multi-ID criteria
         if (filter.TagsCriterion != null)
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, i => i.TagIds, hierarchicalTagGroups);
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, i => i.TagIds, hierarchicalTagGroups, requiredTagGroups);
         if (filter.PerformersCriterion != null)
             query = FilterHelpers.ApplyMultiId(query, filter.PerformersCriterion, i => i.PerformerIds);
 
-        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, i => i.StudioId);
+        query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, i => i.StudioId, hierarchicalStudioGroups, requiredStudioGroups);
 
         if (filter.GalleriesCriterion != null)
             query = FilterHelpers.ApplyMultiId(query, filter.GalleriesCriterion, i => i.ImageGalleries.Select(ig => ig.GalleryId));
@@ -2192,6 +2201,12 @@ public class ImageRepository : IImageRepository
             && filter.PerformersCriterion.Modifier is CriterionModifier.Includes or CriterionModifier.IncludesAll)
         {
             foreach (var performerId in filter.PerformersCriterion.Value.Where(id => id > 0))
+                ids.Add(performerId);
+        }
+
+        if (filter.PerformersCriterion?.RequiredIds is { Count: > 0 })
+        {
+            foreach (var performerId in filter.PerformersCriterion.RequiredIds.Where(id => id > 0))
                 ids.Add(performerId);
         }
 
@@ -2518,13 +2533,17 @@ public class GroupRepository : IGroupRepository
     public async Task<(IReadOnlyList<Group> Items, int TotalCount)> FindAsync(GroupFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
-        if (filter?.TagsCriterion?.Depth == -1)
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
         {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter.TagsCriterion, ct);
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
             filter.TagsCriterion = expandedTags.Criterion;
         }
-        if (filter?.StudiosCriterion?.Depth == -1)
-            filter.StudiosCriterion = (await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter.StudiosCriterion, ct)).Criterion;
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
 
         var query = _db.Groups.AsQueryable();
         if (filter != null)
@@ -2552,9 +2571,9 @@ public class GroupRepository : IGroupRepository
             }
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.GroupTags.Select(gt => gt.TagId), expandedTags?.ValueGroups);
+            query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, g => g.GroupTags.Select(gt => gt.TagId), expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups);
 
-            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId);
+            query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
 
             // URL criterion
             if (filter.UrlCriterion != null)
@@ -2614,20 +2633,12 @@ public class GroupRepository : IGroupRepository
             query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, g => g.GroupTags.Count);
 
             // Performers criterion (performers in videos belonging to this group)
-            if (filter.PerformersCriterion != null)
-            {
-                var pIds = filter.PerformersCriterion.Value;
-                query = filter.PerformersCriterion.Modifier switch
-                {
-                    CriterionModifier.IsNull => query.Where(g => !g.GroupItems.Any(item => item.Video!.VideoPerformers.Any())),
-                    CriterionModifier.NotNull => query.Where(g => g.GroupItems.Any(item => item.Video!.VideoPerformers.Any())),
-                    CriterionModifier.Includes => query.Where(g => g.GroupItems.Any(item => item.Video!.VideoPerformers.Any(sp => pIds.Contains(sp.PerformerId)))),
-                    CriterionModifier.Excludes => query.Where(g => !g.GroupItems.Any(item => item.Video!.VideoPerformers.Any(sp => pIds.Contains(sp.PerformerId)))),
-                    CriterionModifier.IncludesAll => query.Where(g => pIds.All(pid => g.GroupItems.Any(item => item.Video!.VideoPerformers.Any(sp => sp.PerformerId == pid)))),
-                    _ when pIds.Count == 0 => query,
-                    _ => query.Where(g => g.GroupItems.Any(item => item.Video!.VideoPerformers.Any(sp => pIds.Contains(sp.PerformerId)))),
-                };
-            }
+            query = FilterHelpers.ApplyMultiId(
+                query,
+                filter.PerformersCriterion,
+                g => g.GroupItems
+                    .Where(item => item.Video != null)
+                    .SelectMany(item => item.Video!.VideoPerformers.Select(videoPerformer => videoPerformer.PerformerId)));
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Group, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
         }

@@ -9,7 +9,7 @@ namespace Cove.Tests;
 public class HierarchicalTagFilterTests
 {
     [Fact]
-    public async Task VideoStudiosCriterion_WithSubStudios_MatchesChildStudio()
+    public async Task VideoStudiosCriterion_IncludesAll_WithSubStudios_MatchesChildStudio()
     {
         await using var context = CreateContext();
         var parent = new Studio { Name = "Parent" };
@@ -26,7 +26,7 @@ public class HierarchicalTagFilterTests
             StudiosCriterion = new MultiIdCriterion
             {
                 Value = [parent.Id],
-                Modifier = CriterionModifier.Includes,
+                Modifier = CriterionModifier.IncludesAll,
                 Depth = -1,
             },
         };
@@ -65,6 +65,117 @@ public class HierarchicalTagFilterTests
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["children-only-match", "root-and-child-match"], titles);
+    }
+
+    [Fact]
+    public async Task VideoTagsCriterion_RequiredId_WithSubTags_MatchesChildTag()
+    {
+        await using var context = CreateContext();
+        var (parentA, childA, _, _) = await SeedTagHierarchyAsync(context);
+        context.Videos.AddRange(
+            CreateVideo("child-match", childA.Id),
+            CreateVideo("unrelated"));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion
+            {
+                RequiredIds = [parentA.Id],
+                Modifier = CriterionModifier.Includes,
+                RequiredIdsDepth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["child-match"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task VideoTagsCriterion_RequiredIdDepth_DoesNotExpandSavedValues()
+    {
+        await using var context = CreateContext();
+        var (parentA, childA, parentB, childB) = await SeedTagHierarchyAsync(context);
+        context.Videos.AddRange(
+            CreateVideo("exact-saved-value", childA.Id, parentB.Id),
+            CreateVideo("saved-value-child-only", childA.Id, childB.Id));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            TagsCriterion = new MultiIdCriterion
+            {
+                Value = [parentB.Id],
+                Modifier = CriterionModifier.Includes,
+                RequiredIds = [parentA.Id],
+                RequiredIdsDepth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["exact-saved-value"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task VideoStudiosCriterion_RequiredId_WithSubStudios_MatchesChildStudio()
+    {
+        await using var context = CreateContext();
+        var parent = new Studio { Name = "Parent" };
+        var child = new Studio { Name = "Child", Parent = parent };
+        context.Studios.AddRange(parent, child);
+        await context.SaveChangesAsync();
+        context.Videos.Add(new Video { Title = "child-match", StudioId = child.Id });
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            StudiosCriterion = new MultiIdCriterion
+            {
+                RequiredIds = [parent.Id],
+                Modifier = CriterionModifier.Includes,
+                RequiredIdsDepth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["child-match"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task GalleryStudiosCriterion_RequiredId_WithSubStudios_MatchesChildStudio()
+    {
+        await using var context = CreateContext();
+        var parent = new Studio { Name = "Parent" };
+        var child = new Studio { Name = "Child", Parent = parent };
+        context.Studios.AddRange(parent, child);
+        await context.SaveChangesAsync();
+        context.Galleries.Add(new Gallery { Title = "child-match", StudioId = child.Id });
+        await context.SaveChangesAsync();
+
+        var repository = new GalleryRepository(context);
+        var filter = new GalleryFilter
+        {
+            StudiosCriterion = new MultiIdCriterion
+            {
+                RequiredIds = [parent.Id],
+                Modifier = CriterionModifier.Includes,
+                RequiredIdsDepth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["child-match"], items.Select(gallery => gallery.Title ?? string.Empty).ToArray());
     }
 
     [Fact]

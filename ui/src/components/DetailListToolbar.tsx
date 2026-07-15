@@ -7,6 +7,7 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
+import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -259,6 +260,24 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           )}
         </div>
       </div>
+
+      {criteriaDefinitions && onObjectFilterChange && Object.keys(activeObjectFilter).length > 0 ? (
+        <ActiveObjectFilterChips
+          criteriaDefinitions={criteriaDefinitions}
+          objectFilter={activeObjectFilter}
+          className="mb-2"
+          onRemove={(key) => {
+            const next = { ...activeObjectFilter };
+            delete next[key];
+            onObjectFilterChange(next);
+            onFilterChange({ ...filter, page: 1 });
+          }}
+          onClearAll={() => {
+            onObjectFilterChange({});
+            onFilterChange({ ...filter, page: 1 });
+          }}
+        />
+      ) : null}
 
       {selectedCount !== undefined && selectedCount > 0 && (
         <div className="mx-auto mb-2 flex max-w-7xl flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-1.5">

@@ -2,7 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { segmentLibrary } from "../../api/client";
 import { EntityMultiSelector } from "../../components/EntityMultiSelector";
 import type { FilterDialogCustomSection } from "../../components/FilterDialog";
-import type { SegmentNumberCriterionValue, SegmentStringCriterionValue, SegmentTimestampCriterionValue } from "./segmentCriteriaDefinitions";
+import {
+  readBoolCriterion,
+  readMultiIdCriterionIds,
+  readNumberCriterion,
+  readStringCriterion,
+  readStringCriterionValue,
+  readTimestampCriterion,
+  readVideoSelectionCriterion,
+  type SegmentNumberCriterionValue,
+  type SegmentStringCriterionValue,
+  type SegmentTimestampCriterionValue,
+} from "./segmentCriteriaDefinitions";
 
 export interface RawSegmentFilterValue {
   sourceCategory?: "user" | "extensions";
@@ -77,6 +88,42 @@ export function readRawSegmentFilter(value: unknown): RawSegmentFilterValue {
     faceIds: normalizeIdArray(candidate.faceIds),
     minConfidence: normalizeFiniteNumber(candidate.minConfidence),
     minDurationSec: normalizeFiniteNumber(candidate.minDurationSec),
+  };
+}
+
+export function readRawSegmentListFilter(objectFilter: Record<string, unknown>) {
+  const legacy = readRawSegmentFilter(objectFilter.rawSegmentFilters);
+  const videoSelection = readVideoSelectionCriterion(objectFilter.videosCriterion);
+  const rawTagIds = readMultiIdCriterionIds(objectFilter.rawTagsCriterion);
+  const rawPerformerIds = readMultiIdCriterionIds(objectFilter.rawPerformersCriterion);
+  const rawFaceIds = readMultiIdCriterionIds(objectFilter.rawFacesCriterion);
+  const rawKind = readStringCriterion(objectFilter.rawKindCriterion);
+  const rawSourceKey = readStringCriterion(objectFilter.rawSourceCriterion);
+
+  return {
+    videoTitle: readStringCriterion(objectFilter.videoTitleCriterion) || undefined,
+    videoIds: videoSelection.includeIds,
+    excludeVideoIds: videoSelection.excludeIds,
+    tagIds: Array.from(new Set([...legacy.tagIds, ...rawTagIds])),
+    performerIds: Array.from(new Set([...legacy.performerIds, ...rawPerformerIds])),
+    faceIds: Array.from(new Set([...legacy.faceIds, ...rawFaceIds])),
+    kind: (legacy.kind ?? rawKind) || undefined,
+    sourceKey: (legacy.sourceKey ?? rawSourceKey) || undefined,
+    sourceCategory: legacy.sourceCategory,
+    titleCriterion: readStringCriterionValue(objectFilter.rawTitleCriterion),
+    hostType: readStringCriterion(objectFilter.rawHostTypeCriterion) || undefined,
+    sourceRunCriterion: readStringCriterionValue(objectFilter.rawSourceRunCriterion),
+    colorHintCriterion: readStringCriterionValue(objectFilter.rawColorHintCriterion),
+    hasImage: readBoolCriterion(objectFilter.rawHasImageCriterion)?.value,
+    hasPayload: readBoolCriterion(objectFilter.rawHasPayloadCriterion)?.value,
+    createdAtCriterion: readTimestampCriterion(objectFilter.rawCreatedAtCriterion),
+    updatedAtCriterion: readTimestampCriterion(objectFilter.rawUpdatedAtCriterion),
+    startSecCriterion: readNumberCriterion(objectFilter.rawStartSecCriterion),
+    endSecCriterion: readNumberCriterion(objectFilter.rawEndSecCriterion),
+    confidenceCriterion: readNumberCriterion(objectFilter.rawConfidenceCriterion) ?? legacy.confidenceCriterion,
+    durationCriterion: readNumberCriterion(objectFilter.rawDurationCriterion) ?? legacy.durationCriterion,
+    minConfidence: legacy.minConfidence,
+    minDurationSec: legacy.minDurationSec,
   };
 }
 
