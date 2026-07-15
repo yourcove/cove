@@ -1,8 +1,18 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { FilterDialog, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA } from "../components/FilterDialog";
+
+const { performersFind } = vi.hoisted(() => ({ performersFind: vi.fn() }));
+
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return {
+    ...actual,
+    performers: { ...actual.performers, find: performersFind },
+  };
+});
 
 function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -11,6 +21,41 @@ function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) =
 }
 
 describe("FilterDialog", () => {
+  it("keeps performer suggestions visible while a search refreshes", async () => {
+    const onApply = vi.fn();
+    let resolveSearch: ((value: { items: { id: number; name: string }[] }) => void) | undefined;
+    performersFind.mockImplementation(({ q }: { q?: string }) => {
+      if (!q) return Promise.resolve({ items: [{ id: 1, name: "Existing performer" }] });
+      return new Promise((resolve) => { resolveSearch = resolve; });
+    });
+
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{}}
+        onApply={onApply}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Performers"));
+    expect(await screen.findByText("Existing performer")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search performers..."), { target: { value: "Eva" } });
+    await waitFor(() => expect(performersFind).toHaveBeenCalledWith(expect.objectContaining({ q: "Eva" })));
+
+    expect(screen.getByText("Existing performer")).toBeInTheDocument();
+    expect(screen.getByTitle("Include")).toBeDisabled();
+    expect(screen.getByTitle("Include").closest("div.max-h-32")).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(screen.getByTitle("Include"));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenLastCalledWith({});
+
+    resolveSearch?.({ items: [{ id: 2, name: "Matching performer" }] });
+    expect(await screen.findByText("Matching performer")).toBeInTheDocument();
+  });
+
   it("resyncs its local edit state when the active filter changes outside the dialog", () => {
     const onApply = vi.fn();
     const onClose = vi.fn();
