@@ -22,6 +22,17 @@ function ListStateProbe() {
   );
 }
 
+function DefaultSearchProbe() {
+  const { filter } = useListUrlState({
+    resetKey: "videos",
+    defaultFilter: { q: "default search", page: 1, perPage: 40 },
+    defaultDisplayMode: "grid" as const,
+    allowedDisplayModes: ["grid"] as const,
+  });
+
+  return <div data-testid="search-query">{filter.q ?? "undefined"}</div>;
+}
+
 describe("useListUrlState", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/videos?view=wall&perPage=infinite&page=2&viewMode=vertical");
@@ -52,5 +63,15 @@ describe("useListUrlState", () => {
       expect(window.location.search).toContain("perPage=60");
     });
   });
-});
 
+  it("keeps an explicitly cleared search from restoring the default", async () => {
+    window.history.replaceState(null, "", "/videos?q=");
+
+    render(<DefaultSearchProbe />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("search-query")).toBeEmptyDOMElement();
+      expect(window.location.search).toBe("?q=");
+    });
+  });
+});

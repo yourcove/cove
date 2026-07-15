@@ -155,6 +155,8 @@ function writeStateToParams<TDisplayMode extends string>(
 
   if (state.filter.q) {
     params.set("q", state.filter.q);
+  } else if (options.defaultFilter.q) {
+    params.set("q", "");
   }
   if (state.filter.page && state.filter.page !== options.defaultFilter.page) {
     params.set("page", String(state.filter.page));
