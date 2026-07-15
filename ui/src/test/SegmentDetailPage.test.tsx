@@ -184,6 +184,35 @@ describe("SegmentDetailPage", () => {
     expect(within(tabs).queryByRole("tab", { name: /resolved spans/i })).not.toBeInTheDocument();
   });
 
+  it("does not list intersecting segments as adjacent segments", async () => {
+    mockSegmentLibrary.get.mockResolvedValue(buildSegment());
+    mockVideos.get.mockResolvedValue(buildVideo());
+    mockVideos.segments.list.mockResolvedValue([
+      buildSegment({ id: 5, title: "Earlier Segment", startSec: 5, endSec: 10, tagName: "Teaser" }),
+      buildSegment({ id: 6, title: "Earlier Overlap", startSec: 10, endSec: 15, tagName: "Transition" }),
+      buildSegment(),
+      buildSegment({ id: 8, title: "Same Range", tagName: "Action" }),
+      buildSegment({ id: 9, title: "Later Segment", startSec: 22, endSec: 34, tagName: "Closing" }),
+    ]);
+    mockVideos.segments.spans.mockResolvedValue({ profileId: 3, spans: [] });
+    mockTags.find.mockResolvedValue({ items: [] });
+
+    renderPage();
+
+    const tabs = await screen.findByRole("tablist", { name: /detail tabs/i });
+    fireEvent.click(within(tabs).getByRole("tab", { name: /context/i }));
+
+    const previousSection = screen.getByText("Previous Segments").parentElement!;
+    const nextSection = screen.getByText("Next Segments").parentElement!;
+    const intersectingSection = screen.getByText("Intersecting Segments").parentElement!;
+    expect(within(previousSection).getByText("Earlier Segment")).toBeInTheDocument();
+    expect(within(previousSection).queryByText("Earlier Overlap")).not.toBeInTheDocument();
+    expect(within(nextSection).queryByText("Same Range")).not.toBeInTheDocument();
+    expect(within(nextSection).getByText("Later Segment")).toBeInTheDocument();
+    expect(within(intersectingSection).getByText("Earlier Overlap")).toBeInTheDocument();
+    expect(within(intersectingSection).getByText("Same Range")).toBeInTheDocument();
+  });
+
   it("supports keyboard shortcuts for edit and adjacent navigation", async () => {
     mockSegmentLibrary.get.mockResolvedValue(buildSegment());
     mockVideos.get.mockResolvedValue(buildVideo());
@@ -252,4 +281,3 @@ describe("SegmentDetailPage", () => {
     });
   });
 });
-
