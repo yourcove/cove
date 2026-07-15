@@ -397,8 +397,47 @@ public sealed class Phase11PlaybackTests
         var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(1, affinity.ViewCount);
         Assert.Equal(0, affinity.CompleteCount);
+        Assert.Equal(35.0, affinity.LastPositionSec);
         Assert.True(session.CountsAsView);
         Assert.False(session.IsCompleted);
+    }
+
+    [Fact]
+    public async Task CompletedMediaResetsResumeButClipAtMediaEndDoesNot()
+    {
+        await using var scope = await CreateContextAsync();
+        await AddUserAsync(scope, 27);
+        var completedVideo = new Video { Title = "Completed media" };
+        var clippedVideo = new Video { Title = "End clip" };
+        scope.Context.Videos.AddRange(completedVideo, clippedVideo);
+        await scope.Context.SaveChangesAsync();
+
+        scope.PrincipalAccessor.Set(CreatePrincipal(27));
+        var controller = CreateController(scope.Context, scope.PrincipalAccessor);
+
+        Assert.IsType<NoContentResult>(await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
+            "video",
+            completedVideo.Id,
+            Guid.NewGuid(),
+            100.0,
+            99.98,
+            "ended",
+            [new PlaybackIntervalInputDto(90.0, 99.98)]), CancellationToken.None));
+
+        Assert.IsType<NoContentResult>(await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
+            "video",
+            clippedVideo.Id,
+            Guid.NewGuid(),
+            100.0,
+            99.98,
+            "ended",
+            [new PlaybackIntervalInputDto(90.0, 99.98)],
+            ClipStartSec: 90.0,
+            ClipEndSec: 99.98), CancellationToken.None));
+
+        var affinities = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().ToDictionaryAsync(row => row.HostId);
+        Assert.Equal(0.0, affinities[completedVideo.Id].LastPositionSec);
+        Assert.Equal(99.98, affinities[clippedVideo.Id].LastPositionSec);
     }
 
     [Fact]
@@ -555,4 +594,3 @@ public sealed class Phase11PlaybackTests
         }
     }
 }
-

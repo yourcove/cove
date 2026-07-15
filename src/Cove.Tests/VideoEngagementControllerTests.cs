@@ -71,7 +71,7 @@ public class VideoEngagementControllerTests
         var userOneSnapshot = await new UserEngagementService(context, principalAccessor).GetSnapshotAsync(AffinityHostType.Video, videoId, CancellationToken.None);
         Assert.NotNull(userOneSnapshot);
         Assert.Equal(88, userOneSnapshot.Rating);
-        Assert.Equal(120.0, userOneSnapshot.ResumeTime);
+        Assert.Equal(0.0, userOneSnapshot.ResumeTime);
         Assert.Equal(59.5, userOneSnapshot.PlayDuration, precision: 5);  // 5.5 + 54.0
         Assert.Equal(2, userOneSnapshot.PlayCount);
         Assert.Equal(1, userOneSnapshot.LikeCount);
@@ -222,4 +222,3 @@ public class VideoEngagementControllerTests
         }
     }
 }
-
