@@ -12,6 +12,7 @@ import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListToolbar } from "../components/DetailListToolbar";
+import { ListLoadError } from "../components/ListLoadError";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
@@ -35,6 +36,7 @@ import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
+import { getLoadError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -597,11 +599,13 @@ function buildPerformerAttributeQueries(performer: PerformerModel) {
 }
 
 function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }: { performerId: number; canReadFaces: boolean; onNavigate: (r: any) => void }) {
-  const { data: linkedFaces = [], isLoading: linkedFacesLoading } = useQuery({
+  const { data: linkedFacesData, isLoading: linkedFacesLoading, error: linkedFacesError, refetch: retryLinkedFaces } = useQuery({
     queryKey: ["performer", performerId, "linked-faces"],
     queryFn: () => faces.performerFaces(performerId),
     enabled: canReadFaces,
   });
+  const linkedFacesLoadError = getLoadError(linkedFacesData, linkedFacesError);
+  const linkedFaces = linkedFacesData ?? [];
   const similaritySourceFaces = linkedFaces.slice(0, 6);
   const visibleLinkedFaces = linkedFaces.slice(0, 12);
   const similarFaceQueries = useQueries({
@@ -661,6 +665,13 @@ function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }:
   }
 
   const similarFacesLoading = similarFaceQueries.some((query) => query.isLoading);
+  const similarFacesLoadError = similarFaceQueries
+    .map((query) => getLoadError(query.data, query.error))
+    .find((error) => error != null) ?? null;
+  const retrySimilarFaces = () => {
+    void retryLinkedFaces();
+    similarFaceQueries.forEach((query) => { if (query.isError) void query.refetch(); });
+  };
 
   return (
     <div className="mt-6 rounded-xl border border-border bg-card p-4">
@@ -670,12 +681,14 @@ function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }:
           <p className="mt-1 text-sm text-secondary">Visual matches derived from linked face embeddings.</p>
         </div>
         <div className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted">
-          {linkedFaces.length} linked face{linkedFaces.length === 1 ? "" : "s"}
+          {linkedFacesLoadError ? "Unavailable" : `${linkedFaces.length} linked face${linkedFaces.length === 1 ? "" : "s"}`}
         </div>
       </div>
 
       {linkedFacesLoading ? (
         <p className="mt-4 text-sm text-secondary">Loading linked faces...</p>
+      ) : linkedFacesLoadError ? (
+        <ListLoadError error={linkedFacesLoadError} onRetry={retrySimilarFaces} className="mt-4" />
       ) : linkedFaces.length === 0 ? (
         <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-6 text-sm text-secondary">
           This performer does not have any primary face clusters linked yet.
@@ -702,6 +715,8 @@ function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }:
 
           {similarFacesLoading ? (
             <p className="mt-4 text-sm text-secondary">Finding visually similar performers...</p>
+          ) : similarFacesLoadError ? (
+            <ListLoadError error={similarFacesLoadError} onRetry={retrySimilarFaces} className="mt-4" />
           ) : similarPerformers.length === 0 ? (
             <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-6 text-sm text-secondary">
               No similar performers were found for the linked faces yet.
@@ -771,11 +786,13 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
   // grid/list) as the other detail tabs without needing a separate paginated endpoint.
   const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "faces", resetKey: "performer-faces", entityType: "faces", builtInFilter: { page: 1, perPage: 200, sort: "appearances", direction: "desc" } });
   // Shares the cache key with the similarity panel's linked-faces query so switching tabs is instant.
-  const { data: linkedFaces = [], isLoading } = useQuery({
+  const { data: linkedFacesData, isLoading, error, refetch } = useQuery({
     queryKey: ["performer", performerId, "linked-faces"],
     queryFn: () => faces.performerFaces(performerId),
     enabled: canReadFaces,
   });
+  const loadError = getLoadError(linkedFacesData, error);
+  const linkedFaces = linkedFacesData ?? [];
 
   const sortedFaces = useMemo(() => {
     const dir = filter.direction === "asc" ? 1 : -1;
@@ -792,6 +809,7 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
   }, [linkedFaces, filter.sort, filter.direction]);
 
   if (!canReadFaces) return null;
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void refetch(); }} className="mt-3" />;
 
   return (
     <div className="space-y-4">
@@ -857,7 +875,7 @@ function PerformerVideosPanel({ performerId, onNavigate }: {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["performer-videos", performerId, objectFilter],
     filter,
     queryFn: (nextFilter) => hasObjectFilter
@@ -883,6 +901,7 @@ function PerformerVideosPanel({ performerId, onNavigate }: {
     <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="videos" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos found for this performer" /></>;
 
@@ -905,7 +924,7 @@ function PerformerGalleriesPanel({ performerId, onNavigate }: {
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "performer-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "galleries" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
     queryKey: ["performer-galleries", performerId, objectFilter],
     filter,
     queryFn: (nextFilter) => hasObjectFilter
@@ -931,6 +950,7 @@ function PerformerGalleriesPanel({ performerId, onNavigate }: {
     <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries found for this performer" /></>;
 
@@ -951,7 +971,7 @@ function PerformerImagesPanel({ performerId, onNavigate }: {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
     queryKey: ["performer-images", performerId, objectFilter],
     filter,
     queryFn: (nextFilter) => hasObjectFilter
@@ -977,6 +997,7 @@ function PerformerImagesPanel({ performerId, onNavigate }: {
     <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images found for this performer" /></>;
 
@@ -998,7 +1019,7 @@ function PerformerAudiosPanel({ performerId, onNavigate }: {
   const [zoomLevel, setZoomLevel] = useState(0);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "performer-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "audios" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
     queryKey: ["performer-audios", performerId, objectFilter],
     filter,
     queryFn: (nextFilter) => audios.findFiltered({
@@ -1022,6 +1043,7 @@ function PerformerAudiosPanel({ performerId, onNavigate }: {
     <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios found for this performer" /></>;
 
@@ -1040,7 +1062,7 @@ function PerformerTextsPanel({ performerId, onNavigate }: {
   const [zoomLevel, setZoomLevel] = useState(0);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "performer-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "texts" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
     queryKey: ["performer-texts", performerId, objectFilter],
     filter,
     queryFn: (nextFilter) => texts.findFiltered({
@@ -1064,6 +1086,7 @@ function PerformerTextsPanel({ performerId, onNavigate }: {
     <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts found for this performer" /></>;
 
@@ -1083,7 +1106,7 @@ function PerformerGroupsPanel({ performerId, onNavigate }: {
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "performer-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "groups" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
     queryKey: ["performer-groups", performerId, objectFilter],
     filter,
     queryFn: (nextFilter) => hasObjectFilter
@@ -1109,6 +1132,7 @@ function PerformerGroupsPanel({ performerId, onNavigate }: {
     <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups for this performer" /></>;
 
@@ -1126,7 +1150,7 @@ function PerformerAppearsWithPanel({ performerId, onNavigate }: {
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
   const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "appearsWith", resetKey: "performer-appears-with", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<PerformerModel>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<PerformerModel>({
     queryKey: ["performer-appears-with", performerId, filter],
     filter,
     queryFn: (nextFilter) => performers.appearsWith(performerId, nextFilter),
@@ -1136,6 +1160,7 @@ function PerformerAppearsWithPanel({ performerId, onNavigate }: {
   const selecting = selectedIds.size > 0;
   const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={[{ value: "co_video_count", label: "Shared Videos" }, { value: "name", label: "Name" }]} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<Users className="h-10 w-10" />} message="Loading co-stars..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Users className="h-12 w-12" />} message="No co-stars found" /></>;
 

@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
+import { ListLoadError } from "../components/ListLoadError";
 import { VideoCard } from "../components/EntityCards";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -20,6 +21,7 @@ import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useAppConfig } from "../state/AppConfigContext";
 import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
+import { getLoadError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -225,11 +227,13 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     resetEditState();
   }, [segment]);
 
-  const { data: siblingSegments = [], isLoading: siblingSegmentsLoading } = useQuery({
+  const { data: siblingSegmentsData, isLoading: siblingSegmentsLoading, error: siblingSegmentsError, refetch: retrySiblingSegments } = useQuery({
     queryKey: ["segment", id, "video-context", segment?.hostId],
     queryFn: () => videos.segments.list(segment!.hostId),
     enabled: !!segment,
   });
+  const siblingSegmentsLoadError = getLoadError(siblingSegmentsData, siblingSegmentsError);
+  const siblingSegments = siblingSegmentsData ?? [];
   const { data: playbackVideo, isLoading: playbackVideoLoading } = useQuery({
     queryKey: ["video", segment?.hostId],
     queryFn: () => videos.get(segment!.hostId),
@@ -713,11 +717,13 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
               : "See nearby segments from the same video to understand context."}
           </p>
         </div>
-        <div className="text-xs text-muted">{orderedSiblingSegments.length} segment{orderedSiblingSegments.length === 1 ? "" : "s"} in video</div>
+        <div className="text-xs text-muted">{siblingSegmentsLoadError ? "Unavailable" : `${orderedSiblingSegments.length} segment${orderedSiblingSegments.length === 1 ? "" : "s"} in video`}</div>
       </div>
 
       {siblingSegmentsLoading ? (
         <div className="mt-4 text-sm text-secondary">Loading video context...</div>
+      ) : siblingSegmentsLoadError ? (
+        <ListLoadError error={siblingSegmentsLoadError} onRetry={() => { void retrySiblingSegments(); }} className="mt-4" />
       ) : (
         <div className="mt-4 space-y-4">
           {segment.hostType === "video" && playbackVideo ? (

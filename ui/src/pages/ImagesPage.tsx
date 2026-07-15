@@ -283,6 +283,8 @@ export function ImagesPage({ onNavigate }: Props) {
       onFilterChange={handleFilterChange}
       totalCount={totalCount}
       isLoading={loading}
+      error={listData.loadError}
+      onRetry={() => { void listData.refetch(); }}
       searchMode={searchMode}
       searchModes={searchModeOptions}
       searchPlaceholder={visualSimilarityAvailable && searchMode === "visual" ? "Search visuals..." : "Search images, tags, performers..."}

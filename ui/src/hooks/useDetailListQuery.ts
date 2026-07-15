@@ -34,6 +34,8 @@ export function useDetailListQuery<TItem extends { id: string | number }>({
       perPage: filter.perPage === 0 ? chunkSize : filter.perPage ?? chunkSize,
     } satisfies PaginatedResponse<TItem>,
     isLoading: listData.isLoading,
+    loadError: listData.loadError,
+    retry: listData.refetch,
     infinitePageSize: listData.infinitePageSize,
     infiniteQuery: listData.infiniteQuery,
     infiniteFilterKey: listData.infiniteFilterKey,

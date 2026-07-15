@@ -12,6 +12,7 @@ import { CompilationPlayer } from "../components/CompilationPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListToolbar, type DetailListDisplayMode } from "../components/DetailListToolbar";
+import { ListLoadError } from "../components/ListLoadError";
 import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
@@ -35,6 +36,7 @@ import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
 import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { getLoadError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -135,11 +137,13 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   const canReadStudios = canReadEntity("studio", hasPermission);
   const canReadTags = canReadEntity("tag", hasPermission);
   const canEngageGroup = canReadGroups && (user?.kind === "user" || user?.kind === "system");
-  const { data: groupItems = [], isLoading: groupItemsLoading } = useQuery({
+  const { data: groupItemsData, isLoading: groupItemsLoading, error: groupItemsError, refetch: retryGroupItems } = useQuery({
     queryKey: ["group-items", id],
     queryFn: () => groups.items.list(id),
     enabled: canReadGroups && !!group && group.kind !== "dynamic",
   });
+  const groupItemsLoadError = getLoadError(groupItemsData, groupItemsError);
+  const groupItems = groupItemsData ?? [];
   const {
     favorite: groupFavorite,
     rating: groupRating,
@@ -222,6 +226,8 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       onNavigate={onNavigate}
       groupItems={groupItems}
       groupItemsLoading={groupItemsLoading}
+      groupItemsLoadError={groupItemsLoadError}
+      retryGroupItems={() => { void retryGroupItems(); }}
       canReadVideos={canReadVideos}
       canReadGroups={canReadGroups}
       canWriteGroup={canWriteGroup}
@@ -478,13 +484,15 @@ type MixedGroupItem =
   | { source: "item"; id: string; item: GroupItem; orderIndex: number; kind: GroupItemKind }
   | { source: "subgroup"; id: string; group: Group; orderIndex: number; kind: "group" };
 
-function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, groupItemsLoading, canReadVideos, canReadGroups, canWriteGroup, addSubGroupRequestId }: {
+function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, groupItemsLoading, groupItemsLoadError, retryGroupItems, canReadVideos, canReadGroups, canWriteGroup, addSubGroupRequestId }: {
   group: Group;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
   onNavigate: (r: any) => void;
   groupItems?: GroupItem[];
   groupItemsLoading?: boolean;
+  groupItemsLoadError: Error | null;
+  retryGroupItems: () => void;
   canReadVideos: boolean;
   canReadGroups: boolean;
   canWriteGroup?: boolean;
@@ -502,11 +510,13 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmSelectionAction, setConfirmSelectionAction] = useState<"remove" | "delete" | null>(null);
   const { hasPermission } = useAuth();
-  const { data: subGroups = [], isLoading: subGroupsLoading } = useQuery({
+  const { data: subGroupsData, isLoading: subGroupsLoading, error: subGroupsError, refetch: retrySubGroups } = useQuery({
     queryKey: ["group-subgroups", group.id],
     queryFn: () => groups.subGroups(group.id),
     enabled: canReadGroups,
   });
+  const subGroupsLoadError = getLoadError(subGroupsData, subGroupsError);
+  const subGroups = subGroupsData ?? [];
   const { data: searchResults } = useQuery({
     queryKey: ["groups-search-for-subgroup", group.id, searchTerm],
     queryFn: () => groups.find({ page: 1, perPage: 20, q: searchTerm }),
@@ -514,6 +524,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   });
 
   const isDynamic = group.kind === "dynamic";
+  const prerequisiteError = groupItemsLoadError ?? subGroupsLoadError;
 
   useEffect(() => {
     if (!addSubGroupRequestId || isDynamic || !canWriteGroup || !canReadGroups) return;
@@ -557,6 +568,8 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   const {
     data: mixedData,
     isLoading: mixedItemsLoading,
+    loadError: mixedItemsLoadError,
+    retry: retryMixedItems,
     infinitePageSize,
     infiniteQuery,
     infiniteFilterKey,
@@ -737,6 +750,10 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading group items..." />;
   }
 
+  if (prerequisiteError) {
+    return <ListLoadError error={prerequisiteError} onRetry={() => { retryGroupItems(); void retrySubGroups(); }} className="mt-3" />;
+  }
+
   const toolbar = (
     <DetailListToolbar
       filter={mixedFilter}
@@ -808,6 +825,10 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       )}
     </div>
   ) : null;
+
+  if (mixedItemsLoadError) {
+    return <ListLoadError error={mixedItemsLoadError} onRetry={() => { void retryMixedItems(); }} className="mt-3" />;
+  }
 
   if (staticMixedItems.length === 0 && !isDynamic && canReadVideos) {
     return <>{selectionDialogs}{addSubGroupDialog}<GroupVideosPanel groupId={group.id} filter={filter} setFilter={setFilter} onNavigate={onNavigate} groupItems={groupItems} groupItemsLoading={groupItemsLoading} canWriteGroup={canWriteGroup} /></>;
@@ -2003,7 +2024,7 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data: groupVideos, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const { data: groupVideos, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["group-videos", groupId, objectFilter],
     filter,
     queryFn: (nextFilter) => hasObjectFilter
@@ -2079,6 +2100,8 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
       availableDisplayModes={availableDisplayModes}
     />
   );
+
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
 
   if (groupItemsLoading) {
     return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading group items..." />;
@@ -2217,10 +2240,11 @@ function parseGroupItemDerivedQueryDescriptor(sourceQueryJson?: string): Segment
 }
 function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: number; onNavigate: (r: any) => void; canWriteGroup: boolean }) {
   const queryClient = useQueryClient();
-  const { data: subGroups, isLoading } = useQuery({
+  const { data: subGroups, isLoading, error, refetch } = useQuery({
     queryKey: ["group-subgroups", groupId],
     queryFn: () => groups.subGroups(groupId),
   });
+  const loadError = getLoadError(subGroups, error);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -2267,6 +2291,7 @@ function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: 
   const availableResults = (searchResults?.items ?? []).filter((g) => g.id !== groupId && !existingIds.has(g.id));
 
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading sub-groups..." />;
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void refetch(); }} className="mt-3" />;
 
   return (
     <div className="space-y-4">
@@ -2405,4 +2430,3 @@ function matchesTimestampCriterion(value: string | undefined, criterion?: Timest
     default: return timestamp === expected;
   }
 }
-

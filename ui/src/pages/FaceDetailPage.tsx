@@ -9,6 +9,8 @@ import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailListToolbar } from "../components/DetailListToolbar";
+import { ListLoadError } from "../components/ListLoadError";
+import { ListQueryState } from "../components/ListQueryState";
 import { FaceSuggestionsPanel } from "../components/FaceSuggestionsPanel";
 import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";
 import { buildFaceCarouselSampleImageUrls, buildFaceHeroImageUrls } from "../components/faceComparisonImages";
@@ -25,6 +27,7 @@ import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { DetailListDisplayMode } from "../components/DetailListToolbar";
+import { getLoadError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -92,7 +95,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     queryFn: () => faces.get(id),
   });
 
-  const { data: similarFacesPage = EMPTY_SIMILAR_PAGE, isLoading: similarLoading, infinitePageSize: similarInfinitePageSize, infiniteQuery: similarInfiniteQuery, loadMore: loadMoreSimilar } = useDetailListQuery<FaceSimilar>({
+  const { data: similarFacesPage = EMPTY_SIMILAR_PAGE, isLoading: similarLoading, loadError: similarLoadError, retry: retrySimilar, infinitePageSize: similarInfinitePageSize, infiniteQuery: similarInfiniteQuery, loadMore: loadMoreSimilar } = useDetailListQuery<FaceSimilar>({
     queryKey: ["face", id, "similar"],
     filter: similarFilter,
     queryFn: (nextFilter) => faces.similar(id, {
@@ -105,7 +108,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     }),
   });
 
-  const { data: faceAppearancesPage = EMPTY_APPEARANCES_PAGE, isLoading: appearancesLoading, infinitePageSize: appearancesInfinitePageSize, infiniteQuery: appearancesInfiniteQuery, loadMore: loadMoreAppearances } = useDetailListQuery<FaceAppearanceListItem>({
+  const { data: faceAppearancesPage = EMPTY_APPEARANCES_PAGE, isLoading: appearancesLoading, loadError: appearancesLoadError, retry: retryAppearances, infinitePageSize: appearancesInfinitePageSize, infiniteQuery: appearancesInfiniteQuery, loadMore: loadMoreAppearances } = useDetailListQuery<FaceAppearanceListItem>({
     queryKey: ["face", id, "appearances"],
     filter: appearanceFilter,
     queryFn: async (nextFilter) => {
@@ -127,16 +130,20 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
     enabled: canDeleteFace,
   });
 
-  const { data: faceSuggestions = [], isLoading: suggestionsLoading } = useQuery({
+  const { data: faceSuggestionsData, isLoading: suggestionsLoading, error: suggestionsError, refetch: retrySuggestions } = useQuery({
     queryKey: ["face", id, "suggestions"],
     queryFn: () => faces.suggestions(id),
     enabled: canWriteFace && face != null && face.performerId == null,
   });
-  const { data: faceDetections = [] } = useQuery({
+  const suggestionsLoadError = getLoadError(faceSuggestionsData, suggestionsError);
+  const faceSuggestions = faceSuggestionsData ?? [];
+  const { data: faceDetectionsData, error: faceDetectionsError, refetch: retryFaceDetections } = useQuery({
     queryKey: ["face", id, "detections"],
     queryFn: () => faces.detections(id),
     enabled: face != null,
   });
+  const faceDetectionsLoadError = getLoadError(faceDetectionsData, faceDetectionsError);
+  const faceDetections = faceDetectionsData ?? [];
 
   const [label, setLabel] = useState("");
   const [performerSearch, setPerformerSearch] = useState("");
@@ -357,6 +364,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
 
   const overviewContent = (
     <div className="space-y-6">
+      {faceDetectionsLoadError ? <ListLoadError error={faceDetectionsLoadError} onRetry={() => { void retryFaceDetections(); }} /> : null}
       <section className="space-y-6">
         <section className="rounded-2xl border border-border bg-card/70 p-5">
           <div className="flex items-start justify-between gap-3">
@@ -447,10 +455,12 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Suggested Matches</h2>
                 <p className="mt-1 text-sm text-secondary">Review suggested performer links before accepting or rejecting them.</p>
               </div>
-              <StatusPill icon={<Link2 className="h-3 w-3" />} label={`${faceSuggestions.length} candidates`} tone="muted" />
+              <StatusPill icon={<Link2 className="h-3 w-3" />} label={suggestionsLoadError ? "Unavailable" : `${faceSuggestions.length} candidates`} tone="muted" />
             </div>
             <div>
-              <FaceSuggestionsPanel
+              {suggestionsLoadError ? (
+                <ListLoadError error={suggestionsLoadError} onRetry={() => { void retrySuggestions(); }} className="mb-4" />
+              ) : <FaceSuggestionsPanel
                 face={face}
                 suggestions={faceSuggestions}
                 isLoading={suggestionsLoading}
@@ -469,7 +479,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
                 onReject={(value) => suggestionDecisionMutation.mutate({ performerId: readSuggestionPerformerId(value), decision: "reject" })}
                 onCompare={(value) => setComparingSuggestion(value)}
                 onNavigate={onNavigate}
-              />
+              />}
             </div>
           </section>
         ) : null}
@@ -484,16 +494,17 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Appears In</h2>
           <p className="mt-1 text-sm text-secondary">Videos and images where this face appears.</p>
         </div>
-        <div className="text-xs text-muted">{faceAppearancesPage.totalCount} appearance{faceAppearancesPage.totalCount === 1 ? "" : "s"}</div>
+        <div className="text-xs text-muted">{appearancesLoadError ? "Unavailable" : `${faceAppearancesPage.totalCount} appearance${faceAppearancesPage.totalCount === 1 ? "" : "s"}`}</div>
       </div>
 
-      {appearancesLoading ? (
-        <div className="text-sm text-secondary">Loading appearances...</div>
-      ) : faceAppearancesPage.totalCount === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
-          No appearances currently point to this face cluster.
-        </div>
-      ) : (
+      <ListQueryState
+        isLoading={appearancesLoading}
+        loadError={appearancesLoadError}
+        isEmpty={faceAppearancesPage.totalCount === 0}
+        onRetry={() => { void retryAppearances(); }}
+        loading={<div className="text-sm text-secondary">Loading appearances...</div>}
+        empty={<div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">No appearances currently point to this face cluster.</div>}
+      >
         <>
           <DetailListToolbar
             filter={appearanceFilter}
@@ -512,7 +523,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           <FaceAppearancesGrid appearances={faceAppearancesPage.items} displayMode={appearanceDisplayMode} onNavigate={onNavigate} zoomLevel={appearanceZoomLevel} infinitePageSize={appearancesInfinitePageSize} hasNextPage={appearancesInfiniteQuery.hasNextPage} isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage} loadMore={loadMoreAppearances} />
           {!appearancesInfinitePageSize ? <FaceTabPager filter={appearanceFilter} setFilter={setAppearanceFilter} totalCount={faceAppearancesPage.totalCount} /> : null}
         </>
-      )}
+      </ListQueryState>
     </section>
   );
 
@@ -523,16 +534,17 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Similar Faces</h2>
           <p className="mt-1 text-sm text-secondary">Nearest neighbors from the face embedding index.</p>
         </div>
-        <div className="text-xs text-muted">{similarFacesPage.totalCount} match{similarFacesPage.totalCount === 1 ? "" : "es"}</div>
+        <div className="text-xs text-muted">{similarLoadError ? "Unavailable" : `${similarFacesPage.totalCount} match${similarFacesPage.totalCount === 1 ? "" : "es"}`}</div>
       </div>
 
-      {similarLoading ? (
-        <div className="text-sm text-secondary">Loading similar faces...</div>
-      ) : similarFacesPage.totalCount === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">
-          No similar faces are available for this cluster yet.
-        </div>
-      ) : (
+      <ListQueryState
+        isLoading={similarLoading}
+        loadError={similarLoadError}
+        isEmpty={similarFacesPage.totalCount === 0}
+        onRetry={() => { void retrySimilar(); }}
+        loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
+        empty={<div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">No similar faces are available for this cluster yet.</div>}
+      >
         <>
           <DetailListToolbar
             filter={similarFilter}
@@ -551,7 +563,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
           <SimilarFacesView faces={similarFacesPage.items} displayMode={similarDisplayMode} onNavigate={onNavigate} canReadPerformers={canReadPerformers} zoomLevel={similarZoomLevel} infinitePageSize={similarInfinitePageSize} hasNextPage={similarInfiniteQuery.hasNextPage} isFetchingNextPage={similarInfiniteQuery.isFetchingNextPage} loadMore={loadMoreSimilar} />
           {!similarInfinitePageSize ? <FaceTabPager filter={similarFilter} setFilter={setSimilarFilter} totalCount={similarFacesPage.totalCount} /> : null}
         </>
-      )}
+      </ListQueryState>
     </section>
   );
 
@@ -1003,4 +1015,3 @@ function SimilarFaceTile({ face, onNavigate, canReadPerformers }: { face: FaceSi
     </FaceTile>
   );
 }
-

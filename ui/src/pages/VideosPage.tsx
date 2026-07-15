@@ -49,6 +49,7 @@ import {
   type BatchDownloadOptions,
 } from "../utils/batchDownloads";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
+import { getLoadError } from "../utils/queryLoadState";
 
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
@@ -373,7 +374,7 @@ export function VideosPage({ onNavigate }: Props) {
   const includeCompilationGroups = isIncludeCompilationGroupsEnabled(normalizedObjectFilter[INCLUDE_COMPILATIONS_FILTER_KEY]);
   const canShowCompilationGroups = !infinitePageSize && includeCompilationGroups && searchMode === "text" && !hasCompilationBlockingObjectFilter && (displayMode === "grid" || displayMode === "list");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: pageError, refetch: refetchPage } = useQuery({
     queryKey: ["videos", filter, backendObjectFilter, searchMode],
     queryFn: () => {
       if (visualSearchActive) {
@@ -390,7 +391,7 @@ export function VideosPage({ onNavigate }: Props) {
     enabled: !infinitePageSize && !canShowCompilationGroups,
   });
 
-  const { data: unifiedData, isLoading: unifiedLoading } = useQuery({
+  const { data: unifiedData, isLoading: unifiedLoading, error: unifiedError, refetch: refetchUnified } = useQuery({
     queryKey: ["videos", "with-compilations", filter, compilationQueryExtra],
     queryFn: () => videos.findWithCompilations(filter, compilationQueryExtra),
     enabled: !infinitePageSize && canShowCompilationGroups,
@@ -429,6 +430,12 @@ export function VideosPage({ onNavigate }: Props) {
   const loading = infinitePageSize
     ? infiniteVideosQuery.isPending
     : (canShowCompilationGroups ? unifiedLoading : isLoading);
+  const loadError = infinitePageSize
+    ? getLoadError(infiniteVideosQuery.data, infiniteVideosQuery.error)
+    : (canShowCompilationGroups ? getLoadError(unifiedData, unifiedError) : getLoadError(data, pageError));
+  const retryLoad = infinitePageSize
+    ? infiniteVideosQuery.refetch
+    : (canShowCompilationGroups ? refetchUnified : refetchPage);
   const loadMoreVideos = useCallback(() => {
     if (infiniteVideosQuery.hasNextPage && !infiniteVideosQuery.isFetchingNextPage) {
       void infiniteVideosQuery.fetchNextPage();
@@ -693,6 +700,8 @@ export function VideosPage({ onNavigate }: Props) {
       onFilterChange={handleFilterChange}
       totalCount={totalCount ?? 0}
       isLoading={loading}
+      error={loadError instanceof Error ? loadError : null}
+      onRetry={() => { void retryLoad(); }}
       searchMode={searchMode}
       searchModes={searchModeOptions}
       searchPlaceholder={visualSimilarityAvailable && searchMode === "visual" ? "Search visuals..." : "Search videos, tags, performers..."}

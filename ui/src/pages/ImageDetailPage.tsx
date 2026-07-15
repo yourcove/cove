@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } fro
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailSkeleton } from "../components/DetailSkeleton";
+import { ListLoadError } from "../components/ListLoadError";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
@@ -27,6 +28,7 @@ import { createPlaybackSessionId, trackInteraction } from "../utils/interactionT
 import { ImageVisualSimilarityPanel, useImageVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { ImageEditPanel } from "./ImageEditModal";
+import { getLoadError } from "../utils/queryLoadState";
 
 const ImageDownloadDialog = lazy(() => import("../components/ImageDownloadDialog").then((module) => ({ default: module.ImageDownloadDialog })));
 const MediaScrapeDialog = lazy(() => import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })));
@@ -95,11 +97,13 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     enabled: !!image && canEngageImage,
     fallbackRating: undefined,
   });
-  const { data: imageFaces = [] } = useQuery({
+  const { data: imageFacesData, error: imageFacesError, refetch: retryImageFaces } = useQuery({
     queryKey: ["image", id, "faces"],
     queryFn: () => faces.imageFaces(id),
     enabled: canReadFaces,
   });
+  const imageFacesLoadError = getLoadError(imageFacesData, imageFacesError);
+  const imageFaces = imageFacesData ?? [];
   // Splits the wrong-person occurrences off a face that isn't really in this image (AI.Faces extension).
   const markFaceNotPresentMut = useMutation({
     mutationFn: (faceId: number) => faces.markNotPresent(faceId, { hostType: "image", hostId: Number(id) }),
@@ -488,10 +492,12 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Faces</h2>
           <p className="mt-1 text-sm text-secondary">Face clusters attached to this image.</p>
         </div>
-        <div className="text-xs text-muted">{imageFaces.length} face{imageFaces.length === 1 ? "" : "s"}</div>
+        <div className="text-xs text-muted">{imageFacesLoadError ? "Unavailable" : `${imageFaces.length} face${imageFaces.length === 1 ? "" : "s"}`}</div>
       </div>
 
-      {canReadFaces ? (
+      {imageFacesLoadError ? (
+        <ListLoadError error={imageFacesLoadError} onRetry={() => { void retryImageFaces(); }} className="mt-4" />
+      ) : canReadFaces ? (
         imageFaces.length > 0 ? (
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {imageFaces.map((face) => {

@@ -46,6 +46,7 @@ import type {
   SegmentsPageContentView,
 } from "./segments/types";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
+import { getLoadError } from "../utils/queryLoadState";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -612,9 +613,26 @@ export function SegmentsPage({ onNavigate }: Props) {
     || (isRawView
       ? (infinitePageSize ? rawInfiniteQuery.isLoading : rawSegmentsQuery.isLoading)
       : (infinitePageSize ? derivedInfiniteQuery.isLoading : segmentsWindowQuery.isLoading));
-  const firstQueryError = isRawView
-    ? ((infinitePageSize ? rawInfiniteQuery.error : rawSegmentsQuery.error) instanceof Error ? (infinitePageSize ? rawInfiniteQuery.error : rawSegmentsQuery.error) as Error : undefined)
-    : ((infinitePageSize ? derivedInfiniteQuery.error : segmentsWindowQuery.error) instanceof Error ? (infinitePageSize ? derivedInfiniteQuery.error : segmentsWindowQuery.error) as Error : undefined);
+  const prerequisiteError = !isRawView
+    ? [profilesQuery, ...selectedVideoQueries, ...performerFaceQueries]
+        .map((query) => getLoadError(query.data, query.error))
+        .find((error) => error != null) ?? null
+    : null;
+  const activeListError = isRawView
+    ? (infinitePageSize ? getLoadError(rawInfiniteQuery.data, rawInfiniteQuery.error) : getLoadError(rawSegmentsQuery.data, rawSegmentsQuery.error))
+    : (infinitePageSize ? getLoadError(derivedInfiniteQuery.data, derivedInfiniteQuery.error) : getLoadError(segmentsWindowQuery.data, segmentsWindowQuery.error));
+  const firstQueryError = prerequisiteError ?? activeListError ?? undefined;
+
+  const retryFailedQueries = useCallback(() => {
+    if (profilesQuery.isError) void profilesQuery.refetch();
+    selectedVideoQueries.forEach((query) => { if (query.isError) void query.refetch(); });
+    performerFaceQueries.forEach((query) => { if (query.isError) void query.refetch(); });
+    if (isRawView) {
+      void (infinitePageSize ? rawInfiniteQuery.refetch() : rawSegmentsQuery.refetch());
+    } else {
+      void (infinitePageSize ? derivedInfiniteQuery.refetch() : segmentsWindowQuery.refetch());
+    }
+  }, [derivedInfiniteQuery, infinitePageSize, isRawView, performerFaceQueries, profilesQuery, rawInfiniteQuery, rawSegmentsQuery, segmentsWindowQuery, selectedVideoQueries]);
 
   useEffect(() => {
     if (infinitePageSize) {
@@ -719,6 +737,8 @@ export function SegmentsPage({ onNavigate }: Props) {
         onFilterChange={setFilter}
         totalCount={totalCount}
         isLoading={isLoading}
+        error={firstQueryError}
+        onRetry={retryFailedQueries}
         sortOptions={sortOptions}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}

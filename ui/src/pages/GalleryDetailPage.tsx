@@ -12,6 +12,7 @@ import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 import { InteractiveRating } from "../components/Rating";
 import { DetailListToolbar } from "../components/DetailListToolbar";
+import { ListLoadError } from "../components/ListLoadError";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { PerformerBadgeRow } from "../components/EntityCards";
 import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS, HERO_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
@@ -66,7 +67,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         objectFilter: withRequiredMultiId(imageObjectFilter as ImageFilterCriteria, "galleriesCriterion", id),
       })
     : images.find(nextFilter, { galleryId: id }), [hasImageObjectFilter, id, imageObjectFilter]);
-  const { data: galleryImages, infinitePageSize: imageInfinitePageSize, infiniteQuery: imageInfiniteQuery, infiniteFilterKey: imageInfiniteFilterKey, fetchAllIds: fetchAllImageIds, loadMore: loadMoreImages } = useDetailListQuery<Image>({
+  const { data: galleryImages, loadError: galleryImagesLoadError, retry: retryGalleryImages, infinitePageSize: imageInfinitePageSize, infiniteQuery: imageInfiniteQuery, infiniteFilterKey: imageInfiniteFilterKey, fetchAllIds: fetchAllImageIds, loadMore: loadMoreImages } = useDetailListQuery<Image>({
     queryKey: ["gallery-images", id, imageObjectFilter],
     filter: imageFilter,
     queryFn: queryGalleryImages,
@@ -268,6 +269,8 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
             availableDisplayModes={imageDisplayModes}
             onNavigate={onNavigate}
             galleryImages={galleryImages}
+            loadError={galleryImagesLoadError}
+            onRetry={() => { void retryGalleryImages(); }}
               infinitePageSize={imageInfinitePageSize}
               infiniteQuery={imageInfiniteQuery}
               infiniteFilterKey={imageInfiniteFilterKey}
@@ -464,7 +467,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "gallery-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: GALLERY_VIDEOS_DEFAULT_FILTER_KEY });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["gallery-videos", galleryId, objectFilter],
     filter,
     queryFn: (nextFilter) => hasObjectFilter
@@ -507,6 +510,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
     />
   );
 
+  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos for this gallery" /></>;
 
@@ -521,7 +525,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
   );
 }
 
-function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes, onNavigate, galleryImages, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore, onShowAddImages, onLightbox, imageZoom, setImageZoom, canWriteGallery }: {
+function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes, onNavigate, galleryImages, loadError, onRetry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore, onShowAddImages, onLightbox, imageZoom, setImageZoom, canWriteGallery }: {
   galleryId: number;
   filter: FindFilter;
   setFilter: (f: FindFilter) => void;
@@ -532,6 +536,8 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
   availableDisplayModes: ReturnType<typeof useRelatedDetailListUrlState>["availableDisplayModes"];
   onNavigate: (r: any) => void;
   galleryImages: { items: any[]; totalCount: number } | undefined;
+  loadError: Error | null;
+  onRetry: () => void;
   infinitePageSize: boolean;
   infiniteQuery: ReturnType<typeof useDetailListQuery<Image>>["infiniteQuery"];
   infiniteFilterKey: unknown;
@@ -576,6 +582,8 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "gallery", id: galleryId }} />}
     />
   );
+
+  if (loadError) return <ListLoadError error={loadError} onRetry={onRetry} className="mt-3" />;
 
   if (!galleryImages || items.length === 0) return (
     <>
