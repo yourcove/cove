@@ -475,6 +475,7 @@ export const segmentLibrary = {
     durationModifier?: string;
     sort?: string;
     direction?: "asc" | "desc";
+    seed?: number;
     page?: number;
     perPage?: number;
     ids?: string;

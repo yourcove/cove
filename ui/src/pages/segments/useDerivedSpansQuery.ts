@@ -12,6 +12,7 @@ interface UseDerivedSpansQueryOptions {
   videoTitle: string;
   sort: string;
   direction: "asc" | "desc";
+  seed?: number;
   includeVideoIds: number[];
   excludeVideoIds: number[];
   appliedQuery: AppliedDerivedQuery | null;
@@ -33,12 +34,13 @@ export function buildSpanSearchRequest(opts: {
   videoTitle: string;
   sort: string;
   direction: "asc" | "desc";
+  seed?: number;
   includeVideoIds: number[];
   excludeVideoIds: number[];
   appliedQuery: AppliedDerivedQuery | null;
   rawFilter: RawSegmentFilterValue;
 }): SegmentSpanSearchRequest {
-  const { activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter } = opts;
+  const { activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction, seed, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter } = opts;
   return {
     profile: activeProfileId,
     derivedQuery: appliedQuery != null ? {
@@ -51,6 +53,7 @@ export function buildSpanSearchRequest(opts: {
     perPage,
     sort,
     direction,
+    seed,
     q: q || undefined,
     videoTitle: videoTitle || undefined,
     videoIds: includeVideoIds.length > 0 ? includeVideoIds : undefined,
@@ -93,12 +96,12 @@ export function buildSpanSearchRequest(opts: {
 
 export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
   const {
-    activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction,
+    activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction, seed,
     includeVideoIds, excludeVideoIds, appliedQuery, derivedQueryDescriptor, rawFilter, enabled,
   } = options;
   return useQuery({
     queryKey: [
-      "segments-page", "search", activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction,
+      "segments-page", "search", activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction, seed,
       includeVideoIds.join(","), excludeVideoIds.join(","), appliedQuery ?? null, rawFilter,
     ],
     queryFn: async (): Promise<{ items: DerivedSpanItem[]; totalCount: number; hasMore: boolean }> => {
@@ -107,7 +110,7 @@ export function useDerivedSpansQuery(options: UseDerivedSpansQueryOptions) {
       }
 
       const response = await segmentSpans.search(buildSpanSearchRequest({
-        activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction,
+        activeProfileId, pageNumber, perPage, q, videoTitle, sort, direction, seed,
         includeVideoIds, excludeVideoIds, appliedQuery, rawFilter,
       }));
 
@@ -153,7 +156,7 @@ export function useDerivedSpansCountQuery(options: UseDerivedSpansQueryOptions) 
       if (activeProfileId == null) return 0;
       const response = await segmentSpans.count(buildSpanSearchRequest({
         activeProfileId, pageNumber: 1, perPage: options.perPage, q, videoTitle,
-        sort: options.sort, direction: options.direction, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter,
+        sort: options.sort, direction: options.direction, seed: options.seed, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter,
       }));
       return response.totalCount;
     },

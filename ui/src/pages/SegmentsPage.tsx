@@ -52,6 +52,7 @@ interface Props {
 }
 
 const DERIVED_SPAN_SORT_OPTIONS = [
+  { value: "random", label: "Random" },
   { value: "updated_at", label: "Video Updated" },
   { value: "created_at", label: "Video Created" },
   { value: "title", label: "Video Title" },
@@ -74,6 +75,7 @@ const DERIVED_SPAN_SORT_OPTIONS = [
 ];
 
 const RAW_SEGMENT_SORT_OPTIONS = [
+  { value: "random", label: "Random" },
   { value: "updated_at", label: "Updated At" },
   { value: "created_at", label: "Created At" },
   { value: "title", label: "Label" },
@@ -221,6 +223,7 @@ export function SegmentsPage({ onNavigate }: Props) {
   const pageNumber = filter.page ?? 1;
   const sort = filter.sort ?? "updated_at";
   const direction = filter.direction ?? "desc";
+  const seed = filter.seed;
   const isRawView = contentView === "raw";
   const sortOptions = isRawView ? RAW_SEGMENT_SORT_OPTIONS : DERIVED_SPAN_SORT_OPTIONS;
 
@@ -378,6 +381,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       perPage: pageSize,
       sort,
       direction,
+      seed,
       q: q || undefined,
       videoTitle: videoTitle || undefined,
       videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds : undefined,
@@ -505,7 +509,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       page: response.page,
       perPage: response.perPage,
     };
-  }, [combinedRawSegmentFilter, direction, q, rawSegmentIds, videoSelection.excludeIds, videoSelection.includeIds, videoTitle, sort]);
+  }, [combinedRawSegmentFilter, direction, q, rawSegmentIds, seed, videoSelection.excludeIds, videoSelection.includeIds, videoTitle, sort]);
 
   const segmentsWindowQuery = useDerivedSpansQuery({
     activeProfileId,
@@ -515,6 +519,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     videoTitle,
     sort,
     direction,
+    seed,
     includeVideoIds: videoSelection.includeIds,
     excludeVideoIds: videoSelection.excludeIds,
     appliedQuery,
@@ -533,6 +538,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     videoTitle,
     sort,
     direction,
+    seed,
     includeVideoIds: videoSelection.includeIds,
     excludeVideoIds: videoSelection.excludeIds,
     appliedQuery,
@@ -548,6 +554,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     videoTitle,
     sort,
     direction,
+    seed,
     includeVideoIds: videoSelection.includeIds,
     excludeVideoIds: videoSelection.excludeIds,
     rawSegmentIds,
@@ -556,14 +563,14 @@ export function SegmentsPage({ onNavigate }: Props) {
   });
 
   const derivedInfiniteQuery = usePaginatedInfiniteQuery<DerivedSpanItem>({
-    queryKey: ["segments-page", "search", "infinite", activeProfileId, q, videoTitle, sort, direction, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), appliedQuery ?? null, combinedRawSegmentFilter],
+    queryKey: ["segments-page", "search", "infinite", activeProfileId, q, videoTitle, sort, direction, seed, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), appliedQuery ?? null, combinedRawSegmentFilter],
     queryFn: queryDerivedSpansPage,
     enabled: derivedQueryEnabled && infinitePageSize,
     chunkSize: defaultPerPage,
   });
 
   const rawInfiniteQuery = usePaginatedInfiniteQuery<RawSegmentItem>({
-    queryKey: ["segments-page", "raw", "infinite", q, videoTitle, sort, direction, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), rawSegmentIds.join(","), combinedRawSegmentFilter],
+    queryKey: ["segments-page", "raw", "infinite", q, videoTitle, sort, direction, seed, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), rawSegmentIds.join(","), combinedRawSegmentFilter],
     queryFn: queryRawSegmentsPage,
     enabled: rawQueryEnabled && infinitePageSize,
     chunkSize: defaultPerPage,

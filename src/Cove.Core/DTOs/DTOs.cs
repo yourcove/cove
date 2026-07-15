@@ -658,7 +658,8 @@ public record SegmentSpanSearchRequestDto(
     string? CreatedAtModifier = null,
     string? UpdatedAt = null,
     string? UpdatedAt2 = null,
-    string? UpdatedAtModifier = null);
+    string? UpdatedAtModifier = null,
+    int? Seed = null);
 
 public record SegmentSpanSearchResultItemDto(
     ResolvedSpan Span,
@@ -2436,4 +2437,3 @@ public record PluginSettingsDto(Dictionary<string, bool> EnabledMap);
 
 // ===== DIRECTORY LISTING =====
 public record DirectoryEntryDto(string Path, bool IsDirectory);
-
