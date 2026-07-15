@@ -10,6 +10,13 @@ vi.mock("../api/client", () => ({
     create: vi.fn(),
     delete: vi.fn(),
   },
+  tags: {
+    find: vi.fn().mockResolvedValue({ items: [] }),
+  },
+  performers: { find: vi.fn().mockResolvedValue({ items: [] }) },
+  studios: { find: vi.fn().mockResolvedValue({ items: [] }) },
+  groups: { find: vi.fn().mockResolvedValue({ items: [] }) },
+  tagGroups: { list: vi.fn().mockResolvedValue([]) },
 }));
 
 function renderWithQueryClient(ui: React.ReactNode) {
@@ -23,6 +30,69 @@ afterEach(() => {
 });
 
 describe("DetailListToolbar", () => {
+  it("shows and removes applied object-filter parameters", async () => {
+    const user = userEvent.setup();
+    const onFilterChange = vi.fn();
+    const onObjectFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 3, perPage: 24 }}
+        onFilterChange={onFilterChange}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={[{ id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" }]}
+        objectFilter={{
+          tagsCriterion: {
+            value: [804],
+            _names: { "804": "Facial" },
+            modifier: "INCLUDES_ALL",
+          },
+        }}
+        onObjectFilterChange={onObjectFilterChange}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: /tags:/i });
+    expect(chip).toHaveTextContent("Tags:");
+    expect(chip).toHaveTextContent("Includes All Facial");
+    expect(chip.parentElement).toHaveClass("mb-2");
+
+    await user.click(chip);
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
+    expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 24 });
+  });
+
+  it("clears all applied object-filter parameters", async () => {
+    const user = userEvent.setup();
+    const onFilterChange = vi.fn();
+    const onObjectFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 4, perPage: 40 }}
+        onFilterChange={onFilterChange}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={[
+          { id: "rating", label: "Rating", type: "number", filterKey: "ratingCriterion" },
+          { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
+        ]}
+        objectFilter={{
+          ratingCriterion: { value: 80, modifier: "GREATER_THAN" },
+          favoriteCriterion: true,
+        }}
+        onObjectFilterChange={onObjectFilterChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
+    expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 40 });
+  });
+
   it("preserves the random seed when toggling sort direction", async () => {
     const user = userEvent.setup();
     const onFilterChange = vi.fn();
