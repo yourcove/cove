@@ -45,8 +45,9 @@ export interface VideoQueueItem {
 
 interface VideoQueuePageResult { items: VideoQueueItem[]; hasMore: boolean }
 interface VideoQueueOptions {
-  startIndex: number;
-  totalCount: number;
+  startIndex?: number;
+  totalCount?: number;
+  autoplay?: boolean;
   loadPrevious?: () => Promise<VideoQueuePageResult>;
   loadNext?: () => Promise<VideoQueuePageResult>;
 }
@@ -98,7 +99,7 @@ export function VideoQueueProvider({ children }: { children: ReactNode }) {
     setQueueState({
       videoIds: ids,
       currentIndex: idx >= 0 ? idx : 0,
-      autoplay: false,
+      autoplay: options?.autoplay ?? false,
       items: itemMap,
       startIndex: options?.startIndex ?? 0,
       totalCount: options?.totalCount ?? ids.length,
