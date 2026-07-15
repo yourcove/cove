@@ -26,6 +26,9 @@ vi.mock("../components/ListPage", () => ({
       data-display-mode={props.displayMode}
       data-profile-id={String(props.savedFilterUIOptions?.profileId ?? "")}
     >
+      <button type="button" onClick={() => props.onApplySavedFilterUIOptions?.({ profileId: 33 })}>
+        Apply test profile
+      </button>
       {props.renderOperations?.()}
     </div>
   ),
@@ -113,5 +116,51 @@ describe("SegmentsPage saved-filter modes", () => {
     expect(window.location.search).not.toContain("segmentsView=raw");
     expect(window.location.search).toContain("q=spans");
     expect(decodeURIComponent(window.location.search)).not.toContain("rawOnly");
+  });
+
+  it.each([
+    { mode: "Segments", filterMode: "segments", segmentsView: undefined },
+    { mode: "Raw segments", filterMode: "rawsegments", segmentsView: "raw" },
+  ])("does not reset filters when clicking the active $mode mode", async ({ mode, filterMode, segmentsView }) => {
+    localStorage.setItem(`cove-default-filter-${filterMode}`, JSON.stringify({
+      findFilter: { page: 1, perPage: 24, sort: "updated_at", direction: "desc", q: "saved-default" },
+      objectFilter: { savedDefault: true },
+      uiOptions: { displayMode: "grid", profileId: 11 },
+    }));
+    const params = new URLSearchParams({
+      q: "active-filter",
+      perPage: "40",
+      view: "list",
+      filters: JSON.stringify({ currentCriterion: true }),
+    });
+    if (segmentsView) params.set("segmentsView", segmentsView);
+    window.history.replaceState({}, "", `/segments?${params.toString()}`);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SegmentsPage onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const listPage = screen.getByTestId("list-page");
+    await waitFor(() => expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"q":"active-filter"')));
+    expect(listPage).toHaveAttribute("data-filter-mode", filterMode);
+    expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"perPage":40'));
+    expect(listPage).toHaveAttribute("data-object-filter", '{"currentCriterion":true}');
+    expect(listPage).toHaveAttribute("data-display-mode", "list");
+    await user.click(screen.getByRole("button", { name: "Apply test profile" }));
+    expect(listPage).toHaveAttribute("data-profile-id", "33");
+    const searchBeforeClick = window.location.search;
+
+    await user.click(screen.getByRole("button", { name: mode }));
+
+    expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"q":"active-filter"'));
+    expect(listPage).toHaveAttribute("data-filter", expect.stringContaining('"perPage":40'));
+    expect(listPage).toHaveAttribute("data-object-filter", '{"currentCriterion":true}');
+    expect(listPage).toHaveAttribute("data-display-mode", "list");
+    expect(listPage).toHaveAttribute("data-profile-id", "33");
+    expect(window.location.search).toBe(searchBeforeClick);
   });
 });
