@@ -652,6 +652,11 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         if (dto.CurrentPositionSec >= 0) session.LastPositionSec = dto.CurrentPositionSec;
 
         var isFinalState = state is PlaybackSessionState.Ended or PlaybackSessionState.Abandoned;
+        var reachedMediaEnd = state is PlaybackSessionState.Ended
+            && !dto.ClipStartSec.HasValue
+            && !dto.ClipEndSec.HasValue
+            && mediaDuration > 0d
+            && dto.CurrentPositionSec >= Math.Max(0d, mediaDuration - 0.05d);
         var wasCompleted = session.IsCompleted;
         var wasCountsAsView = session.CountsAsView;
         var clipDuration = dto.ClipStartSec.HasValue && dto.ClipEndSec.HasValue && dto.ClipEndSec.Value > dto.ClipStartSec.Value
@@ -708,7 +713,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 }
 
                 if ((hostType == InteractionHostType.Video || hostType == InteractionHostType.Audio) && dto.CurrentPositionSec >= 0)
-                    affinity.LastPositionSec = dto.CurrentPositionSec;
+                    affinity.LastPositionSec = reachedMediaEnd ? 0d : dto.CurrentPositionSec;
                 else if (hostType == InteractionHostType.Segment && dto.CurrentPositionSec >= 0)
                     affinity.LastPositionSec = Math.Max(0d, dto.CurrentPositionSec - (dto.ClipStartSec ?? 0d));
 

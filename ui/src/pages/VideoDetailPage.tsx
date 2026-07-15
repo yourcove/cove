@@ -51,6 +51,7 @@ import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailable } from "../
 import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
+import { normalizeStoredResumeTime } from "../utils/playbackResume";
 
 const GenerateDialog = lazy(() => import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })));
 const DetailMergeDialog = lazy(() => import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })));
@@ -234,9 +235,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const videoLikeCount = videoEngagement?.likeCount ?? 0;
   const videoDerivedLikeCount = videoEngagement?.derivedLikeCount ?? 0;
   const videoPageVisitCount = videoEngagement?.pageVisitCount ?? 0;
-  const effectiveVideoResumeTime = typeof videoResumeTime === "number" && Number.isFinite(videoResumeTime) && videoResumeTime > 0
-    ? videoResumeTime
-    : undefined;
+  const effectiveVideoResumeTime = normalizeStoredResumeTime(videoResumeTime, video?.files[0]?.duration);
   const effectiveResumeTime = initialSeekTo ?? effectiveVideoResumeTime;
 
   useEffect(() => {

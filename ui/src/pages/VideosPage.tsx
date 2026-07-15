@@ -153,6 +153,7 @@ export function VideosPage({ onNavigate }: Props) {
   const defaultFeedVideoSound = feedVideoSound && !isMobileViewer;
   const feedVideoStartPercent = config?.ui.feedVideoStartPercent ?? 0;
   const feedVideoStartMinDuration = config?.ui.feedVideoStartMinDuration ?? 0;
+  const continuePlaylistDefault = config?.ui.continuePlaylistDefault ?? false;
   const infiniteOnlyDisplayMode = displayMode === "feed" || displayMode === "vertical";
   const verticalItemHeight = verticalFullscreen
     ? (typeof window !== "undefined" ? window.innerHeight : 720)
@@ -518,6 +519,7 @@ export function VideosPage({ onNavigate }: Props) {
       let lastPage = firstPage;
       const count = totalCount ?? ids.length;
       setQueue(ids, videoId, queueItems, !infinitePageSize ? {
+        autoplay: continuePlaylistDefault,
         startIndex: (firstPage - 1) * pageSize,
         totalCount: count,
         loadPrevious: firstPage > 1 ? async () => {
@@ -532,10 +534,10 @@ export function VideosPage({ onNavigate }: Props) {
           lastPage = page;
           return { items: toQueueItems(response.items), hasMore: page * pageSize < response.totalCount };
         } : undefined,
-      } : undefined);
+      } : { autoplay: continuePlaylistDefault });
     }
     onNavigate({ page: "video", id: videoId });
-  }, [backendObjectFilter, filter, hasObjectFilter, infinitePageSize, items, onNavigate, setQueue, totalCount, visualSearchActive, visualSimilarity]);
+  }, [backendObjectFilter, continuePlaylistDefault, filter, hasObjectFilter, infinitePageSize, items, onNavigate, setQueue, totalCount, visualSearchActive, visualSimilarity]);
 
   const handlePlaySelected = useCallback(() => {
     const selectedVideos = items.filter((video) => selectedIds.has(video.id));
@@ -549,10 +551,10 @@ export function VideosPage({ onNavigate }: Props) {
       title: video.title || video.files[0]?.basename || `Video ${video.id}`,
       subtitle: video.studioName || video.date || undefined,
       imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-    })));
+    })), { autoplay: continuePlaylistDefault });
     selectNone();
     onNavigate({ page: "video", id: ids[0] });
-  }, [items, onNavigate, selectNone, selectedIds, setQueue]);
+  }, [continuePlaylistDefault, items, onNavigate, selectNone, selectedIds, setQueue]);
 
   const playRandomMutation = useMutation({
     mutationFn: async () => {
@@ -577,7 +579,7 @@ export function VideosPage({ onNavigate }: Props) {
         title: video.title || video.files[0]?.basename || `Video ${video.id}`,
         subtitle: video.studioName || video.date || undefined,
         imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-      }]);
+      }], { autoplay: continuePlaylistDefault });
       onNavigate({ page: "video", id: video.id });
     },
   });

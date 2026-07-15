@@ -4,6 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 import { VideoQueueProvider, useVideoQueue } from "../state/VideoQueueContext";
 
 describe("video queues", () => {
+  it("uses the configured autoplay default for a new queue", () => {
+    const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
+    const { result } = renderHook(() => useVideoQueue(), { wrapper });
+
+    act(() => result.current.setQueue([10, 20], 10, undefined, {
+      autoplay: true,
+    }));
+
+    expect(result.current.autoplay).toBe(true);
+  });
+
   it("loads the next page at the queue boundary", async () => {
     const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
     const { result } = renderHook(() => useVideoQueue(), { wrapper });

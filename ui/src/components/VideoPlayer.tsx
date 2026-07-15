@@ -214,6 +214,7 @@ export function VideoPlayer({
   const playTriggered = useRef(false);
   const sourceRestoreRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
   const lastLoadedSourceRef = useRef<string | null>(null);
+  const lastLoadedVideoIdRef = useRef<number | null>(null);
   const pendingAutostartRef = useRef(false);
   // Bounded in-place recovery from transient network stalls (MEDIA_ERR_NETWORK/ABORTED). Tracks how
   // many reloads we've attempted since playback last succeeded plus the pending backoff timer, so a
@@ -269,6 +270,7 @@ export function VideoPlayer({
     lastHideInteractionAt.current = 0;
     playTriggered.current = false;
     pendingAutostartRef.current = false;
+    setPlaying(false);
     autoTranscodeTriedRef.current = false;
     audioFallbackAppliedRef.current = false;
     if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
@@ -1042,7 +1044,9 @@ export function VideoPlayer({
     if (lastLoadedSourceRef.current === effectiveSourceSignature && sourceSrcMatches && sourceTypeMatches) {
       return;
     }
+    const isSameVideo = lastLoadedVideoIdRef.current === videoId;
     lastLoadedSourceRef.current = effectiveSourceSignature;
+    lastLoadedVideoIdRef.current = videoId;
 
     if (source) {
       source.setAttribute("src", effectiveStreamUrl);
@@ -1055,13 +1059,13 @@ export function VideoPlayer({
 
     const pendingRestore = sourceRestoreRef.current;
     sourceRestoreRef.current = null;
-    const shouldAutoplayAfterLoad = pendingRestore?.shouldPlay || pendingAutostartRef.current;
+    const shouldAutoplayAfterLoad = pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo);
 
     // Capture the current absolute playback position BEFORE video.load() resets the element. If a
     // source reload happens mid-playback (e.g. a transient src refresh) with no explicit restore /
     // clip / resume target, we restore to this position instead of letting the element seek to 0.
     // Only treat it as a real position when the video had already started playing.
-    const positionBeforeLoad = video.currentTime > 0.01
+    const positionBeforeLoad = isSameVideo && video.currentTime > 0.01
       ? (selectedQuality === "Direct" ? video.currentTime : transcodeStartSec + video.currentTime)
       : undefined;
 
@@ -1087,7 +1091,7 @@ export function VideoPlayer({
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [clip, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec]);
+  }, [autostart, clip, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
 
   // Release the media element's network connection when the player unmounts. Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
@@ -1267,6 +1271,10 @@ export function VideoPlayer({
             seekToAbsoluteTime(timelineStart, true);
             return;
           }
+          // A native ended event is authoritative even if the browser's final timeupdate landed a
+          // little before the media boundary. Report the configured end so completed playback clears
+          // its resume position instead of reopening at the last fraction of a second.
+          lastSeenTime.current = roundPlaybackTime(duration || toAbsoluteTime(videoRef.current?.currentTime ?? 0));
           setPlaying(false);
           flushInterval("ended");
           intervalStart.current = null;
