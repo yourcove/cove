@@ -388,9 +388,13 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     }
 
     const currentIndex = orderedSiblingSegments.findIndex((item) => item.id === segment.id);
-    const previous = currentIndex > 0 ? orderedSiblingSegments.slice(Math.max(0, currentIndex - 2), currentIndex) : [];
-    const next = currentIndex >= 0 ? orderedSiblingSegments.slice(currentIndex + 1, currentIndex + 3) : [];
     const currentEnd = segment.endSec ?? segment.startSec;
+    const previous = orderedSiblingSegments
+      .filter((item) => item.id !== segment.id && (item.endSec ?? item.startSec) <= segment.startSec)
+      .slice(-2);
+    const next = orderedSiblingSegments
+      .filter((item) => item.id !== segment.id && item.startSec >= currentEnd)
+      .slice(0, 2);
     const intersectsCurrent = (item: SegmentRecord) => {
       const itemEnd = item.endSec ?? item.startSec;
       return item.id !== segment.id && item.startSec < currentEnd && itemEnd > segment.startSec;
@@ -398,7 +402,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     const currentContextMatchKey = getSegmentContextMatchKey(segment);
     const nextSameReference = currentContextMatchKey == null
       ? undefined
-      : orderedSiblingSegments.find((item) => item.id !== segment.id && getSegmentContextMatchKey(item) === currentContextMatchKey && item.startSec >= segment.startSec);
+      : orderedSiblingSegments.find((item) => item.id !== segment.id && getSegmentContextMatchKey(item) === currentContextMatchKey && item.startSec >= currentEnd);
     const intersecting = orderedSiblingSegments.filter(intersectsCurrent).slice(0, 6);
 
     return {
@@ -1428,4 +1432,3 @@ function buildSegmentTagProvenance(segment: SegmentRecord): TagProvenance[] {
     totalDurationSec: getSegmentDuration(segment.startSec, segment.endSec),
   }];
 }
-
