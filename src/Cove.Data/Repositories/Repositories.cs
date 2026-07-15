@@ -451,6 +451,15 @@ public class PerformerRepository : IPerformerRepository
                     expandedStudios?.ValueGroups);
             }
 
+            if (filter.StudiosCriterion?.RequiredIds is { Count: > 0 })
+            {
+                foreach (var studioId in filter.StudiosCriterion.RequiredIds.Where(id => id > 0).Distinct())
+                {
+                    var requiredStudioId = studioId;
+                    query = query.Where(p => p.VideoPerformers.Any(sp => sp.Video != null && sp.Video.StudioId == requiredStudioId));
+                }
+            }
+
             // Date criteria
             query = FilterHelpers.ApplyDate(query, filter.BirthdateCriterion, p => p.Birthdate);
             query = FilterHelpers.ApplyDate(query, filter.DeathDateCriterion, p => p.DeathDate);
@@ -1364,6 +1373,12 @@ public class StudioRepository : IStudioRepository
                     _ when pIds.Count == 0 => query,
                     _ => query.Where(s => s.ParentId.HasValue && pIds.Contains(s.ParentId.Value)),
                 };
+
+                if (filter.ParentsCriterion.RequiredIds is { Count: > 0 })
+                {
+                    var requiredParentIds = filter.ParentsCriterion.RequiredIds.Where(id => id > 0).Distinct().ToArray();
+                    query = query.Where(s => s.ParentId.HasValue && requiredParentIds.Contains(s.ParentId.Value));
+                }
             }
 
             // Count criteria

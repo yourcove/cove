@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, galleries, groups, images, performers, videos, segmentLibrary, studios, tags, texts, entityImages } from "../api/client";
-import type { Audio, Gallery, Group, Image, Performer, Video, VideoFilterCriteria, SegmentRecord, Studio, TagDetail as TagDetailModel, TextDocument } from "../api/types";
+import type { Audio, AudioFilterCriteria, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, SegmentRecord, Studio, StudioFilterCriteria, TagDetail as TagDetailModel, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { Building2, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MoreVertical, Music, Pencil, Search, Tag as TagIcon, Trash2, UserRound } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TagEditModal } from "./TagEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
@@ -23,7 +23,7 @@ import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { TagMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
-import { VIDEO_CRITERIA } from "../components/FilterDialog";
+import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
@@ -37,6 +37,8 @@ import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
+import { createSegmentCriteria } from "./segments/segmentCriteriaDefinitions";
+import { readRawSegmentListFilter } from "./segments/rawSegmentFilter";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = [
@@ -473,18 +475,22 @@ function TagPerformersPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "performers", resetKey: "tag-performers", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "performers", resetKey: "tag-performers", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
+  const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Performer>({
-    queryKey: ["tag-performers", tagId, includeSubTags, filter],
+    queryKey: ["tag-performers", tagId, includeSubTags, objectFilter],
     filter,
-    queryFn: (nextFilter) => includeSubTags
-      ? performers.findFiltered({ findFilter: nextFilter, objectFilter: { tagsCriterion: { value: [tagId], modifier: "INCLUDES", depth: -1 } } })
+    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
+      ? performers.findFiltered({
+          findFilter: nextFilter,
+          objectFilter: withRequiredMultiId(objectFilter as PerformerFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+        })
       : performers.find(nextFilter, { tagIds: String(tagId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={PERFORMER_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={PERFORMER_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={PERFORMER_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="performers" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<UserRound className="h-10 w-10" />} message="Loading performers..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<UserRound className="h-12 w-12" />} message="No performers with this tag" /></>;
@@ -503,19 +509,23 @@ function TagImagesPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "tag-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "tag-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" } });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
+  const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
-    queryKey: ["tag-images", tagId, includeSubTags, filter],
+    queryKey: ["tag-images", tagId, includeSubTags, objectFilter],
     filter,
-    queryFn: (nextFilter) => includeSubTags
-      ? images.findFiltered({ findFilter: nextFilter, objectFilter: { tagsCriterion: { value: [tagId], modifier: "INCLUDES", depth: -1 } } })
+    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
+      ? images.findFiltered({
+          findFilter: nextFilter,
+          objectFilter: withRequiredMultiId(objectFilter as ImageFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+        })
       : images.find(nextFilter, { tagIds: String(tagId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images with this tag" /></>;
@@ -537,18 +547,22 @@ function TagGalleriesPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "tag-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "tag-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
+  const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
-    queryKey: ["tag-galleries", tagId, includeSubTags, filter],
+    queryKey: ["tag-galleries", tagId, includeSubTags, objectFilter],
     filter,
-    queryFn: (nextFilter) => includeSubTags
-      ? galleries.findFiltered({ findFilter: nextFilter, objectFilter: { tagsCriterion: { value: [tagId], modifier: "INCLUDES", depth: -1 } } })
+    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
+      ? galleries.findFiltered({
+          findFilter: nextFilter,
+          objectFilter: withRequiredMultiId(objectFilter as GalleryFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+        })
       : galleries.find(nextFilter, { tagIds: String(tagId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries with this tag" /></>;
@@ -567,21 +581,19 @@ function TagAudiosPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "tag-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "tag-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
-    queryKey: ["tag-audios", tagId, includeSubTags, filter],
+    queryKey: ["tag-audios", tagId, includeSubTags, objectFilter],
     filter,
     queryFn: (nextFilter) => audios.findFiltered({
       findFilter: nextFilter,
-      objectFilter: {
-        tagsCriterion: { value: [tagId], modifier: "INCLUDES", ...(includeSubTags ? { depth: -1 } : {}) },
-      },
+      objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
     }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios with this tag" /></>;
@@ -600,21 +612,19 @@ function TagTextsPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "tag-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "tag-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" } });
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
-    queryKey: ["tag-texts", tagId, includeSubTags, filter],
+    queryKey: ["tag-texts", tagId, includeSubTags, objectFilter],
     filter,
     queryFn: (nextFilter) => texts.findFiltered({
       findFilter: nextFilter,
-      objectFilter: {
-        tagsCriterion: { value: [tagId], modifier: "INCLUDES", ...(includeSubTags ? { depth: -1 } : {}) },
-      },
+      objectFilter: withRequiredMultiId(objectFilter as TextFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
     }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts with this tag" /></>;
@@ -631,14 +641,67 @@ function TagSegmentsPanel({ tagId, includeSubTags, onNavigate }: { tagId: number
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const canEditSegments = hasPermission("segments.write");
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "segments", resetKey: "tag-segments", entityType: "segments", builtInFilter: { page: 1, perPage: 24, direction: "desc", sort: "updated_at" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "segments", resetKey: "tag-segments", entityType: "segments", builtInFilter: { page: 1, perPage: 24, direction: "desc", sort: "updated_at" } });
+  const rawFilter = useMemo(() => readRawSegmentListFilter(objectFilter), [objectFilter]);
+  const sourceOptionsQuery = useQuery({
+    queryKey: ["segments-page", "filter", "source-keys"],
+    queryFn: () => segmentLibrary.distinctSourceKeys(),
+    staleTime: 60_000,
+  });
+  const kindOptionsQuery = useQuery({
+    queryKey: ["segments-page", "filter", "kinds"],
+    queryFn: () => segmentLibrary.distinctKinds(),
+    staleTime: 60_000,
+  });
+  const segmentCriteria = useMemo(() => createSegmentCriteria({
+    sourceOptions: (sourceOptionsQuery.data ?? []).map((option) => ({ value: option.value, label: `${option.value} (${option.count})` })),
+    kindOptions: (kindOptionsQuery.data ?? []).map((option) => ({ value: option.value, label: `${option.value} (${option.count})` })),
+  }), [kindOptionsQuery.data, sourceOptionsQuery.data]);
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<SegmentRecord>({
-    queryKey: ["tag-segments", tagId, includeSubTags, filter],
+    queryKey: ["tag-segments", tagId, includeSubTags, objectFilter],
     filter,
     queryFn: (nextFilter) => segmentLibrary.list({
       q: nextFilter.q,
       tagId,
       tagDepth: includeSubTags ? -1 : undefined,
+      videoIds: rawFilter.videoIds.length > 0 ? rawFilter.videoIds.join(",") : undefined,
+      excludeVideoIds: rawFilter.excludeVideoIds.length > 0 ? rawFilter.excludeVideoIds.join(",") : undefined,
+      videoTitle: rawFilter.videoTitle,
+      tagIds: rawFilter.tagIds.length > 0 ? rawFilter.tagIds.join(",") : undefined,
+      performerIds: rawFilter.performerIds.length > 0 ? rawFilter.performerIds.join(",") : undefined,
+      refIds: rawFilter.faceIds.length > 0 ? rawFilter.faceIds.join(",") : undefined,
+      kind: rawFilter.kind,
+      sourceKey: rawFilter.sourceKey,
+      sourceCategory: rawFilter.sourceCategory,
+      title: rawFilter.titleCriterion?.value,
+      titleModifier: rawFilter.titleCriterion?.modifier,
+      hostType: rawFilter.hostType,
+      sourceRunId: rawFilter.sourceRunCriterion?.value,
+      sourceRunIdModifier: rawFilter.sourceRunCriterion?.modifier,
+      colorHint: rawFilter.colorHintCriterion?.value,
+      colorHintModifier: rawFilter.colorHintCriterion?.modifier,
+      hasImage: rawFilter.hasImage,
+      hasPayload: rawFilter.hasPayload,
+      startSec: rawFilter.startSecCriterion?.value,
+      startSec2: rawFilter.startSecCriterion?.value2,
+      startSecModifier: rawFilter.startSecCriterion?.modifier,
+      endSec: rawFilter.endSecCriterion?.value,
+      endSec2: rawFilter.endSecCriterion?.value2,
+      endSecModifier: rawFilter.endSecCriterion?.modifier,
+      createdAt: rawFilter.createdAtCriterion?.value,
+      createdAt2: rawFilter.createdAtCriterion?.value2,
+      createdAtModifier: rawFilter.createdAtCriterion?.modifier,
+      updatedAt: rawFilter.updatedAtCriterion?.value,
+      updatedAt2: rawFilter.updatedAtCriterion?.value2,
+      updatedAtModifier: rawFilter.updatedAtCriterion?.modifier,
+      confidence: rawFilter.confidenceCriterion?.value,
+      confidence2: rawFilter.confidenceCriterion?.value2,
+      confidenceModifier: rawFilter.confidenceCriterion?.modifier,
+      durationSec: rawFilter.durationCriterion?.value,
+      durationSec2: rawFilter.durationCriterion?.value2,
+      durationModifier: rawFilter.durationCriterion?.modifier,
+      minConfidence: rawFilter.minConfidence,
+      minDurationSec: rawFilter.minDurationSec,
       sort: nextFilter.sort,
       direction: nextFilter.direction as "asc" | "desc" | undefined,
       page: nextFilter.page,
@@ -646,7 +709,7 @@ function TagSegmentsPanel({ tagId, includeSubTags, onNavigate }: { tagId: number
     }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
   const removeTagMut = useMutation({
     mutationFn: () => segmentLibrary.removeTag({ tagId, ids: [...selectedIds] }),
@@ -662,7 +725,7 @@ function TagSegmentsPanel({ tagId, includeSubTags, onNavigate }: { tagId: number
       {removeTagMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
       Remove from Tag
     </button>
-  ) : undefined} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  ) : undefined} criteriaDefinitions={segmentCriteria} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="rawsegments" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading segments..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No segments with this tag" /></>;
@@ -681,18 +744,22 @@ function TagStudiosPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "studios", resetKey: "tag-studios", entityType: "studios", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "studios", resetKey: "tag-studios", entityType: "studios", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
+  const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Studio>({
-    queryKey: ["tag-studios", tagId, includeSubTags, filter],
+    queryKey: ["tag-studios", tagId, includeSubTags, objectFilter],
     filter,
-    queryFn: (nextFilter) => includeSubTags
-      ? studios.findFiltered({ findFilter: nextFilter, objectFilter: { tagsCriterion: { value: [tagId], modifier: "INCLUDES", depth: -1 } } })
+    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
+      ? studios.findFiltered({
+          findFilter: nextFilter,
+          objectFilter: withRequiredMultiId(objectFilter as StudioFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+        })
       : studios.find(nextFilter, { tagIds: String(tagId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={STUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="studios" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={STUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="studios" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={STUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="studios" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<Building2 className="h-10 w-10" />} message="Loading studios..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Building2 className="h-12 w-12" />} message="No studios with this tag" /></>;
@@ -711,18 +778,22 @@ function TagGroupsPanel({ tagId, includeSubTags, onNavigate }: {
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "tag-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "tag-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
+  const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
-    queryKey: ["tag-groups", tagId, includeSubTags, filter],
+    queryKey: ["tag-groups", tagId, includeSubTags, objectFilter],
     filter,
-    queryFn: (nextFilter) => includeSubTags
-      ? groups.findFiltered({ findFilter: nextFilter, objectFilter: { tagsCriterion: { value: [tagId], modifier: "INCLUDES", depth: -1 } } })
+    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
+      ? groups.findFiltered({
+          findFilter: nextFilter,
+          objectFilter: withRequiredMultiId(objectFilter as GroupFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+        })
       : groups.find(nextFilter, { tagIds: String(tagId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "tag", id: tagId }} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "tag", id: tagId }} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />;
   if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups with this tag" /></>;

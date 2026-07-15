@@ -322,10 +322,9 @@ public static class FilterHelpers
             var nullBody = studioIdSelector.Body;
             var hasStudioValue = Expression.Property(nullBody, "HasValue");
             Expression nullPredicate = criterion.Modifier == CriterionModifier.IsNull ? Expression.Not(hasStudioValue) : hasStudioValue;
-            return query.Where(Expression.Lambda<Func<T, bool>>(nullPredicate, nullParam));
+            query = query.Where(Expression.Lambda<Func<T, bool>>(nullPredicate, nullParam));
         }
-
-        if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0)))
+        else if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0) && (criterion.RequiredIds == null || criterion.RequiredIds.Count == 0)))
         {
             return query;
         }
@@ -363,6 +362,14 @@ public static class FilterHelpers
             var excludedContains = Expression.Call(null, containsMethod, excludedConst, value);
             var excludesPredicate = Expression.OrElse(Expression.Not(hasValue), Expression.Not(excludedContains));
             predicate = predicate == null ? excludesPredicate : Expression.AndAlso(predicate, excludesPredicate);
+        }
+
+        if (criterion.RequiredIds is { Count: > 0 })
+        {
+            var requiredConst = Expression.Constant(criterion.RequiredIds.Where(id => id > 0).Distinct().ToArray());
+            var requiredContains = Expression.Call(null, containsMethod, requiredConst, value);
+            var requiredPredicate = Expression.AndAlso(hasValue, requiredContains);
+            predicate = predicate == null ? requiredPredicate : Expression.AndAlso(predicate, requiredPredicate);
         }
 
         if (predicate == null)

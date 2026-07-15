@@ -130,7 +130,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         }
         if (tagId.HasValue)
             query = query.Where(item => item.Segment.TagId == tagId.Value);
-        else if (parsedTagIds.Count > 0)
+        if (parsedTagIds.Count > 0)
             query = query.Where(item => item.Segment.TagId.HasValue && parsedTagIds.Contains(item.Segment.TagId.Value));
 
         if (!string.IsNullOrWhiteSpace(kind))

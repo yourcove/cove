@@ -213,6 +213,12 @@ public class VideoRepository : IVideoRepository
                     _ when ids.Count == 0 => query,
                     _ => query.Where(s => s.StudioId.HasValue && ids.Contains(s.StudioId.Value)),
                 };
+
+                if (filter.StudiosCriterion.RequiredIds is { Count: > 0 })
+                {
+                    var requiredStudioIds = filter.StudiosCriterion.RequiredIds.Where(id => id > 0).Distinct().ToArray();
+                    query = query.Where(s => s.StudioId.HasValue && requiredStudioIds.Contains(s.StudioId.Value));
+                }
             }
 
             query = ApplyMultiIdCriterion(query, filter.GroupsCriterion, s => s.GroupItems.Select(item => item.GroupId));
@@ -806,23 +812,28 @@ public class VideoRepository : IVideoRepository
         var effectiveTags = EffectiveHostTagQuery.ForHostType(_db, AffinityHostType.Video);
 
         if (criterion.Modifier == CriterionModifier.IsNull)
-            return query.Where(video => !effectiveTags.Any(tag => tag.HostId == video.Id));
-
-        if (criterion.Modifier == CriterionModifier.NotNull)
-            return query.Where(video => effectiveTags.Any(tag => tag.HostId == video.Id));
-
-        var groups = valueGroups?.Where(group => group.Length > 0).ToArray()
-            ?? criterion.Value.Where(tagId => tagId > 0).Select(tagId => new[] { tagId }).ToArray();
-        if (groups.Length > 0)
         {
-            var ids = groups.SelectMany(group => group).Distinct().ToArray();
-            query = criterion.Modifier switch
+            query = query.Where(video => !effectiveTags.Any(tag => tag.HostId == video.Id));
+        }
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+        {
+            query = query.Where(video => effectiveTags.Any(tag => tag.HostId == video.Id));
+        }
+        else
+        {
+            var groups = valueGroups?.Where(group => group.Length > 0).ToArray()
+                ?? criterion.Value.Where(tagId => tagId > 0).Select(tagId => new[] { tagId }).ToArray();
+            if (groups.Length > 0)
             {
-                CriterionModifier.Excludes => ApplyVideoTagNone(query, ids),
-                CriterionModifier.ExcludesAll => ApplyVideoTagExcludesAll(query, groups),
-                CriterionModifier.IncludesAll => ApplyVideoTagIncludesAll(query, groups),
-                _ => ApplyVideoTagAny(query, ids),
-            };
+                var ids = groups.SelectMany(group => group).Distinct().ToArray();
+                query = criterion.Modifier switch
+                {
+                    CriterionModifier.Excludes => ApplyVideoTagNone(query, ids),
+                    CriterionModifier.ExcludesAll => ApplyVideoTagExcludesAll(query, groups),
+                    CriterionModifier.IncludesAll => ApplyVideoTagIncludesAll(query, groups),
+                    _ => ApplyVideoTagAny(query, ids),
+                };
+            }
         }
 
         // Excluded tags arrive in a separate list (the filter UI emits `excludes` alongside an Includes
@@ -831,6 +842,9 @@ public class VideoRepository : IVideoRepository
         // include/exclude split used by ApplyPerformerOccurrenceTagCriterion and the shared MultiId helper.
         if (criterion.Excludes is { Count: > 0 })
             query = ApplyVideoTagNone(query, criterion.Excludes);
+
+        if (criterion.RequiredIds is { Count: > 0 })
+            query = ApplyVideoTagIncludesAll(query, criterion.RequiredIds.Select(tagId => new[] { tagId }).ToArray());
 
         return query;
     }

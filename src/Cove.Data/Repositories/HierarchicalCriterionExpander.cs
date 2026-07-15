@@ -61,6 +61,7 @@ public static class HierarchicalCriterionExpander
                 Value = valueGroups.SelectMany(group => group).Distinct().ToList(),
                 Modifier = criterion.Modifier,
                 Excludes = excludes is { Count: > 0 } ? excludes : null,
+                RequiredIds = criterion.RequiredIds,
                 Depth = criterion.Depth,
             },
             valueGroups);

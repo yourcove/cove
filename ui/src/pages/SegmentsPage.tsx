@@ -89,6 +89,12 @@ const RAW_SEGMENT_SORT_OPTIONS = [
   { value: "ref", label: "Face/Reference" },
 ];
 
+const DEFAULT_SEGMENT_FILTER: FindFilter = { page: 1, perPage: 24, sort: "updated_at", direction: "desc" };
+
+function segmentFilterMode(view: SegmentsPageContentView) {
+  return view === "raw" ? "rawsegments" : "segments";
+}
+
 function dedupeSegmentDisplayProfiles(profiles: SegmentDisplayProfile[]): SegmentDisplayProfile[] {
   const byName = new Map<string, SegmentDisplayProfile>();
   for (const profile of profiles) {
@@ -127,12 +133,18 @@ async function fetchAllSegmentPages<TItem>(queryPage: (page: number, perPage: nu
 
 export function SegmentsPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
-  const defaultState = useMemo(() => ({
-    filter: getDefaultFilter("segments")?.findFilter ?? { page: 1, perPage: 24, sort: "updated_at", direction: "desc" } as FindFilter,
-    objectFilter: getDefaultFilter("segments")?.objectFilter ?? {},
-    displayMode: "grid" as DisplayMode,
-  }), []);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({
+  const initialContentView = useMemo(() => readSegmentsPageContentView(), []);
+  const defaultState = useMemo(() => {
+    const saved = getDefaultFilter(segmentFilterMode(initialContentView));
+    const savedDisplayMode = saved?.uiOptions?.displayMode;
+    return {
+      filter: saved?.findFilter ?? DEFAULT_SEGMENT_FILTER,
+      objectFilter: saved?.objectFilter ?? {},
+      displayMode: savedDisplayMode === "list" ? "list" as DisplayMode : "grid" as DisplayMode,
+      profileId: typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined,
+    };
+  }, [initialContentView]);
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, replaceState } = useListUrlState({
     resetKey: "segments",
     defaultFilter: defaultState.filter,
     defaultObjectFilter: defaultState.objectFilter,
@@ -146,8 +158,8 @@ export function SegmentsPage({ onNavigate }: Props) {
   const canDeleteSegments = canDeleteEntity("segment", hasPermission);
   const [showAddToGroup, setShowAddToGroup] = useState(false);
   const [confirmRawDelete, setConfirmRawDelete] = useState(false);
-  const [activeProfileId, setActiveProfileId] = useState<number>();
-  const [contentView, setContentView] = useState<SegmentsPageContentView>(() => readSegmentsPageContentView());
+  const [activeProfileId, setActiveProfileId] = useState<number | undefined>(defaultState.profileId);
+  const [contentView, setContentView] = useState<SegmentsPageContentView>(initialContentView);
   const [rawSegmentIds, setRawSegmentIds] = useState<number[]>(() => readRawSegmentIdsFromUrl());
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const [selectedMatchingItems, setSelectedMatchingItems] = useState<{ view: SegmentsPageContentView; spans: DerivedSpanItem[]; raw: RawSegmentItem[] } | null>(null);
@@ -269,12 +281,16 @@ export function SegmentsPage({ onNavigate }: Props) {
   }, []);
 
   const switchContentView = useCallback((nextView: SegmentsPageContentView, nextRawSegmentIds?: number[]) => {
-    setFilter({
-      ...filter,
-      page: 1,
+    const saved = getDefaultFilter(segmentFilterMode(nextView));
+    const savedDisplayMode = saved?.uiOptions?.displayMode;
+    replaceState({
+      filter: { ...(saved?.findFilter ?? DEFAULT_SEGMENT_FILTER), page: 1 },
+      objectFilter: saved?.objectFilter ?? {},
+      displayMode: savedDisplayMode === "list" ? "list" : "grid",
     });
+    setActiveProfileId(typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined);
     updateContentView(nextView, nextRawSegmentIds);
-  }, [filter, setFilter, updateContentView]);
+  }, [replaceState, updateContentView]);
 
   const profilesQuery = useQuery({
     queryKey: ["segment-display-profiles"],
@@ -689,6 +705,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       <ListPage
         title="Segments"
         pageKey="segments"
+        filterMode={segmentFilterMode(contentView)}
         filter={filter}
         onFilterChange={setFilter}
         totalCount={totalCount}
@@ -712,6 +729,10 @@ export function SegmentsPage({ onNavigate }: Props) {
         criteriaDefinitions={segmentCriteria}
         objectFilter={objectFilter}
         onObjectFilterChange={setObjectFilter}
+        savedFilterUIOptions={{ profileId: activeProfileId }}
+        onApplySavedFilterUIOptions={(options) => {
+          setActiveProfileId(typeof options.profileId === "number" ? options.profileId : undefined);
+        }}
         customFilterSections={customFilterSections}
         metadataByline={null}
         renderOperations={() => (
@@ -819,4 +840,3 @@ export function SegmentsPage({ onNavigate }: Props) {
     </>
   );
 }
-

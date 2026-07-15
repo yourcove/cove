@@ -29,7 +29,9 @@ public enum FilterMode
     // must go at the end to keep existing rows' modes stable.
     Audios,
     Faces,
-    Texts
+    Texts,
+    Segments,
+    RawSegments
 }
 
 public enum SortDirection
@@ -37,4 +39,3 @@ public enum SortDirection
     Asc,
     Desc
 }
-

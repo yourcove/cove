@@ -13,21 +13,27 @@ internal static class MultiIdCriterionQueryHelper
     {
         if (criterion?.Modifier == CriterionModifier.IsNull || criterion?.Modifier == CriterionModifier.NotNull)
         {
-            return ApplyNullPresence(query, criterion.Modifier, idsSelector);
+            query = ApplyNullPresence(query, criterion.Modifier, idsSelector);
         }
-
-        if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0)))
+        else if (criterion == null || (criterion.Value.Count == 0 && (criterion.Excludes == null || criterion.Excludes.Count == 0) && (criterion.RequiredIds == null || criterion.RequiredIds.Count == 0)))
         {
             return query;
         }
-
-        query = valueGroups is { Count: > 0 } && criterion.Value.Count > 0 && criterion.Modifier is CriterionModifier.IncludesAll or CriterionModifier.ExcludesAll
-            ? ApplyGroupedValues(query, criterion, valueGroups, idsSelector)
-            : ApplyFlatValues(query, criterion, idsSelector);
+        else
+        {
+            query = valueGroups is { Count: > 0 } && criterion.Value.Count > 0 && criterion.Modifier is CriterionModifier.IncludesAll or CriterionModifier.ExcludesAll
+                ? ApplyGroupedValues(query, criterion, valueGroups, idsSelector)
+                : ApplyFlatValues(query, criterion, idsSelector);
+        }
 
         if (criterion.Excludes?.Count > 0)
         {
             query = ApplyExcludedIds(query, criterion.Excludes, idsSelector);
+        }
+
+        if (criterion.RequiredIds?.Count > 0)
+        {
+            query = ApplyRequiredIds(query, criterion.RequiredIds, idsSelector);
         }
 
         return query;
@@ -149,6 +155,21 @@ internal static class MultiIdCriterionQueryHelper
 
         var body = Expression.Not(anyExcludedInEntity);
         return query.Where(Expression.Lambda<Func<TEntity, bool>>(body, entityParam));
+    }
+
+    private static IQueryable<TEntity> ApplyRequiredIds<TEntity>(
+        IQueryable<TEntity> query,
+        IReadOnlyCollection<int> requiredIds,
+        Expression<Func<TEntity, IEnumerable<int>>> idsSelector)
+    {
+        var selectedIds = requiredIds.Where(id => id > 0).Distinct().ToArray();
+        if (selectedIds.Length == 0)
+        {
+            return query;
+        }
+
+        var body = BuildAllEntityIdsPresent(idsSelector.Body, selectedIds);
+        return query.Where(Expression.Lambda<Func<TEntity, bool>>(body, idsSelector.Parameters[0]));
     }
 
     private static Expression BuildAnyEntityIdEquals(Expression entityIds, IReadOnlyCollection<int> selectedIds)

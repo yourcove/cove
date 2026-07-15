@@ -798,27 +798,37 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
         var effectiveTags = EffectiveHostTagQuery.ForHostType(db, AffinityHostType.Audio);
         if (criterion.Modifier == CriterionModifier.IsNull)
-            return query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id));
-        if (criterion.Modifier == CriterionModifier.NotNull)
-            return query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id));
-
-        var ids = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
-        if (ids.Length > 0)
         {
-            query = criterion.Modifier switch
+            query = query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id));
+        }
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+        {
+            query = query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id));
+        }
+        else
+        {
+            var ids = criterion.Value.Where(tagId => tagId > 0).Distinct().ToArray();
+            if (ids.Length > 0)
             {
-                CriterionModifier.Excludes => query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
-                CriterionModifier.ExcludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: true),
-                CriterionModifier.IncludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: false),
-                CriterionModifier.ExcludesAll => ApplyAudioTagExcludesAll(query, effectiveTags, ids),
-                CriterionModifier.IncludesAll => ApplyAudioTagIncludesAll(query, effectiveTags, ids),
-                _ => query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
-            };
+                query = criterion.Modifier switch
+                {
+                    CriterionModifier.Excludes => query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
+                    CriterionModifier.ExcludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: true),
+                    CriterionModifier.IncludesAll when valueGroups is { Count: > 0 } => ApplyAudioTagGrouped(query, effectiveTags, valueGroups, excludeAll: false),
+                    CriterionModifier.ExcludesAll => ApplyAudioTagExcludesAll(query, effectiveTags, ids),
+                    CriterionModifier.IncludesAll => ApplyAudioTagIncludesAll(query, effectiveTags, ids),
+                    _ => query.Where(audio => effectiveTags.Any(tag => tag.HostId == audio.Id && ids.Contains(tag.TagId))),
+                };
+            }
         }
 
         var excludedIds = criterion.Excludes?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
         if (excludedIds.Length > 0)
             query = query.Where(audio => !effectiveTags.Any(tag => tag.HostId == audio.Id && excludedIds.Contains(tag.TagId)));
+
+        var requiredIds = criterion.RequiredIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
+        if (requiredIds.Length > 0)
+            query = ApplyAudioTagIncludesAll(query, effectiveTags, requiredIds);
 
         return query;
     }

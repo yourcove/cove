@@ -53,6 +53,8 @@ interface ListPageProps {
   onNew?: () => void;
   renderOperations?: () => ReactNode;
   filterMode?: string;
+  savedFilterUIOptions?: Record<string, unknown>;
+  onApplySavedFilterUIOptions?: (options: Record<string, unknown>) => void;
   searchMode?: string;
   searchModes?: { value: string; label: string; title?: string }[];
   searchPlaceholder?: string;
@@ -709,6 +711,8 @@ export function ListPage({
   onNew,
   renderOperations,
   filterMode,
+  savedFilterUIOptions,
+  onApplySavedFilterUIOptions,
   searchMode,
   searchModes,
   searchPlaceholder,
@@ -1149,12 +1153,13 @@ export function ListPage({
             mode={filterMode}
             currentFilter={filter}
             currentObjectFilter={objectFilter}
-            currentUIOptions={{ displayMode }}
+            currentUIOptions={{ displayMode, ...savedFilterUIOptions }}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, nextFilter))}
             onApplyObjectFilter={onObjectFilterChange}
             onApplyUIOptions={(options) => {
               const mode = typeof options.displayMode === "string" ? options.displayMode : undefined;
               if (mode && onDisplayModeChange) onDisplayModeChange(mode as DisplayMode);
+              onApplySavedFilterUIOptions?.(options);
             }}
           />
         )}

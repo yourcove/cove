@@ -28,6 +28,19 @@ public class SavedFilterPerUserTests
         Assert.Equal(7, repo.Items.Single(f => f.Id == created.Id).UserId);
     }
 
+    [Theory]
+    [InlineData("segments", FilterMode.Segments)]
+    [InlineData("rawsegments", FilterMode.RawSegments)]
+    public async Task Create_accepts_distinct_segment_modes(string mode, FilterMode expected)
+    {
+        var repo = new FakeSavedFilterRepo();
+
+        var result = await ControllerFor(7, repo).Create(new SavedFilterCreateDto(mode, "segment filter", null, null, null), default);
+
+        Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
+        Assert.Equal(expected, repo.Items.Single().Mode);
+    }
+
     [Fact]
     public async Task GetAll_only_returns_the_current_users_filters()
     {

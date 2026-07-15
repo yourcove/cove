@@ -268,6 +268,21 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
     setState((current) => ({ ...current, searchMode }));
   }, []);
 
+  const replaceState = useCallback((nextState: Omit<ListUrlState<TDisplayMode>, "searchMode"> & { searchMode?: string }) => {
+    const normalizedState: ListUrlState<TDisplayMode> = {
+      ...nextState,
+      searchMode: nextState.searchMode ?? options.defaultSearchMode ?? DEFAULT_SEARCH_MODE,
+    };
+    setState(normalizedState);
+
+    // Write the complete state before emitting a location change. Consumers that also update
+    // page-specific URL parameters can then navigate without the URL listener restoring stale
+    // list state from the previous mode.
+    const params = new URLSearchParams(window.location.search);
+    writeStateToParams(params, normalizedState, options);
+    navigateToUrl(buildCurrentUrl(window.location.pathname, params), { replace: true });
+  }, [options]);
+
   return {
     filter: state.filter,
     objectFilter: state.objectFilter,
@@ -277,6 +292,7 @@ export function useListUrlState<TDisplayMode extends string>(options: UseListUrl
     setObjectFilter,
     setDisplayMode,
     setSearchMode,
+    replaceState,
     reset,
   };
 }
