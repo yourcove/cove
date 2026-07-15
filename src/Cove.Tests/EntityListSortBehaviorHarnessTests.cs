@@ -811,6 +811,7 @@ public class EntityListSortBehaviorHarnessTests
     private static IReadOnlyList<int> ProjectSegmentIds(SortHarnessFixture fixture, string sortKey, bool descending)
         => sortKey switch
         {
+            "random" => OrderSeededRandom(fixture.SegmentRows, row => row.Segment.Id, descending),
             "updated_at" => OrderWithDirectionalIdTieBreaker(fixture.SegmentRows, row => row.Segment.UpdatedAt, descending),
             "created_at" => OrderWithDirectionalIdTieBreaker(fixture.SegmentRows, row => row.Segment.CreatedAt, descending),
             "start_sec" => OrderWithDirectionalIdTieBreaker(fixture.SegmentRows, row => row.Segment.StartSec, descending),
@@ -826,6 +827,17 @@ public class EntityListSortBehaviorHarnessTests
             "ref" => OrderWithDirectionalIdTieBreaker(fixture.SegmentRows, row => row.RefLabel ?? row.PerformerName ?? string.Empty, descending),
             _ => throw new InvalidOperationException($"No segment sort projection configured for '{sortKey}'."),
         };
+
+    private static IReadOnlyList<int> OrderSeededRandom<T>(IEnumerable<T> items, Func<T, int> idSelector, bool descending)
+    {
+        static long Primary(int id) => (id * 17L + 31L) % 13L;
+        static long Secondary(int id) => (id * 101L + 131L) % 97L;
+        static long Tertiary(int id) => (id * 1103515245L + 12345L) % 2147483647L;
+
+        return descending
+            ? items.OrderByDescending(item => Primary(idSelector(item))).ThenByDescending(item => Secondary(idSelector(item))).ThenByDescending(item => Tertiary(idSelector(item))).ThenByDescending(idSelector).Select(idSelector).ToArray()
+            : items.OrderBy(item => Primary(idSelector(item))).ThenBy(item => Secondary(idSelector(item))).ThenBy(item => Tertiary(idSelector(item))).ThenBy(idSelector).Select(idSelector).ToArray();
+    }
 
     private static IReadOnlyList<int> ProjectPerformerIds(SortHarnessFixture fixture, string sortKey, bool descending)
         => sortKey switch

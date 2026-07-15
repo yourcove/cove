@@ -34,6 +34,7 @@ describe("buildRawSegmentListOptions", () => {
       videoTitle: "video",
       sort: "updated_at",
       direction: "asc",
+      seed: 2468,
       includeVideoIds: [10, 11],
       excludeVideoIds: [12],
       rawSegmentIds: [100, 101],
@@ -78,6 +79,7 @@ describe("buildRawSegmentListOptions", () => {
       durationModifier: "BETWEEN",
       sort: "updated_at",
       direction: "asc",
+      seed: 2468,
       page: 2,
       perPage: 24,
     });

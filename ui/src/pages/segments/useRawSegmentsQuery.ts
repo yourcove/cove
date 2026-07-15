@@ -10,6 +10,7 @@ interface UseRawSegmentsQueryOptions {
   videoTitle: string;
   sort: string;
   direction: "asc" | "desc";
+  seed?: number;
   includeVideoIds: number[];
   excludeVideoIds: number[];
   rawSegmentIds: number[];
@@ -26,6 +27,7 @@ export function buildRawSegmentListOptions({
   videoTitle,
   sort,
   direction,
+  seed,
   includeVideoIds,
   excludeVideoIds,
   rawSegmentIds,
@@ -74,6 +76,7 @@ export function buildRawSegmentListOptions({
     durationModifier: rawFilter.durationCriterion?.modifier,
     sort,
     direction,
+    seed,
     page: pageNumber,
     perPage,
   };
@@ -86,6 +89,7 @@ export function useRawSegmentsQuery({
   videoTitle,
   sort,
   direction,
+  seed,
   includeVideoIds,
   excludeVideoIds,
   rawSegmentIds,
@@ -102,6 +106,7 @@ export function useRawSegmentsQuery({
       videoTitle,
       sort,
       direction,
+      seed,
       includeVideoIds.join(","),
       excludeVideoIds.join(","),
       rawSegmentIds.join(","),
@@ -115,6 +120,7 @@ export function useRawSegmentsQuery({
         videoTitle,
         sort,
         direction,
+        seed,
         includeVideoIds,
         excludeVideoIds,
         rawSegmentIds,

@@ -43,6 +43,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromQuery] string? durationModifier,
         [FromQuery] string? sort,
         [FromQuery] string? direction,
+        [FromQuery] int? seed = null,
         [FromQuery] string? excludeVideoIds = null,
         [FromQuery] string? title = null,
         [FromQuery] string? titleModifier = null,
@@ -236,7 +237,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
-        var orderedQuery = ApplyOrdering(query, sortKey, descending);
+        var orderedQuery = ApplyOrdering(query, sortKey, descending, seed);
         var items = await orderedQuery
             .Skip((page - 1) * perPage)
             .Take(perPage)
@@ -578,10 +579,11 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             .ToList();
     }
 
-    private static IOrderedQueryable<SegmentLibraryRow> ApplyOrdering(IQueryable<SegmentLibraryRow> query, string sort, bool descending)
+    private static IOrderedQueryable<SegmentLibraryRow> ApplyOrdering(IQueryable<SegmentLibraryRow> query, string sort, bool descending, int? seed)
     {
         return sort switch
         {
+            "random" => (IOrderedQueryable<SegmentLibraryRow>)SeededRandomOrdering.OrderBy(query, seed, item => item.Segment.Id, descending),
             "created_at" => OrderBy(query, item => item.Segment.CreatedAt, descending),
             "start_sec" => OrderBy(query, item => item.Segment.StartSec, descending),
             "end_sec" => OrderBy(query, item => item.Segment.EndSec ?? item.Segment.StartSec, descending),
@@ -686,7 +688,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var (allItems, segmentRows) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
 
         if (IsSpanLevelSort(sort))
-            allItems = ApplySpanOrdering(allItems, sort, descending, segmentRows).ToList();
+            allItems = ApplySpanOrdering(allItems, sort, descending, segmentRows, request.Seed).ToList();
 
         var totalCount = allItems.Count;
         var finalOffset = (page - 1) * perPage;
@@ -872,16 +874,18 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         => (sort ?? string.Empty).Trim().ToLowerInvariant() is "segment_confidence" or "confidence" or "segment_count" or "segment_created_at" or "segment_updated_at" or "source_run_id" or "segment_source_run_id" or "performer" or "segment_performer" or "ref" or "segment_ref" or "host_type" or "host_id";
 
     private static bool IsSpanLevelSort(string sort)
-        => sort is "start_sec" or "span_start" or "end_sec" or "span_end" or "duration" or "span_duration" or "kind" or "segment_kind" or "source_key" or "segment_source_key" or "tag_name" or "segment_tag_name" or "segment_count" or "segment_confidence" or "confidence" or "segment_created_at" or "segment_updated_at" or "source_run_id" or "segment_source_run_id" or "performer" or "segment_performer" or "ref" or "segment_ref" or "host_title" or "host_type" or "host_id";
+        => sort is "random" or "start_sec" or "span_start" or "end_sec" or "span_end" or "duration" or "span_duration" or "kind" or "segment_kind" or "source_key" or "segment_source_key" or "tag_name" or "segment_tag_name" or "segment_count" or "segment_confidence" or "confidence" or "segment_created_at" or "segment_updated_at" or "source_run_id" or "segment_source_run_id" or "performer" or "segment_performer" or "ref" or "segment_ref" or "host_title" or "host_type" or "host_id";
 
     private static IOrderedEnumerable<SegmentSpanSearchResultItemDto> ApplySpanOrdering(
         IEnumerable<SegmentSpanSearchResultItemDto> items,
         string sort,
         bool descending,
-        IReadOnlyDictionary<int, SegmentSearchRow> segmentRows)
+        IReadOnlyDictionary<int, SegmentSearchRow> segmentRows,
+        int? seed)
     {
         return sort switch
         {
+            "random" => OrderSpanBy(items, item => SeededRandomKey(item.Span.SegmentIds.FirstOrDefault(), seed), descending),
             "start_sec" or "span_start" => OrderSpanBy(items, item => item.Span.StartSec, descending),
             "end_sec" or "span_end" => OrderSpanBy(items, item => item.Span.EndSec, descending),
             "duration" or "span_duration" => OrderSpanBy(items, item => item.Span.EndSec - item.Span.StartSec, descending),
@@ -900,6 +904,17 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             "host_id" => OrderSpanBy(items, item => item.Span.HostId, descending),
             _ => OrderSpanBy(items, item => item.VideoUpdatedAt ?? string.Empty, descending),
         };
+    }
+
+    private static long SeededRandomKey(int id, int? seed)
+    {
+        var value = unchecked((uint)(id ^ (seed ?? 1)));
+        value ^= value >> 16;
+        value *= 0x7feb352d;
+        value ^= value >> 15;
+        value *= 0x846ca68b;
+        value ^= value >> 16;
+        return value;
     }
 
     private static IOrderedEnumerable<SegmentSpanSearchResultItemDto> OrderSpanBy<TKey>(

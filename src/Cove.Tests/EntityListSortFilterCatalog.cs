@@ -181,6 +181,7 @@ public static class EntityListSortFilterCatalog
         new("groups", "aliases", "Aliases"),
 
         // Segments
+        new("segments", "random", "Random"),
         new("segments", "updated_at", "Updated At"),
         new("segments", "created_at", "Created At"),
         new("segments", "start_sec", "Start Time"),

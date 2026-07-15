@@ -1166,6 +1166,7 @@ export interface SegmentSpanSearchRequest {
   perPage?: number;
   sort?: string;
   direction?: "asc" | "desc";
+  seed?: number;
   q?: string;
   videoTitle?: string;
   videoIds?: number[];
