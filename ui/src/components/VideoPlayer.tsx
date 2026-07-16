@@ -39,6 +39,7 @@ const VOLUME_KEY = "cove-video-player-volume";
 const MUTED_KEY = "cove-video-player-muted";
 const FACE_OVERLAY_KEY = "cove.player.faceOverlay";
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const CLIP_BOUNDARY_TOLERANCE_SEC = 0.05;
 
 function getVideoSourceMimeType(format?: string) {
   switch (format?.trim().toLowerCase()) {
@@ -244,7 +245,7 @@ export function VideoPlayer({
     () => getConfiguredPlaybackStartTime(duration, playerVideoStartPercent, playerVideoStartMinDuration),
     [duration, playerVideoStartMinDuration, playerVideoStartPercent],
   );
-  const playbackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
+  const nextPlaybackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
     if (!trackingEnabled) {
       return null;
     }
@@ -261,7 +262,13 @@ export function VideoPlayer({
       route: typeof window === "undefined" ? baseTarget.route : baseTarget.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`,
     };
   }, [autostart, clip?.end, clip?.start, fullscreen, muted, playbackTracking, rate, videoId, trackingEnabled]);
-  const playbackTrackingSignature = useMemo(() => JSON.stringify(playbackTrackingTarget), [playbackTrackingTarget]);
+  const playbackTrackingSignature = useMemo(() => JSON.stringify(nextPlaybackTrackingTarget), [nextPlaybackTrackingTarget]);
+  // Callers commonly build playbackTracking inline. Preserve the normalized target identity while its
+  // serialized meaning is unchanged so parent renders cannot tear down tracking effects and flush intervals.
+  const playbackTrackingTarget = useMemo(
+    () => nextPlaybackTrackingTarget,
+    [playbackTrackingSignature],
+  );
 
   useEffect(() => {
     intervalStart.current = null;
@@ -691,13 +698,13 @@ export function VideoPlayer({
 
     const handleClipBoundary = () => {
       const absoluteTime = toAbsoluteTime(video.currentTime);
-      if (absoluteTime < clipStart) {
+      if (absoluteTime < clipStart - CLIP_BOUNDARY_TOLERANCE_SEC) {
         seekToAbsoluteTime(clipStart, false);
         setCurTime(roundPlaybackTime(clipStart));
         return;
       }
 
-      if (absoluteTime < clipEnd - 0.05) {
+      if (absoluteTime < clipEnd - CLIP_BOUNDARY_TOLERANCE_SEC) {
         clipEndedHandled.current = false;
         return;
       }
@@ -746,14 +753,19 @@ export function VideoPlayer({
     const flushAllKeepalive = () => {
       flushIntervalKeepalive("paused");
       void playbackTracker.current.flush("paused", "keepalive");
+      intervalStart.current = null;
     };
+
+    const video = videoRef.current;
+    if (video && !video.paused && intervalStart.current === null) {
+      startTrackedInterval(roundPlaybackTime(toAbsoluteTime(video.currentTime)));
+    }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         // Flush what was watched up to now, then CLOSE the interval so the hidden span isn't
         // bridged back in when the tab returns to the foreground.
         flushAllKeepalive();
-        intervalStart.current = null;
       } else if (document.visibilityState === "visible") {
         // Reopen a fresh interval from the current position if playback is still running.
         const video = videoRef.current;
@@ -834,7 +846,11 @@ export function VideoPlayer({
       return currentPosition;
     }
 
-    if (clipEndedHandled.current || currentPosition >= clipEnd - 0.05 || currentPosition < clipStart) {
+    if (
+      clipEndedHandled.current
+      || currentPosition >= clipEnd - CLIP_BOUNDARY_TOLERANCE_SEC
+      || currentPosition < clipStart - CLIP_BOUNDARY_TOLERANCE_SEC
+    ) {
       const startPosition = roundPlaybackTime(clipStart);
       clipEndedHandled.current = false;
       seekToAbsoluteTime(clipStart, false);
