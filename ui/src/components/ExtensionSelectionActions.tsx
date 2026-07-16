@@ -108,10 +108,6 @@ export function ExtensionSelectionActions({ entityType, selectedIds }: Props) {
       return [];
     }
 
-    if (normalizedEntityType !== "video" && normalizedEntityType !== "image") {
-      return [];
-    }
-
     return getActionsForContext(normalizedEntityType, undefined, "bulk");
   }, [getActionsForContext, normalizedEntityType, selectedIdList.length]);
 
