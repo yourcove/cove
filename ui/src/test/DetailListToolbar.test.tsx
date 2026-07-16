@@ -30,6 +30,29 @@ afterEach(() => {
 });
 
 describe("DetailListToolbar", () => {
+  it("applies search text after a short delay without requiring Enter", async () => {
+    const user = userEvent.setup();
+    const onFilterChange = vi.fn();
+
+    render(
+      <DetailListToolbar
+        filter={{ page: 3, perPage: 24 }}
+        onFilterChange={onFilterChange}
+        totalCount={100}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        showSearch
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search…"), "summer");
+
+    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({
+      page: 1,
+      perPage: 24,
+      q: "summer",
+    }));
+  });
+
   it("shows and removes applied object-filter parameters", async () => {
     const user = userEvent.setup();
     const onFilterChange = vi.fn();

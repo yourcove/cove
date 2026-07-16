@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
 import type { CriterionModifier, CustomFieldCriterion, CustomFieldDefinition, CustomFieldEntityType, CustomFieldType, ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { SavedFilterMenu } from "./SavedFilterMenu";
@@ -22,6 +22,7 @@ import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
 import { ListQueryState } from "./ListQueryState";
+import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -82,8 +83,6 @@ interface ListPageProps {
   showCustomFilterDivider?: boolean;
 }
 const DEFAULT_ZOOM_LEVEL = 1;
-const LIST_SEARCH_DEBOUNCE_MS = 350;
-
 const CUSTOM_FIELD_ENTITY_BY_FILTER_MODE: Record<string, CustomFieldEntityType> = {
   videos: "video",
   audios: "audio",
@@ -571,7 +570,6 @@ export function ListPage({
   showClearAllObjectFilters = true,
   showCustomFilterDivider = true,
 }: ListPageProps) {
-  const [searchText, setSearchText] = useState(filter.q ?? "");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
   const cardSizeEntityType = filterMode ?? pageKey;
@@ -740,46 +738,22 @@ export function ListPage({
     );
   }, [pageKey, perPage, wallColumnCount]);
 
-  useEffect(() => {
-    setSearchText(filter.q ?? "");
-  }, [filter.q]);
-
-  const commitSearch = useCallback((rawSearchText: string, source: "debounce" | "submit" | "clear") => {
-    const normalizedSearch = rawSearchText.trim();
-    const currentSearch = (filter.q ?? "").trim();
-    if (normalizedSearch === currentSearch) {
-      return;
-    }
-
-    if (pageKey && normalizedSearch.length > 0 && source !== "clear") {
+  const handleSearchChange = useCallback((query: string | undefined, source: ListSearchCommitSource) => {
+    if (pageKey && query && source !== "clear") {
       trackInteraction({
         hostType: "collection",
         kind: "searchQuery",
         meta: {
           pageKey,
-          query: normalizedSearch,
+          query,
           source: "listPageToolbar",
           activeFilterCount: Object.keys(objectFilter ?? {}).length,
         },
       });
     }
 
-    onFilterChange({ ...filter, q: normalizedSearch || undefined, page: 1 });
+    onFilterChange({ ...filter, q: query, page: 1 });
   }, [filter, objectFilter, onFilterChange, pageKey]);
-
-  useEffect(() => {
-    if (searchText.trim() === (filter.q ?? "").trim()) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => commitSearch(searchText, "debounce"), LIST_SEARCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timeout);
-  }, [commitSearch, filter.q, searchText]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    commitSearch(searchText, "submit");
-  };
 
   const goTo = useCallback(
     (p: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) }),
@@ -842,56 +816,15 @@ export function ListPage({
         </div>
 
         {/* Search */}
-        <form onSubmit={handleSearch} className={["list-page-search flex w-full shrink-0 items-center gap-1", searchModes && searchModes.length > 1 ? "sm:w-[22rem]" : "sm:w-[18rem]"].join(" ")}>
-          {searchModes && searchModes.length > 1 && onSearchModeChange && (
-            <select
-              value={searchMode ?? searchModes[0]?.value ?? "text"}
-              onChange={(e) => {
-                onSearchModeChange(e.target.value);
-              }}
-              className="min-h-10 max-w-[6.5rem] rounded-lg border border-border bg-card/70 px-2 py-2 text-sm text-foreground focus:border-accent focus:outline-none sm:min-h-[30px] sm:max-w-[5.75rem] sm:py-1.5 sm:text-xs"
-              aria-label="Search mode"
-              title="Search mode"
-            >
-              {searchModes.map((mode) => (
-                <option key={mode.value} value={mode.value} title={mode.title}>{mode.label}</option>
-              ))}
-            </select>
-          )}
-          <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
-            <input
-              type="text"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape" && searchText.trim().length > 0) {
-                  e.preventDefault();
-                  setSearchText("");
-                  commitSearch("", "clear");
-                }
-              }}
-              placeholder={searchPlaceholder ?? "Search names, titles, tags..."}
-              aria-label="Search list"
-              data-list-search="true"
-              className="min-h-10 w-full rounded-lg border border-border bg-card/70 py-2 pl-8 pr-8 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none sm:min-h-0 sm:py-1.5 sm:pl-7 sm:pr-7 sm:text-xs"
-            />
-            {searchText.trim().length > 0 ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchText("");
-                  commitSearch("", "clear");
-                }}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted hover:bg-card/80 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-                aria-label="Clear search"
-                title="Clear search"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
-        </form>
+        <ListSearchControl
+          query={filter.q}
+          onQueryChange={handleSearchChange}
+          placeholder={searchPlaceholder}
+          searchMode={searchMode}
+          searchModes={searchModes}
+          onSearchModeChange={onSearchModeChange}
+          className={`list-page-search ${searchModes && searchModes.length > 1 ? "sm:w-[22rem]" : "sm:w-[18rem]"}`}
+        />
 
         {/* Sort */}
         {sortedSortOptions && (
