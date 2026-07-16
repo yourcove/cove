@@ -216,6 +216,8 @@ export function VideoPlayer({
   const sourceRestoreRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
   const lastLoadedSourceRef = useRef<string | null>(null);
   const lastLoadedVideoIdRef = useRef<number | null>(null);
+  const sourceGenerationRef = useRef(0);
+  const metadataHandledGenerationRef = useRef<number | null>(null);
   const pendingAutostartRef = useRef(false);
   // Bounded in-place recovery from transient network stalls (MEDIA_ERR_NETWORK/ABORTED). Tracks how
   // many reloads we've attempted since playback last succeeded plus the pending backoff timer, so a
@@ -602,12 +604,17 @@ export function VideoPlayer({
 
   useEffect(() => {
     if (!autostart) {
+      pendingAutostartRef.current = false;
       return;
     }
 
     pendingAutostartRef.current = true;
     const video = videoRef.current;
-    if (!video || lastLoadedSourceRef.current !== effectiveSourceSignature) {
+    if (
+      !video
+      || lastLoadedSourceRef.current !== effectiveSourceSignature
+      || metadataHandledGenerationRef.current !== sourceGenerationRef.current
+    ) {
       return;
     }
 
@@ -1057,24 +1064,30 @@ export function VideoPlayer({
     const sourceTypeMatches = effectiveSourceType
       ? source?.getAttribute("type") === effectiveSourceType
       : !source?.hasAttribute("type");
-    if (lastLoadedSourceRef.current === effectiveSourceSignature && sourceSrcMatches && sourceTypeMatches) {
+    const sourceIsCurrent =
+      lastLoadedSourceRef.current === effectiveSourceSignature && sourceSrcMatches && sourceTypeMatches;
+    if (sourceIsCurrent && metadataHandledGenerationRef.current === sourceGenerationRef.current) {
       return;
     }
     const isSameVideo = lastLoadedVideoIdRef.current === videoId;
-    lastLoadedSourceRef.current = effectiveSourceSignature;
-    lastLoadedVideoIdRef.current = videoId;
+    if (!sourceIsCurrent) {
+      sourceGenerationRef.current += 1;
+      metadataHandledGenerationRef.current = null;
+      lastLoadedSourceRef.current = effectiveSourceSignature;
+      lastLoadedVideoIdRef.current = videoId;
 
-    if (source) {
-      source.setAttribute("src", effectiveStreamUrl);
-      if (effectiveSourceType) {
-        source.setAttribute("type", effectiveSourceType);
-      } else {
-        source.removeAttribute("type");
+      if (source) {
+        source.setAttribute("src", effectiveStreamUrl);
+        if (effectiveSourceType) {
+          source.setAttribute("type", effectiveSourceType);
+        } else {
+          source.removeAttribute("type");
+        }
       }
     }
+    const sourceGeneration = sourceGenerationRef.current;
 
     const pendingRestore = sourceRestoreRef.current;
-    sourceRestoreRef.current = null;
     const shouldAutoplayAfterLoad = pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo);
 
     // Capture the current absolute playback position BEFORE video.load() resets the element. If a
@@ -1086,6 +1099,13 @@ export function VideoPlayer({
       : undefined;
 
     const handleLoadedMetadata = () => {
+      if (sourceGenerationRef.current !== sourceGeneration) {
+        return;
+      }
+      metadataHandledGenerationRef.current = sourceGeneration;
+      if (sourceRestoreRef.current === pendingRestore) {
+        sourceRestoreRef.current = null;
+      }
       const mediaDuration = selectedQuality === "Direct" && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration;
       const configuredStartTime = getConfiguredPlaybackStartTime(mediaDuration, playerVideoStartPercent, playerVideoStartMinDuration);
       const targetTime = pendingRestore?.time
@@ -1102,12 +1122,19 @@ export function VideoPlayer({
       }
     };
 
+    if (sourceIsCurrent && video.readyState >= 1) {
+      handleLoadedMetadata();
+      return;
+    }
+
     video.addEventListener("loadedmetadata", handleLoadedMetadata, { once: true });
-    video.load();
+    if (!sourceIsCurrent) {
+      video.load();
+    }
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [autostart, clip, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
+  }, [autostart, clip?.start, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
 
   // Release the media element's network connection when the player unmounts. Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)

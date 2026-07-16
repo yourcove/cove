@@ -94,6 +94,121 @@ describe("VideoPlayer source lifecycle", () => {
     });
   });
 
+  it("preserves pending autoplay when equivalent clip props are recreated before metadata loads", async () => {
+    const renderPlayer = () => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        autostart
+        clip={{ start: 5, end: 25, loop: false }}
+      />
+    );
+    const { container, rerender } = render(renderPlayer());
+    const video = container.querySelector("video") as HTMLVideoElement;
+
+    rerender(renderPlayer());
+    expect(loadMock).toHaveBeenCalledOnce();
+    act(() => video.dispatchEvent(new Event("loadedmetadata")));
+
+    await waitFor(() => expect(playMock).toHaveBeenCalledOnce());
+  });
+
+  it("cancels pending autoplay when it is disabled before metadata loads", () => {
+    const renderPlayer = (autostart: boolean) => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        autostart={autostart}
+        clip={{ start: 5, end: 25, loop: false }}
+      />
+    );
+    const { container, rerender } = render(renderPlayer(true));
+    const video = container.querySelector("video") as HTMLVideoElement;
+
+    rerender(renderPlayer(false));
+    act(() => video.dispatchEvent(new Event("loadedmetadata")));
+
+    expect(playMock).not.toHaveBeenCalled();
+  });
+
+  it("starts pending autoplay once when it is enabled before metadata loads", async () => {
+    const renderPlayer = (autostart: boolean) => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        autostart={autostart}
+        clip={{ start: 5, end: 25, loop: false }}
+      />
+    );
+    const { container, rerender } = render(renderPlayer(false));
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
+
+    rerender(renderPlayer(true));
+    act(() => video.dispatchEvent(new Event("loadedmetadata")));
+
+    await waitFor(() => expect(playMock).toHaveBeenCalledOnce());
+  });
+
+  it("replaces pending autoplay metadata handling when the clip start changes", async () => {
+    const renderPlayer = (clipStart: number) => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        autostart
+        clip={{ start: clipStart, end: 25, loop: false }}
+      />
+    );
+    const { container, rerender } = render(renderPlayer(5));
+    const video = container.querySelector("video") as HTMLVideoElement;
+
+    rerender(renderPlayer(20));
+    act(() => video.dispatchEvent(new Event("loadedmetadata")));
+
+    await waitFor(() => expect(playMock).toHaveBeenCalledOnce());
+    expect(video.currentTime).toBe(20);
+  });
+
+  it("consumes pending metadata work when metadata is ready before its event is delivered", async () => {
+    const renderPlayer = (clipStart: number) => (
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        autostart
+        clip={{ start: clipStart, end: 25, loop: false }}
+      />
+    );
+    const { container, rerender } = render(renderPlayer(5));
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
+
+    rerender(renderPlayer(20));
+    act(() => video.dispatchEvent(new Event("loadedmetadata")));
+
+    await waitFor(() => expect(playMock).toHaveBeenCalledOnce());
+    expect(video.currentTime).toBe(20);
+  });
+
   it("does not declare a misleading MIME type for unknown direct video streams", () => {
     const { container } = render(
       <VideoPlayer
