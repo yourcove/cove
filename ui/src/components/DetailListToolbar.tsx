@@ -1,6 +1,6 @@
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Search, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
 import type { FindFilter } from "../api/types";
-import { isValidElement, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { isValidElement, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
@@ -8,6 +8,7 @@ import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDi
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
 import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import { ListSearchControl } from "./ListSearchControl";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -82,7 +83,6 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const clampedPage = Math.min(Math.max(1, page), totalPages);
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (clampedPage - 1) * effectivePerPage + 1) : 0;
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
-  const [searchText, setSearchText] = useState(filter.q ?? "");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const sortedSortOptions = useMemo(
     () => [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)),
@@ -102,6 +102,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
     if (!inferredCardSizeEntityType || zoomLevel == null || !onZoomChange) return;
     if (Math.abs(storedZoomLevel - zoomLevel) > 0.001) onZoomChange(storedZoomLevel);
   }, [inferredCardSizeEntityType, onZoomChange, storedZoomLevel, zoomLevel]);
+
+  const handleSearchChange = useCallback((query: string | undefined) => {
+    onFilterChange({ ...filter, q: query, page: 1 });
+  }, [filter, onFilterChange]);
 
   // Correct an out-of-range page back into the filter so the stale value doesn't persist (e.g. in the
   // URL) and re-strand the user next time. Guarded on a loaded count so a transient 0 during fetch
@@ -149,19 +153,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         </div>
 
         {showSearch && (
-          <form onSubmit={(event) => { event.preventDefault(); onFilterChange({ ...filter, q: searchText || undefined, page: 1 }); }} className="flex w-full shrink-0 items-center gap-1 sm:max-w-[18rem]">
-            <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-              <input
-                type="text"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                onBlur={() => { if (searchText !== (filter.q ?? "")) onFilterChange({ ...filter, q: searchText || undefined, page: 1 }); }}
-                placeholder="Search…"
-                className="min-h-10 w-full rounded-lg border border-border bg-card/70 py-2 pl-8 pr-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none sm:min-h-[30px] sm:py-1.5 sm:pl-7 sm:text-xs"
-              />
-            </div>
-          </form>
+          <ListSearchControl query={filter.q} onQueryChange={handleSearchChange} placeholder="Search…" className="sm:max-w-[18rem]" />
         )}
 
         {showSort && (
