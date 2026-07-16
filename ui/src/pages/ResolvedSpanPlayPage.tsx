@@ -15,6 +15,7 @@ import { ProvenanceBadge, TagBadge } from "../components/shared";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { useAppConfig } from "../state/AppConfigContext";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 
 interface Props {
@@ -75,10 +76,12 @@ function ResolvedSpanPlayerCard({
 }) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
+  const { config } = useAppConfig();
   const [, setCurrentAbsoluteTime] = useState(detail.intervals[0]?.startSec ?? detail.span.startSec);
   const [activeIntervalIndex, setActiveIntervalIndex] = useState(0);
   const [resumeTime, setResumeTime] = useState(detail.intervals[0]?.startSec ?? detail.span.startSec);
-  const [autostart, setAutostart] = useState(false);
+  const [autostart, setAutostart] = useState(config?.ui.autostartVideo ?? false);
+  const autoplayOnOpenRef = useRef(config?.ui.autostartVideo ?? false);
   const [autostartToken, setAutostartToken] = useState(0);
   const [activeTab, setActiveTab] = useState<ResolvedSpanTab>("overview");
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -206,10 +209,15 @@ function ResolvedSpanPlayerCard({
   );
 
   useEffect(() => {
+    autoplayOnOpenRef.current = config?.ui.autostartVideo ?? false;
+    setAutostart(autoplayOnOpenRef.current);
+  }, [config?.ui.autostartVideo]);
+
+  useEffect(() => {
     const initialStart = intervals[0]?.startSec ?? detail.span.startSec;
     setCurrentAbsoluteTime(initialStart);
     setResumeTime(initialStart);
-    setAutostart(false);
+    setAutostart(autoplayOnOpenRef.current);
     setAutostartToken(0);
     setActiveIntervalIndex(0);
   }, [detail.span.spanKey, detail.span.startSec, intervals]);
@@ -791,4 +799,3 @@ function formatTime(value: number) {
 
   return `${minutes}:${String(seconds).padStart(2, "0")}.${fractional}`;
 }
-
