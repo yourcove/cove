@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResolvedSpanPlayPage } from "../pages/ResolvedSpanPlayPage";
 
-const { mockVideos, mockSegmentDisplayProfiles, mockSegmentLibrary, mockGoBack } = vi.hoisted(() => ({
+const { mockVideos, mockSegmentDisplayProfiles, mockSegmentLibrary, mockGoBack, mockUiConfig } = vi.hoisted(() => ({
   mockVideos: {
     get: vi.fn(),
     createSubVideo: vi.fn(),
@@ -21,6 +21,7 @@ const { mockVideos, mockSegmentDisplayProfiles, mockSegmentLibrary, mockGoBack }
     list: vi.fn(),
   },
   mockGoBack: vi.fn(),
+  mockUiConfig: { autostartVideo: true },
 }));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
@@ -49,10 +50,17 @@ vi.mock("../auth/AuthContext", () => ({
   }),
 }));
 
+vi.mock("../state/AppConfigContext", () => ({
+  useAppConfig: () => ({
+    config: { ui: mockUiConfig },
+  }),
+}));
+
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: ({ clip, resumeTime, onEnded }: { clip: { start: number; end: number }; resumeTime?: number; onEnded?: () => void }) => (
+  VideoPlayer: ({ clip, resumeTime, autostart, onEnded }: { clip: { start: number; end: number }; resumeTime?: number; autostart?: boolean; onEnded?: () => void }) => (
     <div>
       <div data-testid="resolved-span-player">Clip {clip.start}-{clip.end} @ {resumeTime}</div>
+      <div data-testid="resolved-span-autostart">{String(autostart)}</div>
       <button type="button" onClick={() => onEnded?.()}>End clip</button>
     </div>
   ),
@@ -124,6 +132,7 @@ function renderPage(props?: Partial<React.ComponentProps<typeof ResolvedSpanPlay
 describe("ResolvedSpanPlayPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockUiConfig.autostartVideo = true;
   });
 
   it("renders VideoPlayer clip props and interval details", async () => {
@@ -141,6 +150,7 @@ describe("ResolvedSpanPlayPage", () => {
     renderPage();
 
     expect(await screen.findByText("Clip 5-10 @ 5")).toBeInTheDocument();
+    expect(screen.getByTestId("resolved-span-autostart")).toHaveTextContent("true");
     expect(screen.queryByTestId("media-detail-layout-media-frame")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /intervals/i }));
@@ -166,6 +176,19 @@ describe("ResolvedSpanPlayPage", () => {
 
     fireEvent.click(screen.getByText("End clip"));
     expect(await screen.findByText("Clip 20-25 @ 20")).toBeInTheDocument();
+  });
+
+  it("leaves resolved spans paused when autoplay is disabled", async () => {
+    mockUiConfig.autostartVideo = false;
+    mockVideos.segments.spanDetail.mockResolvedValue(buildDetail());
+    mockVideos.segments.spans.mockResolvedValue({ profileId: 3, spans: [] });
+    mockVideos.get.mockResolvedValue(buildVideo());
+    mockSegmentDisplayProfiles.get.mockResolvedValue({ id: 3, name: "Default Profile" });
+    mockSegmentLibrary.list.mockResolvedValue({ items: [] });
+
+    renderPage();
+
+    expect(await screen.findByTestId("resolved-span-autostart")).toHaveTextContent("false");
   });
 
   it("describes derived intersection spans without union-only copy", async () => {
@@ -235,4 +258,3 @@ describe("ResolvedSpanPlayPage", () => {
     });
   });
 });
-

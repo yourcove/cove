@@ -39,6 +39,7 @@ const VOLUME_KEY = "cove-video-player-volume";
 const MUTED_KEY = "cove-video-player-muted";
 const FACE_OVERLAY_KEY = "cove.player.faceOverlay";
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const CLIP_BOUNDARY_TOLERANCE_SEC = 0.05;
 
 function getVideoSourceMimeType(format?: string) {
   switch (format?.trim().toLowerCase()) {
@@ -215,6 +216,8 @@ export function VideoPlayer({
   const sourceRestoreRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
   const lastLoadedSourceRef = useRef<string | null>(null);
   const lastLoadedVideoIdRef = useRef<number | null>(null);
+  const sourceGenerationRef = useRef(0);
+  const metadataHandledGenerationRef = useRef<number | null>(null);
   const pendingAutostartRef = useRef(false);
   // Bounded in-place recovery from transient network stalls (MEDIA_ERR_NETWORK/ABORTED). Tracks how
   // many reloads we've attempted since playback last succeeded plus the pending backoff timer, so a
@@ -244,7 +247,7 @@ export function VideoPlayer({
     () => getConfiguredPlaybackStartTime(duration, playerVideoStartPercent, playerVideoStartMinDuration),
     [duration, playerVideoStartMinDuration, playerVideoStartPercent],
   );
-  const playbackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
+  const nextPlaybackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
     if (!trackingEnabled) {
       return null;
     }
@@ -261,7 +264,13 @@ export function VideoPlayer({
       route: typeof window === "undefined" ? baseTarget.route : baseTarget.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`,
     };
   }, [autostart, clip?.end, clip?.start, fullscreen, muted, playbackTracking, rate, videoId, trackingEnabled]);
-  const playbackTrackingSignature = useMemo(() => JSON.stringify(playbackTrackingTarget), [playbackTrackingTarget]);
+  const playbackTrackingSignature = useMemo(() => JSON.stringify(nextPlaybackTrackingTarget), [nextPlaybackTrackingTarget]);
+  // Callers commonly build playbackTracking inline. Preserve the normalized target identity while its
+  // serialized meaning is unchanged so parent renders cannot tear down tracking effects and flush intervals.
+  const playbackTrackingTarget = useMemo(
+    () => nextPlaybackTrackingTarget,
+    [playbackTrackingSignature],
+  );
 
   useEffect(() => {
     intervalStart.current = null;
@@ -595,12 +604,17 @@ export function VideoPlayer({
 
   useEffect(() => {
     if (!autostart) {
+      pendingAutostartRef.current = false;
       return;
     }
 
     pendingAutostartRef.current = true;
     const video = videoRef.current;
-    if (!video || lastLoadedSourceRef.current !== effectiveSourceSignature) {
+    if (
+      !video
+      || lastLoadedSourceRef.current !== effectiveSourceSignature
+      || metadataHandledGenerationRef.current !== sourceGenerationRef.current
+    ) {
       return;
     }
 
@@ -691,13 +705,13 @@ export function VideoPlayer({
 
     const handleClipBoundary = () => {
       const absoluteTime = toAbsoluteTime(video.currentTime);
-      if (absoluteTime < clipStart) {
+      if (absoluteTime < clipStart - CLIP_BOUNDARY_TOLERANCE_SEC) {
         seekToAbsoluteTime(clipStart, false);
         setCurTime(roundPlaybackTime(clipStart));
         return;
       }
 
-      if (absoluteTime < clipEnd - 0.05) {
+      if (absoluteTime < clipEnd - CLIP_BOUNDARY_TOLERANCE_SEC) {
         clipEndedHandled.current = false;
         return;
       }
@@ -746,14 +760,19 @@ export function VideoPlayer({
     const flushAllKeepalive = () => {
       flushIntervalKeepalive("paused");
       void playbackTracker.current.flush("paused", "keepalive");
+      intervalStart.current = null;
     };
+
+    const video = videoRef.current;
+    if (video && !video.paused && intervalStart.current === null) {
+      startTrackedInterval(roundPlaybackTime(toAbsoluteTime(video.currentTime)));
+    }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         // Flush what was watched up to now, then CLOSE the interval so the hidden span isn't
         // bridged back in when the tab returns to the foreground.
         flushAllKeepalive();
-        intervalStart.current = null;
       } else if (document.visibilityState === "visible") {
         // Reopen a fresh interval from the current position if playback is still running.
         const video = videoRef.current;
@@ -834,7 +853,11 @@ export function VideoPlayer({
       return currentPosition;
     }
 
-    if (clipEndedHandled.current || currentPosition >= clipEnd - 0.05 || currentPosition < clipStart) {
+    if (
+      clipEndedHandled.current
+      || currentPosition >= clipEnd - CLIP_BOUNDARY_TOLERANCE_SEC
+      || currentPosition < clipStart - CLIP_BOUNDARY_TOLERANCE_SEC
+    ) {
       const startPosition = roundPlaybackTime(clipStart);
       clipEndedHandled.current = false;
       seekToAbsoluteTime(clipStart, false);
@@ -1041,24 +1064,30 @@ export function VideoPlayer({
     const sourceTypeMatches = effectiveSourceType
       ? source?.getAttribute("type") === effectiveSourceType
       : !source?.hasAttribute("type");
-    if (lastLoadedSourceRef.current === effectiveSourceSignature && sourceSrcMatches && sourceTypeMatches) {
+    const sourceIsCurrent =
+      lastLoadedSourceRef.current === effectiveSourceSignature && sourceSrcMatches && sourceTypeMatches;
+    if (sourceIsCurrent && metadataHandledGenerationRef.current === sourceGenerationRef.current) {
       return;
     }
     const isSameVideo = lastLoadedVideoIdRef.current === videoId;
-    lastLoadedSourceRef.current = effectiveSourceSignature;
-    lastLoadedVideoIdRef.current = videoId;
+    if (!sourceIsCurrent) {
+      sourceGenerationRef.current += 1;
+      metadataHandledGenerationRef.current = null;
+      lastLoadedSourceRef.current = effectiveSourceSignature;
+      lastLoadedVideoIdRef.current = videoId;
 
-    if (source) {
-      source.setAttribute("src", effectiveStreamUrl);
-      if (effectiveSourceType) {
-        source.setAttribute("type", effectiveSourceType);
-      } else {
-        source.removeAttribute("type");
+      if (source) {
+        source.setAttribute("src", effectiveStreamUrl);
+        if (effectiveSourceType) {
+          source.setAttribute("type", effectiveSourceType);
+        } else {
+          source.removeAttribute("type");
+        }
       }
     }
+    const sourceGeneration = sourceGenerationRef.current;
 
     const pendingRestore = sourceRestoreRef.current;
-    sourceRestoreRef.current = null;
     const shouldAutoplayAfterLoad = pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo);
 
     // Capture the current absolute playback position BEFORE video.load() resets the element. If a
@@ -1070,6 +1099,13 @@ export function VideoPlayer({
       : undefined;
 
     const handleLoadedMetadata = () => {
+      if (sourceGenerationRef.current !== sourceGeneration) {
+        return;
+      }
+      metadataHandledGenerationRef.current = sourceGeneration;
+      if (sourceRestoreRef.current === pendingRestore) {
+        sourceRestoreRef.current = null;
+      }
       const mediaDuration = selectedQuality === "Direct" && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration;
       const configuredStartTime = getConfiguredPlaybackStartTime(mediaDuration, playerVideoStartPercent, playerVideoStartMinDuration);
       const targetTime = pendingRestore?.time
@@ -1086,12 +1122,19 @@ export function VideoPlayer({
       }
     };
 
+    if (sourceIsCurrent && video.readyState >= 1) {
+      handleLoadedMetadata();
+      return;
+    }
+
     video.addEventListener("loadedmetadata", handleLoadedMetadata, { once: true });
-    video.load();
+    if (!sourceIsCurrent) {
+      video.load();
+    }
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [autostart, clip, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
+  }, [autostart, clip?.start, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
 
   // Release the media element's network connection when the player unmounts. Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
