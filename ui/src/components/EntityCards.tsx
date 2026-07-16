@@ -8,6 +8,7 @@ import { RatingBanner, RatingBadge } from "./Rating";
 import { BookOpenText, Building2, FileText, Fingerprint, FolderOpen, GripVertical, Headphones, Layers, Link2, Tag, User, Film, Box, Images as ImagesIcon, Heart, Eye, ThumbsUp, Mic2, MonitorPlay, PlayCircle, Merge } from "lucide-react";
 import { createRouteLinkProps, createNestedRouteLinkProps } from "./cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
+import { ExtensionSlot, useHasExtensionSlot } from "../router/RouteRegistry";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { faceDisplayName } from "../utils/faceDisplay";
@@ -55,6 +56,26 @@ interface EntityTileFrameProps {
   dragHandleProps?: EntityTileDragHandleProps;
   isDragging?: boolean;
   isOver?: boolean;
+}
+
+/**
+ * Extension content in a card's content area, with the guardrails that keep a misbehaving extension from breaking
+ * cards: it renders nothing when no extension registers (a null render collapses to zero height); each entry is
+ * error-boundaried with a null fallback (a crash shows nothing, never a red box); and the box is bounded, clipped,
+ * and isolated (`max-h`/`overflow-hidden`/`contain`/`isolate`) — a bad render stays inside its own box and cannot
+ * resize the card or break the grid.
+ */
+export function CardExtensionSlot<TContext>({ slot, context }: { slot: string; context: TContext }) {
+  const has = useHasExtensionSlot(slot);
+  if (!has) return null;
+  return (
+    <div
+      className="card-extension relative isolate max-h-24 overflow-hidden"
+      style={{ contain: "layout paint" }}
+    >
+      <ExtensionSlot slot={slot} context={context} fallback={null} entryClassName="min-w-0 max-w-full" />
+    </div>
+  );
 }
 
 export function EntityTileFrame({
@@ -923,6 +944,7 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
         )}
         {video.details && <p className="text-xs text-secondary line-clamp-2 leading-snug">{video.details}</p>}
       </div>
+      <CardExtensionSlot slot="video-card-content" context={{ video }} />
       <VideoCardPopovers video={video} engagement={engagement} onNavigate={onNavigate} />
     </div>
   );

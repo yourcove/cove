@@ -11,11 +11,10 @@ import { Building2, Merge } from "lucide-react";
 import { STUDIO_CRITERIA } from "../components/FilterDialog";
 import { MergeDialog } from "../components/MergeDialog";
 import { StudioTagger } from "../components/StudioTagger";
-import { StudioTile } from "../components/EntityCards";
+import { StudioTile, CardExtensionSlot } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { ExtensionSlot } from "../router/RouteRegistry";
 import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { CustomFieldsEditor } from "../components/shared";
@@ -161,7 +160,7 @@ export function StudiosPage({ onNavigate }: Props) {
               onSelect={(toggleOptions) => toggle(s.id, toggleOptions)}
               selecting={selecting}
             >
-              <ExtensionSlot slot="studio-card-footer" context={{ studio: s, onNavigate }} />
+              <CardExtensionSlot slot="studio-card-footer" context={{ studio: s, onNavigate }} />
             </StudioTile>
           )}
         />

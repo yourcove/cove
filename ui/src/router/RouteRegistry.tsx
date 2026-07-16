@@ -90,7 +90,23 @@ export function useRouteRegistry() {
   return ctx;
 }
 
-export function ExtensionSlot<TContext>({ slot, context }: { slot: string; context: TContext }) {
+export function useHasExtensionSlot(slot: string): boolean {
+  const ctx = useContext(RouteRegistryContext);
+  return ctx?.slots.some((s) => s.slot === slot) ?? false;
+}
+
+export function ExtensionSlot<TContext>({
+  slot,
+  context,
+  fallback,
+  entryClassName,
+}: {
+  slot: string;
+  context: TContext;
+  /** `null` renders nothing on crash (the default is an error box). */
+  fallback?: ReactNode;
+  entryClassName?: string;
+}) {
   const { slots } = useRouteRegistry();
   const matching = slots
     .filter((s) => s.slot === slot)
@@ -101,8 +117,8 @@ export function ExtensionSlot<TContext>({ slot, context }: { slot: string; conte
   return (
     <>
       {matching.map((entry) => (
-        <ExtensionErrorBoundary key={entry.id} extensionId={entry.id}>
-          <div>{entry.render(context)}</div>
+        <ExtensionErrorBoundary key={entry.id} extensionId={entry.id} fallback={fallback}>
+          <div className={entryClassName}>{entry.render(context)}</div>
         </ExtensionErrorBoundary>
       ))}
     </>
