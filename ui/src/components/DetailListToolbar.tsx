@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
 import type { FindFilter } from "../api/types";
 import { isValidElement, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, useEntityCardSize } from "../hooks/useEntityCardSize";
@@ -9,6 +9,7 @@ import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
 import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
+import { PaginationControls } from "./PaginationControls";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -59,6 +60,35 @@ interface DetailListToolbarProps {
   filterDefaultKey?: string;
   // URL-backed detail lists resolve their saved default before the first query and must not apply it again after mount.
   defaultFilterResolved?: boolean;
+}
+
+interface DetailListPaginationProps {
+  filter: FindFilter;
+  onFilterChange: (filter: FindFilter) => void;
+  totalCount: number;
+  allowInfinitePageSize?: boolean;
+  infinitePageSizeOnly?: boolean;
+  showPagingControls?: boolean;
+  className?: string;
+}
+
+export function DetailListPagination({ filter, onFilterChange, totalCount, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, className = "mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-1 py-4" }: DetailListPaginationProps) {
+  const page = filter.page ?? 1;
+  const perPage = filter.perPage ?? 24;
+  const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
+  const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
+  const totalPages = Math.max(1, Math.ceil(totalCount / effectivePerPage));
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
+
+  if (!showPagingControls || infinitePageSize || totalPages <= 1) return null;
+
+  const goTo = (nextPage: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, nextPage)) });
+
+  return (
+    <div className={className}>
+      <PaginationControls page={clampedPage} totalPages={totalPages} goTo={goTo} />
+    </div>
+  );
 }
 
 export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode, filterDefaultKey, defaultFilterResolved = false }: DetailListToolbarProps) {
@@ -130,7 +160,6 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
     }
   };
 
-  const goTo = (nextPage: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, nextPage)) });
   const activeObjectFilter = objectFilter ?? {};
 
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
@@ -285,27 +314,15 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         </div>
       )}
 
-      {showPagingControls && !infinitePageSize && totalPages > 1 && (
-        <div className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-center gap-1 py-1">
-          <button disabled={clampedPage <= 1} onClick={() => goTo(1)}
-            className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
-            <ChevronsLeft className="w-3.5 h-3.5" />
-          </button>
-          <button disabled={clampedPage <= 1} onClick={() => goTo(clampedPage - 1)}
-            className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <span className="px-2 text-xs text-muted">{clampedPage} / {totalPages}</span>
-          <button disabled={clampedPage >= totalPages} onClick={() => goTo(clampedPage + 1)}
-            className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-          <button disabled={clampedPage >= totalPages} onClick={() => goTo(totalPages)}
-            className={`${toolbarIconButtonClass} disabled:cursor-not-allowed disabled:opacity-30`}>
-            <ChevronsRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={onFilterChange}
+        totalCount={totalCount}
+        allowInfinitePageSize={allowInfinitePageSize}
+        infinitePageSizeOnly={infinitePageSizeOnly}
+        showPagingControls={showPagingControls}
+        className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-center gap-1 py-1"
+      />
       {criteriaDefinitions && onObjectFilterChange ? (
         <FilterDialog
           open={filterDialogOpen}

@@ -118,7 +118,7 @@ describe("FaceDetailPage", () => {
           distance: 0.1234,
         },
       ],
-      totalCount: 1,
+      totalCount: 20,
       page: 1,
       perPage: 18,
     });
@@ -135,6 +135,7 @@ describe("FaceDetailPage", () => {
 
     expect(await screen.findByText("Nearest neighbors from the face embedding index.")).toBeInTheDocument();
     expect(await screen.findByText("Similar Jane")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "2" })).toHaveLength(2);
     expect(mockFaces.similar).toHaveBeenCalledWith(7, expect.objectContaining({ k: 250 }));
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(2);
 
@@ -173,6 +174,5 @@ describe("FaceDetailPage", () => {
     expect(mockGoBack).toHaveBeenCalled();
   });
 });
-
 
 

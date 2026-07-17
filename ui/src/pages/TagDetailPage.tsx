@@ -10,7 +10,7 @@ import { DetailMergeDialog } from "../components/DetailMergeDialog";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AudioTile, VideoCard, PerformerTile, ImageTile, GalleryTile, StudioTile, GroupTile, SegmentTile, TextTile } from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { DetailListToolbar } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListQueryState } from "../components/ListQueryState";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
@@ -459,6 +459,7 @@ function TagVideosPanel({ tagId, includeSubTags, onNavigate }: {
       <>
         {toolbar}
         <RelatedEntityListView entityType="videos" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+        <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize />
         {quickViewId !== null && (
           <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
         )}
@@ -492,7 +493,7 @@ function TagPerformersPanel({ tagId, includeSubTags, onNavigate }: {
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<UserRound className="h-10 w-10" />} message="Loading performers..." />} empty={<>{toolbar}<EmptyPanel icon={<UserRound className="h-12 w-12" />} message="No performers with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="performers" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="performers" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }
@@ -526,6 +527,7 @@ function TagImagesPanel({ tagId, includeSubTags, onNavigate }: {
       <>
         {toolbar}
         <RelatedEntityListView entityType="images" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+        <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize />
         {quickViewId !== null && <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />}
       </>
     </ListQueryState>
@@ -557,7 +559,7 @@ function TagGalleriesPanel({ tagId, includeSubTags, onNavigate }: {
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />} empty={<>{toolbar}<EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="galleries" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="galleries" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }
@@ -584,7 +586,7 @@ function TagAudiosPanel({ tagId, includeSubTags, onNavigate }: {
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />} empty={<>{toolbar}<EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="audios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="audios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }
@@ -611,7 +613,7 @@ function TagTextsPanel({ tagId, includeSubTags, onNavigate }: {
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />} empty={<>{toolbar}<EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="texts" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="texts" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }
@@ -708,7 +710,7 @@ function TagSegmentsPanel({ tagId, includeSubTags, onNavigate }: { tagId: number
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading segments..." />} empty={<>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No segments with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="segments" items={items} displayMode={displayMode} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="segments" items={items} displayMode={displayMode} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }
@@ -738,7 +740,7 @@ function TagStudiosPanel({ tagId, includeSubTags, onNavigate }: {
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<Building2 className="h-10 w-10" />} message="Loading studios..." />} empty={<>{toolbar}<EmptyPanel icon={<Building2 className="h-12 w-12" />} message="No studios with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="studios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="studios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }
@@ -768,7 +770,7 @@ function TagGroupsPanel({ tagId, includeSubTags, onNavigate }: {
 
   return (
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />} empty={<>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups with this tag" /></>}>
-      <>{toolbar}<RelatedEntityListView entityType="groups" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /></>
+      <>{toolbar}<RelatedEntityListView entityType="groups" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} /><DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize /></>
     </ListQueryState>
   );
 }

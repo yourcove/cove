@@ -77,7 +77,7 @@ import { AiDataSettingsPanel } from "./settings/AiDataSettingsPanel";
 import { SortableList } from "../components/SortableList";
 import { JobCard } from "../components/JobCard";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { PaginationControls } from "../components/ListPage";
+import { PaginationControls } from "../components/PaginationControls";
 import { CheckboxLabel, CollapsibleSection, InfoPair, NumberField, SectionCard, SelectField, TaskCard, TextAreaField, TextField } from "../components/SettingsPrimitives";
 import {
   DEFAULT_BATCH_DOWNLOAD_GENERATE_OPTIONS,
@@ -7319,5 +7319,3 @@ function ExtBadge({ label }: { label: string }) {
     </span>
   );
 }
-
-

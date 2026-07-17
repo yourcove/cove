@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DetailListToolbar } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 
 vi.mock("../api/client", () => ({
   savedFilters: {
@@ -51,6 +51,67 @@ describe("DetailListToolbar", () => {
       perPage: 24,
       q: "summer",
     }));
+  });
+
+  it("renders matching pagination above and below a finite detail list", async () => {
+    const user = userEvent.setup();
+    const onFilterChange = vi.fn();
+    const filter = { page: 1, perPage: 24, sort: "title", direction: "desc" as const };
+
+    render(
+      <>
+        <DetailListToolbar
+          filter={filter}
+          onFilterChange={onFilterChange}
+          totalCount={100}
+          sortOptions={[{ value: "title", label: "Title" }]}
+          allowInfinitePageSize
+        />
+        <div>Results</div>
+        <DetailListPagination
+          filter={filter}
+          onFilterChange={onFilterChange}
+          totalCount={100}
+          allowInfinitePageSize
+        />
+      </>,
+    );
+
+    const pageTwoButtons = screen.getAllByRole("button", { name: "2" });
+    expect(pageTwoButtons).toHaveLength(2);
+
+    await user.click(pageTwoButtons[1]);
+
+    expect(onFilterChange).toHaveBeenCalledWith({
+      page: 2,
+      perPage: 24,
+      sort: "title",
+      direction: "desc",
+    });
+  });
+
+  it("does not render detail pagination for infinite or single-page lists", () => {
+    const { rerender } = render(
+      <DetailListPagination
+        filter={{ page: 1, perPage: 0 }}
+        onFilterChange={vi.fn()}
+        totalCount={100}
+        allowInfinitePageSize
+      />,
+    );
+
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+
+    rerender(
+      <DetailListPagination
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={24}
+        allowInfinitePageSize
+      />,
+    );
+
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows and removes applied object-filter parameters", async () => {
