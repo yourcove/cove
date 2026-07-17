@@ -34,6 +34,7 @@ import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../components/RelatedEntityListView";
+import { ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { getLoadError } from "../utils/queryLoadState";
@@ -2026,15 +2027,16 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter
+    ? videos.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
+      })
+    : videos.find(nextFilter, { groupId: String(groupId) }), [groupId, hasObjectFilter, objectFilter]);
   const { data: groupVideos, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["group-videos", groupId, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
-      ? videos.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
-        })
-      : videos.find(nextFilter, { groupId: String(groupId) }),
+    queryFn: queryPage,
   });
   const deleteItemMutation = useMutation({
     mutationFn: (itemId: number) => groups.items.delete(groupId, itemId),
@@ -2203,7 +2205,7 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="videos" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+      <ContextualVideoListView items={items} filter={filter} totalCount={groupVideos.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
       <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={groupVideos.totalCount} allowInfinitePageSize />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />

@@ -85,7 +85,7 @@ export function useRelatedEntityDisplayMode(entityType: RelatedEntityType) {
   return { displayMode: coercedDisplayMode, setDisplayMode, availableDisplayModes };
 }
 
-interface RelatedEntityListViewProps<TItem extends RelatedEntityItem> extends InfiniteEntityLoadingState {
+export interface RelatedEntityListViewProps<TItem extends RelatedEntityItem> extends InfiniteEntityLoadingState {
   entityType: RelatedEntityType;
   items: TItem[];
   displayMode: DetailListDisplayMode;

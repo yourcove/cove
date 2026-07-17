@@ -203,3 +203,7 @@ export function useVideoQueue() {
   if (!ctx) throw new Error("useVideoQueue must be used within VideoQueueProvider");
   return ctx;
 }
+
+export function useOptionalVideoQueue() {
+  return useContext(VideoQueueContext);
+}

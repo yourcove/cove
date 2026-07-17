@@ -50,6 +50,7 @@ import {
 } from "../utils/batchDownloads";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { getLoadError } from "../utils/queryLoadState";
+import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
 
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 
@@ -494,57 +495,25 @@ export function VideosPage({ onNavigate }: Props) {
     setBatchDownloadOptions(loadStoredBatchDownloadOptions(batchDownloadStorageKey));
   }, [batchDownloadStorageKey]);
 
-  const navigateToVideo = useCallback((videoId: number) => {
-    const ids = items.map((s) => s.id);
-    const queueItems = items.map((video) => ({
-      id: video.id,
-      title: video.title || video.files[0]?.basename || `Video ${video.id}`,
-      subtitle: video.studioName || video.date || undefined,
-      imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-    }));
-    if (ids.length > 0) {
-      const queryPage = (nextFilter: FindFilter) => {
-        if (visualSearchActive) {
-          return visualSimilarity.searchVideos({
-            findFilter: nextFilter,
-            objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
-          });
-        }
-
-        return hasObjectFilter
-          ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
-          : videos.find(nextFilter);
-      };
-      const toQueueItems = (pageItems: Video[]) => pageItems.map((video) => ({
-        id: video.id,
-        title: video.title || video.files[0]?.basename || `Video ${video.id}`,
-        subtitle: video.studioName || video.date || undefined,
-        imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-      }));
-      const pageSize = filter.perPage ?? 40;
-      let firstPage = filter.page ?? 1;
-      let lastPage = firstPage;
-      const count = totalCount ?? ids.length;
-      setQueue(ids, videoId, queueItems, !infinitePageSize ? {
-        autoplay: continuePlaylistDefault,
-        startIndex: (firstPage - 1) * pageSize,
-        totalCount: count,
-        loadPrevious: firstPage > 1 ? async () => {
-          const page = firstPage - 1;
-          const response = await queryPage({ ...filter, page });
-          firstPage = page;
-          return { items: toQueueItems(response.items), hasMore: page > 1 };
-        } : undefined,
-        loadNext: lastPage * pageSize < count ? async () => {
-          const page = lastPage + 1;
-          const response = await queryPage({ ...filter, page });
-          lastPage = page;
-          return { items: toQueueItems(response.items), hasMore: page * pageSize < response.totalCount };
-        } : undefined,
-      } : { autoplay: continuePlaylistDefault });
+  const queryVideoQueuePage = useCallback((nextFilter: FindFilter) => {
+    if (visualSearchActive) {
+      return visualSimilarity.searchVideos({
+        findFilter: nextFilter,
+        objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+      });
     }
-    onNavigate({ page: "video", id: videoId });
-  }, [backendObjectFilter, continuePlaylistDefault, filter, hasObjectFilter, infinitePageSize, items, onNavigate, setQueue, totalCount, visualSearchActive, visualSimilarity]);
+    return hasObjectFilter
+      ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+      : videos.find(nextFilter);
+  }, [backendObjectFilter, hasObjectFilter, visualSearchActive, visualSimilarity]);
+  const { openVideo: navigateToVideo, navigateFromList: navigateFromVideoList } = useVideoQueueNavigation({
+    items,
+    filter,
+    totalCount: totalCount ?? items.length,
+    infinitePageSize,
+    queryPage: queryVideoQueuePage,
+    onNavigate,
+  });
 
   const handlePlaySelected = useCallback(() => {
     const selectedVideos = items.filter((video) => selectedIds.has(video.id));
@@ -948,7 +917,7 @@ export function VideosPage({ onNavigate }: Props) {
                 soundEnabled={feedAudioVideoId === video.id}
                 onToggleSound={() => setFeedAudioVideoId((current) => current === video.id ? null : video.id)}
                 onPlaybackEligibilityChange={defaultFeedVideoSound ? (eligible) => setFeedAudioVideoId((current) => eligible ? video.id : current === video.id ? null : current) : undefined}
-                onNavigate={onNavigate}
+                onNavigate={navigateFromVideoList}
                 canEngage={canEngageVideo}
                 selected={selectedIds.has(video.id)}
                 selecting={selecting}
@@ -1005,7 +974,7 @@ export function VideosPage({ onNavigate }: Props) {
         )
       )}
       {displayMode === "list" && (
-        <VideoListTable entries={listEntries} engagementById={engagementById} onNavigate={onNavigate} selectedIds={selectedIds} onToggle={toggle} selecting={selecting} />
+        <VideoListTable entries={listEntries} engagementById={engagementById} onNavigate={navigateFromVideoList} selectedIds={selectedIds} onToggle={toggle} selecting={selecting} />
       )}
       {displayMode === "wall" && (
         <VirtualizedWallColumns

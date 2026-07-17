@@ -13,7 +13,6 @@ import { IMAGE_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog, IMAGE_BULK_FIELDS } from "../components/BulkEditDialog";
 import { ImageTile } from "../components/EntityCards";
 import type { LightboxImage } from "../components/Lightbox";
-import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
@@ -32,6 +31,7 @@ import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { useAppConfig } from "../state/AppConfigContext";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
+import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 
 const Lightbox = lazy(() => import("../components/Lightbox").then((module) => ({ default: module.Lightbox })));
 const ImageCreateModal = lazy(() => import("./ImageEditModal").then((module) => ({ default: module.ImageCreateModal })));
@@ -71,11 +71,6 @@ export function ImagesPage({ onNavigate }: Props) {
   });
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [lightboxAutoPlay, setLightboxAutoPlay] = useState(false);
-  const [lightboxScopeIds, setLightboxScopeIds] = useState<Set<number> | null>(null);
-  const [lightboxPageBounds, setLightboxPageBounds] = useState(() => ({ first: filter.page ?? 1, last: filter.page ?? 1 }));
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const lastPagedFilterRef = useRef<Pick<FindFilter, "page" | "perPage">>({ page: defaultState.filter.page ?? 1, perPage: defaultState.filter.perPage });
@@ -193,52 +188,32 @@ export function ImagesPage({ onNavigate }: Props) {
   const selectedVisibleImages = useMemo(() => items.filter((item) => selectedIds.has(item.id)), [items, selectedIds]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const lightboxSourceItems = useMemo(
-    () => lightboxScopeIds ? items.filter((item) => lightboxScopeIds.has(item.id)) : items,
-    [items, lightboxScopeIds],
-  );
-  const lightboxImages: LightboxImage[] = useMemo(
-    () => lightboxSourceItems.map((img) => ({
+  const toLightboxImage = useCallback(
+    (img: Image): LightboxImage => ({
       id: img.id,
       src: images.imageUrl(img.id),
       title: getImageDisplayTitle(img),
       interactionSource: "imagesPage",
       interactionMeta: { pageKey: "images" },
-    })),
-    [lightboxSourceItems],
+    }),
+    [],
   );
-
-  const closeLightbox = useCallback(() => {
-    setLightboxOpen(false);
-    setLightboxAutoPlay(false);
-    setLightboxScopeIds(null);
-  }, []);
-
-  const openListLightbox = useCallback((imageId: number) => {
-    setLightboxScopeIds(null);
-    const page = filter.page ?? 1;
-    setLightboxPageBounds({ first: page, last: page });
-    setLightboxAutoPlay(false);
-    setLightboxIndex(Math.max(0, items.findIndex((item) => item.id === imageId)));
-    setLightboxOpen(true);
-  }, [filter.page, items]);
-
-  const loadLightboxPage = useCallback(async (page: number, direction: "previous" | "next") => {
-    const response = await queryImagesPage({ ...filter, page });
-    setLightboxPageBounds((bounds) => extendLightboxPageBounds(bounds, page, direction));
-    return response.items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: getImageDisplayTitle(img), interactionSource: "imagesPage", interactionMeta: { pageKey: "images" } }));
-  }, [filter, queryImagesPage]);
+  const imageLightbox = usePaginatedImageLightbox({
+    items,
+    filter,
+    totalCount,
+    infinitePageSize,
+    queryPage: queryImagesPage,
+    toLightboxImage,
+  });
 
   const playSelectedImages = useCallback(() => {
     if (selectedVisibleImages.length === 0) {
       return;
     }
 
-    setLightboxScopeIds(new Set(selectedVisibleImages.map((image) => image.id)));
-    setLightboxIndex(0);
-    setLightboxAutoPlay(selectedVisibleImages.length > 1);
-    setLightboxOpen(true);
-  }, [selectedVisibleImages]);
+    imageLightbox.openScope(selectedVisibleImages);
+  }, [imageLightbox, selectedVisibleImages]);
 
   const handleFilterChange = useCallback((next: typeof filter) => {
     setFilter(withSeededRandomSort(filter, next));
@@ -427,7 +402,7 @@ export function ImagesPage({ onNavigate }: Props) {
               }}
               onPreview={(toggleOptions) => {
                 if (selecting) { toggle(img.id, toggleOptions); return; }
-                openListLightbox(img.id);
+                imageLightbox.openImage(img.id);
               }}
               onDetails={() => {
                 if (selecting) { toggle(img.id); return; }
@@ -473,20 +448,11 @@ export function ImagesPage({ onNavigate }: Props) {
       isPending={bulkEditMut.isPending}
     />
     <Suspense fallback={null}>
-      {lightboxOpen ? (
+      {imageLightbox.lightboxProps.open ? (
         <Lightbox
-          images={lightboxImages}
-          initialIndex={lightboxIndex}
-          open={lightboxOpen}
-          onClose={closeLightbox}
+          {...imageLightbox.lightboxProps}
           slideshowDelay={config?.ui.slideshowDelay}
-          autoPlay={lightboxAutoPlay}
           canEngage={canEngageImage}
-          hasPrevious={!lightboxScopeIds && !infinitePageSize && lightboxPageBounds.first > 1}
-          hasNext={!lightboxScopeIds && !infinitePageSize && lightboxPageBounds.last * (filter.perPage ?? 40) < totalCount}
-          loadPrevious={() => loadLightboxPage(lightboxPageBounds.first - 1, "previous")}
-          loadNext={() => loadLightboxPage(lightboxPageBounds.last + 1, "next")}
-          wrap={lightboxScopeIds !== null || infinitePageSize}
         />
       ) : null}
       {quickViewId !== null ? (
