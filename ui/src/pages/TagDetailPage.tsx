@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, galleries, groups, images, performers, videos, segmentLibrary, studios, tags, texts, entityImages } from "../api/client";
-import type { Audio, AudioFilterCriteria, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, SegmentRecord, Studio, StudioFilterCriteria, TagDetail as TagDetailModel, TextDocument, TextFilterCriteria } from "../api/types";
+import type { Audio, AudioFilterCriteria, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, SegmentRecord, Studio, StudioFilterCriteria, TagDetail as TagDetailModel, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { Building2, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MoreVertical, Music, Pencil, Search, Tag as TagIcon, Trash2, UserRound } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TagEditModal } from "./TagEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
@@ -23,6 +23,7 @@ import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { TagMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
+import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
@@ -439,15 +440,16 @@ function TagVideosPanel({ tagId, includeSubTags, onNavigate }: {
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "tag-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: "videos" });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter || includeSubTags
+    ? videos.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+      })
+    : videos.find(nextFilter, { tagIds: String(tagId) }), [hasObjectFilter, includeSubTags, objectFilter, tagId]);
   const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["tag-videos", tagId, objectFilter, includeSubTags],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
-      ? videos.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
-        })
-      : videos.find(nextFilter, { tagIds: String(tagId) }),
+    queryFn: queryPage,
   });
   const items = data?.items ?? [];
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
@@ -458,7 +460,7 @@ function TagVideosPanel({ tagId, includeSubTags, onNavigate }: {
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />} empty={<>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos with this tag" /></>}>
       <>
         {toolbar}
-        <RelatedEntityListView entityType="videos" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+        <ContextualVideoListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
         <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize />
         {quickViewId !== null && (
           <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
@@ -507,15 +509,16 @@ function TagImagesPanel({ tagId, includeSubTags, onNavigate }: {
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "tag-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" }, defaultFilterKey: "images" });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter || includeSubTags
+    ? images.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as ImageFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
+      })
+    : images.find(nextFilter, { tagIds: String(tagId) }), [hasObjectFilter, includeSubTags, objectFilter, tagId]);
   const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
     queryKey: ["tag-images", tagId, objectFilter, includeSubTags],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter || includeSubTags
-      ? images.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as ImageFilterCriteria, "tagsCriterion", tagId, includeSubTags ? -1 : undefined),
-        })
-      : images.find(nextFilter, { tagIds: String(tagId) }),
+    queryFn: queryPage,
   });
   const items = data?.items ?? [];
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
@@ -526,7 +529,7 @@ function TagImagesPanel({ tagId, includeSubTags, onNavigate }: {
     <ListQueryState isLoading={isLoading} loadError={loadError} isEmpty={items.length === 0} onRetry={() => { void retry(); }} loading={<LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />} empty={<>{toolbar}<EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images with this tag" /></>}>
       <>
         {toolbar}
-        <RelatedEntityListView entityType="images" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+        <ContextualImageListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} interactionSource="tagDetailPage" interactionMeta={{ tagId }} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
         <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} allowInfinitePageSize />
         {quickViewId !== null && <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />}
       </>

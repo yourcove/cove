@@ -9,7 +9,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
-import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 import { InteractiveRating } from "../components/Rating";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
@@ -33,10 +32,12 @@ import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
+import { ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
+import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 
 interface Props {
   id: number;
@@ -81,9 +82,6 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     { key: "videos", label: "Videos", count: gallery?.videoCount ?? 0 },
     { key: "fileinfo", label: "File Info" },
   ]);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [lightboxPageBounds, setLightboxPageBounds] = useState(() => ({ first: imageFilter.page ?? 1, last: imageFilter.page ?? 1 }));
   const [imageZoom, setImageZoom] = useState(0);
   const [showAddImages, setShowAddImages] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -216,30 +214,21 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const lightboxImages: LightboxImage[] = useMemo(
-    () => (galleryImages?.items ?? []).map((img) => ({
+  const toLightboxImage = useCallback((img: Image): LightboxImage => ({
       id: img.id,
       src: images.imageUrl(img.id),
       title: img.title,
       interactionSource: "galleryDetailPage",
       interactionMeta: { galleryId: id },
-    })),
-    [galleryImages, id],
-  );
-
-  const openGalleryLightbox = useCallback((imageId: number) => {
-    const visibleImages = galleryImages?.items ?? [];
-    const page = imageFilter.page ?? 1;
-    setLightboxPageBounds({ first: page, last: page });
-    setLightboxIndex(Math.max(0, visibleImages.findIndex((image) => image.id === imageId)));
-    setLightboxOpen(true);
-  }, [galleryImages, imageFilter.page]);
-
-  const loadGalleryLightboxPage = useCallback(async (page: number, direction: "previous" | "next") => {
-    const response = await queryGalleryImages({ ...imageFilter, page });
-    setLightboxPageBounds((bounds) => extendLightboxPageBounds(bounds, page, direction));
-    return response.items.map((img) => ({ id: img.id, src: images.imageUrl(img.id), title: img.title, interactionSource: "galleryDetailPage", interactionMeta: { galleryId: id } }));
-  }, [id, imageFilter, queryGalleryImages]);
+    }), [id]);
+  const galleryLightbox = usePaginatedImageLightbox({
+    items: galleryImages?.items ?? [],
+    filter: imageFilter,
+    totalCount: galleryImages?.totalCount ?? 0,
+    infinitePageSize: imageInfinitePageSize,
+    queryPage: queryGalleryImages,
+    toLightboxImage,
+  });
 
   if (isLoading) {
     return (
@@ -277,7 +266,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
               fetchAllIds={fetchAllImageIds}
               loadMore={loadMoreImages}
             onShowAddImages={() => setShowAddImages(true)}
-            onLightbox={openGalleryLightbox}
+            onLightbox={galleryLightbox.openImage}
             imageZoom={imageZoom}
             setImageZoom={setImageZoom}
             canWriteGallery={canWriteGallery}
@@ -444,16 +433,8 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       )}
 
       <Lightbox
-        images={lightboxImages}
-        initialIndex={lightboxIndex}
-        open={lightboxOpen}
-        onClose={() => setLightboxOpen(false)}
+        {...galleryLightbox.lightboxProps}
         canEngage={canEngageImages}
-        hasPrevious={!imageInfinitePageSize && lightboxPageBounds.first > 1}
-        hasNext={!imageInfinitePageSize && lightboxPageBounds.last * (imageFilter.perPage ?? 60) < (galleryImages?.totalCount ?? 0)}
-        loadPrevious={() => loadGalleryLightboxPage(lightboxPageBounds.first - 1, "previous")}
-        loadNext={() => loadGalleryLightboxPage(lightboxPageBounds.last + 1, "next")}
-        wrap={imageInfinitePageSize}
       />
     </div>
   );
@@ -467,15 +448,16 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "gallery-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: GALLERY_VIDEOS_DEFAULT_FILTER_KEY });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter
+    ? videos.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
+      })
+    : videos.find(nextFilter, { galleryId: String(galleryId) }), [galleryId, hasObjectFilter, objectFilter]);
   const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
     queryKey: ["gallery-videos", galleryId, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
-      ? videos.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
-        })
-      : videos.find(nextFilter, { galleryId: String(galleryId) }),
+    queryFn: queryPage,
   });
   const items = data?.items ?? [];
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
@@ -517,7 +499,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="videos" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+      <ContextualVideoListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
       <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
