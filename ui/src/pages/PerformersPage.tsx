@@ -13,7 +13,7 @@ import { IsoDateInput } from "../components/IsoDateInput";
 import { Users, Heart, Merge, User } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
 import { PerformerTagger } from "../components/PerformerTagger";
-import { PerformerTile } from "../components/EntityCards";
+import { PerformerTile, CardExtensionSlot } from "../components/EntityCards";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
@@ -187,7 +187,9 @@ export function PerformersPage({ onNavigate }: Props) {
               selected={selectedIds.has(p.id)}
               onSelect={(toggleOptions) => toggle(p.id, toggleOptions)}
               selecting={selecting}
-            />
+            >
+              <CardExtensionSlot slot="performer-card-footer" context={{ performer: p, onNavigate }} />
+            </PerformerTile>
           )}
         />
       ) : (

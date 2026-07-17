@@ -1099,6 +1099,10 @@ export function ListPage({
         />
       )}
 
+      {/* A full-width `<pageKey>-list-row` slot below the toolbar — separate from the toolbar-end slots, which
+          sit in the right-aligned operations group and cannot host a row. Empty (no extension) renders nothing. */}
+      {pageKey && <ExtensionSlot slot={`${pageKey}-list-row`} context={slotContext} />}
+
       {/* Selection bar */}
       {showSelectionBar && (
         <div className="flex items-center gap-3 bg-card/80 border border-border rounded-lg px-3 py-1.5 mx-1 mt-1">
