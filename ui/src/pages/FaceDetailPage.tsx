@@ -8,7 +8,7 @@ import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibili
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { DetailListToolbar } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { ListQueryState } from "../components/ListQueryState";
 import { FaceSuggestionsPanel } from "../components/FaceSuggestionsPanel";
@@ -521,7 +521,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             availableDisplayModes={["grid", "list"]}
           />
           <FaceAppearancesGrid appearances={faceAppearancesPage.items} displayMode={appearanceDisplayMode} onNavigate={onNavigate} zoomLevel={appearanceZoomLevel} infinitePageSize={appearancesInfinitePageSize} hasNextPage={appearancesInfiniteQuery.hasNextPage} isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage} loadMore={loadMoreAppearances} />
-          {!appearancesInfinitePageSize ? <FaceTabPager filter={appearanceFilter} setFilter={setAppearanceFilter} totalCount={faceAppearancesPage.totalCount} /> : null}
+          <DetailListPagination filter={appearanceFilter} onFilterChange={setAppearanceFilter} totalCount={faceAppearancesPage.totalCount} allowInfinitePageSize />
         </>
       </ListQueryState>
     </section>
@@ -561,7 +561,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             availableDisplayModes={["grid", "list"]}
           />
           <SimilarFacesView faces={similarFacesPage.items} displayMode={similarDisplayMode} onNavigate={onNavigate} canReadPerformers={canReadPerformers} zoomLevel={similarZoomLevel} infinitePageSize={similarInfinitePageSize} hasNextPage={similarInfiniteQuery.hasNextPage} isFetchingNextPage={similarInfiniteQuery.isFetchingNextPage} loadMore={loadMoreSimilar} />
-          {!similarInfinitePageSize ? <FaceTabPager filter={similarFilter} setFilter={setSimilarFilter} totalCount={similarFacesPage.totalCount} /> : null}
+          <DetailListPagination filter={similarFilter} onFilterChange={setSimilarFilter} totalCount={similarFacesPage.totalCount} allowInfinitePageSize />
         </>
       </ListQueryState>
     </section>
@@ -959,41 +959,6 @@ function describeFaceDeleteImpact(deleteImpact: FaceDeleteImpact) {
 
 function formatCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function FaceTabPager({ filter, setFilter, totalCount }: { filter: FindFilter; setFilter: (filter: FindFilter) => void; totalCount: number }) {
-  const perPage = filter.perPage ?? 1;
-  const page = filter.page ?? 1;
-  const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
-  // Render from a clamped page so a stale out-of-range page (persisted from a longer list) shows the
-  // correct position and the Previous button stays usable instead of the pager vanishing entirely.
-  const clampedPage = Math.min(Math.max(1, page), totalPages);
-
-  if (totalPages <= 1) {
-    return null;
-  }
-
-  return (
-    <div className="mx-auto mt-6 flex max-w-7xl items-center justify-center gap-4">
-      <button
-        type="button"
-        disabled={clampedPage <= 1}
-        onClick={() => setFilter({ ...filter, page: clampedPage - 1 })}
-        className="rounded-lg border border-border px-3 py-2 text-sm text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        Previous
-      </button>
-      <span className="text-sm text-secondary">Page {clampedPage} of {totalPages}</span>
-      <button
-        type="button"
-        disabled={clampedPage >= totalPages}
-        onClick={() => setFilter({ ...filter, page: clampedPage + 1 })}
-        className="rounded-lg border border-border px-3 py-2 text-sm text-secondary transition-colors hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        Next
-      </button>
-    </div>
-  );
 }
 
 function SimilarFaceTile({ face, onNavigate, canReadPerformers }: { face: FaceSimilar; onNavigate: (r: any) => void; canReadPerformers: boolean }) {

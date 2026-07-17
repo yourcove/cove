@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
+import { ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
 import type { CriterionModifier, CustomFieldCriterion, CustomFieldDefinition, CustomFieldEntityType, CustomFieldType, ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { SavedFilterMenu } from "./SavedFilterMenu";
@@ -23,6 +23,7 @@ import { useExtensions } from "../extensions/ExtensionLoader";
 import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
 import { ListQueryState } from "./ListQueryState";
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
+import { PaginationControls } from "./PaginationControls";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -1186,75 +1187,4 @@ export function ListPage({
       )}
     </div>
   );
-}
-
-export function PaginationControls({ page, totalPages, goTo }: { page: number; totalPages: number; goTo: (p: number) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState(String(page));
-
-  const handleSubmit = () => {
-    const p = parseInt(inputValue, 10);
-    if (!isNaN(p) && p >= 1 && p <= totalPages) goTo(p);
-    setEditing(false);
-  };
-
-  return (
-    <>
-      <button onClick={() => goTo(1)} disabled={page <= 1} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded text-secondary hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 sm:min-h-0 sm:min-w-0 sm:p-1">
-        <ChevronsLeft className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={() => goTo(page - 1)} disabled={page <= 1} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded text-secondary hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 sm:min-h-0 sm:min-w-0 sm:p-1">
-        <ChevronLeft className="w-3.5 h-3.5" />
-      </button>
-      {getPageNumbers(page, totalPages).map((p, i) =>
-        p === -1 ? (
-          <span key={`ellipsis-${i}`} className="px-1 text-muted text-xs">…</span>
-        ) : (
-          <button
-            key={p}
-            onClick={() => goTo(p)}
-            className={`h-10 min-w-10 rounded text-sm font-medium sm:h-7 sm:min-w-[28px] sm:text-xs ${
-              p === page ? "bg-accent text-white" : "text-secondary hover:bg-card hover:text-foreground"
-            }`}
-          >
-            {p}
-          </button>
-        )
-      )}
-      <button onClick={() => goTo(page + 1)} disabled={page >= totalPages} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded text-secondary hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 sm:min-h-0 sm:min-w-0 sm:p-1">
-        <ChevronRight className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={() => goTo(totalPages)} disabled={page >= totalPages} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded text-secondary hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 sm:min-h-0 sm:min-w-0 sm:p-1">
-        <ChevronsRight className="w-3.5 h-3.5" />
-      </button>
-      {totalPages > 7 && (
-        editing ? (
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="ml-1 flex items-center gap-1">
-            <input
-              type="text"
-              autoFocus
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onBlur={handleSubmit}
-              className="h-10 w-14 rounded border border-border bg-input text-center text-sm text-foreground focus:border-accent focus:outline-none sm:h-7 sm:w-12 sm:text-xs"
-            />
-          </form>
-        ) : (
-          <button onClick={() => { setInputValue(String(page)); setEditing(true); }} className="ml-1 min-h-10 rounded border border-border px-3 text-sm text-muted hover:bg-card hover:text-foreground sm:h-7 sm:min-h-0 sm:px-2 sm:text-xs" title="Go to page…">
-            Go to…
-          </button>
-        )
-      )}
-    </>
-  );
-}
-
-function getPageNumbers(current: number, total: number): number[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const pages: number[] = [1];
-  if (current > 3) pages.push(-1);
-  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i);
-  if (current < total - 2) pages.push(-1);
-  pages.push(total);
-  return pages;
 }

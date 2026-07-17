@@ -11,7 +11,7 @@ import { AudioTile, EntityTileFrame, GroupTile, ImageTile, VideoCard, SegmentTil
 import { CompilationPlayer } from "../components/CompilationPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { DetailListToolbar, type DetailListDisplayMode } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar, type DetailListDisplayMode } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
@@ -871,6 +871,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
             )}
           />
         )}
+        <DetailListPagination filter={mixedFilter} onFilterChange={setMixedFilter} totalCount={totalItemCount} allowInfinitePageSize />
       </div>
     );
   }
@@ -908,6 +909,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
           renderItem={(item) => <GroupItemGridCard item={item} hydrated={hydratedItems.get(item.id)} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} selecting={selectedCount > 0} />}
         />
       )}
+      <DetailListPagination filter={mixedFilter} onFilterChange={setMixedFilter} totalCount={totalItemCount} allowInfinitePageSize />
     </div>
   );
 }
@@ -2202,6 +2204,7 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
     <>
       {toolbar}
       <RelatedEntityListView entityType="videos" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={groupVideos.totalCount} allowInfinitePageSize />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}

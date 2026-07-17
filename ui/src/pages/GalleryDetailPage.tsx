@@ -11,7 +11,7 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { extendLightboxPageBounds } from "../utils/lightboxPagination";
 import { InteractiveRating } from "../components/Rating";
-import { DetailListToolbar } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { PerformerBadgeRow } from "../components/EntityCards";
@@ -518,6 +518,7 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
     <>
       {toolbar}
       <RelatedEntityListView entityType="videos" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -606,6 +607,7 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
         </button>
       </div> : null}
       <RelatedEntityListView entityType="images" items={items} displayMode={displayMode} zoomLevel={imageZoom} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} onImagePreview={(image) => onLightbox(image.id)} onImageDetails={(image) => onNavigate({ page: "image", id: image.id })} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
+      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={galleryImages.totalCount} allowInfinitePageSize />
       {quickViewId !== null && (
         <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
