@@ -37,7 +37,7 @@ screenshots or logs where appropriate.
 
 ## Checklist
 
-- [ ] I have read and followed the [Contribution Guide](../CONTRIBUTING.md).
+- [ ] I have read and followed the [Contribution Guide](https://github.com/yourcove/cove/blob/main/CONTRIBUTING.md).
 - [ ] Builds and existing tests pass.
 - [ ] I added or updated tests where it makes sense.
 - [ ] I updated docs where needed.
