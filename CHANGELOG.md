@@ -10,11 +10,16 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-18
+
 - Extensions: settings tabs can now render as a full page. Passing `SettingsTabLayout.Page` to
   `AddSettingsTab` renders the tab's contributed panels full-width with no per-panel card chrome —
   for rich, app-like configuration that doesn't fit a stack of uniform cards. Layout is purely
   presentational: a page sources its content from the panels targeting it, exactly like the default
   `panels` layout, which is unchanged.
+- Many various UI bug fixes
+- Consolidate DB migrations
+- Improve Stash migration
 
 ## [0.9.0] - 2026-07-07
 
