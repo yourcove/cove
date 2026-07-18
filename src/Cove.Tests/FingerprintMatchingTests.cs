@@ -245,14 +245,48 @@ public class ThemeSystemTests
     }
 
     [Fact]
-    public void DefaultTheme_HasNoCssVariables()
+    public void DefaultTheme_DefinesItsOwnCssVariables()
     {
         var ext = new ThemeCollectionExtension();
         var manifest = ext.GetUIManifest();
-        var defaultTheme = manifest.Themes.First(t => t.Id == "legacy");
+        var defaultTheme = manifest.Themes.First(t => t.Id == "default");
 
-        // Default theme has no CSS overrides (uses the base CSS @theme values)
-        Assert.Null(defaultTheme.CssVariables);
+        Assert.NotNull(defaultTheme.CssVariables);
+        Assert.Equal("#16181d", defaultTheme.CssVariables!["--color-background"]);
+    }
+
+    [Fact]
+    public void LegacyTheme_HasPaletteDistinctFromDefault()
+    {
+        var ext = new ThemeCollectionExtension();
+        var manifest = ext.GetUIManifest();
+        var legacy = manifest.Themes.First(t => t.Id == "legacy");
+        var defaultTheme = manifest.Themes.First(t => t.Id == "default");
+
+        // Legacy once relied on the base CSS @theme values, so it silently became a
+        // duplicate of Default when that block was retuned. It now carries its own palette.
+        Assert.NotNull(legacy.CssVariables);
+        Assert.NotEqual(
+            defaultTheme.CssVariables!["--color-background"],
+            legacy.CssVariables!["--color-background"]);
+        Assert.NotEqual(
+            defaultTheme.CssVariables["--color-accent"],
+            legacy.CssVariables["--color-accent"]);
+    }
+
+    [Fact]
+    public void AllThemes_DefineCssVariables()
+    {
+        var ext = new ThemeCollectionExtension();
+        var manifest = ext.GetUIManifest();
+
+        // A theme with no CssVariables renders as whatever the baked-in @theme block
+        // happens to be, which makes it indistinguishable from Default.
+        foreach (var theme in manifest.Themes)
+        {
+            Assert.True(theme.CssVariables is { Count: > 0 },
+                $"Theme '{theme.Id}' defines no CSS variables and will inherit the base palette");
+        }
     }
 
     [Fact]
