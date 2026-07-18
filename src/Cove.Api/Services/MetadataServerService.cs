@@ -13,7 +13,7 @@ using Cove.Data;
 
 namespace Cove.Api.Services;
 
-public class MetadataServerService
+public class MetadataServerService : IMetadataServerService
 {
     private static readonly Regex LeadingVideoIndexRegex = new(@"^\s*(?:video\s+)?(?:\[\s*\d+\s*\]|\(\s*\d+\s*\)|\d+)\s*(?:[-â€“â€”:._)\]]\s*)+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
