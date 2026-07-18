@@ -10,6 +10,11 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-18
+
+- Last minute performance enhancements for list pages
+- Date filter fixes for "is null"
+
 ## [0.9.1] - 2026-07-18
 
 - Extensions: settings tabs can now render as a full page. Passing `SettingsTabLayout.Page` to

@@ -40,6 +40,9 @@ internal static class EffectiveTagDtoLoader
             .Where(tag => tagIds.Contains(tag.Id))
             .ToDictionaryAsync(tag => tag.Id, cancellationToken);
 
+        // Project to just the provenance fields rather than materializing whole TagApplication rows:
+        // tag_applications is one of the largest tables in the database and carries a payload column
+        // that nothing on this path reads.
         var provenanceRows = await db.TagApplications
             .AsNoTracking()
             .Where(application => application.HostType == hostType
@@ -47,10 +50,22 @@ internal static class EffectiveTagDtoLoader
                 && tagIds.Contains(application.TagId))
             .OrderBy(application => application.SourceKey)
             .ThenBy(application => application.CreatedAt)
+            .Select(application => new ProvenanceRow(
+                application.HostId,
+                application.TagId,
+                application.SourceKey,
+                application.SourceRunId,
+                application.ModelKey,
+                application.Confidence,
+                application.CreatedAt,
+                application.ContextType,
+                application.ContextId,
+                application.TotalDurationSec,
+                application.HostDurationSec))
             .ToListAsync(cancellationToken);
 
         var provenanceLookup = provenanceRows
-            .GroupBy(application => (application.HostId, application.TagId))
+            .GroupBy(row => (row.HostId, row.TagId))
             .ToDictionary(
                 group => group.Key,
                 group => group.Select(MapProvenance).ToList());
@@ -106,7 +121,20 @@ internal static class EffectiveTagDtoLoader
         return result;
     }
 
-    private static TagProvenanceDto MapProvenance(TagApplication application)
+    private sealed record ProvenanceRow(
+        int HostId,
+        int TagId,
+        string SourceKey,
+        string SourceRunId,
+        string ModelKey,
+        float? Confidence,
+        DateTime CreatedAt,
+        string? ContextType,
+        int? ContextId,
+        double? TotalDurationSec,
+        double? HostDurationSec);
+
+    private static TagProvenanceDto MapProvenance(ProvenanceRow application)
         => new(
             application.SourceKey,
             string.IsNullOrWhiteSpace(application.SourceRunId) ? null : application.SourceRunId,

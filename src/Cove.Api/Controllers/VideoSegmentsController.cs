@@ -20,10 +20,10 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
     {
         if (!await VideoExistsAsync(videoId, ct)) return NotFound();
 
-            var segments = await db.VisibleSegments()
+            var segments = await db.VisibleSegments(SegmentHostType.Video)
             .AsNoTracking()
             .Include(segment => segment.Tag)
-            .Where(segment => segment.HostType == SegmentHostType.Video && segment.HostId == videoId)
+            .Where(segment => segment.HostId == videoId)
             .OrderBy(segment => segment.StartSec)
             .ThenBy(segment => segment.Id)
             .ToListAsync(ct);
@@ -84,10 +84,10 @@ public class VideoSegmentsController(CoveContext db, SegmentSpanResolver spanRes
     [HttpGet("{id:int}")]
     public async Task<ActionResult<SegmentDto>> GetById(int videoId, int id, CancellationToken ct)
     {
-        var segment = await db.VisibleSegments()
+        var segment = await db.VisibleSegments(SegmentHostType.Video)
             .AsNoTracking()
             .Include(item => item.Tag)
-            .FirstOrDefaultAsync(item => item.Id == id && item.HostType == SegmentHostType.Video && item.HostId == videoId, ct);
+            .FirstOrDefaultAsync(item => item.Id == id && item.HostId == videoId, ct);
 
         if (segment is null)
             return NotFound();

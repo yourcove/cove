@@ -764,9 +764,9 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         if (ids.Count == 0)
             return [];
 
-        return await db.VisibleSegments()
+        return await db.VisibleSegments(SegmentHostType.Video)
             .AsNoTracking()
-            .Where(segment => segment.HostType == SegmentHostType.Video && segment.TagId.HasValue && ids.Contains(segment.TagId.Value))
+            .Where(segment => segment.TagId.HasValue && ids.Contains(segment.TagId.Value))
             .GroupBy(segment => segment.TagId!.Value)
             .Select(group => new { TagId = group.Key, Count = group.Count() })
             .ToDictionaryAsync(item => item.TagId, item => item.Count, ct);

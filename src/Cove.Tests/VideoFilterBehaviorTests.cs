@@ -41,6 +41,61 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task DateCriterion_NullModifiers_ApplyWithoutAValue()
+    {
+        await using var context = CreateContext();
+        var undated = CreateVideoWithFile("undated", basename: "undated.mp4");
+        undated.Date = null;
+        context.Videos.AddRange(CreateVideoWithFile("dated", videoDate: new DateOnly(2024, 5, 1)), undated);
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+
+        // The filter UI sends an empty value for IS_NULL/NOT_NULL, so these must not
+        // depend on Value parsing as a date.
+        var (isNullItems, isNullCount) = await repository.FindAsync(
+            new VideoFilter
+            {
+                DateCriterion = new DateCriterion { Value = string.Empty, Modifier = CriterionModifier.IsNull },
+            },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        var (notNullItems, notNullCount) = await repository.FindAsync(
+            new VideoFilter
+            {
+                DateCriterion = new DateCriterion { Value = string.Empty, Modifier = CriterionModifier.NotNull },
+            },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, isNullCount);
+        Assert.Equal(["undated"], isNullItems.Select(video => video.Title ?? string.Empty).ToArray());
+        Assert.Equal(1, notNullCount);
+        Assert.Equal(["dated"], notNullItems.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task PerformerDateCriterion_NullModifiers_ApplyWithoutAValue()
+    {
+        await using var context = CreateContext();
+        context.Performers.AddRange(
+            new Performer { Name = "living", Birthdate = new DateOnly(1990, 3, 4) },
+            new Performer { Name = "unknown-birthdate", Birthdate = null });
+        await context.SaveChangesAsync();
+
+        var repository = new PerformerRepository(context);
+
+        var (isNullItems, isNullCount) = await repository.FindAsync(
+            new PerformerFilter
+            {
+                BirthdateCriterion = new DateCriterion { Value = string.Empty, Modifier = CriterionModifier.IsNull },
+            },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, isNullCount);
+        Assert.Equal(["unknown-birthdate"], isNullItems.Select(performer => performer.Name).ToArray());
+    }
+
+    [Fact]
     public async Task AudioCodecCriterion_HandlesRegexAndNullModifiers()
     {
         await using var context = CreateContext();

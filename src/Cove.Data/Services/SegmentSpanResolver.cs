@@ -65,9 +65,9 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         if (uncachedIds.Count == 0)
             return results;
 
-        var allSegments = await db.VisibleSegments().AsNoTracking()
+        var allSegments = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
             .Include(segment => segment.Tag).ThenInclude(tag => tag!.TagGroup)
-            .Where(s => s.HostType == SegmentHostType.Video && uncachedIds.Contains(s.HostId))
+            .Where(s => uncachedIds.Contains(s.HostId))
             .OrderBy(s => s.StartSec)
             .ThenBy(s => s.Id)
             .ToListAsync(ct);
@@ -119,9 +119,9 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         if (uncachedIds.Count == 0)
             return results;
 
-        var allSegments = await db.VisibleSegments().AsNoTracking()
+        var allSegments = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
             .Include(segment => segment.Tag).ThenInclude(tag => tag!.TagGroup)
-            .Where(s => s.HostType == SegmentHostType.Video && uncachedIds.Contains(s.HostId))
+            .Where(s => uncachedIds.Contains(s.HostId))
             .OrderBy(s => s.StartSec)
             .ThenBy(s => s.Id)
             .ToListAsync(ct);
@@ -423,9 +423,9 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         if (memoryCache.TryGetValue<List<Segment>>(cacheKey, out var cached) && cached is not null)
             return cached;
 
-        var segments = await db.VisibleSegments().AsNoTracking()
+        var segments = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
             .Include(segment => segment.Tag).ThenInclude(tag => tag!.TagGroup)
-            .Where(segment => segment.HostType == SegmentHostType.Video && segment.HostId == videoId)
+            .Where(segment => segment.HostId == videoId)
             .OrderBy(segment => segment.StartSec)
             .ThenBy(segment => segment.Id)
             .ToListAsync(ct);

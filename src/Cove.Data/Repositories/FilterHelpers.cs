@@ -501,14 +501,21 @@ public static class FilterHelpers
     public static IQueryable<T> ApplyDate<T>(IQueryable<T> query, DateCriterion? criterion, Expression<Func<T, DateOnly?>> selector)
     {
         if (criterion == null) return query;
-        if (!DateOnly.TryParse(criterion.Value, out var d1)) return query;
-        DateOnly.TryParse(criterion.Value2, out var d2);
 
         var param = selector.Parameters[0];
         var body = selector.Body;
         // Get the .Value property of the Nullable<DateOnly>
         var value = Expression.Property(body, "Value");
         var hasValue = Expression.Property(body, "HasValue");
+
+        // Null checks carry no date value, so they must be handled before parsing.
+        if (criterion.Modifier == CriterionModifier.IsNull)
+            return query.Where(Expression.Lambda<Func<T, bool>>(Expression.Not(hasValue), param));
+        if (criterion.Modifier == CriterionModifier.NotNull)
+            return query.Where(Expression.Lambda<Func<T, bool>>(hasValue, param));
+
+        if (!DateOnly.TryParse(criterion.Value, out var d1)) return query;
+        DateOnly.TryParse(criterion.Value2, out var d2);
 
         return criterion.Modifier switch
         {
@@ -530,10 +537,6 @@ public static class FilterHelpers
                     Expression.OrElse(
                         Expression.LessThan(value, Expression.Constant(d1)),
                         Expression.GreaterThan(value, Expression.Constant(d2)))), param)),
-            CriterionModifier.IsNull => query.Where(Expression.Lambda<Func<T, bool>>(
-                Expression.Not(hasValue), param)),
-            CriterionModifier.NotNull => query.Where(Expression.Lambda<Func<T, bool>>(
-                hasValue, param)),
             _ => query,
         };
     }

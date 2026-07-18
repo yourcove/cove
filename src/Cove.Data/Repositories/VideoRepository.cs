@@ -129,15 +129,18 @@ public class VideoRepository : IVideoRepository
         if (pagedIds.Count == 0)
             return (Array.Empty<Video>(), totalCount);
 
-        // Load full entities only for the paged IDs
+        // Load full entities only for the paged IDs.
+        // Deliberately narrower than GetByIdWithRelationsAsync: the list DTO (VideosController.MapListToDto)
+        // emits empty fingerprint/caption arrays and always sources tags from EffectiveTagDtoLoader, so
+        // including Files.Fingerprints or the VideoTags -> Tag -> TagGroup chain here costs two extra
+        // split-query round trips per page whose rows are then discarded.
         var items = await _db.Videos
             .Include(s => s.Studio)
             .Include(s => s.Urls)
-            .Include(s => s.VideoTags).ThenInclude(st => st.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
-            .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
+            .Include(s => s.Files)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .Where(s => pagedIds.Contains(s.Id))
@@ -235,7 +238,16 @@ public class VideoRepository : IVideoRepository
             if (filter.DateCriterion != null)
             {
                 var crit = filter.DateCriterion;
-                if (DateOnly.TryParse(crit.Value, out var d1))
+                // Null checks carry no date value, so they must be handled before parsing.
+                if (crit.Modifier == CriterionModifier.IsNull)
+                {
+                    query = query.Where(s => s.Date == null);
+                }
+                else if (crit.Modifier == CriterionModifier.NotNull)
+                {
+                    query = query.Where(s => s.Date != null);
+                }
+                else if (DateOnly.TryParse(crit.Value, out var d1))
                 {
                     DateOnly.TryParse(crit.Value2, out var d2);
                     query = crit.Modifier switch
@@ -246,8 +258,6 @@ public class VideoRepository : IVideoRepository
                         CriterionModifier.LessThan => query.Where(s => s.Date < d1),
                         CriterionModifier.Between => query.Where(s => s.Date >= d1 && s.Date <= d2),
                         CriterionModifier.NotBetween => query.Where(s => s.Date < d1 || s.Date > d2),
-                        CriterionModifier.IsNull => query.Where(s => s.Date == null),
-                        CriterionModifier.NotNull => query.Where(s => s.Date != null),
                         _ => query,
                     };
                 }

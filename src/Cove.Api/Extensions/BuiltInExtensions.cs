@@ -63,7 +63,24 @@ public class ThemeCollectionExtension : IExtension, IUIExtension
             new UIThemeDefinition(
                 Id: "legacy",
                 Name: "Legacy",
-                Description: "A nostalgic theme"
+                Description: "A nostalgic theme",
+                CssVariables: new()
+                {
+                    ["--color-background"] = "#202b33",
+                    ["--color-nav"] = "#1a2329",
+                    ["--color-card"] = "#30404d",
+                    ["--color-card-hover"] = "#394b59",
+                    ["--color-surface"] = "#283540",
+                    ["--color-border"] = "#394b59",
+                    ["--color-input"] = "rgba(16, 22, 26, 0.3)",
+                    ["--color-accent"] = "#137cbd",
+                    ["--color-accent-hover"] = "#48aff0",
+                    ["--color-foreground"] = "#f5f8fa",
+                    ["--color-secondary"] = "#bfccd6",
+                    ["--color-muted"] = "#8a9ba8",
+                    ["--color-overlay"] = "rgba(0, 0, 0, 0.6)",
+                    ["--color-nav-active"] = "#137cbd",
+                }
             ),
             new UIThemeDefinition(
                 Id: "light",

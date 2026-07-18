@@ -76,8 +76,124 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var sortKey = NormalizeSort(sort);
         var descending = !string.Equals(direction, "asc", StringComparison.OrdinalIgnoreCase);
 
+        // Segment-only predicates are applied to a bare Segments query BEFORE the display joins are
+        // added. The joins (video/tag/face/performer) exist purely to decorate the returned page, but
+        // when they sit underneath the filter chain the COUNT has to drag all five of them across
+        // every matching row — on a multi-million-row segments table that costs seconds. Filtering
+        // first lets the unfiltered COUNT run against segments alone (see the countQuery below).
+        var segmentQuery = db.Segments.AsNoTracking().Where(segment => segment.HostType == SegmentHostType.Video);
+
+        var parsedIds = ParseIdList(ids);
+        if (parsedIds.Count > 0)
+            segmentQuery = segmentQuery.Where(segment => parsedIds.Contains(segment.Id));
+
+        var parsedVideoIds = ParseIdList(videoIds);
+        var parsedExcludeVideoIds = ParseIdList(excludeVideoIds);
+        if (videoId.HasValue)
+            segmentQuery = segmentQuery.Where(segment => segment.HostId == videoId.Value);
+        else if (parsedVideoIds.Count > 0)
+            segmentQuery = segmentQuery.Where(segment => parsedVideoIds.Contains(segment.HostId));
+
+        if (parsedExcludeVideoIds.Count > 0)
+            segmentQuery = segmentQuery.Where(segment => !parsedExcludeVideoIds.Contains(segment.HostId));
+
+        var parsedTagIds = ParseIdList(tagIds);
+        IReadOnlyCollection<int>? requiredTagIds = null;
+        if (tagDepth == -1 && tagId.HasValue)
+        {
+            requiredTagIds = (await HierarchicalCriterionExpander.ExpandTagsAsync(db,
+                new MultiIdCriterion { Value = [tagId.Value], Modifier = CriterionModifier.Includes, Depth = -1 },
+                cancellationToken)).Criterion.Value;
+            tagId = null;
+        }
+        if (tagId.HasValue)
+            segmentQuery = segmentQuery.Where(segment => segment.TagId == tagId.Value);
+        if (requiredTagIds is { Count: > 0 })
+            segmentQuery = segmentQuery.Where(segment => segment.TagId.HasValue && requiredTagIds.Contains(segment.TagId.Value));
+        if (parsedTagIds.Count > 0)
+            segmentQuery = segmentQuery.Where(segment => segment.TagId.HasValue && parsedTagIds.Contains(segment.TagId.Value));
+
+        if (!string.IsNullOrWhiteSpace(kind))
+        {
+            var normalizedKind = kind.Trim().ToLowerInvariant();
+            segmentQuery = segmentQuery.Where(segment => segment.Kind != null && segment.Kind.ToLower().Contains(normalizedKind));
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceKey))
+        {
+            var normalizedSourceKey = sourceKey.Trim().ToLowerInvariant();
+            segmentQuery = segmentQuery.Where(segment => segment.SourceKey.ToLower().Contains(normalizedSourceKey));
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceCategory))
+        {
+            var normalizedSourceCategory = sourceCategory.Trim().ToLowerInvariant();
+            segmentQuery = normalizedSourceCategory switch
+            {
+                "extensions" => segmentQuery.Where(segment => segment.SourceKey.StartsWith("ext:")),
+                "user" => segmentQuery.Where(segment => segment.SourceKey == "user"),
+                _ => segmentQuery,
+            };
+        }
+
+        var parsedRefIds = ParseLongIdList(refIds);
+        if (parsedRefIds.Count > 0)
+            segmentQuery = segmentQuery.Where(segment => segment.RefId.HasValue
+                && parsedRefIds.Contains(segment.RefId.Value)
+                && segment.Kind != null
+                && segment.Kind.ToLower() == "face");
+
+        if (tagged.HasValue)
+            segmentQuery = tagged.Value
+                ? segmentQuery.Where(segment => segment.TagId != null)
+                : segmentQuery.Where(segment => segment.TagId == null);
+
+        if (minConfidence.HasValue)
+            segmentQuery = segmentQuery.Where(segment => segment.Confidence.HasValue && segment.Confidence.Value >= minConfidence.Value);
+
+        if (confidence.HasValue)
+            segmentQuery = ApplyConfidenceCriterion(segmentQuery, confidence.Value, confidence2, confidenceModifier);
+
+        if (minDurationSec.HasValue)
+            segmentQuery = segmentQuery.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) >= minDurationSec.Value);
+
+        if (durationSec.HasValue)
+            segmentQuery = ApplyDurationCriterion(segmentQuery, durationSec.Value, durationSec2, durationModifier);
+
+        segmentQuery = ApplyStringCriterion(segmentQuery, title, titleModifier, segment => segment.Title);
+        segmentQuery = ApplyStringCriterion(segmentQuery, sourceRunId, sourceRunIdModifier, segment => segment.SourceRunId);
+        segmentQuery = ApplyStringCriterion(segmentQuery, colorHint, colorHintModifier, segment => segment.ColorHint);
+
+        if (!string.IsNullOrWhiteSpace(hostType) && Enum.TryParse<SegmentHostType>(hostType, true, out var parsedHostType))
+            segmentQuery = segmentQuery.Where(segment => segment.HostType == parsedHostType);
+
+        if (hasImage.HasValue)
+            segmentQuery = hasImage.Value
+                ? segmentQuery.Where(segment => segment.ImageBlobId != null && segment.ImageBlobId != string.Empty)
+                : segmentQuery.Where(segment => segment.ImageBlobId == null || segment.ImageBlobId == string.Empty);
+
+        if (hasPayload.HasValue)
+            segmentQuery = hasPayload.Value
+                ? segmentQuery.Where(segment => segment.Payload != null)
+                : segmentQuery.Where(segment => segment.Payload == null);
+
+        if (startSec.HasValue)
+            segmentQuery = ApplyDoubleCriterion(segmentQuery, startSec.Value, startSec2, startSecModifier, segment => segment.StartSec);
+
+        if (endSec.HasValue)
+            segmentQuery = ApplyDoubleCriterion(segmentQuery, endSec.Value, endSec2, endSecModifier, segment => segment.EndSec ?? segment.StartSec);
+
+        if (TryParseDateTime(createdAt, out var createdAtValue))
+            segmentQuery = ApplyDateTimeCriterion(segmentQuery, createdAtValue, createdAt2, createdAtModifier, segment => segment.CreatedAt);
+
+        if (TryParseDateTime(updatedAt, out var updatedAtValue))
+            segmentQuery = ApplyDateTimeCriterion(segmentQuery, updatedAtValue, updatedAt2, updatedAtModifier, segment => segment.UpdatedAt);
+
+        // Now add the display joins. Every join key is the target table's primary key, so none of them
+        // can fan out a segment into multiple rows — the row count of `query` equals the row count of
+        // `segmentQuery` restricted to segments whose host video still exists.
         var query =
-            from segment in db.Segments.AsNoTracking()
+            from segment in segmentQuery
             join video in db.Videos.AsNoTracking() on segment.HostId equals video.Id
             join tag in db.Tags.AsNoTracking() on segment.TagId equals tag.Id into tagJoin
             from tag in tagJoin.DefaultIfEmpty()
@@ -87,7 +203,6 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             from facePerformer in facePerformerJoin.DefaultIfEmpty()
             join directPerformer in db.Performers.AsNoTracking() on segment.RefId equals (long?)directPerformer.Id into directPerformerJoin
             from directPerformer in directPerformerJoin.DefaultIfEmpty()
-            where segment.HostType == SegmentHostType.Video
             select new SegmentLibraryRow
             {
                 Segment = segment,
@@ -101,126 +216,29 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
                 PerformerName = segment.Kind != null && segment.Kind!.ToLower() == "performer" && directPerformer != null ? directPerformer!.Name : facePerformer != null ? facePerformer!.Name : null,
             };
 
-        var parsedIds = ParseIdList(ids);
-        if (parsedIds.Count > 0)
-            query = query.Where(item => parsedIds.Contains(item.Segment.Id));
-
-        var parsedVideoIds = ParseIdList(videoIds);
-        var parsedExcludeVideoIds = ParseIdList(excludeVideoIds);
-        if (videoId.HasValue)
-            query = query.Where(item => item.Segment.HostId == videoId.Value);
-        else if (parsedVideoIds.Count > 0)
-            query = query.Where(item => parsedVideoIds.Contains(item.Segment.HostId));
-
-        if (parsedExcludeVideoIds.Count > 0)
-            query = query.Where(item => !parsedExcludeVideoIds.Contains(item.Segment.HostId));
+        // The three filters below read joined columns, so they can only be applied after the join and
+        // they force the COUNT onto the joined query.
+        var requiresJoinedCount = false;
 
         if (!string.IsNullOrWhiteSpace(videoTitle))
         {
             var normalizedVideoTitle = videoTitle.Trim().ToLowerInvariant();
             query = query.Where(item => item.VideoTitle != null && item.VideoTitle.ToLower().Contains(normalizedVideoTitle));
+            requiresJoinedCount = true;
         }
-
-        var parsedTagIds = ParseIdList(tagIds);
-        IReadOnlyCollection<int>? requiredTagIds = null;
-        if (tagDepth == -1 && tagId.HasValue)
-        {
-            requiredTagIds = (await HierarchicalCriterionExpander.ExpandTagsAsync(db,
-                new MultiIdCriterion { Value = [tagId.Value], Modifier = CriterionModifier.Includes, Depth = -1 },
-                cancellationToken)).Criterion.Value;
-            tagId = null;
-        }
-        if (tagId.HasValue)
-            query = query.Where(item => item.Segment.TagId == tagId.Value);
-        if (requiredTagIds is { Count: > 0 })
-            query = query.Where(item => item.Segment.TagId.HasValue && requiredTagIds.Contains(item.Segment.TagId.Value));
-        if (parsedTagIds.Count > 0)
-            query = query.Where(item => item.Segment.TagId.HasValue && parsedTagIds.Contains(item.Segment.TagId.Value));
-
-        if (!string.IsNullOrWhiteSpace(kind))
-        {
-            var normalizedKind = kind.Trim().ToLowerInvariant();
-            query = query.Where(item => item.Segment.Kind != null && item.Segment.Kind.ToLower().Contains(normalizedKind));
-        }
-
-        if (!string.IsNullOrWhiteSpace(sourceKey))
-        {
-            var normalizedSourceKey = sourceKey.Trim().ToLowerInvariant();
-            query = query.Where(item => item.Segment.SourceKey.ToLower().Contains(normalizedSourceKey));
-        }
-
-        if (!string.IsNullOrWhiteSpace(sourceCategory))
-        {
-            var normalizedSourceCategory = sourceCategory.Trim().ToLowerInvariant();
-            query = normalizedSourceCategory switch
-            {
-                "extensions" => query.Where(item => item.Segment.SourceKey.StartsWith("ext:")),
-                "user" => query.Where(item => item.Segment.SourceKey == "user"),
-                _ => query,
-            };
-        }
-
-        var parsedRefIds = ParseLongIdList(refIds);
-        if (parsedRefIds.Count > 0)
-            query = query.Where(item => item.Segment.RefId.HasValue
-                && parsedRefIds.Contains(item.Segment.RefId.Value)
-                && item.Segment.Kind != null
-                && item.Segment.Kind.ToLower() == "face");
 
         var parsedPerformerIds = ParseIdList(performerIds);
         if (parsedPerformerIds.Count > 0)
+        {
             query = query.Where(item =>
                 (item.DirectPerformerId.HasValue && parsedPerformerIds.Contains(item.DirectPerformerId.Value)) ||
                 (item.FacePerformerId.HasValue && parsedPerformerIds.Contains(item.FacePerformerId.Value)));
-
-        if (tagged.HasValue)
-            query = tagged.Value
-                ? query.Where(item => item.Segment.TagId != null)
-                : query.Where(item => item.Segment.TagId == null);
-
-        if (minConfidence.HasValue)
-            query = query.Where(item => item.Segment.Confidence.HasValue && item.Segment.Confidence.Value >= minConfidence.Value);
-
-        if (confidence.HasValue)
-            query = ApplyConfidenceCriterion(query, confidence.Value, confidence2, confidenceModifier);
-
-        if (minDurationSec.HasValue)
-            query = query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) >= minDurationSec.Value);
-
-        if (durationSec.HasValue)
-            query = ApplyDurationCriterion(query, durationSec.Value, durationSec2, durationModifier);
-
-        query = ApplyStringCriterion(query, title, titleModifier, item => item.Segment.Title);
-        query = ApplyStringCriterion(query, sourceRunId, sourceRunIdModifier, item => item.Segment.SourceRunId);
-        query = ApplyStringCriterion(query, colorHint, colorHintModifier, item => item.Segment.ColorHint);
-
-        if (!string.IsNullOrWhiteSpace(hostType) && Enum.TryParse<SegmentHostType>(hostType, true, out var parsedHostType))
-            query = query.Where(item => item.Segment.HostType == parsedHostType);
-
-        if (hasImage.HasValue)
-            query = hasImage.Value
-                ? query.Where(item => item.Segment.ImageBlobId != null && item.Segment.ImageBlobId != string.Empty)
-                : query.Where(item => item.Segment.ImageBlobId == null || item.Segment.ImageBlobId == string.Empty);
-
-        if (hasPayload.HasValue)
-            query = hasPayload.Value
-                ? query.Where(item => item.Segment.Payload != null)
-                : query.Where(item => item.Segment.Payload == null);
-
-        if (startSec.HasValue)
-            query = ApplyDoubleCriterion(query, startSec.Value, startSec2, startSecModifier, item => item.Segment.StartSec);
-
-        if (endSec.HasValue)
-            query = ApplyDoubleCriterion(query, endSec.Value, endSec2, endSecModifier, item => item.Segment.EndSec ?? item.Segment.StartSec);
-
-        if (TryParseDateTime(createdAt, out var createdAtValue))
-            query = ApplyDateTimeCriterion(query, createdAtValue, createdAt2, createdAtModifier, item => item.Segment.CreatedAt);
-
-        if (TryParseDateTime(updatedAt, out var updatedAtValue))
-            query = ApplyDateTimeCriterion(query, updatedAtValue, updatedAt2, updatedAtModifier, item => item.Segment.UpdatedAt);
+            requiresJoinedCount = true;
+        }
 
         if (!string.IsNullOrWhiteSpace(q))
         {
+            requiresJoinedCount = true;
             var term = q.Trim();
             var normalizedTerm = term.ToLowerInvariant();
             query = query.Where(item =>
@@ -236,7 +254,16 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
                 item.Segment.SourceKey.ToLower().Contains(normalizedTerm));
         }
 
-        var totalCount = await query.CountAsync(cancellationToken);
+        // When no join-dependent filter is active the joins cannot change the row count, so the COUNT
+        // runs against segments alone with an existence check standing in for the inner join to videos.
+        // That is the difference between a multi-second count and a single index scan on large libraries.
+        var totalCount = requiresJoinedCount
+            ? await query.CountAsync(cancellationToken)
+            : await segmentQuery
+                .Where(segment => db.Videos.Any(video => video.Id == segment.HostId))
+                .CountAsync(cancellationToken);
+
+
         var orderedQuery = ApplyOrdering(query, sortKey, descending, seed);
         var items = await orderedQuery
             .Skip((page - 1) * perPage)
@@ -332,8 +359,8 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
     [HttpGet("source-keys/distinct")]
     public async Task<ActionResult<IReadOnlyList<SegmentDistinctValueDto>>> DistinctSourceKeys(CancellationToken cancellationToken)
     {
-        var values = await db.VisibleSegments().AsNoTracking()
-            .Where(segment => segment.HostType == SegmentHostType.Video && !string.IsNullOrWhiteSpace(segment.SourceKey))
+        var values = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.SourceKey))
             .GroupBy(segment => segment.SourceKey)
             .Select(group => new
             {
@@ -355,8 +382,8 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
     [HttpGet("kinds/distinct")]
     public async Task<ActionResult<IReadOnlyList<SegmentDistinctValueDto>>> DistinctKinds(CancellationToken cancellationToken)
     {
-        var values = await db.VisibleSegments().AsNoTracking()
-            .Where(segment => segment.HostType == SegmentHostType.Video && segment.Kind != null && segment.Kind != string.Empty)
+        var values = await db.VisibleSegments(SegmentHostType.Video).AsNoTracking()
+            .Where(segment => segment.Kind != null && segment.Kind != string.Empty)
             .GroupBy(segment => segment.Kind!)
             .Select(group => new
             {
@@ -407,38 +434,38 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         return sort.Trim().ToLowerInvariant();
     }
 
-    private static IQueryable<SegmentLibraryRow> ApplyConfidenceCriterion(IQueryable<SegmentLibraryRow> query, float value, float? value2, string? modifier)
+    private static IQueryable<Segment> ApplyConfidenceCriterion(IQueryable<Segment> query, float value, float? value2, string? modifier)
     {
         return NormalizeCriterionModifier(modifier) switch
         {
-            "NOT_EQUALS" => query.Where(item => !item.Segment.Confidence.HasValue || item.Segment.Confidence.Value != value),
-            "LESS_THAN" => query.Where(item => item.Segment.Confidence.HasValue && item.Segment.Confidence.Value < value),
-            "BETWEEN" when value2.HasValue => query.Where(item => item.Segment.Confidence.HasValue && item.Segment.Confidence.Value >= Math.Min(value, value2.Value) && item.Segment.Confidence.Value <= Math.Max(value, value2.Value)),
-            "NOT_BETWEEN" when value2.HasValue => query.Where(item => !item.Segment.Confidence.HasValue || item.Segment.Confidence.Value < Math.Min(value, value2.Value) || item.Segment.Confidence.Value > Math.Max(value, value2.Value)),
-            "EQUALS" => query.Where(item => item.Segment.Confidence.HasValue && item.Segment.Confidence.Value == value),
-            _ => query.Where(item => item.Segment.Confidence.HasValue && item.Segment.Confidence.Value > value),
+            "NOT_EQUALS" => query.Where(segment => !segment.Confidence.HasValue || segment.Confidence.Value != value),
+            "LESS_THAN" => query.Where(segment => segment.Confidence.HasValue && segment.Confidence.Value < value),
+            "BETWEEN" when value2.HasValue => query.Where(segment => segment.Confidence.HasValue && segment.Confidence.Value >= Math.Min(value, value2.Value) && segment.Confidence.Value <= Math.Max(value, value2.Value)),
+            "NOT_BETWEEN" when value2.HasValue => query.Where(segment => !segment.Confidence.HasValue || segment.Confidence.Value < Math.Min(value, value2.Value) || segment.Confidence.Value > Math.Max(value, value2.Value)),
+            "EQUALS" => query.Where(segment => segment.Confidence.HasValue && segment.Confidence.Value == value),
+            _ => query.Where(segment => segment.Confidence.HasValue && segment.Confidence.Value > value),
         };
     }
 
-    private static IQueryable<SegmentLibraryRow> ApplyDurationCriterion(IQueryable<SegmentLibraryRow> query, double value, double? value2, string? modifier)
+    private static IQueryable<Segment> ApplyDurationCriterion(IQueryable<Segment> query, double value, double? value2, string? modifier)
     {
         return NormalizeCriterionModifier(modifier) switch
         {
-            "NOT_EQUALS" => query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) != value),
-            "LESS_THAN" => query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) < value),
-            "BETWEEN" when value2.HasValue => query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) >= Math.Min(value, value2.Value) && ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) <= Math.Max(value, value2.Value)),
-            "NOT_BETWEEN" when value2.HasValue => query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) < Math.Min(value, value2.Value) || ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) > Math.Max(value, value2.Value)),
-            "EQUALS" => query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) == value),
-            _ => query.Where(item => ((item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec) > value),
+            "NOT_EQUALS" => query.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) != value),
+            "LESS_THAN" => query.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) < value),
+            "BETWEEN" when value2.HasValue => query.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) >= Math.Min(value, value2.Value) && ((segment.EndSec ?? segment.StartSec) - segment.StartSec) <= Math.Max(value, value2.Value)),
+            "NOT_BETWEEN" when value2.HasValue => query.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) < Math.Min(value, value2.Value) || ((segment.EndSec ?? segment.StartSec) - segment.StartSec) > Math.Max(value, value2.Value)),
+            "EQUALS" => query.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) == value),
+            _ => query.Where(segment => ((segment.EndSec ?? segment.StartSec) - segment.StartSec) > value),
         };
     }
 
-    private static IQueryable<SegmentLibraryRow> ApplyDoubleCriterion(
-        IQueryable<SegmentLibraryRow> query,
+    private static IQueryable<TRow> ApplyDoubleCriterion<TRow>(
+        IQueryable<TRow> query,
         double value,
         double? value2,
         string? modifier,
-        Expression<Func<SegmentLibraryRow, double>> selector)
+        Expression<Func<TRow, double>> selector)
     {
         var normalized = NormalizeCriterionModifier(modifier);
         var upper = value2 ?? value;
@@ -453,12 +480,12 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         };
     }
 
-    private static IQueryable<SegmentLibraryRow> ApplyDateTimeCriterion(
-        IQueryable<SegmentLibraryRow> query,
+    private static IQueryable<TRow> ApplyDateTimeCriterion<TRow>(
+        IQueryable<TRow> query,
         DateTime value,
         string? value2,
         string? modifier,
-        Expression<Func<SegmentLibraryRow, DateTime>> selector)
+        Expression<Func<TRow, DateTime>> selector)
     {
         _ = TryParseDateTime(value2, out var parsedValue2);
         var upper = parsedValue2 == default ? value : parsedValue2;
@@ -473,11 +500,11 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         };
     }
 
-    private static IQueryable<SegmentLibraryRow> ApplyStringCriterion(
-        IQueryable<SegmentLibraryRow> query,
+    private static IQueryable<TRow> ApplyStringCriterion<TRow>(
+        IQueryable<TRow> query,
         string? value,
         string? modifier,
-        Expression<Func<SegmentLibraryRow, string?>> selector)
+        Expression<Func<TRow, string?>> selector)
     {
         var normalized = NormalizeCriterionModifier(modifier);
         if (normalized is "IS_NULL" or "NOT_NULL")
@@ -486,7 +513,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             var nullCheck = normalized == "IS_NULL"
                 ? Expression.Equal(selector.Body, Expression.Constant(null, typeof(string)))
                 : Expression.NotEqual(selector.Body, Expression.Constant(null, typeof(string)));
-            return query.Where(Expression.Lambda<Func<SegmentLibraryRow, bool>>(nullCheck, param));
+            return query.Where(Expression.Lambda<Func<TRow, bool>>(nullCheck, param));
         }
 
         if (string.IsNullOrWhiteSpace(value))
@@ -508,31 +535,31 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             _ => contains,
         };
 
-        return query.Where(Expression.Lambda<Func<SegmentLibraryRow, bool>>(predicate, parameter));
+        return query.Where(Expression.Lambda<Func<TRow, bool>>(predicate, parameter));
     }
 
-    private static IQueryable<SegmentLibraryRow> WhereCompare<T>(IQueryable<SegmentLibraryRow> query, Expression<Func<SegmentLibraryRow, T>> selector, T value, ExpressionType comparison)
+    private static IQueryable<TRow> WhereCompare<TRow, T>(IQueryable<TRow> query, Expression<Func<TRow, T>> selector, T value, ExpressionType comparison)
     {
         var predicate = Expression.MakeBinary(comparison, selector.Body, Expression.Constant(value));
-        return query.Where(Expression.Lambda<Func<SegmentLibraryRow, bool>>(predicate, selector.Parameters[0]));
+        return query.Where(Expression.Lambda<Func<TRow, bool>>(predicate, selector.Parameters[0]));
     }
 
-    private static IQueryable<SegmentLibraryRow> WhereBetween<T>(IQueryable<SegmentLibraryRow> query, Expression<Func<SegmentLibraryRow, T>> selector, T lower, T upper)
+    private static IQueryable<TRow> WhereBetween<TRow, T>(IQueryable<TRow> query, Expression<Func<TRow, T>> selector, T lower, T upper)
     {
         var body = selector.Body;
         var predicate = Expression.AndAlso(
             Expression.GreaterThanOrEqual(body, Expression.Constant(lower)),
             Expression.LessThanOrEqual(body, Expression.Constant(upper)));
-        return query.Where(Expression.Lambda<Func<SegmentLibraryRow, bool>>(predicate, selector.Parameters[0]));
+        return query.Where(Expression.Lambda<Func<TRow, bool>>(predicate, selector.Parameters[0]));
     }
 
-    private static IQueryable<SegmentLibraryRow> WhereNotBetween<T>(IQueryable<SegmentLibraryRow> query, Expression<Func<SegmentLibraryRow, T>> selector, T lower, T upper)
+    private static IQueryable<TRow> WhereNotBetween<TRow, T>(IQueryable<TRow> query, Expression<Func<TRow, T>> selector, T lower, T upper)
     {
         var body = selector.Body;
         var predicate = Expression.OrElse(
             Expression.LessThan(body, Expression.Constant(lower)),
             Expression.GreaterThan(body, Expression.Constant(upper)));
-        return query.Where(Expression.Lambda<Func<SegmentLibraryRow, bool>>(predicate, selector.Parameters[0]));
+        return query.Where(Expression.Lambda<Func<TRow, bool>>(predicate, selector.Parameters[0]));
     }
 
     private static bool TryParseDateTime(string? value, out DateTime parsed)
