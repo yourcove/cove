@@ -332,6 +332,9 @@ try
         AutomaticDecompression = System.Net.DecompressionMethods.All,
     });
     builder.Services.AddHttpClient<MetadataServerService>();
+    // Runtime extensions can bind only Cove.Core types, so surface the Cove.Api metadata-server client
+    // through its Cove.Core interface (as IReferencePerformerImporter below does).
+    builder.Services.AddTransient<IMetadataServerService>(sp => sp.GetRequiredService<MetadataServerService>());
     // Lets extensions (AI.Faces) enrich a newly-created performer from a configured metadata server
     // when a reference/SAIE match is accepted. Singleton so it is shared into extension containers; it
     // opens its own scope per call.
