@@ -99,6 +99,7 @@ Cove is built in the open. If you like it and want to help the project, here are
 - **Join the [Discord](https://discord.gg/MECDFRkzgG)** and tell others about it.
 - **Contribute financially** with a one-time or recurring donation on [Open Collective](https://opencollective.com/yourcove).
 - **Report Bugs or Request Features** by creating new issues.
+- **Help Improve Documentation** on the [docs website](https://yourcove.net/docs/) or in the in-app manual
 - **Build and share extensions, themes, scrapers, and downloaders**. See the [extension template repos](https://github.com/yourcove/single-extension-repo-template).
 
 Want to contribute code? Cove can also **pay contributors** for delivered work. See the [Contribution Guide](CONTRIBUTING.md).
