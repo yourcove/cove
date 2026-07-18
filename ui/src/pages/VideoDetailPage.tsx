@@ -25,7 +25,7 @@ import {
 } from "../components/segmentFilter";
 import { useVideoQueue, type VideoQueueItem } from "../state/VideoQueueContext";
 import { useAppConfig } from "../state/AppConfigContext";
-import { useExtensions } from "../extensions/ExtensionLoader";
+import { useExtensions, renderExtensionTabIcon } from "../extensions/ExtensionLoader";
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
@@ -461,7 +461,12 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
     { key: "filters", label: "Filters" },
     { key: "file-info", label: `File Info${video?.files.length && video.files.length > 1 ? ` (${video.files.length})` : ""}` },
     { key: "history", label: "History" },
-    ...videoExtTabs.map((t) => ({ key: `ext:${t.key}` as TabKey, label: t.label, manualContexts: t.manualContexts })),
+    ...videoExtTabs.map((t) => ({
+      key: `ext:${t.key}` as TabKey,
+      label: t.label,
+      icon: renderExtensionTabIcon(t.icon, t.extensionId, resolveExtComponent),
+      manualContexts: t.manualContexts,
+    })),
     { key: "edit", label: "Edit" },
   ], {
     segments: "segments.read",

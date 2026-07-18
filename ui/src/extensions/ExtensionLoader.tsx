@@ -12,6 +12,7 @@
  *   or would load from JS bundles (for external extensions)
  */
 import { useEffect, useState, createContext, useContext, useCallback, useMemo, type ReactNode, type FC } from "react";
+import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
 import { useRouteRegistry } from "../router/RouteRegistry";
 import { useAppConfig } from "../state/AppConfigContext";
 import { extensions } from "../api/client";
@@ -40,6 +41,49 @@ import type {
 const ICON_MAP: Record<string, LucideIcon> = { music: Music, puzzle: Puzzle };
 function resolveIcon(name?: string): LucideIcon | undefined {
   return name ? ICON_MAP[name.toLowerCase()] : undefined;
+}
+
+// Resolves an extension-contributed detail-rail tab icon from its manifest `icon` string — a bare
+// name (no prefix), resolved in order: a host built-in named icon, then a component the extension
+// registered under that name (e.g. its own brand logo). Built-in-first so a shared icon name can
+// never be shadowed by an extension's content component; a brand mark (not a built-in name) falls
+// through to the registered component. The extension component is sandboxed in an error boundary
+// and hard-clamped to icon size so a crashing or oversized icon can neither break the rail nor blow
+// out its layout. An unresolved name returns undefined (caller draws its default glyph) and warns in
+// dev, so a typo'd icon surfaces instead of silently defaulting.
+export function renderExtensionTabIcon(
+  icon: string | undefined,
+  extensionId: string,
+  resolveComponent: (name: string) => FC<any> | undefined,
+): ReactNode | undefined {
+  if (!icon) return undefined;
+
+  const BuiltInIcon = resolveIcon(icon);
+  if (BuiltInIcon) {
+    return (
+      <span className="inline-flex h-4 w-4 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
+        <BuiltInIcon className="h-4 w-4" />
+      </span>
+    );
+  }
+
+  const IconComponent = resolveComponent(icon);
+  if (IconComponent) {
+    return (
+      <ExtensionErrorBoundary extensionId={extensionId} fallback={<Puzzle className="h-4 w-4" />}>
+        <span className="inline-flex h-4 w-4 items-center justify-center overflow-hidden [&>*]:h-4 [&>*]:w-4">
+          <IconComponent className="h-4 w-4" />
+        </span>
+      </ExtensionErrorBoundary>
+    );
+  }
+
+  if (import.meta.env.DEV) {
+    console.warn(
+      `[extensions] ${extensionId}: tab icon "${icon}" did not resolve to a built-in icon or a registered component; using the default glyph.`,
+    );
+  }
+  return undefined;
 }
 
 // ============================================================================
