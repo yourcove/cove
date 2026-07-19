@@ -63,6 +63,19 @@ The host passes a context object appropriate to the location. Detail slots recei
 | Image | `image-detail-actions`, `image-detail-sidebar-bottom`, `image-detail-main-bottom` |
 | Group | `group-detail-actions`, `group-detail-sidebar-bottom`, `group-detail-main-bottom`, `group-detail-bottom` |
 
+### Published media-player slots
+
+| Slot key | Location |
+| --- | --- |
+| `media-player-actions` | Beside Cove's native playback controls. |
+| `media-player-overlay` | Over the displayed video content, above the media and below native controls. |
+
+Both slots render on detail, quick-view, and compilation player surfaces. The frontend SDK exports `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT`, and `MediaPlayerExtensionContext`.
+
+The context contains the host video id, surface, current time, duration, playing state, playback rate, intrinsic media dimensions, and a container-relative `contentRect` after letterboxing. It also provides bounded `play`, `pause`, `seek`, and `setPlaybackRate` controls.
+
+Interactive tools can call `acquireInteractionMode(options)` to request hidden native controls, paused watch tracking, or a one-time playback pause. Keep the returned release function and call it when the interaction ends. Cove also releases the owner-bound lease if the contribution is replaced, fails, leaves fullscreen, changes media identity, or unmounts. Releasing a lease restores native controls and tracking but does not resume playback automatically.
+
 ### Published list and card slots
 
 | Slot key | Location |

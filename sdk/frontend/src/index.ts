@@ -23,6 +23,10 @@ export type {
   EntityMediaSurface,
   EntityMediaFit,
   EntityMediaRenderProps,
+  MediaPlayerSurface,
+  MediaPlayerContentRect,
+  MediaPlayerInteractionModeOptions,
+  MediaPlayerExtensionContext,
   FindFilter,
   ListFilterOption,
   ListFilterContribution,
@@ -33,7 +37,11 @@ export type {
   ExtensionModule,
 } from "./types";
 
-export { ENTITY_MEDIA_TARGET } from "./types";
+export {
+  ENTITY_MEDIA_TARGET,
+  MEDIA_PLAYER_ACTIONS_SLOT,
+  MEDIA_PLAYER_OVERLAY_SLOT,
+} from "./types";
 
 // Extension definition helper
 export { defineExtension } from "./define";

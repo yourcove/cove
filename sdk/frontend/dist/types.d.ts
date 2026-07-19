@@ -51,6 +51,43 @@ export interface EntityMediaRenderProps {
     /** Render the next lower-priority override, ending at Cove's native media. */
     renderDefault: () => React.ReactNode;
 }
+/** Stable extension slot rendered with Cove's native media-player actions. */
+export declare const MEDIA_PLAYER_ACTIONS_SLOT: "media-player-actions";
+/** Stable extension slot positioned over the displayed media content. */
+export declare const MEDIA_PLAYER_OVERLAY_SLOT: "media-player-overlay";
+/** Host surface on which a video player extension contribution is rendered. */
+export type MediaPlayerSurface = "detail" | "quick-view" | "compilation";
+/** Container-relative rectangle occupied by the displayed video after letterboxing. */
+export interface MediaPlayerContentRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+/** Native player behavior temporarily suspended by an interactive extension tool. */
+export interface MediaPlayerInteractionModeOptions {
+    hideNativeControls?: boolean;
+    pauseTracking?: boolean;
+    pausePlayback?: boolean;
+}
+/** Live playback state and safe controls passed directly to media-player slot components. */
+export interface MediaPlayerExtensionContext {
+    hostType: "video";
+    hostId: number;
+    surface: MediaPlayerSurface;
+    currentTime: number;
+    duration: number;
+    playing: boolean;
+    playbackRate?: number;
+    intrinsicWidth: number;
+    intrinsicHeight: number;
+    contentRect: MediaPlayerContentRect;
+    play(): Promise<void>;
+    pause(): void;
+    seek(seconds: number): void;
+    setPlaybackRate?(rate: number): void;
+    acquireInteractionMode(options?: MediaPlayerInteractionModeOptions): () => void;
+}
 export interface FindFilter {
     page?: number;
     perPage?: number;

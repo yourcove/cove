@@ -741,6 +741,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
             audioCodec={file.audioCodec}
             resumeTime={effectiveResumeTime}
             videoId={video.id}
+            extensionSurface="detail"
             detections={detections}
             segments={segments}
             faces={videoFaces.map(({ face }) => face)}

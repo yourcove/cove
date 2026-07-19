@@ -636,6 +636,7 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       if (slot.contentType === "html" && slot.html) {
         unregisterSlots.push(registerSlot({
           id: slot.id,
+          extensionId: slot.extensionId,
           slot: slot.slot,
           // eslint-disable-next-line react/no-danger
           render: () => <div dangerouslySetInnerHTML={{ __html: slot.html! }} />,
@@ -646,6 +647,7 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
         if (Component) {
           unregisterSlots.push(registerSlot({
             id: slot.id,
+            extensionId: slot.extensionId,
             slot: slot.slot,
             render: (props) => <Component {...props} />,
             order: slot.order,

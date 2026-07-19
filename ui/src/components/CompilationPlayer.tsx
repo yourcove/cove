@@ -312,6 +312,8 @@ export function CompilationPlayer({
             duration={currentFile.duration}
             resumeTime={item.startSec}
             videoId={currentVideoId}
+            extensionSurface="compilation"
+            interactionResetKey={`group:${groupId}:item:${item.groupItemId}`}
             detections={[]}
             captions={currentFile.captions}
             onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}

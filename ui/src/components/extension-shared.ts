@@ -61,9 +61,28 @@ export {
   VideoTile,
   ImageTile,
 } from "./EntityCards";
+export {
+  EntityReferenceSelector,
+  EntityReferenceMultiSelector,
+  EntityReferenceValue,
+} from "./EntityReferenceSelector";
+export type {
+  EntityReferenceOption,
+  EntityReferenceType,
+} from "./EntityReferenceSelector";
 
 // ─── Players / Viewers ────────────────────────────────────────────────────
 export { VideoPlayer } from "./VideoPlayer";
+export {
+  MEDIA_PLAYER_ACTIONS_SLOT,
+  MEDIA_PLAYER_OVERLAY_SLOT,
+} from "./MediaPlayerExtension";
+export type {
+  MediaPlayerContentRect,
+  MediaPlayerExtensionContext,
+  MediaPlayerInteractionModeOptions,
+  MediaPlayerSurface,
+} from "./MediaPlayerExtension";
 export { Lightbox } from "./Lightbox";
 export type { LightboxImage } from "./Lightbox";
 
