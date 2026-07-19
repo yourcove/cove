@@ -53,6 +53,7 @@ export function CompilationPlayer({
   const { config, configLoading } = useAppConfig();
   const automaticPlayback = config?.ui.autostartVideo ?? false;
   const playbackIntentSetRef = useRef(false);
+  const playbackActiveRef = useRef(automaticPlayback);
   const transitionPosterStateRef = useRef({ groupId, suppressed: false });
   if (transitionPosterStateRef.current.groupId !== groupId) {
     transitionPosterStateRef.current = { groupId, suppressed: false };
@@ -76,6 +77,7 @@ export function CompilationPlayer({
   useEffect(() => {
     if (configLoading || playbackIntentSetRef.current) return;
     setAutostart(automaticPlayback);
+    playbackActiveRef.current = automaticPlayback;
   }, [automaticPlayback, configLoading]);
 
   const visibleItems = useMemo(
@@ -186,16 +188,19 @@ export function CompilationPlayer({
     }
 
     const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
+    if (boundedIndex === currentItemIndex) return;
     transitionPosterStateRef.current.suppressed = shouldAutoPlay;
     if (!shouldAutoPlay) playbackIntentSetRef.current = true;
     if (shouldAutoPlay) {
+      playbackActiveRef.current = true;
       setAutostart(true);
       setAutostartToken((value) => value + 1);
     } else {
+      playbackActiveRef.current = false;
       setAutostart(false);
     }
     setCurrentItemIndex(boundedIndex);
-  }, [visibleItems.length]);
+  }, [currentItemIndex, visibleItems.length]);
 
   const advanceToNextItem = useCallback(() => {
     if (currentItemIndex + 1 < visibleItems.length) {
@@ -309,7 +314,10 @@ export function CompilationPlayer({
             videoId={currentVideoId}
             detections={[]}
             captions={currentFile.captions}
-            onPlay={() => setAutostart(false)}
+            onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}
+            onPlaybackStateChange={(playing) => {
+              if (playing || !autostart) playbackActiveRef.current = playing;
+            }}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
               if (autostart && item && !itemLoading && currentPlayable) {
@@ -333,7 +341,10 @@ export function CompilationPlayer({
             subtitle={[currentAudio?.performers?.map((performer) => performer.name).filter(Boolean).join(", "), currentAudio?.studioName].filter(Boolean).join(" • ") || undefined}
             hasVideoTrack={currentAudioFile?.hasVideoTrack ?? item.hasVideoTrack}
             resumeTime={item.startSec}
-            onPlay={() => setAutostart(false)}
+            onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}
+            onPlaybackStateChange={(playing) => {
+              if (playing || !autostart) playbackActiveRef.current = playing;
+            }}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
               if (autostart && item && !itemLoading && currentPlayable) {
@@ -416,7 +427,7 @@ export function CompilationPlayer({
               <button
                 key={manifestItem.groupItemId}
                 type="button"
-                onClick={() => moveToItem(index)}
+                onClick={() => moveToItem(index, playbackActiveRef.current)}
                 className={`flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-card/60 text-secondary hover:border-accent hover:text-foreground"}`}
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-current/20 bg-background/70">

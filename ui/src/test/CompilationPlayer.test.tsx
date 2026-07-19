@@ -32,7 +32,13 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: ({ autostart, posterUrl }: { autostart?: boolean; posterUrl?: string }) => <div data-testid="compilation-video-player" data-autostart={String(autostart)} data-poster={posterUrl}>Video Player</div>,
+  VideoPlayer: ({ autostart, posterUrl, videoId, onPlay, onPause, onPlaybackStateChange }: { autostart?: boolean; posterUrl?: string; videoId: number; onPlay?: () => void; onPause?: () => void; onPlaybackStateChange?: (playing: boolean) => void }) => (
+    <div data-testid="compilation-video-player" data-autostart={String(autostart)} data-poster={posterUrl} data-video-id={videoId}>
+      Video Player
+      <button type="button" onClick={() => { onPlaybackStateChange?.(true); onPlay?.(); }}>Simulate play</button>
+      <button type="button" onClick={() => { onPlaybackStateChange?.(false); onPause?.(); }}>Simulate pause</button>
+    </div>
+  ),
 }));
 
 function renderPlayer() {
@@ -178,8 +184,45 @@ describe("CompilationPlayer", () => {
     );
 
     await screen.findByTestId("compilation-video-player");
+    fireEvent.click(screen.getByRole("button", { name: "Simulate play" }));
+    fireEvent.click(screen.getByRole("button", { name: "Simulate pause" }));
     fireEvent.click(screen.getByRole("button", { name: /2\. Clip 2Segment/ }));
 
     expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-poster", "/video-15.jpg");
+  });
+
+  it("keeps playback active when a playing user selects another playlist item", async () => {
+    mockVideos.get.mockImplementation(async (id: number) => ({ id, files: [{ format: "mp4", duration: 120, captions: [] }] }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupId={9}
+          groupName="Summer Compilation"
+          items={[14, 15, 16].map((videoId, index) => ({
+            groupItemId: index + 1, hostType: "segment", hostId: index + 101, videoId, audioId: null,
+            title: `Clip ${index + 1}`, src: `/video-${videoId}.mp4`, startSec: 5, endSec: 15, durationSec: 10, hasVideoTrack: false,
+          }))}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByTestId("compilation-video-player");
+    fireEvent.click(screen.getByRole("button", { name: "Simulate play" }));
+    fireEvent.click(screen.getByRole("button", { name: /2\. Clip 2Segment/ }));
+
+    const player = await screen.findByTestId("compilation-video-player");
+    expect(player).toHaveAttribute("data-video-id", "15");
+    expect(player).toHaveAttribute("data-autostart", "true");
+    expect(player).not.toHaveAttribute("data-poster");
+
+    fireEvent.click(screen.getByRole("button", { name: "Simulate pause" }));
+    fireEvent.click(screen.getByRole("button", { name: /3\. Clip 3Segment/ }));
+
+    const nextPlayer = await screen.findByTestId("compilation-video-player");
+    expect(nextPlayer).toHaveAttribute("data-video-id", "16");
+    expect(nextPlayer).toHaveAttribute("data-autostart", "true");
+    expect(nextPlayer).not.toHaveAttribute("data-poster");
   });
 });

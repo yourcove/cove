@@ -132,6 +132,8 @@ export function VideoPlayer({
   faces = [],
   captions,
   onPlay,
+  onPause,
+  onPlaybackStateChange,
   onSeekRegister,
   onTimeUpdate: onTimeUpdateProp,
   autostart,
@@ -157,6 +159,8 @@ export function VideoPlayer({
   faces?: FaceOverlayInfo[];
   captions?: { id: number; languageCode: string; captionType: string; filename: string }[];
   onPlay?: () => void;
+  onPause?: () => void;
+  onPlaybackStateChange?: (playing: boolean) => void;
   onSeekRegister?: (fn: (time: number) => void) => void;
   onTimeUpdate?: (time: number) => void;
   autostart?: boolean;
@@ -1239,6 +1243,7 @@ export function VideoPlayer({
         }}
         onPlay={() => {
           setPlaying(true);
+          onPlaybackStateChange?.(true);
           pendingAutostartRef.current = false;
           const currentPos = prepareClipForPlayback();
           startTrackedInterval(currentPos);
@@ -1246,6 +1251,8 @@ export function VideoPlayer({
         }}
         onPause={() => {
           setPlaying(false);
+          onPlaybackStateChange?.(false);
+          onPause?.();
           flushInterval("paused");
           intervalStart.current = null;
           trackPlayerInteraction("pause", { positionSec: lastSeenTime.current });

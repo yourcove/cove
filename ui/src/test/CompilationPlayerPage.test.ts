@@ -19,4 +19,14 @@ describe("orderManifestItems", () => {
 
     expect(items.map((item) => item.groupItemId)).toEqual([-2, -3, -1]);
   });
+
+  it("excludes manifest items outside the visible ordered subset", () => {
+    const items = orderManifestItems(manifest, ["segment:103", "segment:101"]);
+
+    expect(items.map((item) => item.hostId)).toEqual([103, 101]);
+  });
+
+  it("returns no manifest items for an explicitly empty visible order", () => {
+    expect(orderManifestItems(manifest, [])).toEqual([]);
+  });
 });

@@ -338,6 +338,8 @@ export function AudioPlayer({
   autostart = false,
   autostartToken = 0,
   onPlay,
+  onPause,
+  onPlaybackStateChange,
   onSeekRegister,
   onEnded,
   clip,
@@ -355,6 +357,8 @@ export function AudioPlayer({
   autostart?: boolean;
   autostartToken?: number;
   onPlay?: () => void;
+  onPause?: () => void;
+  onPlaybackStateChange?: (playing: boolean) => void;
   onSeekRegister?: (fn: (time: number) => void) => void;
   onEnded?: () => void;
   clip?: { start: number; end?: number | null; loop?: boolean };
@@ -788,11 +792,14 @@ export function AudioPlayer({
           }
           pendingAutostartRef.current = false;
           setPlaying(true);
+          onPlaybackStateChange?.(true);
           onPlay?.();
           startTrackedInterval(roundTime(audio?.currentTime ?? currentTime));
         }}
         onPause={() => {
           setPlaying(false);
+          onPlaybackStateChange?.(false);
+          onPause?.();
           flushInterval("paused");
           intervalStart.current = null;
           trackAudioInteraction("pause", { positionSec: lastSeenTime.current });
