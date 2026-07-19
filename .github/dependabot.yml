@@ -1,0 +1,96 @@
+version: 2
+
+updates:
+  # NuGet — every project sits one level down under src/Cove.<Name>/ (each folder holds one
+  # .csproj). Targeting the project directories directly means discovery never depends on the
+  # solution file being parsed, and new projects added under src/ are covered automatically.
+  - package-ecosystem: "nuget"
+    directories:
+      - "/src/*"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      entity-framework:
+        patterns:
+          - "Microsoft.EntityFrameworkCore*"
+          - "Npgsql*"
+          - "Pgvector*"
+      test:
+        patterns:
+          - "xunit*"
+          - "Xunit.*"
+          - "Microsoft.NET.Test.Sdk"
+          - "coverlet.*"
+          - "Microsoft.AspNetCore.Mvc.Testing"
+      serilog:
+        patterns:
+          - "Serilog*"
+      nuget-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # npm — two standalone packages, each with its own lockfile: the SPA (ui/) and the published
+  # extension frontend SDK (sdk/frontend/). They are not npm workspaces, so each directory is
+  # listed explicitly.
+  - package-ecosystem: "npm"
+    directories:
+      - "/ui"
+      - "/sdk/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions — all workflow action versions under .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker — both base images live under docker/ (Dockerfile and Dockerfile.app); the docker
+  # updater matches any file whose name contains "dockerfile", so one directory entry covers both.
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
+    groups:
+      docker-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
