@@ -51,7 +51,9 @@ jobs:
           dotnet pack src/Cove.Core/Cove.Core.csproj
           -c Release
           --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
           -p:PackageVersion=${{ steps.version.outputs.version }}
+          -p:CoveCiVersion=true
           -o artifacts/nuget
 
       - name: Pack Cove.Plugins
@@ -59,7 +61,9 @@ jobs:
           dotnet pack src/Cove.Plugins/Cove.Plugins.csproj
           -c Release
           --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
           -p:PackageVersion=${{ steps.version.outputs.version }}
+          -p:CoveCiVersion=true
           -o artifacts/nuget
 
       - name: Pack Cove.Sdk
@@ -69,6 +73,7 @@ jobs:
           --no-restore
           -p:Version=${{ steps.version.outputs.version }}
           -p:PackageVersion=${{ steps.version.outputs.version }}
+          -p:CoveCiVersion=true
           -o artifacts/nuget
 
       - name: Push packages to NuGet.org

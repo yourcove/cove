@@ -15,12 +15,15 @@
     string (including -dev) is exposed through AssemblyInformationalVersion and is what
     the About / Runtime Status pages display.
 
-    This target is skipped when an explicit non-default Version is supplied (CI / Docker
-    pass -p:Version=...), so it only affects local/dev builds.
+    This target is skipped whenever CoveCiVersion=true is passed (CI / Docker / the NuGet
+    package publish all supply -p:Version=... -p:CoveCiVersion=true), so it only affects
+    local/dev builds. It intentionally does NOT gate on the Version value: the .NET SDK's
+    default Version is "1.0.0", which collides with the real 1.0.0 release, so CoveCiVersion
+    is the only reliable "version was set explicitly" signal.
   -->
   <Target Name="SetCoveVersionFromGit"
           BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo;BeforeCompile;CoreCompile;Pack;GenerateNuspec"
-          Condition=" '$(CoveCiVersion)' != 'true' and ( '$(Version)' == '' or '$(Version)' == '1.0.0' ) ">
+          Condition=" '$(CoveCiVersion)' != 'true' ">
 
     <!-- Exact tag on the current commit (a release checkout). -->
     <Exec Command="git describe --tags --exact-match"
@@ -48,8 +51,8 @@
       <Version Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' and '$(_CoveLatestTag)' != '' ">$(_CoveLatestTag)-dev</Version>
     </PropertyGroup>
 
-    <!-- Fallback when git / tags are unavailable. -->
-    <PropertyGroup Condition=" ( '$(Version)' == '' or '$(Version)' == '1.0.0' ) ">
+    <!-- Fallback when git / tags are unavailable (neither describe found a tag). -->
+    <PropertyGroup Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' != '0' ">
       <Version>0.0.0-dev</Version>
     </PropertyGroup>
 
