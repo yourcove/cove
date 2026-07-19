@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompilationPlayer } from "../components/CompilationPlayer";
 
@@ -32,7 +32,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: ({ autostart }: { autostart?: boolean }) => <div data-testid="compilation-video-player" data-autostart={String(autostart)}>Video Player</div>,
+  VideoPlayer: ({ autostart, posterUrl }: { autostart?: boolean; posterUrl?: string }) => <div data-testid="compilation-video-player" data-autostart={String(autostart)} data-poster={posterUrl}>Video Player</div>,
 }));
 
 function renderPlayer() {
@@ -111,5 +111,75 @@ describe("CompilationPlayer", () => {
     renderPlayer();
 
     expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-autostart", "false");
+  });
+
+  it("does not flash the next item's poster during a video transition", async () => {
+    mockVideos.get.mockImplementation(async (id: number) => ({
+      id,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupId={9}
+          groupName="Summer Compilation"
+          items={[14, 15].map((videoId, index) => ({
+            groupItemId: index + 1,
+            hostType: "segment",
+            hostId: index + 101,
+            videoId,
+            audioId: null,
+            title: `Clip ${index + 1}`,
+            src: `/video-${videoId}.mp4`,
+            startSec: 5,
+            endSec: 15,
+            durationSec: 10,
+            hasVideoTrack: false,
+          }))}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-poster", "/video-14.jpg");
+    fireEvent.click(screen.getByRole("button", { name: "Next item" }));
+
+    expect(await screen.findByTestId("compilation-video-player")).not.toHaveAttribute("data-poster");
+  });
+
+  it("shows the destination poster when a playlist item is selected without autoplay", async () => {
+    mockVideos.get.mockImplementation(async (id: number) => ({
+      id,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupId={9}
+          groupName="Summer Compilation"
+          items={[14, 15].map((videoId, index) => ({
+            groupItemId: index + 1,
+            hostType: "segment",
+            hostId: index + 101,
+            videoId,
+            audioId: null,
+            title: `Clip ${index + 1}`,
+            src: `/video-${videoId}.mp4`,
+            startSec: 5,
+            endSec: 15,
+            durationSec: 10,
+            hasVideoTrack: false,
+          }))}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByTestId("compilation-video-player");
+    fireEvent.click(screen.getByRole("button", { name: /2\. Clip 2Segment/ }));
+
+    expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-poster", "/video-15.jpg");
   });
 });

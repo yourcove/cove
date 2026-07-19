@@ -53,6 +53,10 @@ export function CompilationPlayer({
   const { config, configLoading } = useAppConfig();
   const automaticPlayback = config?.ui.autostartVideo ?? false;
   const playbackIntentSetRef = useRef(false);
+  const transitionPosterStateRef = useRef({ groupId, suppressed: false });
+  if (transitionPosterStateRef.current.groupId !== groupId) {
+    transitionPosterStateRef.current = { groupId, suppressed: false };
+  }
   const seekRef = useRef<((time: number) => void) | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [loopCompilation, setLoopCompilation] = useState(false);
@@ -182,6 +186,7 @@ export function CompilationPlayer({
     }
 
     const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
+    transitionPosterStateRef.current.suppressed = shouldAutoPlay;
     if (!shouldAutoPlay) playbackIntentSetRef.current = true;
     if (shouldAutoPlay) {
       setAutostart(true);
@@ -296,7 +301,7 @@ export function CompilationPlayer({
         <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
           <VideoPlayer
             streamUrl={videos.streamUrl(currentVideoId)}
-            posterUrl={item.posterPath ?? videos.screenshotUrl(currentVideoId)}
+            posterUrl={transitionPosterStateRef.current.suppressed ? undefined : item.posterPath ?? videos.screenshotUrl(currentVideoId)}
             format={currentFile.format}
             audioCodec={currentFile.audioCodec}
             duration={currentFile.duration}
