@@ -79,17 +79,20 @@ vi.mock("../components/QuickViewDialog", () => ({
 }));
 
 vi.mock("../components/DetailListToolbar", () => ({
-  DetailListToolbar: ({ sortOptions, filterMode, filterDefaultKey }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string }) => (
-    <MockDetailListToolbar sortOptions={sortOptions} filterMode={filterMode} filterDefaultKey={filterDefaultKey} />
+  DetailListToolbar: ({ sortOptions, filterMode, filterDefaultKey, filter, onFilterChange }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string; filter: Record<string, unknown>; onFilterChange: (filter: Record<string, unknown>) => void }) => (
+    <MockDetailListToolbar sortOptions={sortOptions} filterMode={filterMode} filterDefaultKey={filterDefaultKey} filter={filter} onFilterChange={onFilterChange} />
   ),
   DetailListPagination: () => null,
 }));
 
-function MockDetailListToolbar({ sortOptions, filterMode, filterDefaultKey }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string }) {
+function MockDetailListToolbar({ sortOptions, filterMode, filterDefaultKey, filter, onFilterChange }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string; filter: Record<string, unknown>; onFilterChange: (filter: Record<string, unknown>) => void }) {
   const [mountedDefaultKey] = useState(filterDefaultKey);
   return (
-    <div data-testid="group-item-sort-options" data-filter-mode={filterMode} data-filter-default-key={filterDefaultKey} data-mounted-default-key={mountedDefaultKey}>
+    <div data-testid="group-item-sort-options" data-filter-mode={filterMode} data-filter-default-key={filterDefaultKey} data-mounted-default-key={mountedDefaultKey} data-sort={filter.sort} data-seed={filter.seed}>
       {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
+      {sortOptions.some((option) => option.value === "order") ? (
+        <button type="button" onClick={() => onFilterChange({ ...filter, sort: "random", seed: 2468 })}>Use random group sort</button>
+      ) : null}
     </div>
   );
 }
@@ -187,6 +190,7 @@ function renderPage(id = 4) {
 
   return {
     onNavigate,
+    unmountPage: rendered.unmount,
     rerenderPage: (nextId: number) => rendered.rerender(
       <QueryClientProvider client={queryClient}>
         <GroupDetailPage id={nextId} onNavigate={onNavigate} />
@@ -198,6 +202,7 @@ function renderPage(id = 4) {
 describe("GroupDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders the shared hero layout with metadata above the tabs", async () => {
@@ -314,6 +319,37 @@ describe("GroupDetailPage", () => {
 
     expect(repeatedOrder).toEqual(firstOrder);
     expect(reshuffledOrder).not.toEqual(firstOrder);
+  });
+
+  it("persists the group item random sort and seed in the URL", async () => {
+    window.history.replaceState(null, "", "/group/4");
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 40 });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    const { unmountPage } = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Use random group sort" }));
+
+    await waitFor(() => {
+      expect(window.location.search).toContain("sort=random");
+      expect(window.location.search).toContain("seed=2468");
+    });
+
+    unmountPage();
+    renderPage();
+
+    await waitFor(() => {
+      const toolbars = screen.getAllByTestId("group-item-sort-options");
+      expect(toolbars.some((toolbar) => toolbar.textContent?.includes("Item #")
+        && toolbar.dataset.sort === "random"
+        && toolbar.dataset.seed === "2468")).toBe(true);
+    });
   });
 
   it("opens the group editor from the hero action", async () => {

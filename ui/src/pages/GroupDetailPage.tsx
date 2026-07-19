@@ -11,7 +11,7 @@ import { AudioTile, EntityTileFrame, GroupTile, ImageTile, VideoCard, SegmentTil
 import { CompilationPlayer } from "../components/CompilationPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { DetailListPagination, DetailListToolbar, type DetailListDisplayMode } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
@@ -39,6 +39,7 @@ import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor"
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { getLoadError } from "../utils/queryLoadState";
 import { sortSeededRandom } from "../utils/seededRandomSort";
+import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 interface Props {
   id: number;
@@ -503,13 +504,23 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   addSubGroupRequestId?: number;
 }) {
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-    const setGroupViewMode = useCallback((mode: DetailListDisplayMode) => {
-      if (mode === "grid" || mode === "list") setViewMode(mode);
-    }, []);
-  const [mixedFilter, setMixedFilter] = useState<FindFilter>(() => ({ page: 1, perPage: 40, sort: "order", direction: "asc" }));
+  const {
+    filter: mixedFilter,
+    setFilter: setMixedFilter,
+    objectFilter: itemObjectFilter,
+    setObjectFilter: setItemObjectFilter,
+    displayMode: viewMode,
+    setDisplayMode: setGroupViewMode,
+  } = useDetailListUrlState({
+    stateKey: `group-items-${group.id}`,
+    resetKey: `group-items-${group.id}`,
+    builtInFilter: { page: 1, perPage: 40, sort: "order", direction: "asc" },
+    defaultFilterKey: `groupitems-${group.id}`,
+    defaultDisplayMode: "grid" as const,
+    allowedDisplayModes: ["grid", "list"] as const,
+    allowInfinitePageSize: true,
+  });
   const [zoomLevel, setZoomLevel] = useState(0);
-  const [itemObjectFilter, setItemObjectFilter] = useState<Record<string, unknown>>({});
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmSelectionAction, setConfirmSelectionAction] = useState<"remove" | "delete" | null>(null);
@@ -614,7 +625,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     const currentPage = mixedFilter.page ?? 1;
     if (currentPage <= totalPages) return;
 
-    setMixedFilter((current) => ({ ...current, page: totalPages }));
+    setMixedFilter({ ...mixedFilter, page: totalPages });
   }, [infinitePageSize, mixedFilter.page, mixedFilter.perPage, totalItemCount]);
 
   const getSelectedItemsByIds = useCallback(async (ids: Set<string>) => {
@@ -775,13 +786,16 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
       displayMode={viewMode}
-      onDisplayModeChange={setGroupViewMode}
+      onDisplayModeChange={(mode) => {
+        if (mode === "grid" || mode === "list") setGroupViewMode(mode);
+      }}
       availableDisplayModes={["grid", "list"]}
       criteriaDefinitions={GROUP_ITEM_CRITERIA}
       objectFilter={itemObjectFilter}
       onObjectFilterChange={setItemObjectFilter}
       filterMode="groupitems"
       filterDefaultKey={`groupitems-${group.id}`}
+      defaultFilterResolved
       allowInfinitePageSize
       selectionActions={(
         <>
