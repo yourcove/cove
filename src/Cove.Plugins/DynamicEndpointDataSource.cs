@@ -8,25 +8,42 @@ namespace Cove.Plugins;
 /// <summary>
 /// An <see cref="EndpointDataSource"/> that also implements <see cref="IEndpointRouteBuilder"/>
 /// so extension endpoints can be collected in an isolated container per extension.
-/// Supports runtime invalidation so ASP.NET Core rebuilds the routing DFA when endpoints change.
+/// Runtime changes replace this immutable per-generation source in
+/// <see cref="ExtensionEndpointRegistry"/>, which invalidates ASP.NET Core's routing DFA.
 /// </summary>
 public class ExtensionEndpointDataSource : EndpointDataSource, IEndpointRouteBuilder
 {
     private readonly IEndpointRouteBuilder _parent;
     private readonly string? _extensionId;
     private readonly IServiceProvider? _serviceProvider;
+    private readonly ExtensionManager.ExtensionExecutionHandle? _execution;
     private readonly List<EndpointDataSource> _dataSources = new();
-    private CancellationTokenSource _cts = new();
+    private readonly object _endpointsGate = new();
+    private IReadOnlyList<Endpoint>? _endpoints;
 
-    public ExtensionEndpointDataSource(IEndpointRouteBuilder parent, string? extensionId = null, IServiceProvider? serviceProvider = null)
+    public ExtensionEndpointDataSource(
+        IEndpointRouteBuilder parent,
+        string? extensionId = null,
+        IServiceProvider? serviceProvider = null,
+        ExtensionManager.ExtensionExecutionHandle? execution = null)
     {
         _parent = parent;
         _extensionId = extensionId;
         _serviceProvider = serviceProvider;
+        _execution = execution;
     }
 
-    public override IReadOnlyList<Endpoint> Endpoints =>
-        _dataSources.SelectMany(ds => ds.Endpoints).Select(Tag).ToList();
+    public override IReadOnlyList<Endpoint> Endpoints => MaterializeEndpoints();
+
+    /// <summary>
+    /// Build and cache request delegates while the owning provider generation is leased. Runtime
+    /// publication calls this before exposing the source to the routing matcher.
+    /// </summary>
+    public IReadOnlyList<Endpoint> MaterializeEndpoints()
+    {
+        lock (_endpointsGate)
+            return _endpoints ??= _dataSources.SelectMany(ds => ds.Endpoints).Select(Tag).ToList();
+    }
 
     /// <summary>
     /// Stamp each extension endpoint with <see cref="ExtensionEndpointMetadata"/> so the host
@@ -38,13 +55,12 @@ public class ExtensionEndpointDataSource : EndpointDataSource, IEndpointRouteBui
         if (_extensionId == null || endpoint is not RouteEndpoint routeEndpoint)
             return endpoint;
 
-        // Ownership is host-assigned. ExtensionEndpointMetadata is public because the request
-        // pipeline consumes it, so an extension may have attached its own marker while building
-        // the route. Remove every supplied marker before stamping the data source's real owner.
+        // Ownership and generation are host-stamped. Replace any extension-supplied marker so an
+        // endpoint cannot spoof another owner or retain an ID-only marker across provider reloads.
         var metadata = routeEndpoint.Metadata
             .Where(item => item is not ExtensionEndpointMetadata)
-            .Append<object>(new ExtensionEndpointMetadata(_extensionId))
             .ToList();
+        metadata.Add(new ExtensionEndpointMetadata(_extensionId, _execution));
         return new RouteEndpoint(
             routeEndpoint.RequestDelegate!,
             routeEndpoint.RoutePattern,
@@ -53,8 +69,9 @@ public class ExtensionEndpointDataSource : EndpointDataSource, IEndpointRouteBui
             routeEndpoint.DisplayName);
     }
 
-    public override IChangeToken GetChangeToken() =>
-        new CancellationChangeToken(_cts.Token);
+    // A published per-generation source is immutable. Runtime changes replace the entire source in
+    // ExtensionEndpointRegistry, whose change token rebuilds the matcher.
+    public override IChangeToken GetChangeToken() => new CancellationChangeToken(CancellationToken.None);
 
     public IApplicationBuilder CreateApplicationBuilder() => _parent.CreateApplicationBuilder();
 
@@ -70,12 +87,6 @@ public class ExtensionEndpointDataSource : EndpointDataSource, IEndpointRouteBui
     /// </summary>
     public IServiceProvider ServiceProvider => _serviceProvider ?? _parent.ServiceProvider;
 
-    public void NotifyChanged()
-    {
-        var oldCts = Interlocked.Exchange(ref _cts, new CancellationTokenSource());
-        oldCts.Cancel();
-        oldCts.Dispose();
-    }
 }
 
 public sealed class ExtensionEndpointRegistry : EndpointDataSource

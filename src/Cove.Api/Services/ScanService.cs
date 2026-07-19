@@ -687,7 +687,11 @@ public class ScanService(
             }
 
             // Phase 5: Extension scan participants
-            var participants = extensionManager.GetScanParticipants();
+            var participants = extensionManager.GetScanParticipants()
+                .Select(participant => (
+                    Participant: participant,
+                    Execution: extensionManager.CaptureExtensionExecution(participant)))
+                .ToList();
             if (participants.Count > 0)
             {
                 var scanPathInfos = scanTargets
@@ -703,15 +707,15 @@ public class ScanService(
 
                     try
                     {
-                        logger.LogInformation("Running scan participant: {Name}", participant.Name);
+                        logger.LogInformation("Running scan participant: {Name}", participant.Participant.Name);
                         // Overlay-aware scope so a runtime extension participant can resolve its own services.
-                        using var participantScope = extensionManager.CreateExtensionScope(participant.Id);
+                        using var participantScope = extensionManager.CreateExtensionScope(participant.Execution);
                         var scanContext = new ScanContext(scanPathInfos, participantProgress, participantScope.ServiceProvider, options.Rescan);
-                        await participant.ScanAsync(scanContext, ct);
+                        await participant.Participant.ScanAsync(scanContext, ct);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "Extension scan participant {Name} failed", participant.Name);
+                        logger.LogError(ex, "Extension scan participant {Name} failed", participant.Participant.Name);
                     }
                 }
             }
@@ -3668,4 +3672,3 @@ public class ScanService(
         }
     }
 }
-

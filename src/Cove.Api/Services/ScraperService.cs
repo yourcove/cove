@@ -286,7 +286,10 @@ public class ScraperService
             IReadOnlyList<ScraperDescriptor> descriptors;
             try
             {
-                descriptors = provider.GetScrapers();
+                var execution = _extensionManager.CaptureExtensionExecution(provider);
+                descriptors = _extensionManager.ExecuteExtension(execution, provider.GetScrapers);
+                foreach (var descriptor in descriptors)
+                    _extensionScraperCache[descriptor.Id] = new ExtensionScraperRegistration(provider, descriptor, execution);
             }
             catch (Exception ex)
             {
@@ -296,7 +299,6 @@ public class ScraperService
 
             foreach (var descriptor in descriptors)
             {
-                _extensionScraperCache[descriptor.Id] = new ExtensionScraperRegistration(provider, descriptor);
                 summaries.Add(new ScraperSummaryDto(
                     descriptor.Id,
                     descriptor.Name,
@@ -1383,17 +1385,18 @@ public class ScraperService
         List<string> urls = string.IsNullOrWhiteSpace(url) ? [] : [url];
         var permissions = BuildScraperPermissions(url);
 
-        return registration.Descriptor.Entity switch
-        {
-            ScraperEntity.Video => ToResultDictionary(await registration.Provider.ScrapeVideoAsync(new ScraperRequest<VideoScrapeInput>(registration.Descriptor.Id, new VideoScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            ScraperEntity.Performer => ToResultDictionary(await registration.Provider.ScrapePerformerAsync(new ScraperRequest<PerformerScrapeInput>(registration.Descriptor.Id, new PerformerScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            ScraperEntity.Gallery => ToResultDictionary(await registration.Provider.ScrapeGalleryAsync(new ScraperRequest<GalleryScrapeInput>(registration.Descriptor.Id, new GalleryScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            ScraperEntity.Image => ToResultDictionary(await registration.Provider.ScrapeImageAsync(new ScraperRequest<ImageScrapeInput>(registration.Descriptor.Id, new ImageScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            ScraperEntity.Group => ToResultDictionary(await registration.Provider.ScrapeGroupAsync(new ScraperRequest<GroupScrapeInput>(registration.Descriptor.Id, new GroupScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            ScraperEntity.Audio => ToResultDictionary(await registration.Provider.ScrapeAudioAsync(new ScraperRequest<AudioScrapeInput>(registration.Descriptor.Id, new AudioScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            ScraperEntity.Text => ToResultDictionary(await registration.Provider.ScrapeTextAsync(new ScraperRequest<TextScrapeInput>(registration.Descriptor.Id, new TextScrapeInput { Url = url, Urls = urls }, permissions), ct)),
-            _ => null,
-        };
+        return await _extensionManager.ExecuteExtensionAsync(registration.Execution, async () =>
+            registration.Descriptor.Entity switch
+            {
+                ScraperEntity.Video => ToResultDictionary(await registration.Provider.ScrapeVideoAsync(new ScraperRequest<VideoScrapeInput>(registration.Descriptor.Id, new VideoScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                ScraperEntity.Performer => ToResultDictionary(await registration.Provider.ScrapePerformerAsync(new ScraperRequest<PerformerScrapeInput>(registration.Descriptor.Id, new PerformerScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                ScraperEntity.Gallery => ToResultDictionary(await registration.Provider.ScrapeGalleryAsync(new ScraperRequest<GalleryScrapeInput>(registration.Descriptor.Id, new GalleryScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                ScraperEntity.Image => ToResultDictionary(await registration.Provider.ScrapeImageAsync(new ScraperRequest<ImageScrapeInput>(registration.Descriptor.Id, new ImageScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                ScraperEntity.Group => ToResultDictionary(await registration.Provider.ScrapeGroupAsync(new ScraperRequest<GroupScrapeInput>(registration.Descriptor.Id, new GroupScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                ScraperEntity.Audio => ToResultDictionary(await registration.Provider.ScrapeAudioAsync(new ScraperRequest<AudioScrapeInput>(registration.Descriptor.Id, new AudioScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                ScraperEntity.Text => ToResultDictionary(await registration.Provider.ScrapeTextAsync(new ScraperRequest<TextScrapeInput>(registration.Descriptor.Id, new TextScrapeInput { Url = url, Urls = urls }, permissions), ct)),
+                _ => null,
+            });
     }
 
     private async Task<List<Dictionary<string, object>>?> ScrapeNameWithExtensionAsync(ExtensionScraperRegistration registration, string name, CancellationToken ct)
@@ -1405,17 +1408,18 @@ public class ScraperService
             return null;
 
         var request = new ScraperRequest<string>(registration.Descriptor.Id, name, new ScraperPermissions());
-        return registration.Descriptor.Entity switch
-        {
-            ScraperEntity.Video => ToResultDictionaries(await registration.Provider.SearchVideosAsync(request, ct)),
-            ScraperEntity.Performer => ToResultDictionaries(await registration.Provider.SearchPerformersAsync(request, ct)),
-            ScraperEntity.Gallery => ToResultDictionaries(await registration.Provider.SearchGalleriesAsync(request, ct)),
-            ScraperEntity.Image => ToResultDictionaries(await registration.Provider.SearchImagesAsync(request, ct)),
-            ScraperEntity.Group => ToResultDictionaries(await registration.Provider.SearchGroupsAsync(request, ct)),
-            ScraperEntity.Audio => ToResultDictionaries(await registration.Provider.SearchAudiosAsync(request, ct)),
-            ScraperEntity.Text => ToResultDictionaries(await registration.Provider.SearchTextsAsync(request, ct)),
-            _ => null,
-        };
+        return await _extensionManager.ExecuteExtensionAsync(registration.Execution, async () =>
+            registration.Descriptor.Entity switch
+            {
+                ScraperEntity.Video => ToResultDictionaries(await registration.Provider.SearchVideosAsync(request, ct)),
+                ScraperEntity.Performer => ToResultDictionaries(await registration.Provider.SearchPerformersAsync(request, ct)),
+                ScraperEntity.Gallery => ToResultDictionaries(await registration.Provider.SearchGalleriesAsync(request, ct)),
+                ScraperEntity.Image => ToResultDictionaries(await registration.Provider.SearchImagesAsync(request, ct)),
+                ScraperEntity.Group => ToResultDictionaries(await registration.Provider.SearchGroupsAsync(request, ct)),
+                ScraperEntity.Audio => ToResultDictionaries(await registration.Provider.SearchAudiosAsync(request, ct)),
+                ScraperEntity.Text => ToResultDictionaries(await registration.Provider.SearchTextsAsync(request, ct)),
+                _ => null,
+            });
     }
 
     private async Task<Dictionary<string, object>?> ScrapeFragmentWithExtensionAsync(ExtensionScraperRegistration registration, Dictionary<string, object> fragment, CancellationToken ct)
@@ -1426,8 +1430,10 @@ public class ScraperService
         if (!await _extensionManager.EnsureExtensionInitializedAsync(registration.Provider.Id, ct))
             return null;
 
-        switch (registration.Descriptor.Entity)
+        return await _extensionManager.ExecuteExtensionAsync(registration.Execution, async () =>
         {
+            switch (registration.Descriptor.Entity)
+            {
             case ScraperEntity.Video:
             {
                 var input = BuildVideoInput(fragment);
@@ -1463,9 +1469,10 @@ public class ScraperService
                 var input = BuildTextInput(fragment);
                 return ToResultDictionary(await registration.Provider.ScrapeTextAsync(new ScraperRequest<TextScrapeInput>(registration.Descriptor.Id, input, BuildScraperPermissions(input.Url)), ct));
             }
-            default:
-                return null;
-        }
+                default:
+                    return null;
+            }
+        });
     }
 
     private static VideoScrapeInput BuildVideoInput(IReadOnlyDictionary<string, object> fragment)
@@ -1818,7 +1825,10 @@ public class ScraperService
         return names;
     }
 
-    private sealed record ExtensionScraperRegistration(IScraperProvider Provider, ScraperDescriptor Descriptor);
+    private sealed record ExtensionScraperRegistration(
+        IScraperProvider Provider,
+        ScraperDescriptor Descriptor,
+        ExtensionManager.ExtensionExecutionHandle Execution);
 
     // Helper methods
 

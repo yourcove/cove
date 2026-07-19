@@ -24,14 +24,13 @@ public class PluginsController(
     {
         var manifest = extensionManager.GetAggregatedManifest();
         var plugins = extensionManager.Extensions
-            .Select(ext => new PluginDto(
-                ext.Id,
-                ext.Name,
-                ext.Description ?? string.Empty,
-                ext.Version,
-                !config.DisabledPlugins.Contains(ext.Id),
-                GetPluginTasks(ext)
-            ))
+            .Select(ext => extensionManager.ExecuteExtensionMetadata(ext, () => new PluginDto(
+                    ext.Id,
+                    ext.Name,
+                    ext.Description ?? string.Empty,
+                    ext.Version,
+                    !config.DisabledPlugins.Contains(ext.Id),
+                    GetPluginTasksCore(ext))))
             .ToList();
 
         // Also scan for Python plugins
@@ -100,22 +99,30 @@ public class PluginsController(
         }
 
         // Check .NET extensions
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == dto.PluginId);
+        var ext = extensionManager.GetExtension(dto.PluginId);
         if (ext == null) return NotFound($"Plugin '{dto.PluginId}' not found");
 
         if (ext is IJobExtension jobExt)
         {
-            var jobDef = jobExt.Jobs.FirstOrDefault(j => j.Id == dto.TaskName);
+            var execution = extensionManager.CaptureExtensionExecution(jobExt);
+            var jobMetadata = extensionManager.ExecuteExtension(
+                execution,
+                () => (
+                    Job: jobExt.Jobs.FirstOrDefault(j => j.Id == dto.TaskName),
+                    ExtensionName: ext.Name));
+            var jobDef = jobMetadata.Job;
             if (jobDef == null)
                 return NotFound($"Task '{dto.TaskName}' was not found for plugin '{dto.PluginId}'.");
             if (!jobDef.ShowInTaskList)
                 return NotFound($"Task '{dto.TaskName}' is not exposed on the extension tasks page.");
 
             var label = jobDef?.Name ?? dto.TaskName;
-            var netJobId = jobService.Enqueue($"plugin:{dto.PluginId}", $"{ext.Name}: {label}", async (progress, ct) =>
+            var netJobId = jobService.Enqueue($"plugin:{dto.PluginId}", $"{jobMetadata.ExtensionName}: {label}", async (progress, ct) =>
             {
                 var adapter = new PluginJobProgressAdapter(progress);
-                await jobExt.RunJobAsync(dto.TaskName, dto.Args != null ? dto.Args : null, adapter, ct);
+                await extensionManager.ExecuteExtensionAsync(
+                    execution,
+                    () => jobExt.RunJobAsync(dto.TaskName, dto.Args != null ? dto.Args : null, adapter, ct));
             }, exclusive: false);
             return Ok(new { jobId = netJobId });
         }
@@ -220,7 +227,10 @@ public class PluginsController(
         }
     }
 
-    private static List<PluginTaskDto> GetPluginTasks(IExtension ext)
+    private List<PluginTaskDto> GetPluginTasks(IExtension ext)
+        => extensionManager.ExecuteExtensionMetadata(ext, () => GetPluginTasksCore(ext));
+
+    private static List<PluginTaskDto> GetPluginTasksCore(IExtension ext)
     {
         // If the extension defines typed jobs, expose those
         if (ext is IJobExtension jobExt && jobExt.Jobs.Count > 0)

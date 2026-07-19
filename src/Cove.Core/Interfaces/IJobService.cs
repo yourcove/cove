@@ -61,6 +61,8 @@ public interface IJobService
     /// <summary>
     /// Enqueue a job. Exclusive jobs (default) run sequentially through the queue.
     /// Non-exclusive jobs run immediately as concurrent background tasks.
+    /// The work callback can outlive its originating request: do not capture scoped services or
+    /// HttpContext. Create a fresh scope inside the callback and honor its cancellation token.
     /// </summary>
     string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true);
     bool Cancel(string jobId);

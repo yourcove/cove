@@ -24,6 +24,16 @@ Every compiled extension implements `IExtension`.
 
 Extensions may register their own services. They should treat host services as an explicit compatibility boundary, not assume every internal Cove service is stable. `IExtensionServiceExchange` is the supported opt-in exchange for publishing and resolving services across extension containers.
 
+### Provider generations and tracked scopes
+
+Cove builds an isolated service-provider generation for each runtime extension. Enable, disable, replacement, and unload transitions are serialized per extension. Requests, endpoints, middleware, events, jobs, scrapers, downloaders, scans, workers, and contributed providers stay bound to the exact generation on which their work started. Cove retires an old generation only after its tracked work drains.
+
+Inject `IExtensionServiceScopeFactory` into extension services when nested or long-lived work needs a scope. Its `CreateScope` and `CreateAsyncScope` methods keep the selected provider generation alive until the returned scope is disposed. Do not inject the container engine's `IServiceScopeFactory` for extension-owned work because that bypasses generation tracking.
+
+Create and dispose one tracked scope per background-work unit. A queued `IJobService` callback can outlive the request that enqueued it, so do not capture `HttpContext` or request-scoped services; create a fresh tracked scope inside the callback and honor its cancellation token.
+
+Metadata and declarations read outside active execution must remain immutable and provider-independent. In particular, identity, dependencies, `GetUIManifest()`, `IJobExtension.Jobs`, and `IActionExtension.GetActions()` must not resolve scoped services or depend on a mutable provider generation.
+
 ## SDK base classes
 
 `Cove.Sdk` provides manifest-aware base classes and a UI builder. They reduce lifecycle and dispatch boilerplate; they do not add capabilities that their implemented interfaces do not list.
@@ -164,7 +174,7 @@ Choose storage by shape:
 
 When replacing a referenced blob, store the new payload first, persist the new id, and delete the old blob only after the metadata update succeeds. Delete the new blob if that update fails. Honor cancellation while storing data and do not retain a stream after its request, job, or extension scope ends.
 
-Background workers should create a dependency-injection scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
+Background workers should create an `IExtensionServiceScopeFactory` scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
 
 ## Metadata and intake providers
 

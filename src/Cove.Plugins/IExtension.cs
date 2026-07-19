@@ -16,6 +16,8 @@ namespace Cove.Plugins;
 /// <summary>
 /// Base interface for all Cove extensions. Every extension must implement this.
 /// Extensions can optionally implement additional capability interfaces.
+/// Identity, version, category, dependency, and other descriptive properties must be immutable and
+/// provider-independent because the host reads them before initialization and while disabled.
 /// </summary>
 public interface IExtension
 {
@@ -55,6 +57,17 @@ public interface IExtension
     Task OnInstallAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
     /// <summary>Called when the extension is being uninstalled. Clean up non-DB resources.</summary>
     Task OnUninstallAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Creates extension-owned service scopes that participate in provider-generation retirement.
+/// Inject this contract into extension services instead of the container engine's
+/// <see cref="IServiceScopeFactory"/>.
+/// </summary>
+public interface IExtensionServiceScopeFactory
+{
+    IServiceScope CreateScope();
+    AsyncServiceScope CreateAsyncScope();
 }
 
 /// <summary>
@@ -123,6 +136,7 @@ public interface IApiExtension : IExtension
 /// <summary>Contribute to the frontend UI via the manifest system.</summary>
 public interface IUIExtension : IExtension
 {
+    /// <summary>Return provider-independent UI declarations; this may be called while disabled.</summary>
     UIManifest GetUIManifest();
 }
 
@@ -151,6 +165,7 @@ public interface IExtensionStore
 /// </summary>
 public interface IJobExtension : IExtension
 {
+    /// <summary>Provider-independent job declarations; the host may read them while disabled.</summary>
     IReadOnlyList<ExtensionJobDefinition> Jobs { get; }
     Task RunJobAsync(string jobId, IReadOnlyDictionary<string, string>? parameters, IJobProgress progress, CancellationToken ct);
 }
@@ -236,8 +251,12 @@ public interface IMiddlewareExtension : IExtension
 /// Extension that runs a long-lived background worker managed by the host. The host starts
 /// <see cref="RunAsync"/> after the extension initializes and cancels the token when the extension is
 /// disabled, uninstalled, or the host shuts down. Implementations should loop until the token is
-/// cancelled and create a scope per unit of work for scoped services. Persist durable state via the
-/// extension store — in-memory state is reset if the extension's container is rebuilt.
+/// cancelled and use <see cref="IExtensionServiceScopeFactory"/> to create a tracked scope per unit
+/// of work for scoped services. Persist durable state via the extension store — in-memory state is
+/// reset if the extension's container is rebuilt.
+/// <see cref="RunAsync"/> and any code it awaits must not invoke or await lifecycle operations,
+/// worker-stop operations, or host-wide extension shutdown for the same extension: the host drains
+/// the worker while holding that extension's lifecycle gate.
 /// </summary>
 public interface IBackgroundExtension : IExtension
 {
@@ -289,6 +308,7 @@ public record ScanPathInfo(
 /// </summary>
 public interface IActionExtension : IExtension
 {
+    /// <summary>Return provider-independent action declarations; this may be called while disabled.</summary>
     IReadOnlyList<ExtensionAction> GetActions();
 }
 

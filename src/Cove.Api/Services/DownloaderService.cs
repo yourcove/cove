@@ -47,7 +47,7 @@ public class DownloaderService(
         Directory.CreateDirectory(_tempRoot);
 
         return extensionManager.GetDownloaderProviders()
-            .SelectMany(provider => provider.GetDownloaders())
+            .SelectMany(provider => extensionManager.ExecuteExtension(provider, provider.GetDownloaders))
             .OrderBy(descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(descriptor => descriptor.Id, StringComparer.OrdinalIgnoreCase)
             .Select(ToDto)
@@ -72,8 +72,11 @@ public class DownloaderService(
         var providers = extensionManager.GetDownloaderProviders()
             .Where(provider => !excludedProviderIds.Contains(provider.Id))
             .ToList();
+        var providerExecutions = providers.ToDictionary(
+            provider => provider,
+            extensionManager.CaptureExtensionExecution);
         var descriptorLookup = providers
-            .SelectMany(provider => provider.GetDownloaders())
+            .SelectMany(provider => extensionManager.ExecuteExtension(providerExecutions[provider], provider.GetDownloaders))
             .GroupBy(descriptor => descriptor.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
@@ -87,7 +90,9 @@ public class DownloaderService(
                     continue;
                 }
 
-                var matches = await provider.MatchAllAsync(url, ct);
+                var matches = await extensionManager.ExecuteExtensionAsync(
+                    providerExecutions[provider],
+                    () => provider.MatchAllAsync(url, ct));
                 if (matches.Count == 0)
                     continue;
 
@@ -169,7 +174,14 @@ public class DownloaderService(
             .Select(provider => new
             {
                 Provider = provider,
-                Descriptor = provider.GetDownloaders().FirstOrDefault(descriptor => string.Equals(descriptor.Id, request.DownloaderId, StringComparison.OrdinalIgnoreCase))
+                Execution = extensionManager.CaptureExtensionExecution(provider),
+            })
+            .Select(registration => new
+            {
+                registration.Provider,
+                registration.Execution,
+                Descriptor = extensionManager.ExecuteExtension(registration.Execution, registration.Provider.GetDownloaders)
+                    .FirstOrDefault(descriptor => string.Equals(descriptor.Id, request.DownloaderId, StringComparison.OrdinalIgnoreCase))
             })
             .FirstOrDefault(item => item.Descriptor != null);
 
@@ -192,7 +204,9 @@ public class DownloaderService(
 
         var host = new DownloaderHost(tempDirectory, httpClientFactory, loggerFactory, progress);
         using var downloadSlotLease = await AcquireDownloadSlotAsync(progress, ct);
-        var result = await registration.Provider.DownloadAsync(request, host, ct);
+        var result = await extensionManager.ExecuteExtensionAsync(
+            registration.Execution,
+            () => registration.Provider.DownloadAsync(request, host, ct));
         if (result == null)
         {
             logger.LogDebug("Downloader {DownloaderId} returned no result for {Entity} URL {Url}", request.DownloaderId, request.Entity, request.Url);

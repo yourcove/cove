@@ -11,7 +11,7 @@ internal static class ExtensionEndpointPipeline
 {
     public static void Configure(
         IApplicationBuilder app,
-        Func<string, IServiceScope> createExtensionScope)
+        Func<ExtensionEndpointMetadata, IServiceScope> createExtensionScope)
     {
         // MVC authorization filters do not run for minimal APIs. Resolve and execute Cove's
         // authorization services while RequestServices still points at the host request scope.
@@ -28,7 +28,7 @@ internal static class ExtensionEndpointPipeline
                 return;
             }
 
-            using var scope = createExtensionScope(marker.ExtensionId);
+            using var scope = createExtensionScope(marker);
             var hostServices = context.RequestServices;
             context.RequestServices = scope.ServiceProvider;
             try
