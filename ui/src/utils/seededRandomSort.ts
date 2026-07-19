@@ -38,3 +38,20 @@ export function withSeededRandomSort(currentFilter: FindFilter, nextFilter: Find
   const { seed: _seed, ...rest } = nextFilter;
   return rest;
 }
+
+export function seededRandomKey(id: string, seed = 1) {
+  let hash = Math.abs(seed) || 1;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = Math.imul(hash ^ id.charCodeAt(index), 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function sortSeededRandom<T>(items: T[], idSelector: (item: T) => string, seed?: number, descending = false) {
+  return [...items].sort((left, right) => {
+    const leftId = idSelector(left);
+    const rightId = idSelector(right);
+    const comparison = seededRandomKey(leftId, seed) - seededRandomKey(rightId, seed) || leftId.localeCompare(rightId, undefined, { numeric: true });
+    return descending ? -comparison : comparison;
+  });
+}

@@ -38,6 +38,7 @@ import { ContextualVideoListView } from "../components/ContextualMediaListViews"
 import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { getLoadError } from "../utils/queryLoadState";
+import { sortSeededRandom } from "../utils/seededRandomSort";
 
 interface Props {
   id: number;
@@ -49,6 +50,7 @@ type TabKey = "items" | "subGroups" | (string & {});
 const GROUP_ITEM_SORT_OPTIONS = [
   { value: "order", label: "Item #" },
   { value: "added_at", label: "Added to Group" },
+  { value: "random", label: "Random" },
   { value: "title", label: "Title" },
   { value: "code", label: "Code" },
   { value: "date", label: "Date" },
@@ -948,7 +950,7 @@ function pageMixedGroupItems(items: MixedGroupItem[], filter: FindFilter, object
       })
     : items;
   const filteredItems = searchedItems.filter((item) => matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData));
-  const sortedItems = sortMixedGroupItems(filteredItems, filter.sort, filter.direction, hostData, engagementData);
+  const sortedItems = sortMixedGroupItems(filteredItems, filter.sort, filter.direction, filter.seed, hostData, engagementData);
   const page = Math.max(1, filter.page ?? 1);
   const infinitePageSize = (filter.perPage ?? 40) <= 0;
   const perPage = infinitePageSize ? Math.max(sortedItems.length, 1) : Math.max(1, filter.perPage ?? 40);
@@ -1335,7 +1337,11 @@ function groupItemHost(item: MixedGroupItem) {
   return { title, subtitle, kind: groupItem.kind, route };
 }
 
-function sortMixedGroupItems(items: MixedGroupItem[], sort?: string, direction?: FindFilter["direction"], hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+function sortMixedGroupItems(items: MixedGroupItem[], sort?: string, direction?: FindFilter["direction"], seed?: number, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+  if (sort === "random") {
+    return sortSeededRandom(items, (item) => item.id, seed, direction === "desc");
+  }
+
   const sorted = [...items];
   sorted.sort((left, right) => {
     const leftMeta = getMixedItemMetadata(left, hostData, engagementData);
