@@ -22,6 +22,7 @@ import { AudioPlayer } from "./AudioPlayer";
 import { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
 import { TextViewer } from "./TextViewer";
 import { VideoPlayer } from "./VideoPlayer";
+import { useAppConfig } from "../state/AppConfigContext";
 
 interface Props {
   groupId: number;
@@ -49,10 +50,13 @@ export function CompilationPlayer({
   backLabel,
   onGoBack,
 }: Props) {
+  const { config, configLoading } = useAppConfig();
+  const automaticPlayback = config?.ui.autostartVideo ?? false;
+  const playbackIntentSetRef = useRef(false);
   const seekRef = useRef<((time: number) => void) | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [loopCompilation, setLoopCompilation] = useState(false);
-  const [autostart, setAutostart] = useState(false);
+  const [autostart, setAutostart] = useState(automaticPlayback);
   const [autostartToken, setAutostartToken] = useState(0);
   const [activeTab, setActiveTab] = useState<CompilationTab>("playlist");
   const [enabledTypes, setEnabledTypes] = useState<Record<TypeFilterKey, boolean>>({
@@ -64,6 +68,11 @@ export function CompilationPlayer({
   });
   const [imageDisplayDurationSec, setImageDisplayDurationSec] = useState(DEFAULT_IMAGE_DISPLAY_DURATION_SEC);
   const [textDisplayDurationSec, setTextDisplayDurationSec] = useState(DEFAULT_TEXT_DISPLAY_DURATION_SEC);
+
+  useEffect(() => {
+    if (configLoading || playbackIntentSetRef.current) return;
+    setAutostart(automaticPlayback);
+  }, [automaticPlayback, configLoading]);
 
   const visibleItems = useMemo(
     () => items.filter((manifestItem) => enabledTypes[getTypeFilterKey(manifestItem)]),
@@ -173,6 +182,7 @@ export function CompilationPlayer({
     }
 
     const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
+    if (!shouldAutoPlay) playbackIntentSetRef.current = true;
     if (shouldAutoPlay) {
       setAutostart(true);
       setAutostartToken((value) => value + 1);
@@ -194,13 +204,13 @@ export function CompilationPlayer({
   }, [currentItemIndex, loopCompilation, moveToItem, visibleItems.length]);
 
   useEffect(() => {
-    if (!item || itemLoading || (!itemIsImage && !itemIsText) || displayDurationSec <= 0) {
+    if (!autostart || !item || itemLoading || (!itemIsImage && !itemIsText) || displayDurationSec <= 0) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => advanceToNextItem(), displayDurationSec * 1000);
     return () => window.clearTimeout(timeoutId);
-  }, [advanceToNextItem, displayDurationSec, item, itemIsImage, itemIsText, itemLoading]);
+  }, [advanceToNextItem, autostart, displayDurationSec, item, itemIsImage, itemIsText, itemLoading]);
 
   const restartItem = useCallback(() => {
     if (!item) {

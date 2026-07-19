@@ -3,12 +3,17 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompilationPlayer } from "../components/CompilationPlayer";
 
-const { mockVideos } = vi.hoisted(() => ({
+const { mockVideos, mockUiConfig } = vi.hoisted(() => ({
   mockVideos: {
     get: vi.fn(),
     streamUrl: vi.fn((id: number) => `/video-${id}.mp4`),
     screenshotUrl: vi.fn((id: number) => `/video-${id}.jpg`),
   },
+  mockUiConfig: { autostartVideo: true },
+}));
+
+vi.mock("../state/AppConfigContext", () => ({
+  useAppConfig: () => ({ config: { ui: mockUiConfig }, configLoading: false }),
 }));
 
 vi.mock("../api/client", () => ({
@@ -27,7 +32,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: () => <div data-testid="compilation-video-player">Video Player</div>,
+  VideoPlayer: ({ autostart }: { autostart?: boolean }) => <div data-testid="compilation-video-player" data-autostart={String(autostart)}>Video Player</div>,
 }));
 
 function renderPlayer() {
@@ -69,6 +74,7 @@ function renderPlayer() {
 describe("CompilationPlayer", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockUiConfig.autostartVideo = true;
   });
 
   it("uses the shared full-bleed media surface without the framed video wrapper", async () => {
@@ -82,5 +88,28 @@ describe("CompilationPlayer", () => {
     expect(await screen.findByRole("heading", { name: "Summer Compilation" })).toBeInTheDocument();
     expect(await screen.findByTestId("compilation-video-player")).toBeInTheDocument();
     expect(screen.queryByTestId("media-detail-layout-media-frame")).not.toBeInTheDocument();
+  });
+
+  it("honors the automatic playback preference when compilation playback starts", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    });
+
+    renderPlayer();
+
+    expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-autostart", "true");
+  });
+
+  it("leaves compilation playback paused when automatic playback is disabled", async () => {
+    mockUiConfig.autostartVideo = false;
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    });
+
+    renderPlayer();
+
+    expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-autostart", "false");
   });
 });
