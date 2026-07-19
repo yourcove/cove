@@ -94,3 +94,18 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # Docker Compose — the deployment stacks under docker/ pin external images (e.g. the
+  # pgvector database); Compose is a separate ecosystem from the Dockerfile updater above.
+  - package-ecosystem: "docker-compose"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
+    groups:
+      docker-compose-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
