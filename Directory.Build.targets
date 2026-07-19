@@ -49,7 +49,7 @@
     </PropertyGroup>
 
     <!-- Fallback when git / tags are unavailable. -->
-    <PropertyGroup Condition=" ( '$(Version)' == '' or '$(Version)' == '1.0.0' ) ">
+    <PropertyGroup Condition=" ( '$(Version)' == '' ) ">
       <Version>0.0.0-dev</Version>
     </PropertyGroup>
 
