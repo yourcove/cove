@@ -2664,6 +2664,14 @@ export interface TagFilterCriteria {
   childCountCriterion?: IntCriterion;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
+  extensionCriteria?: ExtensionFilterCriterion[];
+}
+
+export interface ExtensionFilterCriterion {
+  extensionId: string;
+  filterId: string;
+  modifier: string;
+  value: unknown;
 }
 
 export interface StudioFilterCriteria {
@@ -3114,6 +3122,7 @@ export interface ExtensionListFilterContribution {
   entityReferenceType?: string;
   modifiers?: CriterionModifier[];
   options?: ExtensionListFilterOption[];
+  filterId?: string;
   order: number;
 }
 

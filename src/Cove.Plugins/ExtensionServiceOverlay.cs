@@ -280,9 +280,14 @@ public sealed class ExtensionServiceOverlay : IDisposable
                 services.Add(descriptor); // copy scoped/transient — the container creates & owns its instance
         }
 
+        var contributionStartIndex = services.Count;
         try
         {
             extension.ConfigureServices(services, context);
+            ExtensionContributionServiceRegistration.KeyProvidersAddedSince(
+                services,
+                contributionStartIndex,
+                extensionId);
         }
         catch (Exception ex)
         {

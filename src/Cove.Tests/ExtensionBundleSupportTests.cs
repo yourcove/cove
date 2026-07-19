@@ -627,6 +627,168 @@ public class ExtensionBundleSupportTests
         Assert.Equal(ListContributionExtension.ExtensionId, listSort.ExtensionId);
     }
 
+    [Fact]
+    public void AggregatedManifest_stamps_executable_filter_with_actual_extension_owner()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new SpoofedExecutableFilterExtension(), "local");
+
+        var filter = Assert.Single(manager.GetAggregatedManifest().ListFilters);
+
+        Assert.Equal(SpoofedExecutableFilterExtension.ExtensionId, filter.ExtensionId);
+        Assert.Equal("owned-filter", filter.FilterId);
+        Assert.NotEqual("victim.extension", filter.ExtensionId);
+    }
+
+    [Fact]
+    public void Executable_filter_property_preserves_the_original_positional_record_abi()
+    {
+        var constructor = Assert.Single(typeof(UIListFilterContribution).GetConstructors());
+        Assert.Equal(12, constructor.GetParameters().Length);
+        Assert.DoesNotContain(constructor.GetParameters(), parameter => parameter.Name == "FilterId");
+
+        var deconstruct = Assert.Single(
+            typeof(UIListFilterContribution).GetMethods(),
+            method => method.Name == "Deconstruct");
+        Assert.Equal(12, deconstruct.GetParameters().Length);
+        Assert.True(typeof(UIListFilterContribution).GetProperty(nameof(UIListFilterContribution.FilterId))?.CanWrite);
+    }
+
+    [Fact]
+    public void Executable_filters_support_generic_entity_types_in_the_sdk_and_aggregated_manifest()
+    {
+        var builder = new UIManifestBuilder("com.example.builder");
+        Assert.Throws<ArgumentException>(() => builder.AddExtensionListFilter(
+            " ", "owned", "Owned", "boolean", "owned-filter"));
+
+        var normalized = new UIManifestBuilder("com.example.builder")
+            .AddExtensionListFilter(
+                " Segments ",
+                " owned ",
+                " Owned ",
+                " BOOLEAN ",
+                " owned-filter ",
+                modifiers: [" equals ", "equals", " notEquals ", "includesAll", "is-null", " "])
+            .Build();
+        var normalizedFilter = Assert.Single(normalized.ListFilters);
+        Assert.Equal("segments", normalizedFilter.EntityType);
+        Assert.Equal("owned", normalizedFilter.Id);
+        Assert.Equal("boolean", normalizedFilter.CriterionType);
+        Assert.Equal("owned-filter", normalizedFilter.FilterId);
+        Assert.Equal(["EQUALS", "NOT_EQUALS", "INCLUDES_ALL", "IS_NULL"], normalizedFilter.Modifiers);
+
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new NonTagExecutableFilterExtension(), "local");
+
+        var aggregated = Assert.Single(manager.GetAggregatedManifest().ListFilters);
+        Assert.Equal("videos", aggregated.EntityType);
+        Assert.Equal(NonTagExecutableFilterExtension.ExtensionId, aggregated.ExtensionId);
+        Assert.Equal("owned-filter", aggregated.FilterId);
+    }
+
+    [Fact]
+    public async Task Entity_filter_runtime_executes_non_tag_predicates_on_the_generic_lease()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        var provider = new MatchingFilterProvider(11, "segments");
+        var extension = new FilterLifecycleExtension(
+            provider,
+            "segments",
+            registerConcreteAlias: true);
+        manager.Register(extension, "local");
+        MarkAsRuntimeExtension(manager, extension.Id);
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        manager.CaptureHostServices(hostServices);
+        using var services = hostServices.BuildServiceProvider();
+        manager.PrepareRuntimeServices(services);
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(RebuildRuntimeProvider(manager, extension.Id.ToUpperInvariant()));
+
+        var runtime = new ExtensionEntityFilterRuntime(manager);
+        using var execution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
+            await runtime.OpenEntityFilterAsync(extension.Id, "segments", "owned-filter", default));
+        var result = await execution.ResolveAsync(
+            new ExtensionEntityFilterRequest(
+                extension.Id,
+                "segments",
+                "owned-filter",
+                "equals",
+                JsonSerializer.SerializeToElement(true),
+                [11, 12],
+                new ExtensionFilterPrincipal(null, "system", "System", [], ["*"])),
+            default);
+
+        Assert.Equal("segments", execution.Declaration.EntityType);
+        Assert.Equal(extension.Id, execution.Declaration.ExtensionId);
+        Assert.Equal([11], result.MatchingEntityIds);
+
+        await manager.DisableExtensionAsync(extension.Id);
+    }
+
+    [Fact]
+    public async Task Built_in_entity_filter_providers_are_resolved_by_extension_owner()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        var first = new FilterLifecycleExtension(
+            new MatchingFilterProvider(1),
+            extensionId: "com.example.first-filter",
+            registrationKey: "com.example.second-filter",
+            registerConcreteAlias: true);
+        var second = new FilterLifecycleExtension(
+            new MatchingFilterProvider(2),
+            extensionId: "com.example.second-filter",
+            registrationKey: "com.example.first-filter");
+        manager.Register(first, "local");
+        manager.Register(second, "local");
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        manager.ConfigureServices(hostServices);
+        using var services = hostServices.BuildServiceProvider();
+        Assert.True(await manager.InitializeExtensionAsync(first.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(second.Id, services));
+
+        var runtime = new ExtensionEntityFilterRuntime(manager);
+        using var firstExecution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
+            await runtime.OpenEntityFilterAsync(first.Id, "tags", "owned-filter", default));
+        using var secondExecution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
+            await runtime.OpenEntityFilterAsync(second.Id, "tags", "owned-filter", default));
+        var request = new ExtensionEntityFilterRequest(
+            first.Id,
+            "tags",
+            "owned-filter",
+            "equals",
+            JsonSerializer.SerializeToElement(true),
+            [1, 2],
+            new ExtensionFilterPrincipal(null, "system", "System", [], ["*"]));
+
+        var firstResult = await firstExecution.ResolveAsync(request, default);
+        var secondResult = await secondExecution.ResolveAsync(request with { ExtensionId = second.Id }, default);
+
+        Assert.Equal([1], firstResult.MatchingEntityIds);
+        Assert.Equal([2], secondResult.MatchingEntityIds);
+    }
+
 
     [Fact]
     public void GetExtensions_UsesManifestCategoriesForLoadedExtensions()
@@ -906,6 +1068,109 @@ public class ExtensionBundleSupportTests
         Assert.Equal(2, extension.InitializeCount);
         Assert.Equal(1, extension.ShutdownCount);
         Assert.Equal(["initialize", "shutdown", "initialize"], extension.Events);
+    }
+
+    [Fact]
+    public async Task DisableExtensionAsync_retires_without_waiting_for_inflight_filter_provider()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        var provider = new BlockingFilterProvider();
+        var extension = new FilterLifecycleExtension(provider);
+        manager.Register(extension, "local");
+        MarkAsRuntimeExtension(manager, extension.Id);
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        manager.CaptureHostServices(hostServices);
+        using var services = hostServices.BuildServiceProvider();
+        manager.PrepareRuntimeServices(services);
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+
+        var runtime = new ExtensionEntityFilterRuntime(manager);
+        var execution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
+            await runtime.OpenEntityFilterAsync(extension.Id, "tags", "owned-filter", default));
+        var resolve = execution.ResolveAsync(
+            new ExtensionEntityFilterRequest(
+                extension.Id,
+                "tags",
+                "owned-filter",
+                "equals",
+                JsonSerializer.SerializeToElement(true),
+                [1],
+                new ExtensionFilterPrincipal(null, "system", "System", [], ["*"])),
+            default);
+        await provider.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var disable = manager.DisableExtensionAsync(extension.Id);
+        await disable.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, extension.ShutdownCount);
+        Assert.Equal(0, provider.DisposeCount);
+
+        execution.Dispose();
+        await Task.Delay(50);
+        Assert.False(resolve.IsCompleted);
+        Assert.Equal(0, provider.DisposeCount);
+
+        provider.Release.TrySetResult();
+        var result = await resolve;
+
+        Assert.Equal([1], result.MatchingEntityIds);
+        Assert.Equal(1, extension.ShutdownCount);
+        Assert.Equal(1, provider.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Timed_out_filter_execution_drains_its_retired_provider_after_late_completion()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        var provider = new BlockingFilterProvider(observeCancellation: false);
+        var extension = new FilterLifecycleExtension(provider);
+        manager.Register(extension, "local");
+        MarkAsRuntimeExtension(manager, extension.Id);
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        manager.CaptureHostServices(hostServices);
+        using var services = hostServices.BuildServiceProvider();
+        manager.PrepareRuntimeServices(services);
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        var filters = new ExtensionEntityFilterService(
+            new ExtensionEntityFilterRuntime(manager),
+            providerTimeout: TimeSpan.FromMilliseconds(100));
+
+        var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
+            filters.ApplyAsync(
+                "tags",
+                [new ExtensionFilterCriterion
+                {
+                    ExtensionId = extension.Id,
+                    FilterId = "owned-filter",
+                    Modifier = "equals",
+                    Value = JsonSerializer.SerializeToElement(true),
+                }],
+                [1],
+                CovePrincipal.System(),
+                default));
+
+        Assert.Contains("timed out", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(provider.Entered.Task.IsCompletedSuccessfully);
+        Assert.Equal(0, provider.DisposeCount);
+
+        await manager.DisableExtensionAsync(extension.Id).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, extension.ShutdownCount);
+        Assert.Equal(0, provider.DisposeCount);
+
+        provider.Release.TrySetResult();
+        await provider.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, provider.DisposeCount);
     }
 
     [Fact]
@@ -1234,6 +1499,7 @@ public class ExtensionBundleSupportTests
         public string? Author => null;
         public string? Url => null;
         public string? IconUrl => null;
+        public IReadOnlyDictionary<string, string> Dependencies { get; } = new Dictionary<string, string>();
 
         public void ConfigureServices(IServiceCollection services, ExtensionContext context)
         {
@@ -1336,6 +1602,49 @@ public class ExtensionBundleSupportTests
                 .Build();
     }
 
+    private sealed class SpoofedExecutableFilterExtension : CoveExtensionBase
+    {
+        public const string ExtensionId = "com.example.actual-owner";
+        public override string Id => ExtensionId;
+        public override string Name => "Spoofed Filter Extension";
+        public override string Version => "1.0.0";
+
+        public override UIManifest GetUIManifest() => new()
+        {
+            ListFilters = [new UIListFilterContribution(
+                "owned",
+                "tags",
+                "Owned filter",
+                "boolean",
+                "victim.extension",
+                Modifiers: ["equals"])
+            {
+                FilterId = " owned-filter ",
+            }],
+        };
+    }
+
+    private sealed class NonTagExecutableFilterExtension : CoveExtensionBase
+    {
+        public const string ExtensionId = "com.example.unsupported-filter";
+        public override string Id => ExtensionId;
+        public override string Name => "Unsupported Filter Extension";
+        public override string Version => "1.0.0";
+
+        public override UIManifest GetUIManifest() => new()
+        {
+            ListFilters = [new UIListFilterContribution(
+                "owned",
+                "videos",
+                "Owned filter",
+                "boolean",
+                Id)
+            {
+                FilterId = " owned-filter ",
+            }],
+        };
+    }
+
     private sealed class TabContributionExtension : CoveExtensionBase
     {
         public const string ExtensionId = "com.example.tab-contribution";
@@ -1412,6 +1721,122 @@ public class ExtensionBundleSupportTests
                 ? Task.FromException(new InvalidOperationException("Expected shutdown failure."))
                 : Task.CompletedTask;
         }
+    }
+
+    private static void MarkAsRuntimeExtension(ExtensionManager manager, string extensionId)
+    {
+        var field = typeof(ExtensionManager).GetField(
+            "_overlayExtensionIds",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var ids = Assert.IsType<HashSet<string>>(field?.GetValue(manager));
+        ids.Add(extensionId);
+    }
+
+    private static bool RebuildRuntimeProvider(ExtensionManager manager, string extensionId)
+    {
+        var method = typeof(ExtensionManager).GetMethod(
+            "BuildExtensionProviderCore",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        return Assert.IsType<bool>(method?.Invoke(manager, [extensionId]));
+    }
+
+    private sealed class FilterLifecycleExtension(
+        IExtensionEntityFilterProvider provider,
+        string entityType = "tags",
+        string? extensionId = null,
+        string? registrationKey = null,
+        bool registerConcreteAlias = false) : IUIExtension
+    {
+        public string Id => extensionId ?? "com.example.filter-lifecycle";
+        public string Name => "Filter lifecycle";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+        public IReadOnlyDictionary<string, string> Dependencies { get; } = new Dictionary<string, string>();
+        public int ShutdownCount { get; private set; }
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+            if (registerConcreteAlias)
+            {
+                services.AddSingleton(provider.GetType(), provider);
+                services.AddSingleton(
+                    typeof(IExtensionEntityFilterProvider),
+                    serviceProvider => serviceProvider.GetRequiredService(provider.GetType()));
+            }
+            else if (registrationKey is null)
+            {
+                services.AddSingleton<IExtensionEntityFilterProvider>(_ => provider);
+            }
+            else
+            {
+                services.AddKeyedSingleton<IExtensionEntityFilterProvider>(registrationKey, (_, _) => provider);
+            }
+        }
+        public Task ShutdownAsync(CancellationToken ct = default)
+        {
+            ShutdownCount++;
+            return Task.CompletedTask;
+        }
+
+        public UIManifest GetUIManifest() => new()
+        {
+            ListFilters = [new UIListFilterContribution(
+                "owned",
+                entityType,
+                "Owned filter",
+                "boolean",
+                Id,
+                Modifiers: ["equals"])
+            {
+                FilterId = " owned-filter ",
+            }],
+        };
+    }
+
+    private sealed class BlockingFilterProvider(
+        string entityType = "tags",
+        bool observeCancellation = true) : IExtensionEntityFilterProvider, IDisposable
+    {
+        public IReadOnlyCollection<ExtensionEntityFilterDefinition> Filters { get; } =
+            [new("owned-filter", entityType)];
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int DisposeCount { get; private set; }
+
+        public async Task<ExtensionEntityFilterResult> ResolveAsync(ExtensionEntityFilterRequest request, CancellationToken ct)
+        {
+            Entered.TrySetResult();
+            if (observeCancellation)
+                await Release.Task.WaitAsync(ct);
+            else
+                await Release.Task;
+            return new ExtensionEntityFilterResult(request.CandidateIds, "revision");
+        }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+            Disposed.TrySetResult();
+        }
+    }
+
+    private sealed class MatchingFilterProvider(
+        int matchingId,
+        string entityType = "tags") : IExtensionEntityFilterProvider
+    {
+        public IReadOnlyCollection<ExtensionEntityFilterDefinition> Filters { get; } =
+            [new("owned-filter", entityType)];
+
+        public Task<ExtensionEntityFilterResult> ResolveAsync(
+            ExtensionEntityFilterRequest request,
+            CancellationToken ct)
+            => Task.FromResult(new ExtensionEntityFilterResult(
+                request.CandidateIds.Where(id => id == matchingId).ToArray(),
+                "revision"));
     }
 
     private sealed class BlockingLifecycleExtension : IExtension

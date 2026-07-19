@@ -15,7 +15,7 @@ namespace Cove.Plugins;
 /// Manages extension discovery, loading, dependency resolution, lifecycle,
 /// migrations, and capability wiring. This is the heart of the Cove extension system.
 /// </summary>
-public class ExtensionManager
+public class ExtensionManager : IExtensionContributionRuntime
 {
     private const int MaxPolicylessRoutesInWarning = 10;
     private readonly object _extensionRegistryGate = new();
@@ -683,7 +683,12 @@ public class ExtensionManager
 
             try
             {
+                var contributionStartIndex = services.Count;
                 ext.ConfigureServices(services, _context);
+                ExtensionContributionServiceRegistration.KeyProvidersAddedSince(
+                    services,
+                    contributionStartIndex,
+                    ext.Id);
             }
             catch (Exception ex)
             {
@@ -735,12 +740,12 @@ public class ExtensionManager
 
         // The container is being (re)built: stop any running worker and clear stale contributions so the
         // extension re-publishes against the new container on init.
-        StopBackgroundWorker(id);
-        WithdrawFromExchange(id);
+        StopBackgroundWorker(ext.Id);
+        WithdrawFromExchange(ext.Id);
 
         _overlay ??= new ExtensionServiceOverlay(_rootServices, _hostDescriptors, _logger);
         return _overlay.TryBuildProvider(
-            id,
+            ext.Id,
             ext,
             _context,
             (failedId, e) => DisableExtensionForStartupFailure(failedId, e, "provider build"));
@@ -1774,7 +1779,11 @@ public class ExtensionManager
             manifest.DialogOverrides.AddRange(extManifest.DialogOverrides.Select(dialogOverride => dialogOverride with { ExtensionId = ext.Id }));
             manifest.Actions.AddRange(extManifest.Actions.Select(action => action with { ExtensionId = ext.Id }));
             AddTutorialTopics(extManifest.TutorialTopics, ext.Id);
-            manifest.ListFilters.AddRange(extManifest.ListFilters.Select(filter => filter with { ExtensionId = ext.Id }));
+            manifest.ListFilters.AddRange(extManifest.ListFilters.Select(filter => filter with
+            {
+                ExtensionId = ext.Id,
+                FilterId = string.IsNullOrWhiteSpace(filter.FilterId) ? null : filter.FilterId.Trim(),
+            }));
             manifest.ListSorts.AddRange(extManifest.ListSorts.Select(sort => sort with { ExtensionId = ext.Id }));
         }
 
@@ -1821,6 +1830,156 @@ public class ExtensionManager
         manifest.ListFilters.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListSorts.Sort((a, b) => a.Order.CompareTo(b.Order));
         return manifest;
+    }
+
+    /// <summary>
+    /// Resolve a namespaced contribution and atomically acquire its exact provider generation while
+    /// holding the owner's lifecycle gate. The gate is released before this method returns; the
+    /// returned execution alone pins the retired generation until its in-flight calls drain.
+    /// </summary>
+    async Task<IExtensionContributionExecution<TDeclaration, TRequest, TResult>?>
+        IExtensionContributionRuntime.OpenContributionAsync<TDeclaration, TRequest, TResult>(
+        string extensionId,
+        string contributionId,
+        Func<IExtension, IServiceProvider, string, ExtensionContributionBinding<TDeclaration, TRequest, TResult>?> bind,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(extensionId)
+            || string.IsNullOrWhiteSpace(contributionId))
+            return null;
+        ArgumentNullException.ThrowIfNull(bind);
+
+        var normalizedExtensionId = extensionId.Trim();
+        var normalizedContributionId = contributionId.Trim();
+        if (normalizedExtensionId.Length > 256 || normalizedContributionId.Length > 256)
+            return null;
+
+        var lifecycleGate = GetExtensionLifecycleGate(normalizedExtensionId);
+        await lifecycleGate.WaitAsync(ct);
+        IServiceScope? provisionalScope = null;
+        try
+        {
+            if (!IsEnabled(normalizedExtensionId)
+                || !IsExtensionInitialized(normalizedExtensionId)
+                || GetExtension(normalizedExtensionId) is not { } extension)
+                return null;
+
+            // Scope acquisition atomically checks the extension instance and provider generation.
+            // Runtime extensions fail closed here; they never fall back to the host provider.
+            provisionalScope = CreateExtensionScope(extension);
+            var binding = bind(
+                extension,
+                provisionalScope.ServiceProvider,
+                normalizedContributionId);
+            if (binding is null)
+                return null;
+
+            var ownedScope = provisionalScope;
+            provisionalScope = null;
+            return new ExtensionContributionExecution<TDeclaration, TRequest, TResult>(
+                new ExtensionContributionKey(extension.Id, normalizedContributionId),
+                binding.Declaration,
+                binding.ExecuteAsync,
+                ownedScope);
+        }
+        finally
+        {
+            try
+            {
+                provisionalScope?.Dispose();
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+    }
+
+    private sealed class ExtensionContributionExecution<TDeclaration, TRequest, TResult>(
+        ExtensionContributionKey key,
+        TDeclaration declaration,
+        Func<TRequest, CancellationToken, Task<TResult>> execute,
+        IServiceScope scope) : IExtensionContributionExecution<TDeclaration, TRequest, TResult>
+    {
+        private readonly object _gate = new();
+        private IServiceScope? _scope = scope;
+        private int _activeCalls;
+        private bool _disposeRequested;
+
+        public ExtensionContributionKey Key { get; } = key;
+        public TDeclaration Declaration { get; } = declaration;
+
+        public Task<TResult> ExecuteAsync(TRequest request, CancellationToken ct)
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposeRequested, this);
+                _activeCalls++;
+            }
+
+            Task<TResult> task;
+            try
+            {
+                task = execute(request, ct);
+            }
+            catch
+            {
+                ReleaseCall();
+                throw;
+            }
+
+            return AwaitAndReleaseAsync(task);
+        }
+
+        public void Dispose()
+        {
+            IServiceScope? dispose = null;
+            lock (_gate)
+            {
+                if (_disposeRequested)
+                    return;
+
+                _disposeRequested = true;
+                if (_activeCalls == 0)
+                {
+                    dispose = _scope;
+                    _scope = null;
+                }
+            }
+            ReleaseResources(dispose);
+        }
+
+        private async Task<TResult> AwaitAndReleaseAsync(Task<TResult> task)
+        {
+            try
+            {
+                return await task;
+            }
+            finally
+            {
+                ReleaseCall();
+            }
+        }
+
+        private void ReleaseCall()
+        {
+            IServiceScope? dispose = null;
+            lock (_gate)
+            {
+                _activeCalls--;
+                if (_activeCalls == 0 && _disposeRequested)
+                {
+                    dispose = _scope;
+                    _scope = null;
+                }
+            }
+            ReleaseResources(dispose);
+        }
+
+        private void ReleaseResources(IServiceScope? dispose)
+        {
+            dispose?.Dispose();
+        }
     }
 
     /// <summary>Get enabled extension UI JS bundle asset paths (extensionId + relative path).</summary>

@@ -149,10 +149,26 @@ Toolbar rendering is currently available for video and image entity actions. Bul
 
 - Use `FilterKey` to target a filter key understood by that list's backend request contract.
 - For extension-owned custom fields, set `CustomFieldKey` and `CustomFieldType`; Cove creates an extension-scoped filter key.
+- For an extension-owned predicate, set `FilterId` through `UIManifestBuilder.AddExtensionListFilter` and implement the matching `IExtensionEntityFilterProvider`.
 - `CriterionType` controls the editor, with `Modifiers`, `Options`, and `EntityReferenceType` refining supported operations.
 - `Order` positions the filter among other extension contributions.
 
 `UIListSortContribution` adds a sort choice for the matching entity type. Set either a backend-supported `SortKey` or a `CustomFieldKey` with its `CustomFieldType`. A visible sort option does not implement backend sorting by itself; the corresponding server-side list contract must understand the generated key.
+
+### Extension-owned tag predicates
+
+Executable `FilterId` contributions currently support the tag list and tag graph. Cove namespaces the saved-filter key with the authoritative extension id and filter id. If the owning declaration or provider is unavailable, the saved criterion remains visible as unsupported instead of being discarded or silently ignored.
+
+Register an `IExtensionEntityFilterProvider` in `ConfigureServices`. Its `Filters` collection declares the stable filter ids and entity types it implements, and `ResolveAsync` receives:
+
+- the authoritative extension id, normalized entity type, and filter id
+- the validated modifier and JSON value
+- a bounded batch of candidate ids already filtered by the caller's tag-read authorization
+- a principal snapshot containing the current user identity, roles, and permissions
+
+Return only matching ids from the supplied batch plus a non-empty `Revision`. The revision must remain identical across every batch in one query so Cove does not combine memberships from changing provider state. Cove retains ownership of authorization, core-filter composition, stable sorting, counts, and pagination.
+
+Executable declarations currently accept `bool`/`boolean`, `integer`, `number`, `string`, and `enum` values together with the modifiers declared in the manifest. The host accepts at most 16 extension criteria, rejects a query whose core tag filter produces more than 5,000 candidates, invokes providers in batches of 256, and applies one two-second provider deadline across the query. A provider must honor cancellation, must not return ids outside its batch, and must not perform a second authorization policy that expands the host-supplied candidate set.
 
 ## Themes and appearance layers
 

@@ -161,6 +161,7 @@ Implement only the interfaces your extension needs.
 | `IStatefulExtension` | Receive an extension-scoped `IExtensionStore` for persistent string key/value data. |
 | `IDataExtension` | Add extension-owned EF Core model configuration and ordered, forward-only SQL migrations. Do not drop core tables or columns. |
 | `IActionExtension` | Contribute toolbar and bulk actions backed by an API endpoint or frontend handler. The contract declares context-menu actions, but the frontend does not currently render them. |
+| `IExtensionEntityFilterProvider` | Resolve an owner-namespaced tag-filter predicate against host-authorized candidate batches. |
 
 ### Service and storage choices
 
@@ -190,6 +191,12 @@ Scrapers declare supported entities, URL patterns, invocation capabilities, pref
 Downloaders declare supported entities, URL patterns, and capabilities such as resume, range requests, multiple qualities, or inline metadata. Cove supplies a temporary directory, HTTP clients, logging, and progress reporting through `IDownloaderHost`.
 
 For implementation guidance, see [Create a scraper](../create-scraper/) and [Create a downloader](../create-downloader/).
+
+### Extension-owned entity filters
+
+Pair `IExtensionEntityFilterProvider` with an `IUIExtension` declaration created by `UIManifestBuilder.AddExtensionListFilter`. Cove owner-keys provider registrations automatically, verifies that the provider's `Filters` collection matches the owner-stamped manifest declaration, and pins the exact provider generation for the complete criterion execution.
+
+The current executable boundary is limited to tags. Providers receive authorized candidate ids in bounded batches and return membership plus a stable revision; they do not own query authorization, sorting, counts, or pagination. See [UI extension points](../ui-extension-points/#extension-owned-tag-predicates) for the request contract, limits, cancellation rules, and saved-filter behavior.
 
 ## Specialized service contributions
 

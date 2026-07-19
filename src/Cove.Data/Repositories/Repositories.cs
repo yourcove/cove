@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 using Regex = System.Text.RegularExpressions.Regex;
 using RegexOptions = System.Text.RegularExpressions.RegexOptions;
 using PermissionKeys = Cove.Core.Auth.Permissions;
@@ -844,21 +845,21 @@ public class TagRepository : ITagRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Tag, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(t => t.Name) : query.OrderBy(t => t.Name),
+            "name" => ApplyStableTagSort(query, t => t.Name, desc),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Tag, desc),
             "tag_group" => ApplyTagGroupSort(query, desc),
-            "video_count" => desc ? query.OrderByDescending(t => t.VideoCount) : query.OrderBy(t => t.VideoCount),
-            "gallery_count" => desc ? query.OrderByDescending(t => t.GalleryCount) : query.OrderBy(t => t.GalleryCount),
-            "group_count" => desc ? query.OrderByDescending(t => t.GroupCount) : query.OrderBy(t => t.GroupCount),
-            "image_count" => desc ? query.OrderByDescending(t => t.ImageCount) : query.OrderBy(t => t.ImageCount),
-            "performer_count" => desc ? query.OrderByDescending(t => t.PerformerCount) : query.OrderBy(t => t.PerformerCount),
-            "studio_count" => desc ? query.OrderByDescending(t => t.StudioCount) : query.OrderBy(t => t.StudioCount),
-            "latest_video_date" => desc ? query.OrderByDescending(t => t.VideoTags.Max(st => st.Video!.Date)) : query.OrderBy(t => t.VideoTags.Max(st => st.Video!.Date)),
-            "total_file_size" => desc ? query.OrderByDescending(t => t.VideoTags.Sum(st => (long?)st.Video!.MaxFileSize) ?? 0L) : query.OrderBy(t => t.VideoTags.Sum(st => (long?)st.Video!.MaxFileSize) ?? 0L),
-            "created_at" => desc ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt),
-            "updated_at" => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
+            "video_count" => ApplyStableTagSort(query, t => t.VideoCount, desc),
+            "gallery_count" => ApplyStableTagSort(query, t => t.GalleryCount, desc),
+            "group_count" => ApplyStableTagSort(query, t => t.GroupCount, desc),
+            "image_count" => ApplyStableTagSort(query, t => t.ImageCount, desc),
+            "performer_count" => ApplyStableTagSort(query, t => t.PerformerCount, desc),
+            "studio_count" => ApplyStableTagSort(query, t => t.StudioCount, desc),
+            "latest_video_date" => ApplyStableTagSort(query, t => t.VideoTags.Max(st => st.Video!.Date), desc),
+            "total_file_size" => ApplyStableTagSort(query, t => t.VideoTags.Sum(st => (long?)st.Video!.MaxFileSize) ?? 0L, desc),
+            "created_at" => ApplyStableTagSort(query, t => t.CreatedAt, desc),
+            "updated_at" => ApplyStableTagSort(query, t => t.UpdatedAt, desc),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, t => t.Id, desc),
-            _ => desc ? query.OrderByDescending(t => t.UpdatedAt) : query.OrderBy(t => t.UpdatedAt),
+            _ => ApplyStableTagSort(query, t => t.UpdatedAt, desc),
             };
         if (!hasExplicitSort)
             query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
@@ -901,9 +902,17 @@ public class TagRepository : ITagRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenByDescending(item => item.GroupSortOrder).ThenByDescending(item => item.GroupName).ThenByDescending(item => item.Name).Select(item => item.Tag)
-            : sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenBy(item => item.GroupSortOrder).ThenBy(item => item.GroupName).ThenBy(item => item.Name).Select(item => item.Tag);
+            ? sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenByDescending(item => item.GroupSortOrder).ThenByDescending(item => item.GroupName).ThenByDescending(item => item.Name).ThenBy(item => item.Tag.Id).Select(item => item.Tag)
+            : sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenBy(item => item.GroupSortOrder).ThenBy(item => item.GroupName).ThenBy(item => item.Name).ThenBy(item => item.Tag.Id).Select(item => item.Tag);
     }
+
+    private static IOrderedQueryable<Tag> ApplyStableTagSort<TKey>(
+        IQueryable<Tag> query,
+        Expression<Func<Tag, TKey>> keySelector,
+        bool desc)
+        => desc
+            ? query.OrderByDescending(keySelector).ThenBy(tag => tag.Id)
+            : query.OrderBy(keySelector).ThenBy(tag => tag.Id);
 
     private async Task<IQueryable<Tag>> ApplyTagCountCriteriaAsync(IQueryable<Tag> query, TagFilter filter, CancellationToken ct)
     {

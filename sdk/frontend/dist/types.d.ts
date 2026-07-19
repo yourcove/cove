@@ -105,6 +105,8 @@ export interface ListFilterContribution {
     label: string;
     criterionType: ListCriterionType | CustomFieldType;
     extensionId: string;
+    /** Namespaced backend predicate resolved by this contribution's owning extension. */
+    filterId?: string;
     filterKey?: string;
     customFieldKey?: string;
     customFieldType?: CustomFieldType;

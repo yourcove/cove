@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Cove.Core.Entities;
 
 namespace Cove.Core.Interfaces;
@@ -297,6 +298,16 @@ public class TagFilter
     public IntCriterion? ChildCountCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
+    /// <summary>Namespaced predicates contributed and executed by enabled extensions.</summary>
+    public List<ExtensionFilterCriterion> ExtensionCriteria { get; set; } = [];
+}
+
+public sealed class ExtensionFilterCriterion
+{
+    public string ExtensionId { get; set; } = string.Empty;
+    public string FilterId { get; set; } = string.Empty;
+    public string Modifier { get; set; } = "equals";
+    public JsonElement Value { get; set; }
 }
 
 public class StudioFilter
