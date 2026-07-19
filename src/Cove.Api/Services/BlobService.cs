@@ -1,9 +1,13 @@
+using System.Net.Http.Headers;
+using System.Text.Json;
 using Cove.Core.Interfaces;
 
 namespace Cove.Api.Services;
 
 public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) : IBlobService
 {
+    private const string MetadataSuffix = ".metadata.json";
+
     private static readonly Dictionary<string, string> ContentTypeToExtension = new(StringComparer.OrdinalIgnoreCase)
     {
         ["image/jpeg"] = ".jpg",
@@ -24,37 +28,103 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
 
     public async Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(data);
+        var normalizedContentType = NormalizeContentType(contentType);
         var blobId = Guid.NewGuid().ToString();
-        var extension = GetExtension(contentType);
+        var extension = GetExtension(normalizedContentType);
         var path = GetBlobPath(blobId, extension);
+        var metadataPath = GetMetadataPath(blobId);
+        var temporaryPrefix = $".tmp-{Guid.NewGuid():N}";
+        var temporaryPath = Path.Combine(Path.GetDirectoryName(path)!, $"{temporaryPrefix}.payload{extension}");
+        var temporaryMetadataPath = Path.Combine(Path.GetDirectoryName(path)!, $"{temporaryPrefix}{MetadataSuffix}");
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await data.CopyToAsync(fs, ct);
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+
+            await using (var fs = new FileStream(
+                temporaryPath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.CreateNew,
+                    Access = FileAccess.Write,
+                    Share = FileShare.None,
+                    Options = FileOptions.Asynchronous,
+                }))
+            {
+                await data.CopyToAsync(fs, ct);
+                await fs.FlushAsync(ct);
+            }
+
+            var metadata = JsonSerializer.Serialize(new BlobMetadata(normalizedContentType));
+            await File.WriteAllTextAsync(temporaryMetadataPath, metadata, ct);
+
+            File.Move(temporaryMetadataPath, metadataPath);
+            // Publish the payload last so a discoverable blob always has its MIME metadata.
+            File.Move(temporaryPath, path);
+        }
+        catch
+        {
+            DeleteIfExists(temporaryPath);
+            DeleteIfExists(temporaryMetadataPath);
+            DeleteIfExists(path);
+            DeleteIfExists(metadataPath);
+            throw;
+        }
 
         logger.LogDebug("Stored blob {BlobId} at {Path}", blobId, path);
         return blobId;
     }
 
-    public Task<(Stream Stream, string ContentType)?> GetBlobAsync(string blobId, CancellationToken ct = default)
+    public async Task<(Stream Stream, string ContentType)?> GetBlobAsync(string blobId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+        if (!IsCanonicalBlobId(blobId))
+            return null;
+
         var (path, contentType) = ResolveBlobFile(blobId);
         if (path == null || contentType == null)
-            return Task.FromResult<(Stream Stream, string ContentType)?>(null);
+            return null;
 
-        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
-        return Task.FromResult<(Stream Stream, string ContentType)?>((fs, contentType));
+        // Capture MIME metadata before opening the payload. If deletion wins after this read,
+        // opening returns null; if opening wins, the returned stream keeps this content type.
+        var storedContentType = await ReadStoredContentTypeAsync(blobId, ct);
+
+        try
+        {
+            var fs = new FileStream(
+                path,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.Read | FileShare.Delete,
+                    Options = FileOptions.Asynchronous | FileOptions.RandomAccess,
+                });
+            return (fs, storedContentType ?? contentType);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
     }
 
     public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+        if (!IsCanonicalBlobId(blobId))
+            return Task.CompletedTask;
+
         var (path, _) = ResolveBlobFile(blobId);
         if (path != null)
         {
             File.Delete(path);
             logger.LogDebug("Deleted blob {BlobId} at {Path}", blobId, path);
         }
+
+        DeleteIfExists(GetMetadataPath(blobId));
 
         return Task.CompletedTask;
     }
@@ -63,6 +133,12 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
     {
         var bucket = blobId[..2];
         return Path.Combine(BlobDir, bucket, $"{blobId}{extension}");
+    }
+
+    private string GetMetadataPath(string blobId)
+    {
+        var bucket = blobId[..2];
+        return Path.Combine(BlobDir, bucket, $".{blobId}{MetadataSuffix}");
     }
 
     /// <summary>
@@ -80,6 +156,11 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
             if (File.Exists(candidate))
                 return (candidate, ct);
         }
+
+        // Older Cove versions may have stored blobs without a file extension.
+        var extensionlessCandidate = System.IO.Path.Combine(dir, blobId);
+        if (File.Exists(extensionlessCandidate))
+            return (extensionlessCandidate, "application/octet-stream");
 
         // Fallback: scan directory for any file starting with the blobId
         if (Directory.Exists(dir))
@@ -120,6 +201,39 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
         return (null, null);
     }
 
+    private async Task<string?> ReadStoredContentTypeAsync(string blobId, CancellationToken ct)
+    {
+        var metadataPath = GetMetadataPath(blobId);
+        if (!File.Exists(metadataPath))
+            return null;
+
+        try
+        {
+            await using var metadataStream = new FileStream(
+                metadataPath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.ReadWrite | FileShare.Delete,
+                    Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+                });
+            var metadata = await JsonSerializer.DeserializeAsync<BlobMetadata>(metadataStream, cancellationToken: ct);
+            return metadata != null && TryNormalizeContentType(metadata.ContentType, out var normalizedContentType)
+                ? normalizedContentType
+                : null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        {
+            logger.LogWarning(ex, "Could not read metadata for blob {BlobId}; falling back to its file extension", blobId);
+            return null;
+        }
+    }
+
     private static string GetExtension(string contentType)
     {
         if (ContentTypeToExtension.TryGetValue(contentType, out var ext))
@@ -141,6 +255,40 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
         var subtype = contentType[(slash + 1)..];
         var plus = subtype.IndexOf('+');
         if (plus >= 0) subtype = subtype[..plus];
-        return $".{subtype}";
+        var safeSubtype = new string(subtype
+            .Where(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_')
+            .ToArray());
+        return string.IsNullOrEmpty(safeSubtype) ? ".bin" : $".{safeSubtype.ToLowerInvariant()}";
     }
+
+    private static string NormalizeContentType(string contentType)
+    {
+        return TryNormalizeContentType(contentType, out var normalizedContentType)
+            ? normalizedContentType
+            : "application/octet-stream";
+    }
+
+    private static bool TryNormalizeContentType(string? contentType, out string normalizedContentType)
+    {
+        if (!MediaTypeHeaderValue.TryParse(contentType, out var parsed) || string.IsNullOrWhiteSpace(parsed.MediaType))
+        {
+            normalizedContentType = string.Empty;
+            return false;
+        }
+
+        normalizedContentType = parsed.MediaType.ToLowerInvariant();
+        return true;
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+
+    private static bool IsCanonicalBlobId(string? blobId)
+        => Guid.TryParseExact(blobId, "D", out var parsed)
+            && string.Equals(parsed.ToString("D"), blobId, StringComparison.Ordinal);
+
+    private sealed record BlobMetadata(string ContentType);
 }

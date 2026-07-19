@@ -160,6 +160,10 @@ Choose storage by shape:
 - use `IDataExtension` for structured, queryable extension-owned tables
 - use manifest `settings` for administrator-editable configuration
 
+`IBlobService` stores host-managed binary media and preserves its normalized MIME type. Treat the returned blob id as opaque: do not infer a filesystem path or extension. `GetBlobAsync` returns a seekable stream suitable for an ASP.NET Core file result with range processing enabled, and callers own the returned stream.
+
+When replacing a referenced blob, store the new payload first, persist the new id, and delete the old blob only after the metadata update succeeds. Delete the new blob if that update fails. Honor cancellation while storing data and do not retain a stream after its request, job, or extension scope ends.
+
 Background workers should create a dependency-injection scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
 
 ## Metadata and intake providers
