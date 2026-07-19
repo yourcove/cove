@@ -223,6 +223,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
 
   const itemsContent = (
     <GroupItemsPanel
+      key={group.id}
       group={group}
       filter={videoFilter}
       setFilter={setVideoFilter}
@@ -779,6 +780,8 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       criteriaDefinitions={GROUP_ITEM_CRITERIA}
       objectFilter={itemObjectFilter}
       onObjectFilterChange={setItemObjectFilter}
+      filterMode="groupitems"
+      filterDefaultKey={`groupitems-${group.id}`}
       allowInfinitePageSize
       selectionActions={(
         <>

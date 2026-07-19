@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { GroupDetailPage } from "../pages/GroupDetailPage";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 
@@ -78,13 +79,20 @@ vi.mock("../components/QuickViewDialog", () => ({
 }));
 
 vi.mock("../components/DetailListToolbar", () => ({
-  DetailListToolbar: ({ sortOptions }: { sortOptions: Array<{ value: string; label: string }> }) => (
-    <div data-testid="group-item-sort-options">
-      {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
-    </div>
+  DetailListToolbar: ({ sortOptions, filterMode, filterDefaultKey }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string }) => (
+    <MockDetailListToolbar sortOptions={sortOptions} filterMode={filterMode} filterDefaultKey={filterDefaultKey} />
   ),
   DetailListPagination: () => null,
 }));
+
+function MockDetailListToolbar({ sortOptions, filterMode, filterDefaultKey }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string }) {
+  const [mountedDefaultKey] = useState(filterDefaultKey);
+  return (
+    <div data-testid="group-item-sort-options" data-filter-mode={filterMode} data-filter-default-key={filterDefaultKey} data-mounted-default-key={mountedDefaultKey}>
+      {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
+    </div>
+  );
+}
 
 vi.mock("../components/AspectRatingsPanel", () => ({
   AspectRatingsPanel: () => <div>Aspect ratings</div>,
@@ -162,7 +170,7 @@ function buildGroup(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderPage() {
+function renderPage(id = 4) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -171,13 +179,20 @@ function renderPage() {
   });
   const onNavigate = vi.fn();
 
-  render(
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <GroupDetailPage id={4} onNavigate={onNavigate} />
+      <GroupDetailPage id={id} onNavigate={onNavigate} />
     </QueryClientProvider>,
   );
 
-  return { onNavigate };
+  return {
+    onNavigate,
+    rerenderPage: (nextId: number) => rendered.rerender(
+      <QueryClientProvider client={queryClient}>
+        <GroupDetailPage id={nextId} onNavigate={onNavigate} />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("GroupDetailPage", () => {
@@ -238,6 +253,56 @@ describe("GroupDetailPage", () => {
       const sortOptionLists = screen.getAllByTestId("group-item-sort-options");
       expect(sortOptionLists.some((options) => options.textContent?.includes("Item #") && options.textContent.includes("Random"))).toBe(true);
     });
+  });
+
+  it("offers saved filters for group items", async () => {
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [{ id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 }],
+      totalCount: 1,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    renderPage();
+
+    await waitFor(() => {
+      const toolbars = screen.getAllByTestId("group-item-sort-options");
+      expect(toolbars.some((toolbar) => toolbar.textContent?.includes("Item #")
+        && toolbar.dataset.filterMode === "groupitems"
+        && toolbar.dataset.filterDefaultKey === "groupitems-4")).toBe(true);
+    });
+  });
+
+  it("remounts group item filters so each group can apply its own default", async () => {
+    mockGroups.get.mockImplementation(async (id: number) => buildGroup({ id }));
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [{ id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 }],
+      totalCount: 1,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    const { rerenderPage } = renderPage(4);
+    await waitFor(() => expect(screen.getAllByTestId("group-item-sort-options").some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-4")).toBe(true));
+
+    rerenderPage(5);
+
+    await waitFor(() => expect(screen.getAllByTestId("group-item-sort-options").some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-5")).toBe(true));
   });
 
   it("keeps random group-item sorting stable for a seed and reshuffles for a new seed", () => {

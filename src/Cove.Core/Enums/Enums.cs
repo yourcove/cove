@@ -31,7 +31,8 @@ public enum FilterMode
     Faces,
     Texts,
     Segments,
-    RawSegments
+    RawSegments,
+    GroupItems
 }
 
 public enum SortDirection
