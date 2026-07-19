@@ -321,6 +321,34 @@ describe("GroupDetailPage", () => {
     expect(reshuffledOrder).not.toEqual(firstOrder);
   });
 
+  it("opens standalone compilation in the full group-item list order", async () => {
+    const items = [
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+      { id: 22, orderIndex: 1, videoId: 11, title: "Clip Two", kind: "videoRange", startSec: 1, endSec: 5 },
+      { id: 23, orderIndex: 2, videoId: 12, title: "Clip Three", kind: "videoRange", startSec: 1, endSec: 5 },
+    ];
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue(items);
+    mockGroups.items.page.mockResolvedValue({ items, totalCount: items.length, page: 1, perPage: 40 });
+    mockGroups.items.playbackManifest.mockResolvedValue({
+      items: items.map((item) => ({ groupItemId: item.id, videoId: item.videoId, title: item.title, startSec: 1, endSec: 5, durationSec: 4 })),
+    });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    const { onNavigate } = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Use random group sort" }));
+    fireEvent.click(screen.getByTitle("Standalone Compilation"));
+
+    const expectedOrder = sortSeededRandom(items, (item) => `item-${item.id}`, 2468).map((item) => `item:${item.id}`);
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({
+      page: "compilation",
+      id: 4,
+      compilationItemOrder: expectedOrder,
+    }));
+  });
+
   it("persists the group item random sort and seed in the URL", async () => {
     window.history.replaceState(null, "", "/group/4");
     mockGroups.get.mockResolvedValue(buildGroup());

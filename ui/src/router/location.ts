@@ -12,6 +12,7 @@ export interface Route {
   listFilter?: FindFilter;
   listObjectFilter?: Record<string, unknown>;
   listView?: string;
+  compilationItemOrder?: string[];
 }
 
 interface RouteHistoryEntry {
