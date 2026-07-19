@@ -596,6 +596,8 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         <CoverImageDialog
           open={showCoverTargetDialog}
           title="Set Cover"
+          entityType="image"
+          entityId={id}
           currentImageUrl={images.imageUrl(id)}
           objectFit="contain"
           aspectRatio="4/3"

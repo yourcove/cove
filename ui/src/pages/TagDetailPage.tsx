@@ -354,6 +354,8 @@ export function TagDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Tag Cover"
+        entityType="tag"
+        entityId={tag.id}
         currentImageUrl={tagImageUrl}
         onUpload={(file) => entityImages.uploadTagImage(tag.id, file)}
         onDelete={() => entityImages.deleteTagImage(tag.id)}

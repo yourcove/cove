@@ -4,6 +4,8 @@
  * These types mirror the host app's extension manifest contracts.
  * Extension authors should use these for type-safe development.
  */
+/** Stable extension slot rendered inside Cove's native entity cover editor. */
+export const ENTITY_COVER_EDITOR_SLOT = "entity-cover-editor";
 /** Stable host component target for primary entity media overrides. */
 export const ENTITY_MEDIA_TARGET = "entity.media";
 // ── Media-player contribution contracts ───────────────────────────────────────

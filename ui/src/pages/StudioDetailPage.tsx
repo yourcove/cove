@@ -393,6 +393,8 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Studio Cover"
+        entityType="studio"
+        entityId={studio.id}
         currentImageUrl={studioImageUrl}
         onUpload={(file) => entityImages.uploadStudioImage(studio.id, file)}
         onDelete={() => entityImages.deleteStudioImage(studio.id)}

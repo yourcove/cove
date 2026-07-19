@@ -799,6 +799,8 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Video Cover"
+        entityType="video"
+        entityId={video.id}
         currentImageUrl={videos.screenshotUrl(video.id, video.updatedAt)}
         onUpload={(file) => entityImages.uploadVideoCoverImage(video.id, file)}
         onDelete={() => entityImages.deleteVideoCoverImage(video.id)}

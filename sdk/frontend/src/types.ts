@@ -33,6 +33,18 @@ export interface SlotProps<TContext = Record<string, unknown>> {
   context: TContext;
 }
 
+/** Stable extension slot rendered inside Cove's native entity cover editor. */
+export const ENTITY_COVER_EDITOR_SLOT = "entity-cover-editor" as const;
+
+/** Host-owned context supplied to entity cover editor contributions. */
+export interface EntityCoverEditorContext {
+  entityType: EntityType;
+  entityId: number;
+  coverKey: "primary" | "front" | "back";
+  currentImageUrl?: string | null;
+  canEdit: boolean;
+}
+
 /** Props passed to extension page components. */
 export interface PageProps {
   onNavigate: (route: NavigateTarget) => void;

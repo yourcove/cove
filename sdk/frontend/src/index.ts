@@ -17,6 +17,7 @@ export type {
   CustomFieldType,
   EntityTabProps,
   SlotProps,
+  EntityCoverEditorContext,
   PageProps,
   DetailPageProps,
   NavigateTarget,
@@ -36,6 +37,7 @@ export type {
   ExtensionActionHandler,
   ExtensionModule,
 } from "./types";
+export { ENTITY_COVER_EDITOR_SLOT } from "./types";
 
 export {
   ENTITY_MEDIA_TARGET,

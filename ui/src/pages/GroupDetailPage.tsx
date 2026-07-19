@@ -271,6 +271,9 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title={coverFace === "front" ? "Set Group Cover (Front)" : "Set Group Cover (Back)"}
+        entityType="group"
+        entityId={group.id}
+        coverKey={coverFace}
         currentImageUrl={coverFace === "front" ? group.frontImagePath : group.backImagePath}
         onUpload={(file) => coverFace === "front" ? entityImages.uploadGroupFrontImage(group.id, file) : entityImages.uploadGroupBackImage(group.id, file)}
         onDelete={() => coverFace === "front" ? entityImages.deleteGroupFrontImage(group.id) : entityImages.deleteGroupBackImage(group.id)}

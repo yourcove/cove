@@ -232,6 +232,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Performer Cover"
+        entityType="performer"
+        entityId={performer.id}
         currentImageUrl={performerImageUrl}
         onUpload={(file) => entityImages.uploadPerformerImage(performer.id, file)}
         onDelete={() => entityImages.deletePerformerImage(performer.id)}

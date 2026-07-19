@@ -284,6 +284,8 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Gallery Cover"
+        entityType="gallery"
+        entityId={gallery.id}
         currentImageUrl={gallery.coverPath}
         onUpload={(file) => galleries.uploadCoverImage(gallery.id, file)}
         onDelete={() => galleries.deleteCoverImage(gallery.id)}
