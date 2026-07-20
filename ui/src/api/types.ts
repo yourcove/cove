@@ -206,6 +206,7 @@ export interface Tag {
   name: string;
   description?: string;
   imagePath?: string;
+  hasImage?: boolean;
   favorite: boolean;
   organized: boolean;
   showAsSegment?: boolean | null;

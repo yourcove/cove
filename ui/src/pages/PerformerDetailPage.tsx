@@ -240,6 +240,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         aspectRatio="2/3"
       />
       <EntityHeroLayout
+        entityType="performer"
+        entityId={performer.id}
         backLabel={backLabel}
         onGoBack={goBack}
         backgroundImageUrl={entityImages.performerImageUrl(performer.id, performer.updatedAt, 1600)}

@@ -645,6 +645,8 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   return (
     <>
       <EntityHeroLayout
+        entityType="face"
+        entityId={face.id}
         backLabel={backLabel}
         onGoBack={goBack}
         imageUrl={face.coverImageUrl}

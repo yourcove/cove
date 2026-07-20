@@ -20,6 +20,9 @@ export type {
   PageProps,
   DetailPageProps,
   NavigateTarget,
+  EntityMediaSurface,
+  EntityMediaFit,
+  EntityMediaRenderProps,
   FindFilter,
   ListFilterOption,
   ListFilterContribution,
@@ -29,6 +32,8 @@ export type {
   ExtensionActionHandler,
   ExtensionModule,
 } from "./types";
+
+export { ENTITY_MEDIA_TARGET } from "./types";
 
 // Extension definition helper
 export { defineExtension } from "./define";

@@ -709,7 +709,8 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
-            Organized: tag.Organized);
+            Organized: tag.Organized,
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -8,6 +8,7 @@
  * import { defineExtension, request, useEntityList } from "@cove/extension-sdk";
  * ```
  */
+export { ENTITY_MEDIA_TARGET } from "./types";
 // Extension definition helper
 export { defineExtension } from "./define";
 // API utilities

@@ -4,4 +4,5 @@
  * These types mirror the host app's extension manifest contracts.
  * Extension authors should use these for type-safe development.
  */
-export {};
+/** Stable host component target for primary entity media overrides. */
+export const ENTITY_MEDIA_TARGET = "entity.media";

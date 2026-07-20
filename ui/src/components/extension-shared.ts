@@ -97,3 +97,5 @@ export { useAppConfig } from "../state/AppConfigContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 export type { FindFilter } from "../api/types";
+export { ENTITY_MEDIA_TARGET } from "./EntityMedia";
+export type { EntityMediaFit, EntityMediaRenderProps, EntityMediaSurface } from "./EntityMedia";

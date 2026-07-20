@@ -304,10 +304,13 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       />
 
       <EntityHeroLayout
+        entityType="gallery"
+        entityId={gallery.id}
         backLabel={backLabel}
         onGoBack={goBack}
         imageUrl={gallery.coverPath}
         imageAlt={galleryTitle}
+        imageFit="contain"
         imageContainerClassName="relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-black/35"
         imageClassName="h-auto w-auto max-h-96 max-w-[22rem] object-contain md:max-h-[34rem] md:max-w-[28rem]"
         imageFallbackClassName="h-96 w-72 items-center justify-center bg-card text-muted md:h-[34rem] md:w-[25rem]"

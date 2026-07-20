@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, MoreVertical, SlidersHorizontal } from "lucide-react";
+import { entityImages } from "../api/client";
 import type { FieldProvenance, Tag, TagProvenance } from "../api/types";
 import { getFieldProvenanceEntries } from "./FieldProvenanceHover";
 import { TagProvenanceHover } from "./TagProvenanceHover";
+import { EntityMediaHover } from "./EntityMedia";
 
 export { RatingBadge } from "./Rating";
 export { CustomFieldsDisplay, CustomFieldsEditor } from "./CustomFields";
@@ -11,7 +13,8 @@ export { FieldProvenanceHover } from "./FieldProvenanceHover";
 export { TagProvenanceHover } from "./TagProvenanceHover";
 import { getResolutionBucketLabel } from "../utils/resolutionBuckets";
 
-export function TagBadge({ name, tag, color, groupColor, onClick, provenance, reportable, onReportIncorrect, onAdjustThreshold }: { name: string; tag?: Pick<Tag, "color" | "tagGroupColor">; color?: string | null; groupColor?: string | null; onClick?: () => void; provenance?: TagProvenance[]; reportable?: boolean; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
+type TagBadgeData = Pick<Tag, "color" | "tagGroupColor"> & Partial<Pick<Tag, "id" | "name" | "imagePath" | "hasImage">>;
+export function TagBadge({ name, tag, color, groupColor, onClick, provenance, reportable, onReportIncorrect, onAdjustThreshold }: { name: string; tag?: TagBadgeData; color?: string | null; groupColor?: string | null; onClick?: () => void; provenance?: TagProvenance[]; reportable?: boolean; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
   const interactive = Boolean(onClick);
   const hasMenu = Boolean(reportable && (onReportIncorrect || onAdjustThreshold));
   const resolvedGroupColor = normalizeTagColor(groupColor ?? tag?.tagGroupColor);
@@ -28,6 +31,11 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       <span>{name}</span>
     </>
   );
+  const withMediaHover = (content: ReactNode) => tag?.id && !provenance?.length ? (
+    <EntityMediaHover entityType="tag" entityId={tag.id} imageUrl={tag.imagePath || (tag.hasImage ? entityImages.tagImageUrl(tag.id) : null)} alt={tag.name ?? name} fit="cover" loading="lazy">
+      {content}
+    </EntityMediaHover>
+  ) : content;
 
   // Without a menu, the whole chip is a single button (or static span) as before.
   if (!hasMenu) {
@@ -49,13 +57,14 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       </span>
     );
 
-    return <TagProvenanceHover provenance={provenance}>{badge}</TagProvenanceHover>;
+    const badgeWithProvenance = <TagProvenanceHover provenance={provenance}>{badge}</TagProvenanceHover>;
+    return withMediaHover(badgeWithProvenance);
   }
 
   // With a menu, the chip box hosts the trigger inline (right edge) rather than a button-nested-in-button.
   // The menu routes the two intents apart: tuning how often a tag appears is a global threshold change,
   // while "this detection is wrong" is the rare per-video correction that deletes the AI's finding.
-  return (
+  const badgeWithMenu = (
     <TagBadgeWithMenu
       name={name}
       colorStyle={colorStyle}
@@ -68,6 +77,7 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       {badgeContent}
     </TagBadgeWithMenu>
   );
+  return withMediaHover(badgeWithMenu);
 }
 
 function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, children, onReportIncorrect, onAdjustThreshold }: { name: string; colorStyle?: CSSProperties; interactive: boolean; onClick?: () => void; provenance?: TagProvenance[]; children: ReactNode; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {

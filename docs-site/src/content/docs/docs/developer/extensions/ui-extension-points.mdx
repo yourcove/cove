@@ -159,6 +159,16 @@ Each `UITutorialSlide` can contain a title, caption, bullet points, Markdown bod
 
 `UIFeatureDefinition` publishes a case-insensitive feature key and string options. Host UI code must explicitly look up that key; declaring one does not create visible UI on its own. Use a feature declaration when Cove already defines the integration key, and pair custom behavior with another visible contribution.
 
+## Entity media overrides
+
+`UIComponentOverride` currently supports the stable target `entity.media`. Use `UIManifestBuilder.OverrideComponent("entity.media", componentName, priority)` and export that component from the owning extension's frontend bundle. The frontend SDK exports `ENTITY_MEDIA_TARGET` for code that needs the same target string.
+
+The component receives `EntityMediaRenderProps`: the entity type and id, surface, native image URL, alt text, fit, loading hint, class name, and `renderDefault`. Surfaces currently include `card`, `hero`, `list`, `picker`, `recommendation`, `dialog`, and `hover`. Call `renderDefault()` when the extension does not handle the entity or surface. That delegates to the next lower-priority override and eventually Cove's native media.
+
+Cove orders overrides by descending priority and isolates every layer in an error boundary. A failed contribution falls through without hiding lower-priority contributions or native media. Navigation, selection, cover controls, card overlays, and preview playback remain outside the replacement boundary.
+
+Hover previews use a `4:3` frame by default. When contributed hover media has another intrinsic shape, put `data-entity-media-aspect-ratio="width:height"` on an element rendered by the override. Cove validates positive numeric values and uses the declaration to size its host-owned hover frame.
+
 ## Page overrides
 
 `UIPageOverride` replaces the component for an exact built-in page key. Cove chooses the highest `Priority` when multiple extensions target the same page, then renders the named component with `onNavigate`.
@@ -170,7 +180,7 @@ Prefer additive pages, tabs, and slots when possible. An override owns the whole
 The public manifest also contains these declarations, but Cove does not currently render them:
 
 - `UIPaneContribution`
-- `UIComponentOverride`
+- `UIComponentOverride` targets other than `entity.media`
 - `UISelectorOverride`
 - `UIDialogOverride`
 - `UIPageDefinition.DetailRoute`
@@ -192,6 +202,7 @@ Treat them as reserved contract surface, not working extension points. Shipping 
 | Add visual presets | `UIThemeDefinition`, `UIComponentStyleDef`, or `UILayoutStyleDef` |
 | Add in-app help | `UITutorialTopic` |
 | Advertise a host-known capability | `UIFeatureDefinition` |
+| Replace primary entity media | `UIComponentOverride` targeting `entity.media` |
 | Replace a built-in page | `UIPageOverride`, only when additive points cannot work |
 
 After choosing the contribution, see [Frontend runtime API](../frontend-runtime/) for supported imports, [Packaging](../packaging/) for the asset layout, and [Permissions](../permissions/) for access design.

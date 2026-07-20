@@ -52,6 +52,36 @@ export interface NavigateTarget {
   [key: string]: unknown;
 }
 
+/** Stable host component target for primary entity media overrides. */
+export const ENTITY_MEDIA_TARGET = "entity.media" as const;
+
+/** Host surface on which primary entity media is being rendered. */
+export type EntityMediaSurface =
+  | "card"
+  | "hero"
+  | "list"
+  | "picker"
+  | "recommendation"
+  | "dialog"
+  | "hover";
+
+/** Object-fit behavior requested by the host media surface. */
+export type EntityMediaFit = "cover" | "contain";
+
+/** Props passed to an extension component overriding primary entity media. */
+export interface EntityMediaRenderProps {
+  entityType: string;
+  entityId: number;
+  surface: EntityMediaSurface;
+  imageUrl?: string | null;
+  alt: string;
+  fit: EntityMediaFit;
+  loading?: "eager" | "lazy";
+  className?: string;
+  /** Render the next lower-priority override, ending at Cove's native media. */
+  renderDefault: () => React.ReactNode;
+}
+
 // ── Filter types ─────────────────────────────────────────────────────────
 export interface FindFilter {
   page?: number;

@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EntityReferenceMultiSelector, EntityReferenceSelector } from "../components/EntityReferenceSelector";
 
@@ -18,7 +19,13 @@ vi.mock("../api/client", () => ({
   videos: {},
 }));
 
+beforeEach(() => {
+  mocks.tagsCreate.mockReset();
+  mocks.tagsFind.mockReset();
+});
+
 afterEach(() => {
+  Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
   vi.restoreAllMocks();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -53,6 +60,7 @@ describe("EntityReferenceMultiSelector", () => {
     expect(input).toHaveAttribute("aria-expanded", "true");
     expect(input).toHaveAttribute("aria-controls", listbox.id);
     expect(listbox.parentElement).toBe(document.body);
+    expect(firstOption.querySelector(".lucide-plus")).toBeInTheDocument();
 
     const scrollIntoView = vi.fn();
     firstOption.scrollIntoView = scrollIntoView;
@@ -261,6 +269,94 @@ describe("EntityReferenceMultiSelector", () => {
 });
 
 describe("EntityReferenceSelector", () => {
+  it("returns focus to the input after keyboard-clearing an input-displayed selection", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    function StatefulSelector() {
+      const [value, setValue] = useState<number | undefined>(7);
+      return (
+        <EntityReferenceSelector
+          entityType="tag"
+          value={value}
+          selectedDisplay="input"
+          selectedLabel="Existing tag"
+          onChange={(next) => {
+            onChange(next);
+            setValue(next);
+          }}
+        />
+      );
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StatefulSelector />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByRole("combobox");
+    const clear = screen.getByRole("button", { name: "Clear selected tag" });
+    clear.focus();
+    await user.keyboard("{Enter}");
+
+    expect(onChange).toHaveBeenCalledWith(undefined);
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("does not show an add icon for replacement options but keeps it for create-new", async () => {
+    const user = userEvent.setup();
+    mocks.tagsFind.mockResolvedValue({ items: [{ id: 7, name: "Massage" }] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceSelector entityType="tag" onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search tags..."), "mass");
+    const existingOption = await screen.findByRole("option", { name: "Massage" });
+    const createOption = screen.getByRole("option", { name: "Create “mass”" });
+
+    expect(existingOption.querySelector(".lucide-plus")).not.toBeInTheDocument();
+    expect(createOption.querySelector(".lucide-plus")).toBeInTheDocument();
+  });
+
+  it("portals results into an interaction surface and selects them by click", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    mocks.tagsFind.mockResolvedValue({ items: [{ id: 7, name: "Existing tag" }] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const portalContainer = document.createElement("div");
+    document.body.append(portalContainer);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceSelector
+          entityType="tag"
+          onChange={onChange}
+          allowCreate={false}
+          dropdownPortalContainer={portalContainer}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search tags..."), "Existing");
+    const option = await screen.findByRole("option", { name: /Existing tag/i });
+    expect(option.closest("[role=listbox]")?.parentElement).toBe(portalContainer);
+
+    await user.click(option);
+    expect(onChange).toHaveBeenCalledWith(7, { id: 7, label: "Existing tag" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    portalContainer.remove();
+  });
+});
+
+describe("EntityReferenceSelector", () => {
   it("selects an active option from the keyboard and returns its metadata", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -282,5 +378,58 @@ describe("EntityReferenceSelector", () => {
     expect(input).toHaveValue("");
     expect(input).toHaveAttribute("aria-expanded", "false");
     expect(option).not.toBeInTheDocument();
+  });
+
+  it("portals results into the active fullscreen ancestor using container-relative coordinates", async () => {
+    const user = userEvent.setup();
+    mocks.tagsFind.mockResolvedValue({ items: [{ id: 1, name: "Fullscreen tag" }] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <div data-testid="fullscreen-root">
+          <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+        </div>
+      </QueryClientProvider>,
+    );
+
+    const fullscreenRoot = screen.getByTestId("fullscreen-root");
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: fullscreenRoot,
+    });
+    vi.spyOn(fullscreenRoot, "getBoundingClientRect").mockReturnValue({
+      x: 100, y: 200, left: 100, top: 200, right: 900, bottom: 800,
+      width: 800, height: 600, toJSON: () => ({}),
+    });
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
+      x: 120, y: 240, left: 120, top: 240, right: 320, bottom: 280,
+      width: 200, height: 40, toJSON: () => ({}),
+    });
+    await user.type(input, "full");
+
+    const result = await screen.findByRole("option", { name: /Fullscreen tag/i });
+    const dropdown = result.parentElement;
+    expect(dropdown?.parentElement).toBe(fullscreenRoot);
+    expect(fullscreenRoot).toHaveStyle({ position: "relative" });
+    expect(dropdown).toHaveStyle({ left: "20px", top: "84px", width: "200px" });
+  });
+
+  it("lets callers hide the create-new affordance", async () => {
+    const user = userEvent.setup();
+    mocks.tagsFind.mockResolvedValue({ items: [] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} allowCreate={false} />
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search tags..."), "Restricted");
+    expect(await screen.findByText("No tags found")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Create “Restricted”" })).not.toBeInTheDocument();
   });
 });

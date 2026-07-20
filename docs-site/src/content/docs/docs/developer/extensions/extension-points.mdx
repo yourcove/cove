@@ -132,7 +132,7 @@ public UIManifestBuilder AddTab(
 public UIManifest Build();
 ```
 
-The builder also has methods for actions, settings tabs and panels, tutorial topics, features, and list filters and sorts. `AddPane` and `OverrideComponent` build declarations whose frontend consumers are currently reserved; see [UI extension points](../ui-extension-points/) before choosing a method.
+The builder also has methods for actions, settings tabs and panels, tutorial topics, features, and list filters and sorts. `OverrideComponent` is currently usable only with Cove's published `entity.media` target. `AddPane` and other component-override targets remain reserved; see [UI extension points](../ui-extension-points/) before choosing a method.
 
 `UIManifestBuilder` does not replace `extension.json`. In particular, package frontend files with manifest `jsBundle` and `cssBundle`. Although the builder exposes `WithJsBundle`, `WithCssBundle`, and `WithRuntimeVersion`, the aggregated host manifest supplies asset URLs from the package manifest and supplies its own frontend runtime version. Do not use those methods as package configuration.
 
@@ -233,9 +233,15 @@ Page overrides are intentionally broader than additive contributions. Prefer a p
 
 When multiple extensions target the same page, priority determines the winner. Page overrides carry greater compatibility risk because they replace host-owned UI rather than add to it.
 
+### Entity media replacement
+
+`UIComponentOverride` can target the published `entity.media` boundary to replace or wrap primary media on cards, lists, detail heroes, dialogs, pickers, recommendations, and hovers. The component receives the entity identity, surface and presentation hints, native image URL, and a `renderDefault` function that delegates to the next override and ultimately native media.
+
+Other component target strings remain reserved. See [UI extension points](../ui-extension-points/#entity-media-overrides) for the complete runtime contract and hover aspect-ratio convention.
+
 ### Reserved UI declarations
 
-`UIManifest` also defines panes, component overrides, selector overrides, dialog overrides, and a `DetailRoute` value on page definitions. Cove currently transports these declarations but does not consume them in the frontend, so they are not usable extension points yet. The `*` target documented on `UIPageOverride` is likewise not a working application-shell override; use an exact built-in page key.
+`UIManifest` also defines panes, selector overrides, dialog overrides, component-override targets other than `entity.media`, and a `DetailRoute` value on page definitions. Cove currently transports these declarations but does not consume them in the frontend, so they are not usable extension points yet. The `*` target documented on `UIPageOverride` is likewise not a working application-shell override; use an exact built-in page key.
 
 ## Manifest-only contributions
 

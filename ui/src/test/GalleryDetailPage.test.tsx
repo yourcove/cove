@@ -33,6 +33,7 @@ const {
   },
   mockEntityImages: {
     performerImageUrl: vi.fn((id: number) => `/performer-${id}.jpg`),
+    tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
   },
   mockSetRating: vi.fn(),
   mockGoBack: vi.fn(),

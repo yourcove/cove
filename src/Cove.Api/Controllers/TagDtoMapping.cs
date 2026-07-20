@@ -23,5 +23,6 @@ internal static class TagDtoMapping
             tag.TagGroup?.Name,
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
-            tag.MinOccurrencePercent);
+            tag.MinOccurrencePercent,
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
 }

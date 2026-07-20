@@ -228,10 +228,13 @@ export function TagDetailPage({ id, onNavigate }: Props) {
   return (
     <>
       <EntityHeroLayout
+        entityType="tag"
+        entityId={tag.id}
         backLabel={backLabel}
         onGoBack={goBack}
         imageUrl={tagImageUrl}
         imageAlt={tag.name}
+        imageFit="contain"
         imageClassName="h-full w-full object-contain p-3"
         onImageClick={canWriteTag ? () => setCoverOpen(true) : undefined}
         imageFallback={<TagIcon className="h-14 w-14 text-accent" />}

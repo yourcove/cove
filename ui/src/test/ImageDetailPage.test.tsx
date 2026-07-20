@@ -17,6 +17,7 @@ const { mockImages, mockFaces, mockEntityImages, mockPlayback, mockSetFavorite, 
   },
   mockEntityImages: {
     studioImageUrl: vi.fn((id: number) => `/studio-${id}.jpg`),
+    tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
   },
   mockPlayback: {
     recordIntervals: vi.fn(() => Promise.resolve()),
@@ -225,4 +226,3 @@ describe("ImageDetailPage", () => {
     })));
   });
 });
-

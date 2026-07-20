@@ -44,6 +44,8 @@ function buildReferenceAutocompleteItems(
 
 const REFERENCE_TYPES = new Set<string>(["tag", "performer", "studio", "video", "gallery", "image", "group", "face"]);
 
+const CREATABLE_TYPES = new Set<EntityReferenceType>(["tag", "performer", "group", "studio", "gallery"]);
+
 const ENTITY_LABELS: Record<EntityReferenceType, { singular: string; plural: string; sort: string }> = {
   tag: { singular: "tag", plural: "tags", sort: "name" },
   performer: { singular: "performer", plural: "performers", sort: "name" },
@@ -107,6 +109,8 @@ export function EntityReferenceSelector({
   resultsMaxHeight,
   selectedDisplay = "chip",
   selectedLabel,
+  allowCreate = true,
+  dropdownPortalContainer,
 }: {
   entityType: EntityReferenceType;
   value?: number;
@@ -119,6 +123,10 @@ export function EntityReferenceSelector({
   resultsMaxHeight?: number;
   selectedDisplay?: "chip" | "input";
   selectedLabel?: string;
+  /** Hides create-new when false. The server remains authoritative when creation is enabled. */
+  allowCreate?: boolean;
+  /** Keeps the portalled results inside an interaction surface such as an extension dialog. */
+  dropdownPortalContainer?: HTMLElement | null;
 }) {
   const [searchText, setSearchText] = useState("");
   const trimmedSearch = searchText.trim();
@@ -165,7 +173,7 @@ export function EntityReferenceSelector({
     [excluded, searchOptions, value],
   );
 
-  const creatableTypes: Partial<Record<EntityReferenceType, true>> = { tag: true, performer: true, group: true, studio: true, gallery: true };
+  const canCreate = allowCreate && CREATABLE_TYPES.has(entityType);
   const exactMatchExists = useMemo(
     () => searchOptions.some((o) => o.label.toLowerCase() === trimmedSearch.toLowerCase()),
     [searchOptions, trimmedSearch],
@@ -189,7 +197,7 @@ export function EntityReferenceSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatable && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatable && canCreate && !exactMatchExists;
   const autocompleteItems = useMemo(
     () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
@@ -252,6 +260,7 @@ export function EntityReferenceSelector({
             onClick={() => {
               setSearchText("");
               onChange(undefined);
+              autocomplete.inputRef.current?.focus();
             }}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted hover:text-foreground disabled:opacity-50"
             aria-label={`Clear selected ${labels.singular}`}
@@ -266,6 +275,7 @@ export function EntityReferenceSelector({
         <AutocompleteDropdown
           anchorRef={autocomplete.inputRef}
           containerRef={autocomplete.listboxRef}
+          portalContainer={dropdownPortalContainer}
           maxHeight={resultsMaxHeight}
           className="rounded border border-border bg-surface"
           {...autocomplete.listboxProps}
@@ -282,7 +292,6 @@ export function EntityReferenceSelector({
               className={`flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-card" : ""}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
-                <Plus className="h-3 w-3" />
                 <span className="truncate">{option.label}</span>
               </span>
               {option.secondaryLabel ? <span className="shrink-0 text-xs text-muted">{option.secondaryLabel}</span> : null}
@@ -330,6 +339,7 @@ export function EntityReferenceMultiSelector({
   onReportIncorrect,
   onAdjustThreshold,
   seedOptions,
+  allowCreate = true,
 }: {
   entityType: EntityReferenceType;
   values: number[];
@@ -352,6 +362,8 @@ export function EntityReferenceMultiSelector({
   reportableIds?: Iterable<number>;
   onReportIncorrect?: (id: number) => void;
   onAdjustThreshold?: (id: number) => void;
+  /** Hides create-new when false. The server remains authoritative when creation is enabled. */
+  allowCreate?: boolean;
 }) {
   const [searchText, setSearchText] = useState("");
   const trimmedSearch = searchText.trim();
@@ -398,7 +410,7 @@ export function EntityReferenceMultiSelector({
     [excluded, searchOptions, values],
   );
 
-  const creatableTypes: Partial<Record<EntityReferenceType, true>> = { tag: true, performer: true, group: true, studio: true, gallery: true };
+  const canCreate = allowCreate && CREATABLE_TYPES.has(entityType);
   const exactMatchExists = useMemo(
     () => searchOptions.some((o) => o.label.toLowerCase() === trimmedSearch.toLowerCase()),
     [searchOptions, trimmedSearch],
@@ -422,7 +434,7 @@ export function EntityReferenceMultiSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatable && creatableTypes[entityType] && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isFetching && creatable && canCreate && !exactMatchExists;
   const autocompleteItems = useMemo(
     () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
