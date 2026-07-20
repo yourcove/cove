@@ -119,6 +119,24 @@ public sealed class CurrentPrincipalMiddleware
         else if (!string.IsNullOrEmpty(authHeader))
             principal = await tokens.ResolveAsync(authHeader, ip, ua, context.RequestAborted);
 
+        // Trusted reverse-proxy (forward-auth) SSO: if nothing else authenticated the
+        // request and the DIRECT peer is an allow-listed proxy, trust the username it
+        // asserts in the configured header (e.g. Remote-User / X-authentik-username).
+        // Gated on the direct peer -- forwarded headers are irrelevant here, so a
+        // client outside the proxy can never spoof its way in.
+        if (principal is null && config.Auth.ProxyAuthEnabled && config.Auth.ProxyAuthProxies.Count > 0)
+        {
+            var peer = context.Connection.RemoteIpAddress;
+            if (peer is not null && peer.IsIPv4MappedToIPv6)
+                peer = peer.MapToIPv4();
+            if (peer is not null && AuthDisabledRequestGuard.MatchesProxyList(peer, config.Auth.ProxyAuthProxies))
+            {
+                var proxyUser = context.Request.Headers[config.Auth.ProxyAuthHeader].ToString().Trim();
+                if (!string.IsNullOrEmpty(proxyUser))
+                    principal = await tokens.ResolveProxyUserAsync(proxyUser, ip, ua, context.RequestAborted);
+            }
+        }
+
         if (principal is not null)
         {
             accessor.Set(principal);

@@ -209,6 +209,10 @@ public static class AuthDisabledRequestGuard
         return IPAddress.TryParse(host, out var address) && IsTrustedLocalAddress(address);
     }
 
+    /// <summary>Public entry for matching an address against an IP/CIDR allow-list
+    /// (used by trusted reverse-proxy SSO in <see cref="CurrentPrincipalMiddleware"/>).</summary>
+    public static bool MatchesProxyList(IPAddress address, IEnumerable<string> proxies) => IsKnownProxy(address, proxies);
+
     private static bool IsKnownProxy(IPAddress address, IEnumerable<string> knownProxies)
     {
         foreach (var rawEntry in knownProxies ?? [])

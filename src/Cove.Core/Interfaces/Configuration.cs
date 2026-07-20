@@ -111,6 +111,18 @@ public class AuthConfig
     /// </summary>
     public List<string> TrustedHosts { get; set; } = [];
     /// <summary>
+    /// Trusted reverse-proxy (forward-auth) SSO. When enabled and the DIRECT peer of a
+    /// request matches <see cref="ProxyAuthProxies"/> (IPs or CIDRs), the username the
+    /// proxy asserts in <see cref="ProxyAuthHeader"/> is trusted and the request runs as
+    /// that Cove user (which must exist, be active and unlocked). Designed for
+    /// Authentik/Authelia-style forward-auth in front of Cove. Disabled by default;
+    /// deliberately requires an explicit proxy allow-list so a spoofed header from an
+    /// arbitrary client can never authenticate.
+    /// </summary>
+    public bool ProxyAuthEnabled { get; set; }
+    public string ProxyAuthHeader { get; set; } = "Remote-User";
+    public List<string> ProxyAuthProxies { get; set; } = [];
+    /// <summary>
     /// When true, every controller action MUST declare a permission policy via
     /// [RequiresPermission], [AllowWithoutPermission], or [AllowAnonymous]; actions
     /// without any are rejected with 403.

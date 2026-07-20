@@ -1428,6 +1428,9 @@ public record SecurityConfigDto
     public bool EnforceDefaultDeny { get; init; } = true;
     public List<string>? KnownProxies { get; init; } = [];
     public List<string>? TrustedHosts { get; init; } = [];
+    public bool ProxyAuthEnabled { get; init; }
+    public string? ProxyAuthHeader { get; init; }
+    public List<string>? ProxyAuthProxies { get; init; } = [];
     public string? NewPassword { get; init; }
 }
 

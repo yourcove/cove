@@ -185,6 +185,9 @@ public class ConfigService
                 EnforceDefaultDeny = cfg.Auth.EnforceDefaultDeny,
                 KnownProxies = cfg.Auth.KnownProxies,
                 TrustedHosts = cfg.Auth.TrustedHosts,
+                ProxyAuthEnabled = cfg.Auth.ProxyAuthEnabled,
+                ProxyAuthHeader = cfg.Auth.ProxyAuthHeader,
+                ProxyAuthProxies = cfg.Auth.ProxyAuthProxies,
             },
             Scraping = new ScrapingConfigDto
             {
@@ -433,6 +436,13 @@ public class ConfigService
         cfg.Auth.TrustedHosts = (dto.Security.TrustedHosts ?? [])
             .Where(host => !string.IsNullOrWhiteSpace(host))
             .Select(host => host.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        cfg.Auth.ProxyAuthEnabled = dto.Security.ProxyAuthEnabled;
+        cfg.Auth.ProxyAuthHeader = string.IsNullOrWhiteSpace(dto.Security.ProxyAuthHeader) ? "Remote-User" : dto.Security.ProxyAuthHeader.Trim();
+        cfg.Auth.ProxyAuthProxies = (dto.Security.ProxyAuthProxies ?? [])
+            .Where(proxy => !string.IsNullOrWhiteSpace(proxy))
+            .Select(proxy => proxy.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (!string.IsNullOrWhiteSpace(dto.Security.NewPassword))

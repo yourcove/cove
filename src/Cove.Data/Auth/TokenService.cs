@@ -334,6 +334,43 @@ public sealed class TokenService : ITokenService
         };
     }
 
+    public async Task<CovePrincipal?> ResolveProxyUserAsync(string username, string? ip, string? userAgent, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return null;
+
+        var normalized = username.Trim();
+        var user = await _db.Users.AsNoTracking()
+            .Include(u => u.Roles).ThenInclude(r => r.Role).ThenInclude(r => r!.Permissions)
+            .FirstOrDefaultAsync(u => u.Username == normalized, ct);
+        if (user is null || !user.IsActive || user.IsLocked)
+        {
+            _log.LogDebug("Proxy-auth username {Username} rejected (unknown, inactive or locked)", normalized);
+            return null;
+        }
+
+        var roleIds = user.Roles.Select(r => r.RoleId).Distinct().ToArray();
+        var roleNames = user.Roles.Select(r => r.Role!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var permissionKeys = user.Roles
+            .SelectMany(r => r.Role!.Permissions.Select(p => p.PermissionKey))
+            .ToList();
+        var perms = _registry.Expand(permissionKeys);
+        var (readRestrictedEntityKinds, readGrantedEntityKinds) = await GetReadAccessProfileAsync(roleIds, ct);
+
+        return new CovePrincipal
+        {
+            UserId = user.Id,
+            Username = user.Username,
+            Kind = PrincipalKind.User,
+            Roles = roleNames,
+            Permissions = perms,
+            ReadRestrictedEntityKinds = readRestrictedEntityKinds,
+            ReadGrantedEntityKinds = readGrantedEntityKinds,
+            Ip = ip,
+            UserAgent = userAgent,
+        };
+    }
+
     private async Task<(HashSet<string> RestrictedKinds, HashSet<string> GrantedKinds)> GetReadAccessProfileAsync(IEnumerable<int> roleIds, CancellationToken ct)
     {
         var ids = roleIds.Distinct().ToArray();

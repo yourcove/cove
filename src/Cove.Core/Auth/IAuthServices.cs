@@ -46,6 +46,9 @@ public interface ITokenService
 
     /// <summary>Resolve a JWT bearer token (or API token) to a CovePrincipal. Returns null if invalid.</summary>
     Task<CovePrincipal?> ResolveAsync(string? authorizationHeader, string? ip, string? userAgent, CancellationToken ct = default);
+    /// <summary>Resolves a principal for a username asserted by a trusted reverse proxy
+    /// (forward-auth SSO). Returns null when the user is unknown, inactive or locked.</summary>
+    Task<CovePrincipal?> ResolveProxyUserAsync(string username, string? ip, string? userAgent, CancellationToken ct = default);
 
     Task<ApiTokenIssued> CreateApiTokenAsync(int userId, string name, IEnumerable<string>? scope, DateTime? expiresAt, CovePrincipal? actor, CancellationToken ct = default);
     Task RevokeApiTokenAsync(Guid id, CovePrincipal? actor, CancellationToken ct = default);
