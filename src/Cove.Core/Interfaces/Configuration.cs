@@ -11,6 +11,10 @@ public class CoveConfiguration
     public string BackupPath { get; set; } = string.Empty;
     public string? FfmpegPath { get; set; }
     public string? FfprobePath { get; set; }
+    // Optional FlareSolverr-compatible solver endpoint (FlareSolverr, Byparr, TRAWL, ...).
+    // When set, YAML scraper fetches that hit a Cloudflare challenge are retried through it.
+    // Example: http://flaresolverr:8191
+    public string? FlareSolverrUrl { get; set; }
     public string Host { get; set; } = "0.0.0.0";
     public int Port { get; set; } = 5073;
     // Default for a fresh install: leave ~3 logical processors free for the UI and the

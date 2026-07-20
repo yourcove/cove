@@ -316,6 +316,11 @@ try
     builder.Services.AddScoped<IDynamicGroupSource, SaveForLaterDynamicGroupSource>();
     builder.Services.AddScoped<IDynamicGroupSource, WatchHistoryDynamicGroupSource>();
     builder.Services.AddScoped<IDynamicGroupSource, ContinueWatchingDynamicGroupSource>();
+    builder.Services.AddHttpClient("flaresolverr", client =>
+    {
+        // Challenge solves routinely take 15-45s; give the solver generous headroom.
+        client.Timeout = TimeSpan.FromSeconds(120);
+    });
     builder.Services.AddHttpClient("scraper", client =>
     {
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
