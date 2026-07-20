@@ -1,0 +1,177 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import CoveWordmark from '../components/CoveWordmark.astro';
+import MarketingShot from '../components/MarketingShot.astro';
+import ThemeReel from '../components/ThemeReel.astro';
+import { themeFrames } from '../lib/themeFrames';
+import { withBase } from '../lib/paths';
+---
+
+<MarketingLayout
+  title="Local Media Organizer"
+  description="Cove is a free, open-source media organizer that runs on your own machine. Scan your folders and get a fast, searchable library with tags, previews, and sharing."
+  imagePath="/images/screenshots/dashboard-home.png"
+>
+  <section class="hero">
+    <div>
+      <h1 class="hero-brand">
+        <span class="sr-only">Cove</span>
+        <CoveWordmark class="hero-wordmark" />
+      </h1>
+      <p class="lead">
+        Cove turns your folders of videos, images, and audio into a fast, searchable library. It's free, open source, and runs entirely on your own machine. No account, no cloud.
+      </p>
+      <div class="pill-row">
+        <span class="pill">Search, tags, and watch history</span>
+        <span class="pill">Downloaders and extensions</span>
+        <span class="pill">Safe sharing on your network</span>
+      </div>
+      <div class="button-row">
+        <a class="button" href={withBase('download/')}>Download Cove</a>
+        <a class="button-ghost" href={withBase('features/')}>See what it can do</a>
+      </div>
+    </div>
+    <ThemeReel
+      frames={themeFrames}
+      caption="20 built-in themes."
+    />
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="section-kicker">Start in minutes</p>
+      <h2 class="section-heading">Point Cove at a folder and start browsing.</h2>
+      <p class="page-copy">
+        The first scan builds your library, and search, tags, filters, and generated previews work right away. The deeper features stay out of the way until you want them: tagging the people in a scene, marking segments inside a video, groups that fill themselves based on rules, separate accounts for the people on your network, and an extension system for everything else.
+      </p>
+      <div class="button-row">
+        <a class="button-ghost" href={withBase('download/')}>Install guide</a>
+        <a class="button-ghost" href={withBase('features/')}>Full feature tour</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <div class="panel">
+        <p class="section-kicker">Detailed organization</p>
+        <h3>Tag people, moments, and parts of a video</h3>
+        <p>
+          Cove keeps videos, images, galleries, audio, and text in one library, connected by the performers, studios, tags, and groups behind them. When a tag only applies to one person or one part of a video, you can put it exactly there.
+        </p>
+        <ul class="check-list">
+          <li>See who appears in which part of a video, not just who's in it somewhere.</li>
+          <li>Build compilations and sub-videos without duplicating files on disk.</li>
+          <li>Let dynamic groups collect matching content on their own.</li>
+        </ul>
+      </div>
+      <MarketingShot
+        src={withBase('images/screenshots/video-detail-timeline.png')}
+        alt="Cove video detail page with playback timeline and metadata."
+        caption="Video details, tags, people, and exact moments in one place."
+      />
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <MarketingShot
+        src={withBase('images/screenshots/feed-viewer.png')}
+        alt="Cove videos page in feed view."
+        caption="Browse in a grid, a feed, or a vertical page depending on the mood."
+      />
+      <div class="panel">
+        <p class="section-kicker">Browsing</p>
+        <h3>Browse it like a library, or scroll it like a feed</h3>
+        <p>
+          Grid and list pages are there when you want to sort and clean up. Feed and vertical pages are there when you just want to watch. Watch later, history, and continue watching make it easy to pick up where you left off.
+        </p>
+        <ul class="check-list">
+          <li>Six page styles: grid, list, wall, tagger, feed, and vertical.</li>
+          <li>Keep scrolling instead of clicking through page after page.</li>
+          <li>Resume anything from continue watching.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <div class="panel">
+        <p class="section-kicker">Search</p>
+        <h3>Find things by whatever you remember</h3>
+        <p>
+          Search by title, tag, performer, studio, path, or group. Start broad with global search, then add filters when you need to narrow a big library down to one specific thing.
+        </p>
+        <ul class="check-list">
+          <li>One search across videos, images, galleries, audio, and text.</li>
+          <li>Save the searches you keep coming back to.</li>
+          <li>Jump straight to a person, tag, or group from anywhere in the app.</li>
+        </ul>
+      </div>
+      <MarketingShot
+        src={withBase('images/screenshots/global-search.png')}
+        alt="Cove global search with results for a library query."
+        caption="Global search jumps straight to videos, tags, performers, and groups."
+      />
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner feature-grid">
+      <article class="feature-card">
+        <h3>Share one library safely</h3>
+        <p>Give each person on your network their own account, with roles and permissions that control what they can see and do. Share links cover everything else.</p>
+        <a href={withBase('docs/user/security/users-roles-permissions/')}>Security docs</a>
+      </article>
+      <article class="feature-card">
+        <h3>Bring in new media</h3>
+        <p>Downloaders pull content in, and scrapers identify it and fill in the details. You review what gets applied, and Cove keeps track of where details came from.</p>
+        <a href={withBase('docs/user/metadata/providers-scrapers-downloaders/')}>Metadata and downloader docs</a>
+      </article>
+      <article class="feature-card">
+        <h3>Extend almost anything</h3>
+        <p>Extensions can add downloaders, scrapers, pages, background jobs, settings, APIs, and themes. If Cove doesn't do something yet, there's probably a way to add it.</p>
+        <a href={withBase('docs/developer/extensions/overview/')}>Developer docs</a>
+      </article>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner two-column">
+      <MarketingShot
+        src={withBase('images/screenshots/roles-permission-editor.png')}
+        alt="Cove role permission editor showing detailed permission controls."
+        caption="Roles control exactly what each account can see and do."
+      />
+      <div class="panel">
+        <p class="section-kicker">Private by default</p>
+        <h3>Your library stays on your hardware</h3>
+        <p>
+          Cove runs where you install it. Your files, metadata, accounts, and generated previews stay on the machine unless you set up sharing yourself, and sharing is scoped to the people and content you choose.
+        </p>
+        <ul class="check-list">
+          <li>No telemetry.</li>
+          <li>No cloud account between you and your own files.</li>
+          <li>Works for one person or a whole household.</li>
+        </ul>
+        <a href={withBase('local-media-organizer/')}>Why a local media organizer?</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner doc-split-grid">
+      <article class="doc-track-card">
+        <h3>Ready to try it?</h3>
+        <p>Download the native app or run it with Docker. Either way, Cove sets itself up on first launch and you can start scanning right away.</p>
+        <a class="button-ghost" href={withBase('download/')}>Download Cove</a>
+      </article>
+      <article class="doc-track-card">
+        <h3>Want to read more first?</h3>
+        <p>The user docs cover installing, scanning, organizing, and sharing. The developer docs cover extensions and the API.</p>
+        <a class="button-ghost" href={withBase('docs/')}>Open docs</a>
+      </article>
+    </div>
+  </section>
+</MarketingLayout>

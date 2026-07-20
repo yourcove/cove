@@ -1,0 +1,61 @@
+---
+title: Segments and Compilations
+description: Work with segments, sub-videos, and compilations in Cove.
+---
+
+# Segments and compilations
+
+Segments are one of the main reasons Cove can organize a library in more detail than a simple whole-file model allows.
+
+## What a segment is
+
+A segment is a meaningful span inside a scene. Depending on the workflow, that span can represent:
+
+- a sub-scene
+- a highlight
+- a manually selected range
+- a detected range
+- a performer or face occurrence
+- a tag or metadata event tied to time
+
+## Why segments matter
+
+Segments make the rest of the library more expressive:
+
+- you can tag a moment, not just a whole file
+- you can track who appears when
+- you can build compilations without duplicating media
+- you can turn internal structure into something the rest of the app can search and reuse
+
+## Raw and derived structure
+
+Some segment data is recorded directly. Some of it is derived from other timing-aware information. In practice, the important distinction is:
+
+- **raw** structure helps explain where the timing came from
+- **derived** structure helps you browse, play, filter, and compile the result
+
+That difference is most useful when you want both explainability and a cleaner day-to-day browsing surface.
+
+## Sub-videos
+
+Sub-videos are useful when one source file really contains multiple meaningful parts that you want to revisit independently. Treat them as reusable internal organization instead of creating duplicate exports for every use case.
+
+## Compilations
+
+Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful spans rather than only full scenes.
+
+Use compilations when:
+
+- you want a chosen sequence
+- you want to reuse existing media rather than duplicate files
+- a group already expresses the collection you want to play
+
+## When to adopt segments
+
+You do not need segments on every item. They pay off most when:
+
+- timing matters
+- performer occurrence matters
+- tags need to be contextual
+- you want reusable sub-videos
+- you want richer playback-driven organization

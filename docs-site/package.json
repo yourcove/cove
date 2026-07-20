@@ -1,0 +1,24 @@
+{
+  "name": "docs-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@astrojs/mdx": "latest",
+    "@astrojs/sitemap": "latest",
+    "@astrojs/starlight": "latest",
+    "@fontsource-variable/manrope": "latest",
+    "@fontsource/ibm-plex-mono": "latest",
+    "astro": "latest"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

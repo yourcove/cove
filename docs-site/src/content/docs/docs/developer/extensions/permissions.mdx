@@ -1,0 +1,23 @@
+---
+title: Extension Permissions
+description: Design extension permissions that administrators can understand and assign safely.
+---
+
+# Extension permissions
+
+Extensions should ask for the minimum access needed to do their job.
+
+## Permission design
+
+- Name permissions after the capability they unlock.
+- Keep read and write actions separate when possible.
+- Avoid broad administrator-level requirements for ordinary workflows.
+- Explain user-facing impact in settings and documentation.
+
+## Administrator review
+
+Administrators need to understand what an extension can read, write, display, schedule, and expose through APIs. Permission names and descriptions should be specific enough to support that review without reading source code.
+
+## Runtime behavior
+
+When a permission is missing, fail clearly and locally. Do not hide denied work behind partial output that looks successful.

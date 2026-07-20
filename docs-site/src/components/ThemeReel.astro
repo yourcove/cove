@@ -1,0 +1,27 @@
+---
+interface ThemeFrame {
+  src: string;
+  alt: string;
+  label: string;
+}
+
+interface Props {
+  frames: ThemeFrame[];
+  caption?: string;
+}
+
+const { frames, caption } = Astro.props;
+const duration = `${frames.length * 0.85}s`;
+---
+
+<figure class="media-shot theme-reel" style={`--theme-reel-duration: ${duration}; --theme-reel-count: ${frames.length};`}>
+  <div class="theme-reel-stage">
+    {frames.map((frame, index) => (
+      <div class="theme-reel-frame" style={`--theme-reel-index: ${index};`}>
+        <img src={frame.src} alt={frame.alt} loading={index === 0 ? 'eager' : 'lazy'} width="1700" height="1300" />
+        <span>{frame.label}</span>
+      </div>
+    ))}
+  </div>
+  {caption ? <figcaption>{caption}</figcaption> : null}
+</figure>

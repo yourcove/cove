@@ -1,0 +1,55 @@
+---
+title: Create an Extension
+description: The practical starting point for building a Cove extension.
+---
+
+# Create an extension
+
+Use this guide when you want to add general host-aware behavior to Cove, not only one metadata source.
+
+## What an extension is for
+
+A Cove extension can contribute more than one narrow hook. Depending on the design, it can add:
+
+- UI pages or panels
+- backend APIs
+- settings
+- background jobs
+- themes
+- installable tools such as downloaders or scrapers
+
+## Build approach
+
+Think about the extension in two parts:
+
+- **frontend contribution** when users need a page, panel, settings surface, or visual integration
+- **backend contribution** when you need APIs, jobs, events, storage, or other server-side behavior
+
+Not every extension needs both, but many serious ones do.
+
+## Recommended implementation flow
+
+1. Define the user-facing behavior first.
+2. Decide which parts belong in the UI and which belong in the backend.
+3. Keep permissions narrow and explicit.
+4. Build and test locally against a running Cove dev environment.
+5. Package the extension in the layout Cove expects before testing install flow.
+
+## Packaging expectations
+
+The host expects pre-built extension artifacts. That means:
+
+- backend pieces should already be compiled
+- frontend pieces should already be bundled
+- install should not depend on runtime package restores
+
+See [Packaging](./packaging/) for the detailed constraints.
+
+## Good first checks
+
+Before calling an extension ready:
+
+- confirm it loads into a normal local Cove run
+- confirm permission failures are understandable
+- confirm any UI additions feel native to Cove instead of visually detached
+- confirm any user-visible metadata changes preserve provenance

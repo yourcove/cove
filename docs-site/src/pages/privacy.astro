@@ -1,0 +1,36 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+---
+
+<MarketingLayout
+  title="Cove Privacy"
+  description="Privacy notes for Cove, the local media organizer, and the public docs site."
+  imagePath="/images/screenshots/roles-permission-editor.png"
+>
+  <section class="marketing-section">
+    <div class="marketing-section-inner">
+      <p class="eyebrow-small">Privacy</p>
+      <h1 class="page-heading">Your library data stays on your system</h1>
+      <p class="page-copy">
+        Cove runs where you install it and sends no library data or telemetry anywhere. The only external traffic comes from features you deliberately enable, like metadata providers or downloaders.
+      </p>
+    </div>
+  </section>
+
+  <section class="marketing-section">
+    <div class="marketing-section-inner info-grid">
+      <article class="info-card">
+        <h3>Cove app</h3>
+        <p>No telemetry. Your media records, generated assets, user accounts, permissions, and metadata history remain on the system running Cove.</p>
+      </article>
+      <article class="info-card">
+        <h3>External providers</h3>
+        <p>Metadata servers, scrapers, downloaders, AI-related tools, and other integrations contact outside services only when you configure and use them.</p>
+      </article>
+      <article class="info-card">
+        <h3>This website</h3>
+        <p>This site is static and runs no analytics. Visiting it isn't tracked by us.</p>
+      </article>
+    </div>
+  </section>
+</MarketingLayout>

@@ -1,0 +1,50 @@
+---
+title: Create a Scraper
+description: Build a Cove scraper for item-level metadata collection.
+---
+
+# Create a scraper
+
+Scrapers are the right tool when you want item-level metadata collection with review before apply.
+
+## When a scraper is the right fit
+
+Build a scraper when the workflow is:
+
+- start from an existing item in the library
+- fetch metadata from a source
+- review the result
+- apply only the fields the user wants
+
+If the workflow is primarily “bring new content into the library,” you probably want a downloader instead.
+
+## Design goals
+
+A good scraper should:
+
+- make source assumptions clear
+- fail visibly when the source structure changes
+- return data that is easy for a user to review
+- preserve enough source detail that provenance remains useful
+
+## Implementation flow
+
+1. Choose the source and define the item types it supports well.
+2. Decide which fields the scraper should populate confidently.
+3. Run it against a small representative set first.
+4. Review the output inside Cove before broadening its use.
+5. Package it so Cove can discover and load it through the extension model.
+
+## Testing locally
+
+Use the local dev loop with a small demo library and representative URLs or source items. Focus on:
+
+- field accuracy
+- missing-field behavior
+- partial matches
+- broken-source handling
+- user review quality inside the apply flow
+
+## Practical boundary
+
+Do not try to make a scraper silently do everything. Scrapers are strongest when they are reliable about a narrower source pattern and leave room for user review where ambiguity is normal.

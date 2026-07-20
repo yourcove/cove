@@ -1,0 +1,33 @@
+---
+interface Props {
+  label: string;
+  caption?: string;
+  variant?: 'landscape' | 'portrait';
+}
+
+const {
+  label,
+  caption = 'Demo-library capture coming soon.',
+  variant = 'landscape',
+} = Astro.props;
+---
+
+<div class="placeholder-media" data-variant={variant}>
+  <div class="placeholder-frame">
+    <div class="placeholder-chrome" aria-hidden="true">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+    <div class="placeholder-bars" aria-hidden="true">
+      <span></span>
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+    <div>
+      <strong>{label}</strong>
+      <p>{caption}</p>
+    </div>
+  </div>
+</div>

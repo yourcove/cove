@@ -1,0 +1,26 @@
+---
+title: Website Contribution Notes
+description: Practical guidance for contributing to this docs and marketing site.
+---
+
+# Website contribution notes
+
+This website uses Astro for marketing pages and Starlight for documentation.
+
+## Structure
+
+- Marketing pages live in `docs-site/src/pages/`.
+- Shared marketing styles live in `docs-site/src/styles/global.css`.
+- Docs content lives under `docs-site/src/content/docs/docs/`.
+- User Docs stay under `docs-site/src/content/docs/docs/user/`.
+- Developer Docs stay under `docs-site/src/content/docs/docs/developer/`.
+
+## Local checks
+
+Run the production build before publishing changes:
+
+```bash
+npm --prefix docs-site run build
+```
+
+GitHub Pages publishes the built site from the deployment workflow.
