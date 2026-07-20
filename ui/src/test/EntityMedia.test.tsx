@@ -220,9 +220,7 @@ describe("EntityMedia", () => {
     expect(screen.getByRole("button", { name: "Tag reference" })).toBeInTheDocument();
   });
 
-  it("keeps provenance as the sole hover surface for a sourced tag badge", () => {
-    overrideRenderState.active = true;
-    overrideRenderState.replace = true;
+  it("combines entity media and provenance under the provenance hover controller", () => {
     render(
       <TagBadge
         name="Sourced tag"
@@ -236,6 +234,119 @@ describe("EntityMedia", () => {
 
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     expect(screen.getAllByText("Tag Sources").some((element) => !element.closest(".sr-only"))).toBe(true);
+    expect(screen.getByRole("img", { name: "Sourced tag" })).toHaveAttribute("src", "/tag.jpg");
+    expect(overrideRendererCalls.at(-1)?.componentProps).toMatchObject({
+      entityType: "tag",
+      entityId: 17,
+      surface: "hover",
+    });
+  });
+
+  it("renders extension-only media in a provenance popup without a native image", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    overrideRenderState.active = true;
+    overrideRenderState.replace = true;
+    render(
+      <TagBadge
+        name="Extension-only sourced tag"
+        tag={{ id: 18, name: "Extension-only sourced tag" }}
+        provenance={[{ sourceKey: "ext:tagger", appliedAt: "2026-07-19T00:00:00Z" }]}
+        onClick={() => {}}
+      />,
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Extension-only sourced tag" }));
+
+    expect(screen.getByTestId("extension-media")).toBeInTheDocument();
+    expect(screen.getAllByText("Tag Sources").some((element) => !element.closest(".sr-only"))).toBe(true);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("degrades a failed native image to provenance-only content", () => {
+    render(
+      <TagBadge
+        name="Broken sourced tag"
+        tag={{ id: 19, name: "Broken sourced tag", imagePath: "/missing-tag.jpg" }}
+        provenance={[{ sourceKey: "ext:tagger", appliedAt: "2026-07-19T00:00:00Z" }]}
+        onClick={() => {}}
+      />,
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Broken sourced tag" }));
+    fireEvent.error(screen.getByRole("img", { name: "Broken sourced tag" }));
+
+    expect(screen.queryByRole("img", { name: "Broken sourced tag" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Tag Sources").some((element) => !element.closest(".sr-only"))).toBe(true);
+  });
+
+  it("collapses the preview frame when an active override delegates after native image failure", () => {
+    overrideRenderState.active = true;
+    overrideRenderState.replace = false;
+    render(
+      <TagBadge
+        name="Delegated broken tag"
+        tag={{ id: 22, name: "Delegated broken tag", imagePath: "/delegated-missing.jpg" }}
+        provenance={[{ sourceKey: "ext:tagger", appliedAt: "2026-07-19T00:00:00Z" }]}
+        onClick={() => {}}
+      />,
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Delegated broken tag" }));
+    const nativeImage = screen.getByRole("img", { name: "Delegated broken tag" });
+    const previewFrame = nativeImage.parentElement!;
+
+    fireEvent.error(nativeImage);
+
+    expect(previewFrame).toHaveClass("empty:hidden");
+    expect(previewFrame).toBeEmptyDOMElement();
+    expect(screen.queryByRole("img", { name: "Delegated broken tag" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Tag Sources").some((element) => !element.closest(".sr-only"))).toBe(true);
+  });
+
+  it("keeps provenance-only behavior when no tag id is available", () => {
+    overrideRenderState.active = true;
+    overrideRenderState.replace = true;
+    render(
+      <TagBadge
+        name="Unidentified sourced tag"
+        provenance={[{ sourceKey: "ext:tagger", appliedAt: "2026-07-19T00:00:00Z" }]}
+        onClick={() => {}}
+      />,
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Unidentified sourced tag" }));
+
+    expect(screen.getAllByText("Tag Sources").some((element) => !element.closest(".sr-only"))).toBe(true);
+    expect(screen.queryByTestId("extension-media")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     expect(overrideRendererCalls).toHaveLength(0);
+  });
+
+  it("keeps the correction menu clickable from a combined sourced tag badge", () => {
+    const onAdjustThreshold = vi.fn();
+    render(
+      <TagBadge
+        name="Reportable sourced tag"
+        tag={{ id: 20, name: "Reportable sourced tag", imagePath: "/tag.jpg" }}
+        provenance={[{ sourceKey: "ext:tagger", appliedAt: "2026-07-19T00:00:00Z" }]}
+        reportable
+        onAdjustThreshold={onAdjustThreshold}
+      />,
+    );
+
+    const menuTrigger = screen.getByRole("button", { name: "More actions for Reportable sourced tag" });
+    fireEvent.focus(menuTrigger);
+    expect(screen.getAllByText("Tag Sources").some((element) => !element.closest(".sr-only"))).toBe(true);
+
+    // Keyboard activation dispatches click without mousedown. Capture must dismiss provenance before
+    // the trigger's stopPropagation handler opens its own menu.
+    fireEvent.click(menuTrigger);
+    expect(screen.getAllByText("Tag Sources").every((element) => Boolean(element.closest(".sr-only")))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Adjust when this tag appears/i }));
+
+    expect(onAdjustThreshold).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText("Tag Sources").every((element) => Boolean(element.closest(".sr-only")))).toBe(true);
   });
 });

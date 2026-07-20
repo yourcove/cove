@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import type { TagProvenance } from "../api/types";
 import { formatDateTime } from "../utils/dateFormat";
+import { TagMediaPreview, type TagMediaReference } from "./EntityMedia";
 
 // Hover-intent timings: the popup opens only after a deliberate pause (sweeping the cursor across a
 // tag list must not flash popups) and closes shortly after the pointer settles outside both the chip
@@ -12,9 +13,9 @@ const CLOSE_GRACE_MS = 150;
 // At most one provenance popup is visible at a time; opening one hides the previous immediately.
 let activePopupHide: { current: () => void } | null = null;
 
-export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, className }: { provenance?: TagProvenance[]; sourceLabel?: string; children: ReactNode; className?: string }) {
+export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, className, mediaTag }: { provenance?: TagProvenance[]; sourceLabel?: string; children: ReactNode; className?: string; mediaTag?: TagMediaReference }) {
   const wrapperRef = useRef<HTMLSpanElement>(null);
-  const popupRef = useRef<HTMLSpanElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const [showProvenance, setShowProvenance] = useState(false);
   const [popupPosition, setPopupPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
   const openTimer = useRef<number | null>(null);
@@ -114,18 +115,31 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
         return;
       }
 
-      const width = 288;
+      const popup = popupRef.current;
+      const popupRect = popup?.getBoundingClientRect();
+      const width = popupRect?.width || 288;
+      const height = popupRect?.height || 0;
       const margin = 8;
+      const gap = 8;
       const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
-      const preferredTop = rect.bottom + margin;
-      const top = preferredTop < window.innerHeight - margin ? preferredTop : Math.max(margin, rect.top - margin);
+      const spaceBelow = window.innerHeight - rect.bottom - margin;
+      const spaceAbove = rect.top - margin;
+      const placeAbove = height > spaceBelow && spaceAbove > spaceBelow;
+      const preferredTop = placeAbove ? rect.top - gap - height : rect.bottom + gap;
+      const maxTop = Math.max(margin, window.innerHeight - height - margin);
+      const top = Math.min(Math.max(margin, preferredTop), maxTop);
       setPopupPosition({ left, top });
     };
 
     updatePosition();
+    const resizeObserver = typeof ResizeObserver !== "undefined" && popupRef.current
+      ? new ResizeObserver(updatePosition)
+      : null;
+    if (popupRef.current) resizeObserver?.observe(popupRef.current);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     return () => {
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
@@ -151,6 +165,11 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
         }, 0);
         hidePopup();
       }}
+      // Keyboard activation has no mousedown. Capture clicks from actual DOM descendants before an
+      // action trigger can stop propagation, but ignore React-bubbled events from the portalled popup.
+      onClickCapture={(event) => {
+        if (wrapperRef.current?.contains(event.target as Node)) hidePopup();
+      }}
       onFocus={() => {
         if (suppressFocusOpen.current) return;
         showPopup();
@@ -164,7 +183,7 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
       {children}
       <span className="sr-only"><TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} /></span>
       {showProvenance && typeof document !== "undefined" ? createPortal(
-        <span
+        <div
           ref={popupRef}
           className="fixed z-[200] max-h-[min(70vh,24rem)] w-72 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
           style={{ left: popupPosition.left, top: popupPosition.top }}
@@ -172,8 +191,9 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
           // anywhere on the popup (its scrollbar included) would hit the wrapper's dismiss handler.
           onMouseDown={(event) => event.stopPropagation()}
         >
+          {mediaTag ? <TagMediaPreview tag={mediaTag} frameClassName="mb-3 block aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/70 bg-card/70" /> : null}
           <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
-        </span>,
+        </div>,
         document.body,
       ) : null}
     </span>

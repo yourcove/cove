@@ -4,7 +4,7 @@ import { AlertTriangle, MoreVertical, SlidersHorizontal } from "lucide-react";
 import type { FieldProvenance, Tag, TagProvenance } from "../api/types";
 import { getFieldProvenanceEntries } from "./FieldProvenanceHover";
 import { TagProvenanceHover } from "./TagProvenanceHover";
-import { TagMediaHover } from "./EntityMedia";
+import { TagMediaHover, type TagMediaReference } from "./EntityMedia";
 
 export { RatingBadge } from "./Rating";
 export { CustomFieldsDisplay, CustomFieldsEditor } from "./CustomFields";
@@ -19,6 +19,7 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
   const resolvedGroupColor = normalizeTagColor(groupColor ?? tag?.tagGroupColor);
   const resolvedColor = normalizeTagColor(color ?? tag?.color ?? groupColor ?? tag?.tagGroupColor);
   const colorStyle = resolvedColor ? getTagColorStyle(resolvedColor) : undefined;
+  const mediaTag = tag?.id ? { id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage } : undefined;
 
   const badgeContent = (
     <>
@@ -30,8 +31,8 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       <span>{name}</span>
     </>
   );
-  const withMediaHover = (content: ReactNode) => tag?.id && !provenance?.length ? (
-    <TagMediaHover tag={{ id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage }}>
+  const withMediaHover = (content: ReactNode) => mediaTag && !provenance?.length ? (
+    <TagMediaHover tag={mediaTag}>
       {content}
     </TagMediaHover>
   ) : content;
@@ -56,7 +57,7 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       </span>
     );
 
-    const badgeWithProvenance = <TagProvenanceHover provenance={provenance}>{badge}</TagProvenanceHover>;
+    const badgeWithProvenance = <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>{badge}</TagProvenanceHover>;
     return withMediaHover(badgeWithProvenance);
   }
 
@@ -70,6 +71,7 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       interactive={interactive}
       onClick={onClick}
       provenance={provenance}
+      mediaTag={mediaTag}
       onReportIncorrect={onReportIncorrect}
       onAdjustThreshold={onAdjustThreshold}
     >
@@ -79,7 +81,7 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
   return withMediaHover(badgeWithMenu);
 }
 
-function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, children, onReportIncorrect, onAdjustThreshold }: { name: string; colorStyle?: CSSProperties; interactive: boolean; onClick?: () => void; provenance?: TagProvenance[]; children: ReactNode; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
+function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, mediaTag, children, onReportIncorrect, onAdjustThreshold }: { name: string; colorStyle?: CSSProperties; interactive: boolean; onClick?: () => void; provenance?: TagProvenance[]; mediaTag?: TagMediaReference; children: ReactNode; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
   const chip = (
     <span
       style={colorStyle}
@@ -102,7 +104,7 @@ function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, 
     </span>
   );
 
-  return <TagProvenanceHover provenance={provenance}>{chip}</TagProvenanceHover>;
+  return <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>{chip}</TagProvenanceHover>;
 }
 
 // The "⋯" trigger + dropdown for a derived ("locked") tag chip, shared by the read-only Details chip

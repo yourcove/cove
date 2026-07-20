@@ -34,6 +34,10 @@ interface EntityMediaHoverProps extends Omit<EntityMediaRenderProps, "surface" |
   wrapperClassName?: string;
 }
 
+interface EntityMediaPreviewProps extends Omit<EntityMediaRenderProps, "renderDefault"> {
+  frameClassName?: string;
+}
+
 const DEFAULT_HOVER_ASPECT_RATIO = "4 / 3";
 
 /** Override roots may declare their intrinsic frame shape for host-owned hover layout. */
@@ -79,6 +83,23 @@ export function TagMediaHover({ tag, children, wrapperClassName }: { tag: TagMed
   );
 }
 
+/** Non-controller tag preview for composition inside an existing popup. */
+export function TagMediaPreview({ tag, frameClassName }: { tag: TagMediaReference; frameClassName?: string }) {
+  return (
+    <EntityMediaPreview
+      entityType="tag"
+      entityId={tag.id}
+      surface="hover"
+      imageUrl={getTagMediaImageUrl(tag)}
+      alt={tag.name}
+      fit="cover"
+      loading="lazy"
+      className="h-full w-full"
+      frameClassName={frameClassName}
+    />
+  );
+}
+
 /**
  * Stable extension boundary for an entity's primary visual media. The host keeps
  * navigation and card chrome outside this component while extensions may replace
@@ -106,6 +127,35 @@ export function EntityMedia({ renderDefault, ...componentProps }: EntityMediaRen
   );
 }
 
+function useEntityMediaPreview(componentProps: Omit<EntityMediaRenderProps, "renderDefault">) {
+  const { getComponentOverrides } = useExtensions();
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const staticImageUrl = componentProps.imageUrl || null;
+  const hasStaticImage = Boolean(staticImageUrl) && failedImageUrl !== staticImageUrl;
+  const enabled = hasStaticImage || getComponentOverrides(ENTITY_MEDIA_TARGET).length > 0;
+  const renderDefault = () => staticImageUrl && failedImageUrl !== staticImageUrl ? (
+    <img
+      src={staticImageUrl}
+      alt={componentProps.alt}
+      className={`h-full w-full ${componentProps.fit === "contain" ? "object-contain" : "object-cover"}`}
+      loading={componentProps.loading}
+      onError={() => setFailedImageUrl(staticImageUrl)}
+    />
+  ) : null;
+
+  return {
+    enabled,
+    render: () => enabled ? <EntityMedia {...componentProps} renderDefault={renderDefault} /> : null,
+  };
+}
+
+/** Renders entity media without adding hover/focus ownership or portal positioning. */
+export function EntityMediaPreview({ frameClassName, ...componentProps }: EntityMediaPreviewProps) {
+  const preview = useEntityMediaPreview(componentProps);
+  if (!preview.enabled) return null;
+  return <div className={["empty:hidden", frameClassName ?? ""].filter(Boolean).join(" ")}>{preview.render()}</div>;
+}
+
 /**
  * Optional hover surface for entity references. The host owns positioning,
  * containment, and the supplied static image; an entity.media override may
@@ -113,29 +163,15 @@ export function EntityMedia({ renderDefault, ...componentProps }: EntityMediaRen
  * static media nor an active override this returns the reference unchanged.
  */
 export function EntityMediaHover({ children, wrapperClassName = "inline-flex", ...mediaProps }: EntityMediaHoverProps) {
-  const { getComponentOverrides } = useExtensions();
   const anchorRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ left: 8, top: 8 });
   const [aspectRatio, setAspectRatio] = useState(DEFAULT_HOVER_ASPECT_RATIO);
-  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
-  const staticImageUrl = mediaProps.imageUrl || null;
-  const hasStaticImage = Boolean(staticImageUrl) && failedImageUrl !== staticImageUrl;
-  const enabled = hasStaticImage || getComponentOverrides(ENTITY_MEDIA_TARGET).length > 0;
-
-  const renderStaticImage = () => staticImageUrl && failedImageUrl !== staticImageUrl ? (
-    <img
-      src={staticImageUrl}
-      alt={mediaProps.alt}
-      className={`h-full w-full ${mediaProps.fit === "contain" ? "object-contain" : "object-cover"}`}
-      loading={mediaProps.loading}
-      onError={() => setFailedImageUrl(staticImageUrl)}
-    />
-  ) : null;
+  const preview = useEntityMediaPreview({ ...mediaProps, surface: "hover", className: "h-full w-full" });
 
   useLayoutEffect(() => {
-    if (!enabled || !open) return;
+    if (!preview.enabled || !open) return;
 
     const tooltip = tooltipRef.current;
     const updateAspectRatio = () => {
@@ -149,10 +185,10 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
     const observer = new MutationObserver(updateAspectRatio);
     observer.observe(tooltip, { attributes: true, attributeFilter: ["data-entity-media-aspect-ratio"], childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [enabled, open]);
+  }, [preview.enabled, open]);
 
   useLayoutEffect(() => {
-    if (!enabled || !open) return;
+    if (!preview.enabled || !open) return;
 
     const place = () => {
       const anchor = anchorRef.current?.getBoundingClientRect();
@@ -174,9 +210,9 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [aspectRatio, enabled, open]);
+  }, [aspectRatio, preview.enabled, open]);
 
-  if (!enabled) return <>{children}</>;
+  if (!preview.enabled) return <>{children}</>;
 
   return (
     <span
@@ -198,12 +234,7 @@ export function EntityMediaHover({ children, wrapperClassName = "inline-flex", .
           className="pointer-events-none fixed z-[10000] block w-72 overflow-hidden rounded-xl border border-border bg-surface/95 shadow-2xl empty:hidden"
           style={{ ...position, aspectRatio }}
         >
-          <EntityMedia
-            {...mediaProps}
-            surface="hover"
-            className="h-full w-full"
-            renderDefault={renderStaticImage}
-          />
+          {preview.render()}
         </div>,
         document.body,
       ) : null}
