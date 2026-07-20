@@ -119,7 +119,7 @@ export function ExtensionEntityActions({ entityType, entityId, pageType, renderM
       const payload = buildActionPayload(action, normalizedEntityType, normalizedPageType, entityId);
 
       if (action.handlerName) {
-        const handler = resolveActionHandler(action.handlerName);
+        const handler = resolveActionHandler(action.extensionId, action.handlerName);
         if (handler) {
           return await handler(action, payload);
         }

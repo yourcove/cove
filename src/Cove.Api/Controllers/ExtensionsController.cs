@@ -27,6 +27,37 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         manifest.FrontendRuntimeVersion = FrontendRuntimeContract.Version;
 
         var jsBundles = extensionManager.GetEnabledJsBundles();
+        var cssBundles = extensionManager.GetEnabledCssBundles();
+        var assetsByExtension = new Dictionary<string, (string? JsPath, string? CssPath)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (extensionId, path) in jsBundles)
+        {
+            assetsByExtension[extensionId] = (path, null);
+        }
+        foreach (var (extensionId, path) in cssBundles)
+        {
+            var assets = assetsByExtension.GetValueOrDefault(extensionId);
+            assetsByExtension[extensionId] = (assets.JsPath, path);
+        }
+
+        manifest.ExtensionBundles = assetsByExtension
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry =>
+            {
+                var extensionId = entry.Key;
+                var manifestFile = extensionManager.GetManifestFile(extensionId);
+                var version = extensionManager.GetInstallation(extensionId)?.Version
+                    ?? manifestFile?.Version
+                    ?? extensionManager.Extensions.FirstOrDefault(extension =>
+                        string.Equals(extension.Id, extensionId, StringComparison.OrdinalIgnoreCase))?.Version
+                    ?? "0.0.0";
+                return new UIExtensionBundle(
+                    extensionId,
+                    version,
+                    entry.Value.JsPath is { } jsPath ? BuildAssetUrl(extensionId, jsPath, version) : null,
+                    entry.Value.CssPath is { } cssPath ? BuildAssetUrl(extensionId, cssPath, version) : null);
+            })
+            .ToList();
+
         if (jsBundles.Count == 1)
         {
             var (extId, path) = jsBundles[0];
@@ -37,7 +68,6 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             manifest.JsBundleUrl = "/api/extensions/bundles/ui.mjs";
         }
 
-        var cssBundles = extensionManager.GetEnabledCssBundles();
         if (cssBundles.Count == 1)
         {
             var (extId, path) = cssBundles[0];
@@ -109,24 +139,27 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         return Content(string.Join("\n", lines), "text/css");
     }
 
-    private string BuildAssetUrl(string extensionId, string path)
+    private string BuildAssetUrl(string extensionId, string path, string? extensionVersion = null)
     {
         var url = $"/api/extensions/assets/{Uri.EscapeDataString(extensionId)}/{path}";
         var basePath = extensionManager.GetExtensionDirectory(extensionId);
-        if (basePath == null)
+        long? contentVersion = null;
+        if (basePath != null)
         {
-            return url;
+            var fullPath = Path.GetFullPath(Path.Combine(basePath, path));
+            if (IsPathInsideDirectory(basePath, fullPath) && System.IO.File.Exists(fullPath))
+            {
+                contentVersion = System.IO.File.GetLastWriteTimeUtc(fullPath).Ticks;
+            }
         }
 
-        var fullPath = Path.GetFullPath(Path.Combine(basePath, path));
-
-        if (!IsPathInsideDirectory(basePath, fullPath) || !System.IO.File.Exists(fullPath))
+        var query = new List<string>();
+        if (contentVersion.HasValue) query.Add($"v={contentVersion.Value}");
+        if (!string.IsNullOrWhiteSpace(extensionVersion))
         {
-            return url;
+            query.Add($"extensionVersion={Uri.EscapeDataString(extensionVersion)}");
         }
-
-        var version = System.IO.File.GetLastWriteTimeUtc(fullPath).Ticks;
-        return $"{url}?v={version}";
+        return query.Count > 0 ? $"{url}?{string.Join('&', query)}" : url;
     }
 
     /// <summary>Returns a list of all registered extensions with capability and category info.</summary>

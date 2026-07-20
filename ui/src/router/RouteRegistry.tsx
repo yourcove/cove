@@ -27,13 +27,15 @@ export interface SlotEntry<TContext = any> {
   render: (context: TContext) => ReactNode;
   /** Optional ordering. Lower values render first. */
   order?: number;
+  /** Changes when the owning bundle is replaced so failed boundaries can recover. */
+  resetKey?: unknown;
 }
 
 interface RouteRegistryContextValue {
   routes: RouteEntry[];
   slots: SlotEntry[];
-  register: (entry: RouteEntry) => void;
-  registerSlot: (entry: SlotEntry) => void;
+  register: (entry: RouteEntry) => () => void;
+  registerSlot: (entry: SlotEntry) => () => void;
   unregister: (page: string) => void;
   unregisterSlot: (id: string) => void;
 }
@@ -55,6 +57,7 @@ export function RouteRegistryProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, entry];
     });
+    return () => setRoutes((prev) => prev.filter((route) => route !== entry));
   }, []);
 
   const registerSlot = useCallback((entry: SlotEntry) => {
@@ -67,6 +70,7 @@ export function RouteRegistryProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, entry];
     });
+    return () => setSlots((prev) => prev.filter((slot) => slot !== entry));
   }, []);
 
   const unregister = useCallback((page: string) => {
@@ -117,11 +121,10 @@ export function ExtensionSlot<TContext>({
   return (
     <>
       {matching.map((entry) => (
-        <ExtensionErrorBoundary key={entry.id} extensionId={entry.id} fallback={fallback}>
+        <ExtensionErrorBoundary key={entry.id} extensionId={entry.id} fallback={fallback} resetKey={entry.resetKey}>
           <div className={entryClassName}>{entry.render(context)}</div>
         </ExtensionErrorBoundary>
       ))}
     </>
   );
 }
-

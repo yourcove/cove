@@ -497,6 +497,7 @@ public class ExtensionMigrationRecord
 /// <summary>Complete UI manifest describing all frontend contributions.</summary>
 public class UIManifest
 {
+    public List<UIExtensionBundle> ExtensionBundles { get; set; } = [];
     public List<UIPageDefinition> Pages { get; set; } = [];
     public List<UISlotContribution> Slots { get; set; } = [];
     public List<UITabContribution> Tabs { get; set; } = [];
@@ -523,6 +524,17 @@ public class UIManifest
     /// <summary>URL of additional CSS to load.</summary>
     public string? CssBundleUrl { get; set; }
 }
+
+/// <summary>
+/// Versioned frontend assets owned by one extension. Keeping bundle ownership in the
+/// manifest lets the browser runtime load, replace, and unload extensions independently.
+/// </summary>
+public record UIExtensionBundle(
+    string ExtensionId,
+    string Version,
+    string? JsBundleUrl = null,
+    string? CssBundleUrl = null
+);
 
 /// <summary>In-app tutorial/manual topic contributed by Cove or an extension.</summary>
 public record UITutorialTopic(

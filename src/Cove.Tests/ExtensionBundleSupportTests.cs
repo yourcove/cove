@@ -96,6 +96,88 @@ public class ExtensionBundleSupportTests
     }
 
     [Fact]
+    public async Task GetManifest_DescribesEachExtensionBundleWithInstalledVersionAndVersionedAssets()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"cove-ui-bundles-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "data");
+        var extensionsDir = Path.Combine(root, "extensions");
+
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(extensionsDir);
+
+        var alpha = await WriteUiBundleAsync(
+            extensionsDir,
+            "com.example.alpha",
+            "2.3.4",
+            new DateTime(2026, 7, 11, 1, 2, 3, DateTimeKind.Utc),
+            new DateTime(2026, 7, 11, 1, 2, 4, DateTimeKind.Utc));
+        var beta = await WriteUiBundleAsync(
+            extensionsDir,
+            "com.example.beta",
+            "5.6.7",
+            new DateTime(2026, 7, 11, 1, 2, 5, DateTimeKind.Utc),
+            new DateTime(2026, 7, 11, 1, 2, 6, DateTimeKind.Utc));
+
+        try
+        {
+            var manager = new ExtensionManager(new ExtensionContext
+            {
+                Configuration = new ConfigurationBuilder().Build(),
+                DataDirectory = dataDir,
+                CoveVersion = "1.0.0",
+            });
+
+            manager.DiscoverExtensions(extensionsDir);
+            manager.Register(new ComponentOverrideExtension(alpha.ExtensionId, "AlphaComponent"), "local");
+            manager.Register(new ComponentOverrideExtension(beta.ExtensionId, "BetaComponent"), "local");
+
+            var controller = CreateController(manager);
+            var result = controller.GetManifest();
+            var ok = Assert.IsType<OkObjectResult>(result.Result);
+            var manifest = Assert.IsType<UIManifest>(ok.Value);
+
+            var descriptors = manifest.ExtensionBundles;
+            Assert.Collection(
+                descriptors.OrderBy(item => item.ExtensionId, StringComparer.Ordinal),
+                descriptor => AssertBundleDescriptor(descriptor, alpha),
+                descriptor => AssertBundleDescriptor(descriptor, beta));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void AggregatedManifest_OrdersEqualPriorityComponentOverridesByExtensionAndComponentName()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+
+        manager.Register(new ComponentOverrideExtension("z.extension", "MiddleComponent"), "local");
+        manager.Register(new ComponentOverrideExtension("a.extension", "ZetaComponent", "AlphaComponent"), "local");
+
+        var manifest = manager.GetAggregatedManifest();
+
+        Assert.Equal(
+            [
+                ("a.extension", "AlphaComponent"),
+                ("a.extension", "ZetaComponent"),
+                ("z.extension", "MiddleComponent"),
+            ],
+            manifest.ComponentOverrides
+                .Select(componentOverride => (componentOverride.ExtensionId, componentOverride.ComponentName))
+                .ToArray());
+    }
+
+    [Fact]
     public void CoveExtensionBase_CanContributeSettingsTabs()
     {
         var manager = new ExtensionManager(new ExtensionContext
@@ -581,6 +663,24 @@ public class ExtensionBundleSupportTests
         ];
     }
 
+    private sealed class ComponentOverrideExtension(string id, params string[] componentNames) : CoveExtensionBase
+    {
+        public override string Id => id;
+        public override string Name => id;
+        public override string Version => "0.0.0-runtime";
+
+        public override UIManifest GetUIManifest()
+        {
+            var builder = ManifestBuilder();
+            foreach (var componentName in componentNames)
+            {
+                builder.OverrideComponent("sample.panel", componentName, priority: 100);
+            }
+
+            return builder.Build();
+        }
+    }
+
     private sealed class SettingsTabContributionExtension : CoveExtensionBase
     {
         public const string ExtensionId = "com.example.settings-tab";
@@ -690,6 +790,58 @@ public class ExtensionBundleSupportTests
 
         return controller;
     }
+
+    private static async Task<ExpectedBundleDescriptor> WriteUiBundleAsync(
+        string extensionsDir,
+        string extensionId,
+        string version,
+        DateTime jsTimestamp,
+        DateTime cssTimestamp)
+    {
+        const string jsBundle = "ui/index.mjs";
+        const string cssBundle = "ui/index.css";
+        var extensionDir = Path.Combine(extensionsDir, extensionId);
+        var jsPath = Path.Combine(extensionDir, jsBundle);
+        var cssPath = Path.Combine(extensionDir, cssBundle);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(jsPath)!);
+        await File.WriteAllTextAsync(jsPath, "export default { components: {} };\n");
+        await File.WriteAllTextAsync(cssPath, ".fixture { display: block; }\n");
+        File.SetLastWriteTimeUtc(jsPath, jsTimestamp);
+        File.SetLastWriteTimeUtc(cssPath, cssTimestamp);
+
+        await File.WriteAllTextAsync(
+            Path.Combine(extensionDir, "extension.json"),
+            JsonSerializer.Serialize(new ExtensionManifestFile
+            {
+                Id = extensionId,
+                Name = extensionId,
+                Version = version,
+                Kind = "bundle",
+                JsBundle = jsBundle,
+                CssBundle = cssBundle,
+            }));
+
+        return new ExpectedBundleDescriptor(
+            extensionId,
+            version,
+            $"/api/extensions/assets/{extensionId}/{jsBundle}?v={File.GetLastWriteTimeUtc(jsPath).Ticks}&extensionVersion={version}",
+            $"/api/extensions/assets/{extensionId}/{cssBundle}?v={File.GetLastWriteTimeUtc(cssPath).Ticks}&extensionVersion={version}");
+    }
+
+    private static void AssertBundleDescriptor(UIExtensionBundle descriptor, ExpectedBundleDescriptor expected)
+    {
+        Assert.Equal(expected.ExtensionId, descriptor.ExtensionId);
+        Assert.Equal(expected.Version, descriptor.Version);
+        Assert.Equal(expected.JsBundleUrl, descriptor.JsBundleUrl);
+        Assert.Equal(expected.CssBundleUrl, descriptor.CssBundleUrl);
+    }
+
+    private sealed record ExpectedBundleDescriptor(
+        string ExtensionId,
+        string Version,
+        string JsBundleUrl,
+        string CssBundleUrl);
 
     private sealed class TestHttpClientFactory : IHttpClientFactory
     {

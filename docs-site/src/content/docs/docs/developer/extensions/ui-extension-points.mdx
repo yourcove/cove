@@ -3,7 +3,7 @@ title: UI extension points
 description: Detailed reference for Cove pages, slots, tabs, settings, actions, themes, list contributions, and UI overrides.
 ---
 
-A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports that bundle, registers functions from its default export's `components` map, and combines the manifest with contributions from other enabled extensions.
+A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports each enabled extension's bundle independently, registers its exports under the owning extension id, and combines the manifest contributions from every enabled extension.
 
 This page describes the UI contributions Cove currently renders. The [general extension-point catalog](../extension-points/) covers backend and provider capabilities.
 
@@ -11,9 +11,13 @@ This page describes the UI contributions Cove currently renders. The [general ex
 
 Set `JsBundle` in `extension.json` when a contribution references a React component or frontend handler, and set `CssBundle` when custom styles are needed. Put the React components named by page, tab, slot, settings, and override contributions in the default export's `components` map. Contribution ids and keys should be stable across releases because Cove uses them for registration, routing, preferences, and ordering.
 
+Component and action-handler names are local to one extension. Different extensions can export the same name without replacing each other because Cove keys every lookup by the authoritative extension owner. Bundle URLs are versioned, and Cove can replace or unload one owner's JavaScript, CSS, routes, slots, and handlers without disturbing another extension.
+
+The default export can also provide `actionHandlers` and asynchronous `onLoad` and `onUnload` hooks. The legacy `handlers` field remains an alias for `actionHandlers`. Cove waits for lifecycle hooks, rolls back the previous owner registration when replacement fails, and does not apply the replacement manifest until activation succeeds. Keep `onUnload` idempotent within one load cycle.
+
 Most contribution records contain:
 
-- `ExtensionId`, which must identify the owning extension
+- `ExtensionId`, which Cove stamps with the authoritative owning extension id
 - an exported `ComponentName` when the contribution renders React
 - `Order`, where lower values render earlier
 - a stable contribution-specific id or key

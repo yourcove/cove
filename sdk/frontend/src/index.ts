@@ -25,6 +25,8 @@ export type {
   ListFilterContribution,
   ListSortContribution,
   UIManifestListContributions,
+  ExtensionAction,
+  ExtensionActionHandler,
   ExtensionModule,
 } from "./types";
 

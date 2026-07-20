@@ -18,7 +18,7 @@ interface Tab {
  * Pass `entityId` to enable dynamic count fetching for extension tabs that declare a `countEndpoint`.
  */
 export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?: number) {
-  const { getTabsForPage, resolveComponent } = useExtensions();
+  const { getTabsForPage, getExtensionRevision, resolveComponent } = useExtensions();
 
   const extTabs = useMemo(() => getTabsForPage(pageType), [getTabsForPage, pageType]);
 
@@ -100,7 +100,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
     const extTabKey = activeTab.replace("ext:", "");
     const extTab = extTabs.find((t) => t.key === extTabKey);
     if (!extTab) return null;
-    const Component = resolveComponent(extTab.componentName);
+    const Component = resolveComponent(extTab.extensionId, extTab.componentName);
     if (!Component) {
       return (
         <div className="p-4 text-muted">
@@ -109,7 +109,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
       );
     }
     return (
-      <ExtensionErrorBoundary extensionId={extTab.extensionId}>
+      <ExtensionErrorBoundary extensionId={extTab.extensionId} resetKey={getExtensionRevision(extTab.extensionId)}>
         <Component entityId={entityId} onNavigate={onNavigate} />
       </ExtensionErrorBoundary>
     );

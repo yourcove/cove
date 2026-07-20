@@ -1054,7 +1054,7 @@ public class ExtensionManager
                 if (string.IsNullOrWhiteSpace(topic.Id) || string.IsNullOrWhiteSpace(topic.Title))
                     continue;
 
-                var normalized = string.IsNullOrWhiteSpace(topic.ExtensionId) && !string.IsNullOrWhiteSpace(extensionId)
+                var normalized = !string.IsNullOrWhiteSpace(extensionId)
                     ? topic with { ExtensionId = extensionId }
                     : topic;
 
@@ -1069,24 +1069,24 @@ public class ExtensionManager
         {
             if (!IsEnabled(ext.Id)) continue;
             var extManifest = ext.GetUIManifest();
-            manifest.Pages.AddRange(extManifest.Pages);
-            manifest.Slots.AddRange(extManifest.Slots);
-            manifest.Tabs.AddRange(extManifest.Tabs);
-            manifest.Panes.AddRange(extManifest.Panes);
-            manifest.Features.AddRange(extManifest.Features);
-            manifest.ComponentOverrides.AddRange(extManifest.ComponentOverrides);
-            manifest.SelectorOverrides.AddRange(extManifest.SelectorOverrides);
+            manifest.Pages.AddRange(extManifest.Pages.Select(page => page with { ExtensionId = ext.Id }));
+            manifest.Slots.AddRange(extManifest.Slots.Select(slot => slot with { ExtensionId = ext.Id }));
+            manifest.Tabs.AddRange(extManifest.Tabs.Select(tab => tab with { ExtensionId = ext.Id }));
+            manifest.Panes.AddRange(extManifest.Panes.Select(pane => pane with { ExtensionId = ext.Id }));
+            manifest.Features.AddRange(extManifest.Features.Select(feature => feature with { ExtensionId = ext.Id }));
+            manifest.ComponentOverrides.AddRange(extManifest.ComponentOverrides.Select(componentOverride => componentOverride with { ExtensionId = ext.Id }));
+            manifest.SelectorOverrides.AddRange(extManifest.SelectorOverrides.Select(selectorOverride => selectorOverride with { ExtensionId = ext.Id }));
             manifest.Themes.AddRange(extManifest.Themes);
             manifest.ComponentStyles.AddRange(extManifest.ComponentStyles);
             manifest.LayoutStyles.AddRange(extManifest.LayoutStyles);
-            manifest.SettingsTabs.AddRange(extManifest.SettingsTabs);
-            manifest.SettingsPanels.AddRange(extManifest.SettingsPanels);
-            manifest.PageOverrides.AddRange(extManifest.PageOverrides);
-            manifest.DialogOverrides.AddRange(extManifest.DialogOverrides);
-            manifest.Actions.AddRange(extManifest.Actions);
+            manifest.SettingsTabs.AddRange(extManifest.SettingsTabs.Select(tab => tab with { ExtensionId = ext.Id }));
+            manifest.SettingsPanels.AddRange(extManifest.SettingsPanels.Select(panel => panel with { ExtensionId = ext.Id }));
+            manifest.PageOverrides.AddRange(extManifest.PageOverrides.Select(pageOverride => pageOverride with { ExtensionId = ext.Id }));
+            manifest.DialogOverrides.AddRange(extManifest.DialogOverrides.Select(dialogOverride => dialogOverride with { ExtensionId = ext.Id }));
+            manifest.Actions.AddRange(extManifest.Actions.Select(action => action with { ExtensionId = ext.Id }));
             AddTutorialTopics(extManifest.TutorialTopics, ext.Id);
-            manifest.ListFilters.AddRange(extManifest.ListFilters);
-            manifest.ListSorts.AddRange(extManifest.ListSorts);
+            manifest.ListFilters.AddRange(extManifest.ListFilters.Select(filter => filter with { ExtensionId = ext.Id }));
+            manifest.ListSorts.AddRange(extManifest.ListSorts.Select(sort => sort with { ExtensionId = ext.Id }));
         }
 
         var manifestIds = _manifestFiles.Keys
@@ -1108,14 +1108,23 @@ public class ExtensionManager
         foreach (var ext in GetInitializationOrder().OfType<IActionExtension>())
         {
             if (!IsEnabled(ext.Id)) continue;
-            manifest.Actions.AddRange(ext.GetActions());
+            manifest.Actions.AddRange(ext.GetActions().Select(action => action with { ExtensionId = ext.Id }));
         }
 
         manifest.Pages.Sort((a, b) => a.NavOrder.CompareTo(b.NavOrder));
         manifest.Slots.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Tabs.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Panes.Sort((a, b) => a.Order.CompareTo(b.Order));
-        manifest.ComponentOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+        manifest.ComponentOverrides.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+
+            var extensionId = string.Compare(a.ExtensionId, b.ExtensionId, StringComparison.Ordinal);
+            return extensionId != 0
+                ? extensionId
+                : string.Compare(a.ComponentName, b.ComponentName, StringComparison.Ordinal);
+        });
         manifest.SelectorOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.TutorialTopics.Sort((a, b) => a.Order.CompareTo(b.Order));

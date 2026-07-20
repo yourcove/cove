@@ -71,13 +71,34 @@ export interface UIManifestListContributions {
     listFilters?: ListFilterContribution[];
     listSorts?: ListSortContribution[];
 }
+/** Manifest action passed to a bundle-provided action handler. */
+export interface ExtensionAction {
+    id: string;
+    label: string;
+    extensionId: string;
+    actionType: string;
+    entityTypes: string[];
+    icon?: string;
+    apiEndpoint?: string;
+    handlerName?: string;
+    order: number;
+    pages?: string[];
+    suppressSuccessAlert?: boolean;
+    requiredPermission?: string;
+}
+/** Runtime handler for an extension action contribution. */
+export type ExtensionActionHandler = (action: ExtensionAction, payload: Record<string, unknown>) => unknown | Promise<unknown>;
 /** The default export expected from an extension's JS bundle. */
 export interface ExtensionModule {
     /** Map of component name → React component. */
-    components: Record<string, React.FC<any>>;
-    /** Optional lifecycle hook called after the extension is loaded. */
+    components?: Record<string, React.FC<any>>;
+    /** Map of action handler name → runtime handler. */
+    actionHandlers?: Record<string, ExtensionActionHandler>;
+    /** Legacy alias for actionHandlers. */
+    handlers?: Record<string, ExtensionActionHandler>;
+    /** Optional lifecycle hook called after the extension is loaded. May run again after a completed unload cycle. */
     onLoad?: () => void | Promise<void>;
-    /** Optional cleanup hook called before unload. */
-    onUnload?: () => void;
+    /** Optional cleanup hook called before unload. Implementations should be idempotent within a load cycle. */
+    onUnload?: () => void | Promise<void>;
 }
 //# sourceMappingURL=types.d.ts.map
