@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { entityImages } from "../api/client";
+import type { Tag } from "../api/types";
 import { ExtensionComponentOverrideRenderer, useExtensions } from "../extensions/ExtensionLoader";
 
 export const ENTITY_MEDIA_TARGET = "entity.media" as const;
@@ -52,6 +54,29 @@ function readDeclaredAspectRatio(container: HTMLElement | null) {
 function aspectRatioValue(aspectRatio: string) {
   const [width, height] = aspectRatio.split("/").map(Number);
   return width / height;
+}
+
+export type TagMediaReference = Pick<Tag, "id" | "name"> & Partial<Pick<Tag, "imagePath" | "hasImage">>;
+
+export function getTagMediaImageUrl(tag: TagMediaReference) {
+  return tag.imagePath || (tag.hasImage ? entityImages.tagImageUrl(tag.id) : null);
+}
+
+/** Shared hover boundary for compact tag references across cards, feeds, and badges. */
+export function TagMediaHover({ tag, children, wrapperClassName }: { tag: TagMediaReference; children: ReactNode; wrapperClassName?: string }) {
+  return (
+    <EntityMediaHover
+      entityType="tag"
+      entityId={tag.id}
+      imageUrl={getTagMediaImageUrl(tag)}
+      alt={tag.name}
+      fit="cover"
+      loading="lazy"
+      wrapperClassName={wrapperClassName}
+    >
+      {children}
+    </EntityMediaHover>
+  );
 }
 
 /**

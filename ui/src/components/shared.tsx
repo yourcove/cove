@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, MoreVertical, SlidersHorizontal } from "lucide-react";
-import { entityImages } from "../api/client";
 import type { FieldProvenance, Tag, TagProvenance } from "../api/types";
 import { getFieldProvenanceEntries } from "./FieldProvenanceHover";
 import { TagProvenanceHover } from "./TagProvenanceHover";
-import { EntityMediaHover } from "./EntityMedia";
+import { TagMediaHover } from "./EntityMedia";
 
 export { RatingBadge } from "./Rating";
 export { CustomFieldsDisplay, CustomFieldsEditor } from "./CustomFields";
@@ -32,9 +31,9 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
     </>
   );
   const withMediaHover = (content: ReactNode) => tag?.id && !provenance?.length ? (
-    <EntityMediaHover entityType="tag" entityId={tag.id} imageUrl={tag.imagePath || (tag.hasImage ? entityImages.tagImageUrl(tag.id) : null)} alt={tag.name ?? name} fit="cover" loading="lazy">
+    <TagMediaHover tag={{ id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage }}>
       {content}
-    </EntityMediaHover>
+    </TagMediaHover>
   ) : content;
 
   // Without a menu, the whole chip is a single button (or static span) as before.

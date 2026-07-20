@@ -7,7 +7,7 @@ vi.mock("../components/Rating", () => ({
   RatingBadge: () => null,
 }));
 
-import { GalleryTile, GroupTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
+import { GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 
 const videoFile = {
@@ -265,6 +265,24 @@ describe("PerformerTile", () => {
 });
 
 describe("GalleryTile", () => {
+  it("uses media-enabled tag links in the shared reference popover", () => {
+    vi.useFakeTimers();
+    render(
+      <GalleryTile
+        gallery={{ ...baseGallery, tags: [{ id: 19, name: "Animated Gallery Tag", imagePath: "/gallery-tag.jpg" }] } as any}
+        onClick={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByTitle("Tags"));
+    act(() => vi.advanceTimersByTime(250));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Animated Gallery Tag" }));
+
+    expect(screen.getByRole("tooltip", { name: "Media for Animated Gallery Tag" })).toContainElement(
+      screen.getByRole("img", { name: "Animated Gallery Tag" }),
+    );
+  });
+
   it("shows image and video counts once in the footer popovers", () => {
     const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
@@ -309,6 +327,39 @@ describe("GalleryTile", () => {
     expect(screen.getByAltText("Studio Nine")).toHaveAttribute("src", expect.stringContaining("/api/studios/9/image"));
     expect(screen.getByTitle("Studio")).toBeInTheDocument();
     expect(screen.getByTitle("Performers")).toBeInTheDocument();
+  });
+});
+
+describe("ImageTile", () => {
+  it("uses media-enabled tag links in its tag popover", () => {
+    vi.useFakeTimers();
+    render(
+      <ImageTile
+        image={{
+          id: 3,
+          title: "Sample Image",
+          organized: false,
+          urls: [],
+          tags: [{ id: 23, name: "Animated Image Tag", imagePath: "/image-tag.jpg" }],
+          performers: [],
+          galleryCount: 0,
+          galleryIds: [],
+          galleries: [],
+          files: [],
+          createdAt: "",
+          updatedAt: "",
+        } as any}
+        onClick={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByTitle("Tags"));
+    act(() => vi.advanceTimersByTime(250));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Animated Image Tag" }));
+
+    expect(screen.getByRole("tooltip", { name: "Media for Animated Image Tag" })).toContainElement(
+      screen.getByRole("img", { name: "Animated Image Tag" }),
+    );
   });
 });
 

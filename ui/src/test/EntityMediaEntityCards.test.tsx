@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +15,9 @@ const { overrideRendererCalls, overrideRenderState } = vi.hoisted(() => ({
 }));
 
 vi.mock("../extensions/ExtensionLoader", () => ({
+  useExtensions: () => ({
+    getComponentOverrides: () => [{ targetComponent: "entity.media" }],
+  }),
   ExtensionComponentOverrideRenderer: (props: OverrideRendererCall) => {
     overrideRendererCalls.push(props);
     return overrideRenderState.replace
@@ -39,6 +43,7 @@ import {
   VideoCard,
   VideoTile,
 } from "../components/EntityCards";
+import { RelatedEntityListRow, RelatedEntityListView } from "../components/RelatedEntityListView";
 
 const video = {
   id: 42,
@@ -274,5 +279,106 @@ describe("entity card host boundaries", () => {
 
     expect(onPreview).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("link", { name: "Sample Image" })).toHaveAttribute("href", "/image/3");
+  });
+});
+
+describe("entity list media contexts", () => {
+  it("routes tag list thumbnails through entity.media without changing the row chrome", () => {
+    overrideRenderState.replace = false;
+    const { container } = render(
+      <RelatedEntityListRow
+        entityType="tags"
+        item={{ id: 17, name: "List Tag", imagePath: "/list-tag.jpg" } as any}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(overrideRendererCalls).toHaveLength(1);
+    expect(overrideRendererCalls[0]?.componentProps).toMatchObject({
+      entityType: "tag",
+      entityId: 17,
+      surface: "list",
+      imageUrl: "/list-tag.jpg",
+      alt: "List Tag",
+      fit: "cover",
+      className: "h-full w-full",
+    });
+    expect(screen.getByRole("button", { name: /List Tag/i })).toBeInTheDocument();
+
+    const nativeImage = container.querySelector("img") as HTMLImageElement;
+    const nativeFallback = nativeImage.nextElementSibling as HTMLElement;
+    expect(nativeImage).toHaveAttribute("src", "/list-tag.jpg");
+    expect(nativeFallback).toHaveClass("hidden");
+
+    fireEvent.error(nativeImage);
+    expect(nativeImage).toHaveStyle({ display: "none" });
+    expect(nativeFallback).toHaveStyle({ display: "flex" });
+    expect(nativeFallback.querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("preserves the native tag icon when a list thumbnail has no image", () => {
+    overrideRenderState.replace = false;
+    const { container } = render(
+      <RelatedEntityListRow
+        entityType="tags"
+        item={{ id: 18, name: "No Image Tag", hasImage: false } as any}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(overrideRendererCalls[0]?.componentProps).toMatchObject({
+      entityType: "tag",
+      entityId: 18,
+      surface: "list",
+      imageUrl: null,
+    });
+    expect(container.querySelector("img")).not.toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("keeps feed tag-chip range selection while opening entity media hover", () => {
+    const onToggle = vi.fn();
+    const onNavigate = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["engagement", "image", "batch", [31]], []);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RelatedEntityListView
+          entityType="images"
+          items={[{
+            id: 31,
+            title: "Feed Image",
+            organized: false,
+            urls: [],
+            tags: [{ id: 41, name: "Feed Tag", imagePath: "/feed-tag.jpg" }],
+            performers: [],
+            galleryCount: 0,
+            galleryIds: [],
+            galleries: [],
+            files: [],
+            createdAt: "",
+            updatedAt: "",
+          } as any]}
+          displayMode="feed"
+          infinitePageSize={false}
+          selecting
+          onToggle={onToggle}
+          onNavigate={onNavigate}
+        />
+      </QueryClientProvider>,
+    );
+
+    const tagChip = screen.getByRole("button", { name: "#Feed Tag" });
+    fireEvent.mouseEnter(tagChip);
+
+    expect(screen.getByRole("tooltip", { name: "Media for Feed Tag" })).toContainElement(
+      screen.getByTestId("entity-media-override"),
+    );
+
+    fireEvent.click(tagChip, { shiftKey: true });
+
+    expect(onToggle).toHaveBeenCalledWith(31, { range: true });
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 });

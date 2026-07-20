@@ -17,7 +17,7 @@ import { BookmarkButton } from "./BookmarkButton";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
-import { EntityMedia, EntityMediaHover, type EntityMediaFit } from "./EntityMedia";
+import { EntityMedia, TagMediaHover, type EntityMediaFit } from "./EntityMedia";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
@@ -303,12 +303,12 @@ function TagLinkList({ items, onNavigate }: { items: TagType[]; onNavigate?: (ro
       {items.map((tag) => {
         const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: tag.id }, onNavigate);
         return (
-          <EntityMediaHover key={`tag-${tag.id}`} entityType="tag" entityId={tag.id} imageUrl={tag.imagePath || (tag.hasImage ? entityImages.tagImageUrl(tag.id) : null)} alt={tag.name} fit="cover" loading="lazy" wrapperClassName="block">
+          <TagMediaHover key={`tag-${tag.id}`} tag={tag} wrapperClassName="block">
             <a {...navigationHandlers} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-card-hover hover:underline">
               <EntityLinkIcon page="tag" color={tag.color ?? tag.tagGroupColor} />
               <span className="min-w-0 truncate">{tag.name}</span>
             </a>
-          </EntityMediaHover>
+          </TagMediaHover>
         );
       })}
     </div>
@@ -332,10 +332,9 @@ export function EntityReferencePopovers({
 }) {
   const studioName = studio?.name?.trim();
   const studioId = studio?.id ?? null;
-  const tagLinks = tagItems.map((tag) => ({ id: tag.id, label: tag.name, color: tag.color ?? tag.tagGroupColor }));
   const groupLinks = groupItems.map((group) => ({ id: group.id, label: group.name }));
 
-  if (!studioName && performerItems.length === 0 && tagLinks.length === 0 && groupLinks.length === 0) {
+  if (!studioName && performerItems.length === 0 && tagItems.length === 0 && groupLinks.length === 0) {
     return null;
   }
 
@@ -355,9 +354,9 @@ export function EntityReferencePopovers({
           <PerformerPreviewGrid performers={performerItems} onNavigate={onNavigate} />
         </PopoverButton>
       ) : null}
-      {tagLinks.length > 0 ? (
-        <PopoverButton icon={<Tag className="h-3.5 w-3.5" />} count={tagLinks.length} title="Tags" preferBelow>
-          <EntityLinkList items={tagLinks} page="tag" onNavigate={onNavigate} />
+      {tagItems.length > 0 ? (
+        <PopoverButton icon={<Tag className="h-3.5 w-3.5" />} count={tagItems.length} title="Tags" preferBelow>
+          <TagLinkList items={tagItems} onNavigate={onNavigate} />
         </PopoverButton>
       ) : null}
       {groupLinks.length > 0 ? (
@@ -1372,17 +1371,7 @@ export function ImageTile({ image, engagement, onClick, onPreview, onDetails, on
           <div className="relative z-10 flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
             {(image.tags?.length ?? 0) > 0 && (
               <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={image.tags.length} title="Tags" preferBelow>
-                <div className="flex flex-wrap gap-1">
-                  {image.tags.map((t: any) => {
-                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: t.id }, onNavigate);
-
-                    return (
-                    <a key={t.id} {...navigationHandlers}
-                      className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
-                      {t.name}
-                    </a>
-                  );})}
-                </div>
+                <TagLinkList items={image.tags} onNavigate={onNavigate} />
               </PopoverButton>
             )}
             {(image.performers?.length ?? 0) > 0 && (

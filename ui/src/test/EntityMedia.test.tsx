@@ -25,7 +25,7 @@ vi.mock("../extensions/ExtensionLoader", () => ({
   },
 }));
 
-import { EntityMedia, EntityMediaHover } from "../components/EntityMedia";
+import { EntityMedia, EntityMediaHover, TagMediaHover } from "../components/EntityMedia";
 import { TagBadge } from "../components/shared";
 
 describe("EntityMedia", () => {
@@ -110,6 +110,18 @@ describe("EntityMedia", () => {
     expect(screen.getByRole("img", { name: "Static tag" })).toHaveAttribute("src", "/tag.jpg");
     expect(screen.getByRole("img", { name: "Static tag" })).toHaveAttribute("loading", "lazy");
     expect(screen.getByRole("img", { name: "Static tag" })).toHaveClass("object-contain");
+  });
+
+  it("resolves hasImage tag references through the shared hover boundary", () => {
+    render(
+      <TagMediaHover tag={{ id: 21, name: "API-backed tag", hasImage: true }}>
+        <button type="button">Tag reference</button>
+      </TagMediaHover>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Tag reference" }));
+
+    expect(screen.getByRole("img", { name: "API-backed tag" })).toHaveAttribute("src", "/api/tags/21/image?max=640");
   });
 
   it("leaves a reference unchanged when neither core nor an extension has hover media", () => {

@@ -1,5 +1,6 @@
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { InteractiveRating } from "./Rating";
+import { TagMediaHover, type TagMediaReference } from "./EntityMedia";
 
 export interface FeedMediaDimensions {
   width?: number | null;
@@ -134,6 +135,23 @@ export function FeedChipOverflowMenu({ children }: { children: ReactNode }) {
         </div>
       </div>
     </details>
+  );
+}
+
+export function FeedTagChips({ tags, onTagClick }: { tags: TagMediaReference[]; onTagClick: (tag: TagMediaReference, event: MouseEvent<HTMLButtonElement>) => void }) {
+  const visibleTags = tags.slice(0, 4);
+  const hiddenTags = tags.slice(4);
+  const renderTag = (tag: TagMediaReference) => (
+    <TagMediaHover key={tag.id} tag={tag}>
+      <FeedChipButton onClick={(event) => onTagClick(tag, event)}>#{tag.name}</FeedChipButton>
+    </TagMediaHover>
+  );
+
+  return (
+    <>
+      {visibleTags.map(renderTag)}
+      {hiddenTags.length > 0 ? <FeedChipOverflowMenu>{hiddenTags.map(renderTag)}</FeedChipOverflowMenu> : null}
+    </>
   );
 }
 
