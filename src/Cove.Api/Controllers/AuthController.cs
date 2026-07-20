@@ -208,6 +208,7 @@ public class AuthController : ControllerBase
         [FromQuery] string? code,
         [FromQuery] string? state,
         [FromQuery] string? error,
+        [FromServices] ILogger<AuthController> logger,
         CancellationToken ct)
     {
         var ip = GetRequestIp();
@@ -216,7 +217,12 @@ public class AuthController : ControllerBase
         if (!oidc.Enabled)
             return NotFound();
         if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
+        {
+            logger.LogWarning(
+                "OIDC callback rejected before code exchange: error={Error} hasCode={HasCode} hasState={HasState} query={Query}",
+                error, !string.IsNullOrEmpty(code), !string.IsNullOrEmpty(state), Request.QueryString.Value);
             return Redirect("/login?sso_error=idp");
+        }
 
         var username = await oidc.CompleteLoginAsync(code, state, OidcRedirectUri(), ct);
         if (string.IsNullOrWhiteSpace(username))
