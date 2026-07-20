@@ -1429,6 +1429,13 @@ public record SecurityConfigDto
     public List<string>? KnownProxies { get; init; } = [];
     public List<string>? TrustedHosts { get; init; } = [];
     public bool ProxyAuthEnabled { get; init; }
+    public bool OidcEnabled { get; init; }
+    public string? OidcAuthority { get; init; }
+    public string? OidcClientId { get; init; }
+    public string? OidcClientSecret { get; init; }
+    public string? OidcScopes { get; init; }
+    public string? OidcUsernameClaim { get; init; }
+    public string? OidcButtonLabel { get; init; }
     public string? ProxyAuthHeader { get; init; }
     public List<string>? ProxyAuthProxies { get; init; } = [];
     public string? NewPassword { get; init; }

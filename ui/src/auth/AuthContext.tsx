@@ -16,6 +16,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
+  ssoRedeem(code: string): Promise<{ ok: boolean; error?: string }>;
   logout(): Promise<void>;
   hasPermission(key: string): boolean;
   refreshMe(): Promise<void>;
@@ -162,6 +163,22 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     return { ok: true };
   }, [refreshMe]);
 
+  const ssoRedeem = useCallback(async (code: string) => {
+    const res = await fetch("/api/auth/oidc/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+      return { ok: false, error: "Single sign-on failed. Try again." };
+    }
+    const body = await res.json() as LoginResponse;
+    authStore.clearShareCredentials();
+    authStore.setTokens(body.token, body.refreshToken);
+    await refreshMe();
+    return { ok: true };
+  }, [refreshMe]);
+
   const logout = useCallback(async () => {
     const refresh = authStore.getRefreshToken();
     try {
@@ -182,10 +199,11 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     authEnabled,
     ready: !authEnabled || !!user,
     login,
+    ssoRedeem,
     logout,
     hasPermission: (k: string) => hasPermImpl(effectivePermissions, k, effectiveReadGrantedKinds),
     refreshMe,
-  }), [user, effectivePermissions, effectiveReadGrantedKinds, loading, authEnabled, login, logout, refreshMe]);
+  }), [user, effectivePermissions, effectiveReadGrantedKinds, loading, authEnabled, login, ssoRedeem, logout, refreshMe]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

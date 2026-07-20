@@ -1566,6 +1566,7 @@ export interface InviteTokenInfoRow {
 export const auth = {
   me: () => request<MeResponse>("/auth/me"),
   bootstrapStatus: () => request<BootstrapStatusRow>("/auth/bootstrap-status"),
+  oidcStatus: () => request<{ enabled: boolean; label: string }>("/auth/oidc/status"),
   bootstrapOwner: (username: string, password: string) =>
     request<AuthLoginResponse>("/auth/bootstrap-owner", {
       method: "POST",

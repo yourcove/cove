@@ -182,6 +182,89 @@ public class AuthController : ControllerBase
         });
     }
 
+    [HttpGet("oidc/status")]
+    [AllowAnonymous]
+    public IActionResult OidcStatus([FromServices] Services.OidcService oidc)
+    {
+        return Ok(new { enabled = oidc.Enabled, label = oidc.ButtonLabel });
+    }
+
+    [HttpGet("oidc/login")]
+    [AllowAnonymous]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
+    public async Task<IActionResult> OidcLogin([FromServices] Services.OidcService oidc, CancellationToken ct)
+    {
+        if (!oidc.Enabled)
+            return NotFound();
+        var url = await oidc.BuildAuthorizeUrlAsync(OidcRedirectUri(), ct);
+        return Redirect(url);
+    }
+
+    [HttpGet("oidc/callback")]
+    [AllowAnonymous]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
+    public async Task<IActionResult> OidcCallback(
+        [FromServices] Services.OidcService oidc,
+        [FromQuery] string? code,
+        [FromQuery] string? state,
+        [FromQuery] string? error,
+        CancellationToken ct)
+    {
+        var ip = GetRequestIp();
+        var ua = HttpContext.Request.Headers.UserAgent.ToString();
+
+        if (!oidc.Enabled)
+            return NotFound();
+        if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
+            return Redirect("/login?sso_error=idp");
+
+        var username = await oidc.CompleteLoginAsync(code, state, OidcRedirectUri(), ct);
+        if (string.IsNullOrWhiteSpace(username))
+            return Redirect("/login?sso_error=token");
+
+        var user = await _users.FindByUsernameAsync(username, ct);
+        if (user is null || !user.IsActive || user.IsLocked)
+        {
+            await _audit.LogAsync(AuditActions.LoginFail, AuditOutcomes.Fail,
+                CovePrincipal.Anonymous(ip, ua), "user", username, new { reason = "oidc_unknown_user" }, ct);
+            return Redirect("/login?sso_error=user");
+        }
+
+        await _users.RecordLoginSuccessAsync(user.Id, ip, ct);
+        var pair = await _tokens.IssueForUserAsync(user.Id, ip, ua, ct);
+        WriteAccessCookie(pair.AccessToken, pair.AccessExpires);
+        await _audit.LogAsync(AuditActions.LoginSuccess, AuditOutcomes.Success,
+            CovePrincipal.Anonymous(ip, ua), "user", user.Id.ToString(), new { method = "oidc" }, ct);
+
+        var redeemCode = oidc.StashRedeem(pair);
+        return Redirect("/login?sso_code=" + Uri.EscapeDataString(redeemCode));
+    }
+
+    [HttpPost("oidc/redeem")]
+    [AllowAnonymous]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
+    public IActionResult OidcRedeem([FromServices] Services.OidcService oidc, [FromBody] OidcRedeemRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Code))
+            return Unauthorized(new { code = "INVALID_SSO_CODE" });
+        var pair = oidc.TakeRedeem(request.Code);
+        if (pair is null)
+            return Unauthorized(new { code = "INVALID_SSO_CODE" });
+        WriteAccessCookie(pair.AccessToken, pair.AccessExpires);
+        return Ok(ToLoginResponse(pair));
+    }
+
+    public sealed record OidcRedeemRequest(string? Code);
+
+    private string OidcRedirectUri()
+    {
+        var proto = HttpContext.Request.Headers["X-Forwarded-Proto"].ToString();
+        if (string.IsNullOrWhiteSpace(proto)) proto = Request.Scheme;
+        var host = HttpContext.Request.Headers["X-Forwarded-Host"].ToString();
+        if (string.IsNullOrWhiteSpace(host)) host = Request.Host.Value ?? "localhost";
+        return $"{proto}://{host}/api/auth/oidc/callback";
+    }
+
     [HttpPost("refresh")]
     [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
     [AllowAnonymous]

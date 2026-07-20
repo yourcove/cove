@@ -186,6 +186,13 @@ public class ConfigService
                 KnownProxies = cfg.Auth.KnownProxies,
                 TrustedHosts = cfg.Auth.TrustedHosts,
                 ProxyAuthEnabled = cfg.Auth.ProxyAuthEnabled,
+                OidcEnabled = cfg.Auth.OidcEnabled,
+                OidcAuthority = cfg.Auth.OidcAuthority,
+                OidcClientId = cfg.Auth.OidcClientId,
+                OidcClientSecret = cfg.Auth.OidcClientSecret,
+                OidcScopes = cfg.Auth.OidcScopes,
+                OidcUsernameClaim = cfg.Auth.OidcUsernameClaim,
+                OidcButtonLabel = cfg.Auth.OidcButtonLabel,
                 ProxyAuthHeader = cfg.Auth.ProxyAuthHeader,
                 ProxyAuthProxies = cfg.Auth.ProxyAuthProxies,
             },
@@ -439,6 +446,13 @@ public class ConfigService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         cfg.Auth.ProxyAuthEnabled = dto.Security.ProxyAuthEnabled;
+        cfg.Auth.OidcEnabled = dto.Security.OidcEnabled;
+        cfg.Auth.OidcAuthority = string.IsNullOrWhiteSpace(dto.Security.OidcAuthority) ? null : dto.Security.OidcAuthority.Trim();
+        cfg.Auth.OidcClientId = string.IsNullOrWhiteSpace(dto.Security.OidcClientId) ? null : dto.Security.OidcClientId.Trim();
+        cfg.Auth.OidcClientSecret = string.IsNullOrWhiteSpace(dto.Security.OidcClientSecret) ? null : dto.Security.OidcClientSecret.Trim();
+        cfg.Auth.OidcScopes = string.IsNullOrWhiteSpace(dto.Security.OidcScopes) ? "openid profile email" : dto.Security.OidcScopes.Trim();
+        cfg.Auth.OidcUsernameClaim = string.IsNullOrWhiteSpace(dto.Security.OidcUsernameClaim) ? "preferred_username" : dto.Security.OidcUsernameClaim.Trim();
+        cfg.Auth.OidcButtonLabel = string.IsNullOrWhiteSpace(dto.Security.OidcButtonLabel) ? "Single Sign-On" : dto.Security.OidcButtonLabel.Trim();
         cfg.Auth.ProxyAuthHeader = string.IsNullOrWhiteSpace(dto.Security.ProxyAuthHeader) ? "Remote-User" : dto.Security.ProxyAuthHeader.Trim();
         cfg.Auth.ProxyAuthProxies = (dto.Security.ProxyAuthProxies ?? [])
             .Where(proxy => !string.IsNullOrWhiteSpace(proxy))

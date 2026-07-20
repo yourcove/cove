@@ -120,6 +120,18 @@ public class AuthConfig
     /// arbitrary client can never authenticate.
     /// </summary>
     public bool ProxyAuthEnabled { get; set; }
+    /// <summary>
+    /// Native OpenID Connect login (authorization code + PKCE). The IdP-asserted
+    /// username claim must match an existing, active Cove user. Configure an OAuth2
+    /// provider at the IdP with redirect URI {cove-url}/api/auth/oidc/callback.
+    /// </summary>
+    public bool OidcEnabled { get; set; }
+    public string? OidcAuthority { get; set; }
+    public string? OidcClientId { get; set; }
+    public string? OidcClientSecret { get; set; }
+    public string OidcScopes { get; set; } = "openid profile email";
+    public string OidcUsernameClaim { get; set; } = "preferred_username";
+    public string OidcButtonLabel { get; set; } = "Single Sign-On";
     public string ProxyAuthHeader { get; set; } = "Remote-User";
     public List<string> ProxyAuthProxies { get; set; } = [];
     /// <summary>
