@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FC, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as signalR from "@microsoft/signalr";
 import { formatDate } from "../components/shared";
@@ -68,7 +68,7 @@ import type {
   TagGroup,
   UserTrackingPreferences,
 } from "../api/types";
-import { useExtensions } from "../extensions/ExtensionLoader";
+import { useExtensions, resolveComponent as resolveExtensionComponent } from "../extensions/ExtensionLoader";
 import { getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
@@ -136,10 +136,15 @@ type BuiltInSettingsTab =
   | "system-info-runtime-status"
   | "logs";
 type SettingsTab = BuiltInSettingsTab | string;
+// A settings-nav tab icon is either a host built-in (Lucide) component or an extension-registered
+// SVG component; both accept `className`, so both render identically at the `<Icon className=… />`
+// call sites.
+type SettingsTabIcon = typeof FolderOpen | FC<{ className?: string }>;
+
 type SettingsTabDefinition = {
   key: SettingsTab;
   label: string;
-  icon: typeof FolderOpen;
+  icon: SettingsTabIcon;
   order?: number;
   parentTabKey?: SettingsTab;
   description?: string;
@@ -434,13 +439,21 @@ const extensionSettingsTabIcons: Record<string, typeof FolderOpen> = {
   users: Users,
 };
 
-function resolveExtensionSettingsTabIcon(iconName?: string): typeof FolderOpen {
+function resolveExtensionSettingsTabIcon(iconName?: string): SettingsTabIcon {
   if (!iconName) {
     return Plug;
   }
 
   const normalized = iconName.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  return extensionSettingsTabIcons[normalized] ?? Plug;
+  const builtIn = extensionSettingsTabIcons[normalized];
+  if (builtIn) {
+    return builtIn;
+  }
+
+  // Fall back to a component the extension registered under this name (e.g. a brand logo). Use the
+  // original, case-sensitive name — registered component names are case-sensitive ("WhisparrLogo").
+  const registered = resolveExtensionComponent(iconName);
+  return registered ?? Plug;
 }
 
 const SETTINGS_TAB_QUERY_KEY = "tab";
@@ -6169,6 +6182,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
     description?: string;
     author?: string;
     url?: string;
+    iconUrl?: string | null;
     enabled: boolean;
     kind: string;
     categories: string[];
@@ -6197,6 +6211,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
         description: ext.description,
         author: ext.author,
         url: ext.url,
+        iconUrl: ext.iconUrl,
         enabled: ext.enabled,
         kind: ext.kind ?? "extension",
         categories: ext.categories,
@@ -6419,6 +6434,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                     <div className={`w-2 h-2 rounded-full shrink-0 ${ext.enabled ? "bg-green-400" : "bg-gray-500"}`} />
                     <div className="min-w-0">
                       <div className="font-medium text-sm flex items-center gap-2 flex-wrap">
+                        {ext.iconUrl && <img src={ext.iconUrl} alt="" className="h-5 w-5 rounded" />}
                         {ext.name}
                         <span className="text-xs text-muted">v{ext.version}</span>
                         {update && (
