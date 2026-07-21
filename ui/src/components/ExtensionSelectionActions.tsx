@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Puzzle } from "lucide-react";
 import { extensions } from "../api/client";
 import type { ExtensionAction } from "../api/types";
-import { useExtensions, renderExtensionTabIcon, resolveComponent } from "../extensions/ExtensionLoader";
+import { useExtensions, renderExtensionIcon, resolveComponent } from "../extensions/ExtensionLoader";
 import { registerManualContext } from "./ManualContext";
 
 interface Props {
@@ -168,7 +168,10 @@ export function ExtensionSelectionActions({ entityType, selectedIds }: Props) {
           >
             {isPending
               ? <Loader2 className="w-3 h-3 animate-spin" />
-              : renderExtensionTabIcon(action.icon, action.extensionId, resolveComponent) ?? <Puzzle className="w-3 h-3" />}
+              : renderExtensionIcon(action.icon, action.extensionId, resolveComponent, {
+                  sizeClass: "h-3 w-3",
+                  fallback: <Puzzle className="h-3 w-3" />,
+                })}
             {action.label}
           </button>
         );

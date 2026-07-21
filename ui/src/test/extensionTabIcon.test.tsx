@@ -1,6 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderExtensionTabIcon } from "../extensions/ExtensionLoader";
+import { renderExtensionIcon } from "../extensions/ExtensionLoader";
 
 afterEach(cleanup);
 
@@ -10,15 +10,15 @@ const FakeLogo = ({ className }: { className?: string }) => (
 );
 const resolveComponent = (name: string) => (name === "WhisparrLogo" ? FakeLogo : undefined);
 
-describe("renderExtensionTabIcon", () => {
+describe("renderExtensionIcon", () => {
   it("renders the extension's own registered component for a bare name (brand logo)", () => {
-    const node = renderExtensionTabIcon("WhisparrLogo", "com.example.ext", resolveComponent);
+    const node = renderExtensionIcon("WhisparrLogo", "com.example.ext", resolveComponent);
     const { container } = render(<>{node}</>);
     expect(container.querySelector('[data-testid="fake-logo"]')).not.toBeNull();
   });
 
   it("renders a host built-in named icon by name (no registration needed)", () => {
-    const node = renderExtensionTabIcon("puzzle", "com.example.ext", resolveComponent);
+    const node = renderExtensionIcon("puzzle", "com.example.ext", resolveComponent);
     const { container } = render(<>{node}</>);
     // resolveIcon("puzzle") → the built-in Lucide component, rendered as an <svg>.
     expect(container.querySelector("svg")).not.toBeNull();
@@ -30,22 +30,42 @@ describe("renderExtensionTabIcon", () => {
     // An extension that registers a component literally named "puzzle" cannot hijack the built-in.
     const resolvePuzzleComponent = (name: string) => (name === "puzzle" ? FakeLogo : undefined);
     const { container } = render(
-      <>{renderExtensionTabIcon("puzzle", "com.example.ext", resolvePuzzleComponent)}</>,
+      <>{renderExtensionIcon("puzzle", "com.example.ext", resolvePuzzleComponent)}</>,
     );
     expect(container.querySelector('[data-testid="fake-logo"]')).toBeNull();
   });
 
+  it("renders an <img> when the value is an image source (URL / data-URI / path)", () => {
+    // The installed-extensions roster ships an asset URL rather than a registered component, and it
+    // resolves through the SAME function — the precedence is unified across every surface.
+    for (const src of ["https://example.com/logo.png", "data:image/png;base64,AAAA", "/icons/x.svg"]) {
+      const { container } = render(
+        <>{renderExtensionIcon(src, "com.example.ext", resolveComponent)}</>,
+      );
+      const img = container.querySelector("img");
+      expect(img).not.toBeNull();
+      expect(img?.getAttribute("src")).toBe(src);
+      cleanup();
+    }
+  });
+
   it("returns undefined for an unknown name so the host default applies, and warns in dev", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(
-      renderExtensionTabIcon("DoesNotExist", "com.example.ext", resolveComponent),
-    ).toBeUndefined();
+    expect(renderExtensionIcon("DoesNotExist", "com.example.ext", resolveComponent)).toBeUndefined();
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
 
-  it("returns undefined for an empty or missing icon value (host default applies)", () => {
-    expect(renderExtensionTabIcon("", "com.example.ext", resolveComponent)).toBeUndefined();
-    expect(renderExtensionTabIcon(undefined, "com.example.ext", resolveComponent)).toBeUndefined();
+  it("returns the caller-supplied fallback when the icon does not resolve", () => {
+    const node = renderExtensionIcon("DoesNotExist", "com.example.ext", resolveComponent, {
+      fallback: <span data-testid="fallback" />,
+    });
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector('[data-testid="fallback"]')).not.toBeNull();
+  });
+
+  it("returns the fallback (or undefined) for an empty or missing icon value", () => {
+    expect(renderExtensionIcon("", "com.example.ext", resolveComponent)).toBeUndefined();
+    expect(renderExtensionIcon(undefined, "com.example.ext", resolveComponent)).toBeUndefined();
   });
 });

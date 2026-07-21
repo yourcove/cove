@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, type ReactNode } from "react";
-import { useExtensions, renderExtensionTabIcon } from "../extensions/ExtensionLoader";
+import { useExtensions, renderExtensionIcon } from "../extensions/ExtensionLoader";
 import { ExtensionErrorBoundary } from "./ExtensionErrorBoundary";
 
 interface Tab {
@@ -79,7 +79,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
     const ext = extTabs.map((t) => ({
       key: `ext:${t.key}`,
       label: t.label,
-      icon: renderExtensionTabIcon(t.icon, t.extensionId, resolveComponent),
+      icon: renderExtensionIcon(t.icon, t.extensionId, resolveComponent),
       count: extCounts[t.key],
       order: t.order,
       manualContexts: t.manualContexts,

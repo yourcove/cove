@@ -68,7 +68,11 @@ import type {
   TagGroup,
   UserTrackingPreferences,
 } from "../api/types";
-import { useExtensions, resolveComponent as resolveExtensionComponent } from "../extensions/ExtensionLoader";
+import {
+  useExtensions,
+  resolveComponent as resolveExtensionComponent,
+  renderExtensionIcon,
+} from "../extensions/ExtensionLoader";
 import { getScraperSiteKey } from "../components/videoScrapeUtils";
 import { useAppConfig } from "../state/AppConfigContext";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
@@ -6434,7 +6438,9 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                     <div className={`w-2 h-2 rounded-full shrink-0 ${ext.enabled ? "bg-green-400" : "bg-gray-500"}`} />
                     <div className="min-w-0">
                       <div className="font-medium text-sm flex items-center gap-2 flex-wrap">
-                        {ext.iconUrl && <img src={ext.iconUrl} alt="" className="h-5 w-5 rounded" />}
+                        {renderExtensionIcon(ext.iconUrl ?? undefined, ext.id, resolveExtensionComponent, {
+                          sizeClass: "h-5 w-5",
+                        })}
                         {ext.name}
                         <span className="text-xs text-muted">v{ext.version}</span>
                         {update && (
