@@ -1,0 +1,26 @@
+---
+title: Saved filters
+description: Reference for reusable library query state.
+---
+
+A saved filter is a named, reusable set of search and filter criteria for returning to a library view. It preserves query intent; it does not copy matching records into a collection.
+
+## Stored state
+
+Saved state can include the entity type, filter tree, search input, sorts, and view-related query options supported by that surface. The available criteria depend on media type, custom fields, configured services, and extensions.
+
+Results are evaluated against current library data. A saved filter can therefore return different records later even though its definition did not change.
+
+## Ownership and defaults
+
+Saved filters are per-user. Legacy or authentication-disabled rows can be unowned, but a signed-in user's saved filters are not shared library collections. A saved filter may be selected as a preferred view, while remembered interface state and extension contributions can also affect what is displayed. The durable contract is the stored query, not a particular initial page size or sort.
+
+## Difference from groups
+
+A saved filter is navigation and query state. A dynamic group is a library record with metadata and membership semantics. Use a group when other records must refer to the collection; use a saved filter when the goal is to revisit a view.
+
+## Related reference
+
+- [Dynamic groups](../dynamic-groups/)
+- [Groups](../groups/)
+- [Media](../media/)

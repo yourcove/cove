@@ -1,0 +1,26 @@
+---
+title: Contributions
+description: Reference for individual capabilities supplied by extensions.
+---
+
+A contribution is one specific capability, UI element, service, or declaration supplied by an extension. One extension package can contribute many independent capabilities through several extension points.
+
+## Identity and ownership
+
+The providing extension owns the contribution's implementation and normally namespaces its identifiers. The host owns where and how the contribution is composed with core behavior. Disabling the extension removes the active contribution without turning it into a core feature.
+
+## Forms
+
+Compiled contributions implement backend interfaces or register services. UI contributions are declarations plus frontend modules loaded by supported UI targets. Manifest-only contributions use declarative files such as YAML scraper definitions or bundle metadata.
+
+Some contributions expose settings, permissions, routes, jobs, or stored data in addition to their primary behavior. Those related surfaces remain part of the same installed extension's operational boundary.
+
+## Availability
+
+A declaration can be valid yet unavailable because its target is not supported by the running Cove version, a required dependency is absent, the extension is disabled, configuration is incomplete, or the current user lacks permission. Reserved declarations should not be treated as active extension points until the host documents a consumer.
+
+## Related reference
+
+- [Extensions](../extensions/)
+- [Extension points](../extension-points/)
+- [Manifests](../manifests/)

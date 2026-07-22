@@ -1,0 +1,26 @@
+---
+title: Permissions
+description: Reference for named authorizations to perform protected operations.
+---
+
+A permission is a named authorization to perform a particular operation or access a protected capability. Permissions answer what action is allowed; content rules can additionally answer which records are in scope.
+
+## Granularity
+
+Permissions are grouped by protected domain and action, such as read, write, delete, manage, execute, or administer. The exact catalog evolves with Cove capabilities, so the running instance's role editor and API authorization remain authoritative for available permission names.
+
+## Evaluation
+
+Permissions normally arrive through roles, with special instance ownership behavior where supported. Having a UI route visible or knowing an API endpoint does not grant its permission. Server-side authorization evaluates each protected request.
+
+For read access, a matching allow content rule can expose scoped records without the general role read permission. For writes and deletes, a content rule cannot replace the underlying role permission; it can only restrict its record scope.
+
+## Extension distinction
+
+User permissions are not the same as extension manifest permission declarations. User permissions authorize an authenticated principal. Manifest declarations describe access an installed package expects and are not a runtime sandbox.
+
+## Related reference
+
+- [Roles](../roles/)
+- [Content rules](../content-rules/)
+- [Extension permissions](../../developer/extensions/permissions/)

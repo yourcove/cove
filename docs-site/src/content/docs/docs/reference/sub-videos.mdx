@@ -1,0 +1,26 @@
+---
+title: Sub-videos
+description: Reference for child video records backed by a parent time range.
+---
+
+A sub-video is a child video record that presents a defined time range from a parent video. Unlike a segment, it has a persistent video identity and can carry its own metadata and relationships.
+
+## Parent relationship
+
+The child stores a parent reference and clip boundaries. Playback resolves the root parent's media when the child has no directly attached file. Nested relationships therefore still use the root media source for the playable range.
+
+The child's title, tags, performers, studio, groups, and other descriptive values need not match the parent. Editing child metadata does not rewrite the parent's shared metadata.
+
+## Files and deletion
+
+A sub-video normally reuses parent files rather than duplicating or cutting source media. Deleting a sub-video does not delete the parent's source files. Deleting a parent cascades deletion of its sub-video records; source paths still referenced by records outside that deletion are retained.
+
+## Comparison
+
+Use a segment for a derived or profile-dependent interval, a group video-range item for ordered playback without a new video identity, and a sub-video when the range needs a durable media record of its own.
+
+## Related reference
+
+- [Videos](../videos/)
+- [Segments](../segments/)
+- [Compilations](../compilations/)

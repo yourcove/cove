@@ -1,0 +1,24 @@
+---
+title: Scrapers
+description: Reference for searching and extracting metadata for existing records.
+---
+
+A scraper is a provider that searches for or extracts metadata about an existing library item. It enriches or identifies a record; it is not primarily responsible for acquiring the source media.
+
+## Inputs and results
+
+Scrapers can use record metadata, URLs, file names, codes, or user-supplied queries to find candidates. A result can contain descriptive fields, relationships, artwork, URLs, and provider-scoped remote IDs. Capabilities vary by scraper and media type.
+
+Searching, selecting a match, and applying metadata are separate stages. A candidate can be reviewed without modifying the record. Applying it follows the workflow's merge or replacement choices and can attach provenance to imported values.
+
+## Implementations
+
+A compiled extension can implement scraper interfaces and services. A YAML scraper pack can contribute declarative scraping definitions without a compiled assembly. Both are installed extensions and must use supported host contracts.
+
+Remote sites can change independently of Cove. Scraper failure can reflect upstream markup, authentication, rate limits, or network access rather than an invalid local record.
+
+## Related reference
+
+- [Metadata providers](../metadata-providers/)
+- [Manifest-only extensions](../manifest-only-extensions/)
+- [Provenance](../provenance/)

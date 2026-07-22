@@ -1,0 +1,24 @@
+---
+title: Share links
+description: Reference for limited URL-based access to selected content.
+---
+
+A share link is a limited URL that grants access to selected content without exposing the full library or requiring a normal user account. Possession of the link acts as a credential for its configured share scope.
+
+## Scope
+
+A link identifies the shared resource or selection and any supported access constraints. It does not grant general browsing, administration, metadata editing, or API access beyond the share experience.
+
+Related content is not automatically public merely because one record is shared. The server still controls which metadata, generated assets, and source streams the share route can return.
+
+## Lifecycle and exposure
+
+Share links can be revoked independently of users and roles. If expiration or other limits are configured, the server enforces them when the link is used. Revoking a link cannot recall files a recipient already downloaded or copied.
+
+Treat the URL as a secret: avoid placing it in public logs, screenshots, referrer-bearing pages, or issue reports. Internet-facing use also requires appropriate TLS, proxy configuration, network policy, updates, and monitoring; the link itself is not a complete perimeter.
+
+## Related reference
+
+- [Content rules](../content-rules/)
+- [Users](../users/)
+- [Instances](../instances/)

@@ -1,0 +1,28 @@
+---
+title: Library paths
+description: Reference for configured media filesystem locations.
+---
+
+A library path is a filesystem location Cove is allowed to scan for supported media. It defines a discovery root, not a category, collection, or separate library.
+
+## Path identity
+
+Cove records paths as they are visible to the Cove process. In a container installation, mount a host directory and configure the corresponding container path. Different host paths must not be mapped to the same Cove-visible path.
+
+Paths can contain several supported media types. File recognition and record creation are determined by scan behavior and media support, not by the path's display name.
+
+## Read and write access
+
+Read access is sufficient for discovery, playback, and most metadata workflows. Write access is required when Cove or an extension must rename or delete source files. A read-only mount is supported when those operations are intentionally unavailable; the interface may still offer an operation that later fails because the filesystem rejects it.
+
+Treat write access as authority over the mounted source tree. Keep source media backed up before using destructive operations.
+
+## Changes and scans
+
+Adding a path makes it eligible for future scans. Moving, renaming, or removing a configured root can make stored file paths unavailable until the filesystem and configuration agree again. A scan reconciles what Cove can currently observe; it is not a filesystem migration tool.
+
+## Related reference
+
+- [Library](../library/)
+- [Scans](../scans/)
+- [Generated media](../generated-media/)

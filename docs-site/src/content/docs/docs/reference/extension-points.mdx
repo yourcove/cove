@@ -1,0 +1,26 @@
+---
+title: Extension points
+description: Reference for host-defined extension contracts and locations.
+---
+
+An extension point is a host-defined contract or location where an extension can contribute behavior or content. It defines what the host accepts, when it is invoked, and which data or services cross the boundary.
+
+## Backend points
+
+Compiled extensions start with the core extension lifecycle and can opt into capability interfaces. Supported categories include service registration, metadata and intake providers, scanners, generators, analyzers, background work, storage, API exposure, event handling, health checks, and type-specific services.
+
+The host owns lifecycle and composition. Extensions should depend on public contracts and injected services rather than internal implementation types. Capability-specific base classes can reduce boilerplate but do not expand the underlying contract.
+
+## Frontend points
+
+UI extension points include pages, navigation, slots, tabs, settings surfaces, actions, appearance, filters, sorts, and selected replacement surfaces. Each point has a target, declaration shape, and runtime context. Some declaration builders are reserved until a host consumer exists.
+
+## Contract stability
+
+An extension point's availability is versioned with Cove and the extension SDK. A manifest compatibility declaration helps installation decisions but does not make unsupported APIs stable. Consult the capability catalog for signatures and current limitations.
+
+## Related reference
+
+- [Contributions](../contributions/)
+- [UI extensions](../ui-extensions/)
+- [Extension-point catalog](../../developer/extensions/extension-points/)

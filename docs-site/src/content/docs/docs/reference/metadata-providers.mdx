@@ -1,0 +1,26 @@
+---
+title: Metadata providers
+description: Reference for integrations that supply metadata to Cove.
+---
+
+A metadata provider is an integration that supplies structured metadata from an external or extension-defined source. It is a capability category; a scraper or metadata server can implement a more specific discovery and retrieval workflow.
+
+## Provider identity
+
+Providers have a local identity and configuration boundary. Remote identifiers are meaningful together with their provider or endpoint; the same raw ID from two providers is not inherently the same external record.
+
+## Operations
+
+A provider can support searching, matching, fetching details, artwork, or type-specific metadata. Supported entity types and fields vary. Cove surfaces only operations supported by an enabled, correctly configured provider and allowed by the current user's permissions.
+
+Provider results are candidates or inputs to a metadata operation. Applying them can update fields, relationships, remote IDs, and provenance according to the workflow. It does not transfer ownership of the local record to the provider.
+
+## Extension boundary
+
+Extensions can contribute metadata providers and their settings. Network access, credentials, rate limits, and upstream availability remain provider concerns. Extension manifest permission declarations describe requested access but are not by themselves a runtime sandbox.
+
+## Related reference
+
+- [Scrapers](../scrapers/)
+- [Metadata servers](../metadata-servers/)
+- [Provenance](../provenance/)

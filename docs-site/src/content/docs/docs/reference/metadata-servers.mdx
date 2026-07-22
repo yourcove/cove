@@ -1,0 +1,26 @@
+---
+title: Metadata servers
+description: Reference for external structured metadata catalogs.
+---
+
+A metadata server is an external catalog service that Cove queries for structured metadata and artwork. It supplies provider-scoped identities and data; it is not another Cove library and does not receive authority over local access control.
+
+## Connection
+
+A server configuration identifies an endpoint and any required credentials. Endpoint identity scopes remote IDs, so changing endpoints can change how existing links are interpreted even when the service exposes a similar schema.
+
+## Capabilities
+
+Supported operations can include search, identify, fetch-by-ID, artwork retrieval, and entity-specific metadata. The server, Cove integration, and current workflow jointly determine which types and fields are available.
+
+Results remain external candidates until applied. Accepted fields become local metadata and can retain provenance pointing to the server. Later server changes do not automatically overwrite local values unless another metadata operation requests them.
+
+## Operational boundary
+
+Availability depends on network access, server health, API compatibility, credentials, and rate limits. Treat credentials as secrets. Before sharing diagnostics, remove endpoints, tokens, and identifying library data when required by the deployment's privacy policy.
+
+## Related reference
+
+- [Metadata providers](../metadata-providers/)
+- [Provenance](../provenance/)
+- [Remote API overview](../../developer/api/overview/)

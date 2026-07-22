@@ -1,0 +1,26 @@
+---
+title: UI extensions
+description: Reference for compiled frontend contributions.
+---
+
+A UI extension is a compiled extension capability that declares frontend contributions for supported Cove surfaces. Its declarations tell the host what to load and where to compose it; the extension does not own the surrounding application shell.
+
+## Contribution types
+
+Supported categories include pages and routes, navigation items, named slots, entity tabs, settings tabs and panels, actions, tutorial topics, features, list filters and sorts, themes, and selected component or page replacements. Each category has its own target and context contract.
+
+Additive contributions coexist with core UI and other extensions. Replacement contributions take greater responsibility for host behavior and should be used only on explicitly supported targets. A builder method does not prove that every declaration has a runtime consumer; reserved surfaces are documented separately.
+
+## Loading and lifecycle
+
+The backend manifest declares frontend assets and UI metadata. Cove loads eligible modules for enabled extensions and makes host APIs available through the supported frontend contract. Modules should tolerate navigation and remounting rather than assuming one page-load lifecycle.
+
+## Security and access
+
+UI code runs in the authenticated application context. It must still use authorized host APIs; hiding a control is not an authorization boundary. Server-side permissions remain authoritative.
+
+## Related reference
+
+- [UI extension-point catalog](../../developer/extensions/ui-extension-points/)
+- [Contributions](../contributions/)
+- [Manifests](../manifests/)

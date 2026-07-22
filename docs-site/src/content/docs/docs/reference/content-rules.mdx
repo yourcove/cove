@@ -1,0 +1,26 @@
+---
+title: Content rules
+description: Reference for record-scoped access decisions.
+---
+
+A content rule grants or restricts scoped access to records matching its criteria. It complements action permissions by making authorization depend on content metadata or identity.
+
+## Actions
+
+Read rules can grant matching access even when the corresponding role lacks a general read permission. Write and delete rules cannot create authority: the role must grant the relevant action first, and matching rules can only narrow the records where it applies.
+
+## Decision order
+
+An explicit decision for a particular entity has precedence over general matching rules: a denial wins; otherwise an allowance wins. Among matching content rules, an allowance wins over matching denials. If no applicable path grants the requested action, access is denied.
+
+## Matching and change
+
+Rules can use supported record properties and relationships. Because they evaluate current content, changing metadata can change which rule matches without changing the user's roles. Review rule effects when renaming, retagging, merging, or reorganizing records.
+
+Access to a parent or collection does not universally imply access to every related record or source file. Each protected operation can evaluate the resource and permission it actually uses.
+
+## Related reference
+
+- [Permissions](../permissions/)
+- [Roles](../roles/)
+- [Share links](../share-links/)

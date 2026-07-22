@@ -1,0 +1,27 @@
+---
+title: Intake
+description: Reference for bringing new content and metadata into a library.
+---
+
+Intake is the workflow that brings new media and available metadata into the library for review or storage. It coordinates acquisition, record creation, matching, and organization; no single provider must perform every stage.
+
+## Sources
+
+New content can enter through a library-path scan, a downloader, an extension-defined importer, an API client, or manual record creation. Metadata can arrive with the source, from a scraper or metadata server, or through later editing.
+
+## Stages
+
+A typical intake result has a local record identity, optional source files, descriptive metadata, provider remote IDs, provenance, and queued derivative work. A record may exist before a download completes, and a file can be discovered before useful metadata is available.
+
+Matching is distinct from applying values. Identification connects a local record to a likely external item; review or provider policy determines which metadata is accepted. This separation prevents acquisition from silently becoming the authority for every field.
+
+## Extensions and access
+
+Downloaders, scrapers, metadata providers, scanners, and post-processing services can be contributed by extensions. Each stage remains subject to provider configuration, jobs, filesystem access, and the signed-in user's permissions.
+
+## Related reference
+
+- [Scans](../scans/)
+- [Downloaders](../downloaders/)
+- [Scrapers](../scrapers/)
+- [Provenance](../provenance/)

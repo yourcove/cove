@@ -1,0 +1,24 @@
+---
+title: Instances
+description: Reference for an independently configured Cove installation.
+---
+
+An instance is one independently configured Cove installation with its own library, database, settings, users, and extensions. It is the main operational and access-control boundary.
+
+## Owned state
+
+Instance state includes media and connected records, user and role configuration, provider settings, extension installation state, jobs, generated assets, audit and login events, and API credentials. Source media can live on external mounts, but the configured paths and record associations are instance-specific.
+
+## Identity and separation
+
+Record IDs, user IDs, roles, API tokens, remote-provider configuration, and share links are local to an instance. An identifier copied from another installation does not establish the same local identity. Moving records between instances requires an import, migration, synchronization, or extension workflow that preserves the intended relationships.
+
+## Operation
+
+Backups must cover the database and any non-reproducible files or configuration required by the deployment. Generated caches may be rebuildable; selected artwork, extension data, secrets, and source media may not be. Upgrading changes the running host contract for every installed extension.
+
+## Related reference
+
+- [Library](../library/)
+- [Owner](../owners/)
+- [Extensions](../extensions/)

@@ -1,0 +1,26 @@
+---
+title: Compilations
+description: Reference for groups configured as ordered video playback.
+---
+
+A compilation is a group configured to play ordered videos or video ranges back to back. It provides collection-level playback without requiring the source items to be merged into one file.
+
+## Composition
+
+Compilation items can refer to complete videos or bounded video ranges. Their group order defines playback order, while optional item titles and notes provide compilation-specific context. The underlying videos retain their own metadata, files, and identity.
+
+A range item is not automatically a sub-video. It can play part of a video only within the compilation, while a sub-video is a reusable child record throughout the library.
+
+## Metadata and visibility
+
+The containing group can have its own title, artwork, date, studio, tags, synopsis, and other group metadata. A visibility setting controls whether compatible video results may include the compilation; filters and permissions still determine what a user can see.
+
+## Lifecycle
+
+Reordering or removing an item changes the compilation, not the referenced media. Deleting a compilation does not inherently delete its member records or source files. Dynamic resolution can produce group membership, but durable playback order should be reviewed when the source query changes.
+
+## Related reference
+
+- [Groups](../groups/)
+- [Sub-videos](../sub-videos/)
+- [Segments](../segments/)

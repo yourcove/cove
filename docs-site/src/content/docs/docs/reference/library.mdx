@@ -1,0 +1,29 @@
+---
+title: Library
+description: Reference for the Cove library boundary and the records it contains.
+---
+
+A library is the complete collection of media and connected records managed by one [Cove instance](../instances/). It is a logical boundary backed by the instance database, configured [library paths](../library-paths/), generated assets, and settings; it is not a single filesystem directory.
+
+## Contents
+
+The library contains primary [media](../media/) records—videos, images, galleries, audio, and text—plus reusable organization records such as tags, performers, studios, and groups. Files supply content to media records, but the records remain Cove's source of identity, metadata, relationships, and access decisions.
+
+User-specific engagement, saved filters, role assignments, and API tokens belong to the instance rather than to shared media metadata. Installed extensions can add fields, providers, actions, and views without creating a second library boundary.
+
+## Filesystem boundary
+
+Cove discovers source files through configured library paths. The path Cove stores is the path visible inside its runtime; containerized installations therefore normally use container paths rather than host paths. Generated media and database data have separate storage and backup requirements.
+
+Changing or removing a library path changes where Cove can discover and operate on files. It does not redefine the identity of the library or automatically move source files.
+
+## Record lifecycle
+
+Scanning reconciles supported files with records. Intake and metadata workflows can create or enrich records, while users and extensions can edit organization independently of source-file metadata. Deleting a record and deleting its source file are distinct operations; filesystem deletion requires writable storage.
+
+## Related reference
+
+- [Library paths](../library-paths/)
+- [Media](../media/)
+- [Scans](../scans/)
+- [Instances](../instances/)

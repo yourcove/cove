@@ -1,0 +1,24 @@
+---
+title: Provenance
+description: Reference for the origin of metadata values.
+---
+
+Provenance is Cove's record of where a metadata value came from and how it entered the library. It makes origin inspectable without forcing every field on a record to share one source.
+
+## Scope
+
+Provenance can associate a value with a user action, provider, scraper, metadata server, scan, API operation, extension, or other source supported by the workflow. Provider endpoint and remote ID can add external identity context.
+
+Provenance describes origin, not truth or permanent ownership. A manually entered value can be more appropriate than an imported one, and a provider-sourced value can later be edited without requiring the provider to change.
+
+## Field-level behavior
+
+One record can combine fields from several sources. Applying new metadata can replace a value and its provenance, merge relationships with their own origins, or leave an existing value unchanged. The visible interface exposes provenance only where the field and workflow preserve it.
+
+File technical values discovered by scanning have a different lifecycle from descriptive metadata. User-specific engagement also should not be interpreted as provider provenance.
+
+## Related reference
+
+- [Metadata](../metadata/)
+- [Metadata providers](../metadata-providers/)
+- [Intake](../intake/)

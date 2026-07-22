@@ -1,0 +1,24 @@
+---
+title: Users
+description: Reference for identities that sign in to a Cove instance.
+---
+
+A user is a person or service identity that signs in to one Cove instance. A user owns authentication state and can receive access through role assignments, content rules, tokens, and instance-specific ownership.
+
+## Identity and authentication
+
+User records identify an account independently of its display name or current credentials. Authentication can establish the user through supported sign-in methods; authorization is evaluated afterward from ownership, roles, permissions, content rules, and the resource involved.
+
+## Shared and personal state
+
+Edits to media metadata normally affect the shared library. Ratings, favorites, playback state, saved filters, display profiles, and similar features can be user-specific. A service integration should use its own user and scoped API token rather than reuse a person's password or unrestricted token.
+
+## Lifecycle
+
+Disabling or deleting an account should be considered separately from records it created or edited. Audit and login history can remain as operational evidence. Revoking a token does not necessarily end other active sessions, and changing a role affects future authorization checks rather than rewriting historical actions.
+
+## Related reference
+
+- [Roles](../roles/)
+- [Role assignments](../role-assignments/)
+- [API tokens](../api-tokens/)

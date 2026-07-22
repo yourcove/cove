@@ -1,0 +1,24 @@
+---
+title: Owner
+description: Reference for the initial administrative instance account.
+---
+
+The owner is the initial administrative account with authority to configure a Cove instance and delegate access. Ownership is an instance-level relationship, not simply the name of a broad role.
+
+## Authority
+
+The owner can perform bootstrap and administrative operations needed to establish users, roles, providers, extensions, storage, and instance settings. Exact controls still depend on the running version and deployment configuration.
+
+Because ownership can bypass or exceed ordinary delegated access, use the account for administration rather than routine integrations. Create separate users and scoped tokens for services and recurring automation.
+
+## Lifecycle and recovery
+
+Protect owner credentials and recovery material as instance-critical secrets. Before changing or removing owner access, verify that another supported recovery or ownership path exists. A role assignment that resembles administrative access is not automatically a replacement for bootstrap ownership semantics.
+
+Owner actions remain subject to filesystem, network, and operating-system boundaries. Application authority cannot make a read-only mount writable or restore unavailable source media.
+
+## Related reference
+
+- [Instances](../instances/)
+- [Users](../users/)
+- [Roles](../roles/)

@@ -1,0 +1,28 @@
+---
+title: Manifest-only extensions
+description: Reference for extension packages without a compiled assembly.
+---
+
+A manifest-only extension is an installable bundle or scraper pack whose contributions do not require a compiled extension assembly. It still has an extension identity, version, manifest, lifecycle, and trust considerations.
+
+## Forms
+
+A YAML scraper pack contributes declarative scraper definitions interpreted by Cove's supported scraper runtime. A bundle can group contributions or dependencies under one installable identity. Package assets and manifest declarations determine which form Cove activates.
+
+## Boundary from compiled extensions
+
+Manifest-only packages cannot register arbitrary .NET services or implement compiled capability interfaces. They are limited to declarative contribution types the host understands. This narrower implementation model does not make remote access or scraped content inherently safe or correct.
+
+## Packaging and updates
+
+The distributed archive is the installable artifact. Its manifest, referenced files, paths, and schema must be valid together. Updating a package replaces its declarations according to extension identity and version; locally stored data or configuration can remain if the host contract preserves it.
+
+## Review
+
+Review declared endpoints, scraper behavior, dependencies, and requested permissions before installation. Declarative packages can still make network requests and transform external data within the capabilities provided by the host.
+
+## Related reference
+
+- [Scrapers](../scrapers/)
+- [Manifests](../manifests/)
+- [Packaging extensions](../../developer/extensions/packaging/)

@@ -1,0 +1,26 @@
+---
+title: Media
+description: Reference for Cove's primary content record family.
+---
+
+Media is the family of primary content records Cove manages: [videos](../videos/), [images](../images/), [galleries](../galleries/), [audio](../audio/), and [text](../text/). A media record is distinct from any file that supplies its content.
+
+## Shared model
+
+Media records have their own identity, created and updated timestamps, descriptive metadata, and relationships. Depending on type, a record can relate to tags, performers, studios, groups, URLs, remote provider identifiers, custom fields, files, and generated assets.
+
+Common capabilities include browsing, text search, filtering, sorting, metadata editing, organization, and extension-contributed actions. The exact fields and controls vary by media type, permissions, installed extensions, and configured services.
+
+## Records and files
+
+A record can outlive an unavailable file, and some workflows create a record before media is downloaded. Some records resolve content indirectly: galleries group images, and sub-videos play a range from a parent video. Deleting a record does not inherently mean deleting every related file; destructive file operations are explicit and require writable storage.
+
+## Metadata and engagement
+
+Shared descriptive metadata belongs to the media record. User-specific ratings, favorites, playback state, and similar engagement can be stored separately so different users can have different state for the same item.
+
+## Related reference
+
+- [Library](../library/)
+- [Metadata](../metadata/)
+- [Generated media](../generated-media/)

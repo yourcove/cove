@@ -1,0 +1,26 @@
+---
+title: Dynamic groups
+description: Reference for groups whose membership is resolved from a query.
+---
+
+A dynamic group is a group whose membership is resolved from rules, activity, or saved intent instead of being curated item by item. The group record remains stable while its result can change.
+
+## Query and resolution
+
+The group stores a query source and serialized query definition. Resolution produces compatible ordered items and records resolution metadata such as the last-resolved time and cached item count. That time does not describe when every matching media record was created, and the built-in sources do not persist the resolved item set as a result cache.
+
+Allowed host types constrain which kinds of resolved items can belong to the group. Display and playback features may impose narrower requirements, such as video or video-range items for compilation playback.
+
+## Difference from saved filters
+
+A saved filter preserves a reusable library view for a user or workflow. A dynamic group is a library entity: it can have metadata, imagery, relationships, nested membership, and references from other records. Converting search intent into a group therefore creates a collection identity rather than only preserving interface state.
+
+## Change behavior
+
+Membership can change when matching records, activity, query semantics, or extension-provided resolvers change. Do not treat a resolved result as a permanent historical snapshot unless a workflow explicitly materializes one.
+
+## Related reference
+
+- [Groups](../groups/)
+- [Saved filters](../saved-filters/)
+- [Compilations](../compilations/)

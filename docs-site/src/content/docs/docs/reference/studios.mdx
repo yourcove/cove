@@ -1,0 +1,24 @@
+---
+title: Studios
+description: Reference for organizations, publishers, and media sources.
+---
+
+A studio is a reusable organization, publisher, label, or source associated with media and groups. It supplies a shared identity rather than merely repeating a studio name on each item.
+
+## Record model
+
+A studio can have a name, details, aliases, a parent studio, tags, URLs, remote IDs, custom fields, and imagery. Provider metadata and local editing can populate different fields with independent provenance.
+
+## Relationships
+
+Media records generally reference zero or one primary studio. Groups can also reference a studio, and studios can form parent-child structures for labels, networks, or subsidiaries. A free-text studio code on a video is a catalog value and does not replace the studio relationship.
+
+## Identity and lifecycle
+
+Aliases improve matching while preserving one local identity. Remote IDs are scoped to provider endpoints and should not be assumed to identify the same organization across unrelated providers. Renaming a studio keeps its existing relationships; merging or deleting it changes shared organization across the library.
+
+## Related reference
+
+- [Performers](../performers/)
+- [Groups](../groups/)
+- [Metadata providers](../metadata-providers/)

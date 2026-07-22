@@ -1,0 +1,26 @@
+---
+title: Groups
+description: Reference for ordered static and dynamically resolved collections.
+---
+
+A group is an ordered collection of supported library entities or media ranges. A group has its own metadata and identity; it is not just a saved search or an implicit tag match.
+
+## Record model
+
+Group metadata can include a name, aliases, date, duration, studio, director, synopsis, tags, URLs, artwork, ordering, and whether it appears alongside video lists. Groups can contain subgroups and can themselves belong to other groups.
+
+## Items
+
+Supported items include videos, video ranges, images, audio, text, groups, performers, studios, tags, galleries, faces, and segments. Each membership preserves an order and can include a title or notes. A video-range item can carry start and end times without creating a sub-video record.
+
+The group's allowed host types constrain which item kinds belong in that collection. Membership does not transfer the group's metadata to its items.
+
+## Static and dynamic groups
+
+A static group stores curated memberships. A dynamic group stores a query source, resolves membership from rules or activity, and records resolution metadata such as a cached item count. Both use the group identity and can participate in group relationships.
+
+## Related reference
+
+- [Dynamic groups](../dynamic-groups/)
+- [Compilations](../compilations/)
+- [Saved filters](../saved-filters/)

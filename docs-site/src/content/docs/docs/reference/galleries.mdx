@@ -1,0 +1,26 @@
+---
+title: Galleries
+description: Reference for image collections in Cove.
+---
+
+A gallery is a primary media record that presents related images as one browsable item. It has its own identity and metadata; it is not merely the directory containing its image files.
+
+## Record model
+
+A gallery can carry a title, date, details, organized state, studio, tags, performers, groups, URLs, custom fields, and cover imagery. Gallery chapters can define named divisions within the ordered image sequence.
+
+## Membership
+
+Gallery membership connects existing image records to the gallery. An image can belong to multiple galleries, and its shared metadata remains on the image record. Removing membership therefore does not inherently delete the image record or file.
+
+Some gallery workflows discover images from a gallery-associated path, while others organize images that already exist in the library. The gallery record is the stable collection boundary in both cases.
+
+## Lifecycle and access
+
+Editing the gallery and editing a member image are separate operations with separate permission checks. Deleting a gallery removes the collection and its relationships; it does not inherently delete member image records or their source files.
+
+## Related reference
+
+- [Images](../images/)
+- [Groups](../groups/)
+- [Media](../media/)

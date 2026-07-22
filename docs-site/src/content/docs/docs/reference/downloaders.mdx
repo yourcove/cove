@@ -1,0 +1,26 @@
+---
+title: Downloaders
+description: Reference for providers that acquire new media.
+---
+
+A downloader is a provider that retrieves new media from a supported source into Cove's intake workflow. Its defining responsibility is acquisition; metadata discovery for an existing local item belongs to a scraper or metadata provider.
+
+## Inputs and outputs
+
+A downloader can accept a URL, provider identifier, or provider-specific request. It can return one or more files plus available metadata and external identity. Cove can create a file-less record while acquisition is pending and associate completed output later.
+
+Download location, naming, collision behavior, credentials, and supported sources are downloader-specific. Files must ultimately be placed where Cove can access them, and rename or cleanup behavior requires writable storage.
+
+## Jobs and failures
+
+Downloads commonly run as background jobs. Availability depends on an enabled provider, valid configuration, job services, network access, filesystem access, and permissions. A failed job does not necessarily remove the intake record; retry and cleanup behavior depend on the provider and operation.
+
+## Extension boundary
+
+Extensions can contribute downloader implementations and settings. Provider credentials should remain in Cove's configuration or secret handling, not in tracked extension content.
+
+## Related reference
+
+- [Intake](../intake/)
+- [Scrapers](../scrapers/)
+- [Library paths](../library-paths/)

@@ -10,15 +10,15 @@ Use this reference when a Cove term is unfamiliar or when two related concepts n
 
 | Term | Description |
 | --- | --- |
-| Library | A library is the collection of media and related records managed by one Cove instance. |
-| Library path | A library path is a configured filesystem location that Cove scans for media. |
-| Media | Media is content managed by Cove as a video, image, gallery, audio, or text record. |
-| Video | A video is a primary media record for moving-image content and its associated metadata. |
-| Image | An image is a primary media record for a single still-image file. |
-| Gallery | A gallery is a primary media record that groups related images into one browsable item. |
-| Audio | Audio is a primary media record for sound content without a required video component. |
-| Text | Text is a primary media record for written content stored or indexed by Cove. |
-| Generated media | Generated media is derivative content Cove creates from source media, such as previews, thumbnails, or analysis output. |
+| [Library](../reference/library/) | A library is the collection of media and related records managed by one Cove instance. |
+| [Library path](../reference/library-paths/) | A library path is a configured filesystem location that Cove scans for media. |
+| [Media](../reference/media/) | Media is content managed by Cove as a video, image, gallery, audio, or text record. |
+| [Video](../reference/videos/) | A video is a primary media record for moving-image content and its associated metadata. |
+| [Image](../reference/images/) | An image is a primary media record for a single still-image file. |
+| [Gallery](../reference/galleries/) | A gallery is a primary media record that groups related images into one browsable item. |
+| [Audio](../reference/audio/) | Audio is a primary media record for sound content without a required video component. |
+| [Text](../reference/text/) | Text is a primary media record for written content stored or indexed by Cove. |
+| [Generated media](../reference/generated-media/) | Generated media is derivative content Cove creates from source media, such as previews, thumbnails, or analysis output. |
 
 See [Media types](../user/library/media-types/) for a fuller explanation of the records Cove manages.
 
@@ -26,16 +26,16 @@ See [Media types](../user/library/media-types/) for a fuller explanation of the 
 
 | Term | Description |
 | --- | --- |
-| Tag | A tag is reusable metadata applied to records to describe, classify, or filter them. |
-| Performer | A performer is a person or identity associated with media in the library. |
-| Studio | A studio is an organization, publisher, or source associated with media in the library. |
-| Group | A group is an ordered collection of supported library entities or media ranges whose membership is curated or resolved dynamically. |
-| Raw segment | A raw segment is a stored point or time range attached to a video, image, or audio record. |
-| Segment | A segment is a display-ready video point or time range resolved from one or more raw segments by a display profile or query. |
-| Sub-video | A sub-video is a child video record that presents a defined time range of its parent video. |
-| Compilation | A compilation is a group configured to play ordered videos or video ranges back to back. |
-| Dynamic group | A dynamic group is a collection whose membership updates from rules, activity, or saved intent. |
-| Saved filter | A saved filter is a reusable set of search and filter criteria for returning to the same library view. |
+| [Tag](../reference/tags/) | A tag is reusable metadata applied to records to describe, classify, or filter them. |
+| [Performer](../reference/performers/) | A performer is a person or identity associated with media in the library. |
+| [Studio](../reference/studios/) | A studio is an organization, publisher, or source associated with media in the library. |
+| [Group](../reference/groups/) | A group is an ordered collection of supported library entities or media ranges whose membership is curated or resolved dynamically. |
+| [Raw segment](../reference/raw-segments/) | A raw segment is a stored point or time range attached to a video, image, or audio record. |
+| [Segment](../reference/segments/) | A segment is a display-ready video point or time range resolved from one or more raw segments by a display profile or query. |
+| [Sub-video](../reference/sub-videos/) | A sub-video is a child video record that presents a defined time range of its parent video. |
+| [Compilation](../reference/compilations/) | A compilation is a group configured to play ordered videos or video ranges back to back. |
+| [Dynamic group](../reference/dynamic-groups/) | A dynamic group is a collection whose membership updates from rules, activity, or saved intent. |
+| [Saved filter](../reference/saved-filters/) | A saved filter is a reusable set of search and filter criteria for returning to the same library view. |
 
 See [Organizing your library](../user/library/organizing/) and [Segments and compilations](../user/library/segments-and-compilations/) for the relationships between these concepts.
 
@@ -43,14 +43,14 @@ See [Organizing your library](../user/library/organizing/) and [Segments and com
 
 | Term | Description |
 | --- | --- |
-| Scan | A scan is the process that examines configured library paths and reconciles supported files with Cove records. |
-| Intake | Intake is the workflow that brings new media and its available metadata into the library for review or storage. |
-| Metadata | Metadata is descriptive or organizational information associated with a media or connected record. |
-| Metadata provider | A metadata provider is an integration that supplies metadata to Cove from an external or extension-defined source. |
-| Scraper | A scraper is a provider that searches for or extracts metadata about an existing library item. |
-| Downloader | A downloader is a provider that retrieves new media from a supported source into Cove's intake workflow. |
-| Metadata server | A metadata server is an external catalog service that Cove queries for structured metadata and artwork. |
-| Provenance | Provenance is Cove's record of where a metadata value came from and how it entered the library. |
+| [Scan](../reference/scans/) | A scan is the process that examines configured library paths and reconciles supported files with Cove records. |
+| [Intake](../reference/intake/) | Intake is the workflow that brings new media and its available metadata into the library for review or storage. |
+| [Metadata](../reference/metadata/) | Metadata is descriptive or organizational information associated with a media or connected record. |
+| [Metadata provider](../reference/metadata-providers/) | A metadata provider is an integration that supplies metadata to Cove from an external or extension-defined source. |
+| [Scraper](../reference/scrapers/) | A scraper is a provider that searches for or extracts metadata about an existing library item. |
+| [Downloader](../reference/downloaders/) | A downloader is a provider that retrieves new media from a supported source into Cove's intake workflow. |
+| [Metadata server](../reference/metadata-servers/) | A metadata server is an external catalog service that Cove queries for structured metadata and artwork. |
+| [Provenance](../reference/provenance/) | Provenance is Cove's record of where a metadata value came from and how it entered the library. |
 
 See [Providers, scrapers, and downloaders](../user/metadata/providers-scrapers-downloaders/) and [Metadata provenance](../user/metadata/provenance/) for workflow details.
 
@@ -58,12 +58,12 @@ See [Providers, scrapers, and downloaders](../user/metadata/providers-scrapers-d
 
 | Term | Description |
 | --- | --- |
-| Extension | An extension is an installable package that adds one or more capabilities to Cove through supported contracts. |
-| Extension point | An extension point is a host-defined contract or location where an extension can contribute behavior or content. |
-| Contribution | A contribution is one specific capability, UI element, service, or declaration supplied by an extension. |
-| Manifest | A manifest is the `extension.json` metadata that identifies an extension and declares its compatibility, assets, settings, dependencies, and permissions. |
-| UI extension | A UI extension is a compiled extension capability that declares pages, slots, tabs, settings, actions, appearance, or other frontend contributions. |
-| Manifest-only extension | A manifest-only extension is an installable bundle or scraper pack whose contributions do not require a compiled extension assembly. |
+| [Extension](../reference/extensions/) | An extension is an installable package that adds one or more capabilities to Cove through supported contracts. |
+| [Extension point](../reference/extension-points/) | An extension point is a host-defined contract or location where an extension can contribute behavior or content. |
+| [Contribution](../reference/contributions/) | A contribution is one specific capability, UI element, service, or declaration supplied by an extension. |
+| [Manifest](../reference/manifests/) | A manifest is the `extension.json` metadata that identifies an extension and declares its compatibility, assets, settings, dependencies, and permissions. |
+| [UI extension](../reference/ui-extensions/) | A UI extension is a compiled extension capability that declares pages, slots, tabs, settings, actions, appearance, or other frontend contributions. |
+| [Manifest-only extension](../reference/manifest-only-extensions/) | A manifest-only extension is an installable bundle or scraper pack whose contributions do not require a compiled extension assembly. |
 
 See [Extension architecture](../developer/extensions/overview/) and [Extension points](../developer/extensions/extension-points/) for the host model and complete capability catalog.
 
@@ -71,14 +71,14 @@ See [Extension architecture](../developer/extensions/overview/) and [Extension p
 
 | Term | Description |
 | --- | --- |
-| Instance | An instance is one independently configured Cove installation with its own library, database, settings, and users. |
-| User | A user is a person or service identity that signs in to a Cove instance. |
-| Owner | The owner is the initial administrative account with authority to configure an instance and delegate access. |
-| Role | A role is a reusable collection of permissions assigned to users. |
-| Role assignment | A role assignment connects a user to a role and its permissions. |
-| Permission | A permission is a named authorization to perform a particular operation or access a protected capability. |
-| Content rule | A content rule can grant or restrict scoped read access to matching records, including granting access without a direct role read permission, while write and delete rules only restrict permissions the role already has. |
-| API token | An API token, also called a personal access token (PAT) in technical contexts, is a revocable credential that lets a client use Cove's API within an explicitly granted scope. |
-| Share link | A share link is a limited URL that grants access to selected content without exposing the full library. |
+| [Instance](../reference/instances/) | An instance is one independently configured Cove installation with its own library, database, settings, and users. |
+| [User](../reference/users/) | A user is a person or service identity that signs in to a Cove instance. |
+| [Owner](../reference/owners/) | The owner is the initial administrative account with authority to configure an instance and delegate access. |
+| [Role](../reference/roles/) | A role is a reusable collection of permissions assigned to users. |
+| [Role assignment](../reference/role-assignments/) | A role assignment connects a user to a role and its permissions. |
+| [Permission](../reference/permissions/) | A permission is a named authorization to perform a particular operation or access a protected capability. |
+| [Content rule](../reference/content-rules/) | A content rule can grant or restrict scoped read access to matching records, including granting access without a direct role read permission, while write and delete rules only restrict permissions the role already has. |
+| [API token](../reference/api-tokens/) | An API token, also called a personal access token (PAT) in technical contexts, is a revocable credential that lets a client use Cove's API within an explicitly granted scope. |
+| [Share link](../reference/share-links/) | A share link is a limited URL that grants access to selected content without exposing the full library. |
 
 See [Users, roles, and permissions](../user/security/users-roles-permissions/) for the access model.

@@ -1,0 +1,24 @@
+---
+title: Performers
+description: Reference for people and identities associated with media.
+---
+
+A performer is a reusable person or identity record associated with media. One performer can connect many items without repeating identity metadata on each item.
+
+## Record model
+
+Performer data can include a name, disambiguation, aliases, dates, measurements, gender or identity values, career information, details, favorite state, tags, URLs, remote IDs, custom fields, and imagery. Which fields are populated depends on manual editing and metadata providers.
+
+## Relationships
+
+Videos, images, galleries, audio, and text can relate to performers. A relationship can carry contextual tags for that occurrence without adding those tags to every appearance or to the performer globally. A dated media item can derive age-at-date from performer date information without storing that derived display value as the performer's current age.
+
+## Identity and provenance
+
+Aliases help search and matching; remote IDs connect the local record to provider-specific identities. Neither should be treated as a globally unique name. Imported fields can retain provenance independently, so one record may combine manual and provider-sourced values.
+
+## Related reference
+
+- [Tags](../tags/)
+- [Studios](../studios/)
+- [Provenance](../provenance/)

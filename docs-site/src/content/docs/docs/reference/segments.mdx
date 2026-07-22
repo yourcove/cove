@@ -1,0 +1,26 @@
+---
+title: Segments
+description: Reference for display-ready ranges resolved from raw segments.
+---
+
+A segment is a display-ready video point or time range resolved from one or more [raw segments](../raw-segments/). It is a query result or presentation unit, not necessarily one stored database record.
+
+## Composition
+
+A display profile selects qualifying raw segments and applies ordered rules. Compatible intervals can be merged across small gaps, short intervals can be excluded, points can remain instantaneous, and presentation metadata such as color, lane, and priority can be overridden.
+
+Because one displayed segment can be composed from several raw segments, editing or deleting the display result is not equivalent to changing one source record. Inspect raw segments when source, confidence, or exact boundaries matter.
+
+## Uses
+
+Segments can support timeline display, filtering, navigation, and group membership. A group item can snapshot or refer to a segment-derived video range. A sub-video is different: it is a persistent child video record with its own metadata and a playable parent range.
+
+## Availability
+
+The active display profile can be system-defined or user-specific. Different profiles can present different segments from the same raw data without rewriting those inputs. Segment visibility and editing also depend on access permissions.
+
+## Related reference
+
+- [Raw segments](../raw-segments/)
+- [Sub-videos](../sub-videos/)
+- [Compilations](../compilations/)

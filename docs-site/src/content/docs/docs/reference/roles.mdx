@@ -1,0 +1,26 @@
+---
+title: Roles
+description: Reference for reusable collections of action permissions.
+---
+
+A role is a reusable collection of permissions assigned to users. It grants classes of operations; it does not identify a user and does not by itself select which matching content is visible.
+
+## Composition
+
+Roles bundle named permissions for media, metadata, files, scans, jobs, extensions, settings, users, and other protected capabilities exposed by the instance. A user can receive more than one role through role assignments, and authorization considers their combined applicable grants.
+
+## Relationship to content rules
+
+Read-scoped content rules can grant access to matching records even when the role lacks the corresponding general read permission. Write and delete rules are restrictive: the role must already grant the action, and a rule can narrow where it applies but cannot create the missing write or delete permission.
+
+An explicit entity denial wins over other decisions; otherwise an explicit entity allowance wins, and among matching content rules an allowance wins over matching denials. Use the UI's current rule model when evaluating a concrete case.
+
+## Lifecycle
+
+Editing a role changes authorization for all current assignments. Deleting a role removes that source of permissions but does not delete its users or their library records.
+
+## Related reference
+
+- [Permissions](../permissions/)
+- [Role assignments](../role-assignments/)
+- [Content rules](../content-rules/)

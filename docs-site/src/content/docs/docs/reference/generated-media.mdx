@@ -1,0 +1,26 @@
+---
+title: Generated media
+description: Reference for derivative assets created from library content.
+---
+
+Generated media is derivative content Cove or an extension creates from source media. Examples include covers, thumbnails, previews, sprites, transcodes, fingerprints, embeddings, and analysis images.
+
+## Boundary from source media
+
+Generated assets support presentation, playback, search, or analysis. They do not replace the primary media record and are not necessarily stored beside the source file. A source can therefore remain intact while generated output is rebuilt or removed.
+
+Selected cover art can be generated, imported, or user supplied. Fingerprints and embeddings may be persisted as technical or analysis data rather than exposed as ordinary browsable media.
+
+## Lifecycle
+
+Generation can run during scanning or as a background job requested later. Availability depends on media type, attached files, configured generators, job services, permissions, and extensions. A failed or missing derivative does not by itself mean the source record is invalid.
+
+Generated output is generally reproducible, but user-selected or imported artwork may not be. Backup policy should distinguish disposable caches from assets that cannot be recreated.
+
+Bulk deletion can expose a generated-files choice separately from record and source-file deletion. Removing generated assets can affect thumbnails, previews, or analysis until jobs recreate them.
+
+## Related reference
+
+- [Media](../media/)
+- [Scans](../scans/)
+- [Library paths](../library-paths/)

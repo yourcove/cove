@@ -1,0 +1,26 @@
+---
+title: Scans
+description: Reference for filesystem discovery and record reconciliation.
+---
+
+A scan examines configured [library paths](../library-paths/) and reconciles supported files with Cove records. It observes the filesystem from Cove's runtime; it is not a backup, importer for every format, or general-purpose file mover.
+
+## Inputs and recognition
+
+Scans operate on configured roots and supported file patterns. File type, path layout, sidecars, and enabled scanners influence what can be recognized. Container installations expose mounted container paths, not the host paths outside the container.
+
+## Reconciliation
+
+A scan can create records for newly recognized files, refresh technical metadata, associate sidecars, notice unavailable paths, and queue configured analysis or generated-media work. Existing user metadata and relationships are record data and are not simply replaced because a file is observed again.
+
+Renames and moves can be matched only when Cove has enough stable evidence. Treat large filesystem reorganizations as a controlled operation with a current backup and verify the resulting associations.
+
+## Access and effects
+
+Starting and managing scans requires the corresponding permissions. Extensions can contribute scanners and post-scan behavior. A read-only library path can be scanned; operations that rename or delete source files require write access.
+
+## Related reference
+
+- [Library paths](../library-paths/)
+- [Intake](../intake/)
+- [Generated media](../generated-media/)

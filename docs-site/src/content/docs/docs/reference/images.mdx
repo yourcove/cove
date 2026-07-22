@@ -1,0 +1,29 @@
+---
+title: Images
+description: Reference for Cove image records and their relationships.
+---
+
+An image is a primary media record for one still image. The record owns descriptive metadata and relationships; its attached image file owns technical values such as path, dimensions, format, size, and fingerprints.
+
+## Record model
+
+An image can carry a title, date, details, organized state, and created and updated timestamps. It can relate to tags, performers, a studio, galleries, groups, URLs, and custom fields. Configured providers or extensions can add analysis and actions.
+
+An image can participate in raw segments as a point-like host. It can also carry detections produced by analysis services. Those records are separate from whole-image tags and performer relationships.
+
+## Galleries and files
+
+An image can belong to more than one gallery. Gallery membership supplies collection context without changing the image's own identity or metadata.
+
+Source files are separate from generated thumbnails, previews, and analysis output. Record deletion and source-file deletion are distinct; deleting a source file requires a writable library path.
+
+## Interface and availability
+
+Image lists support search, filters, sorts, selection actions, and extension contributions. Detail controls depend on image, file, metadata, and job permissions. Similarity or detection surfaces appear only when the corresponding service is configured.
+
+## Related reference
+
+- [Media](../media/)
+- [Galleries](../galleries/)
+- [Raw segments](../raw-segments/)
+- [Generated media](../generated-media/)

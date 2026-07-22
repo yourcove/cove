@@ -1,0 +1,26 @@
+---
+title: Audio
+description: Reference for Cove audio records, tracks, and files.
+---
+
+Audio is a primary media record for sound content without a required video component. Its descriptive identity is separate from attached audio files and their technical properties.
+
+## Record model
+
+An audio record can contain a title, date, details, organized state, studio, tags, performers, groups, URLs, custom fields, and cover art. Audio tracks can describe subdivisions such as named or numbered tracks without turning each subdivision into a separate primary record.
+
+Attached files carry path, size, duration, codec and other discovered technical values. A record can be present while its file is temporarily unavailable or before a downloader supplies it.
+
+## Timeline data
+
+Audio can host raw segments. These can represent points or ranges such as chapters, annotations, or analysis output. Unlike video segments, they do not currently become video sub-clips.
+
+## Availability
+
+Playback, file operations, metadata workflows, generated assets, and extension actions depend on the signed-in user's permissions and configured services. Deleting a record and deleting its source file remain separate choices.
+
+## Related reference
+
+- [Media](../media/)
+- [Raw segments](../raw-segments/)
+- [Downloaders](../downloaders/)

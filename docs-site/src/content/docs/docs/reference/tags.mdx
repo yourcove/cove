@@ -1,0 +1,24 @@
+---
+title: Tags
+description: Reference for reusable classification metadata.
+---
+
+A tag is a reusable metadata record applied to library entities to describe, classify, or filter them. Reusing one tag preserves a stable identity across records; free-text descriptions do not create that relationship.
+
+## Record model
+
+A tag has a name and can have a description, aliases, parent relationships, a tag group or category, URLs, remote IDs, imagery, and provenance. Aliases improve matching without becoming separate tags. Parent relationships express a vocabulary hierarchy; they do not automatically make every parent an explicit tag on tagged media.
+
+## Applications
+
+Ordinary relationships tag an entire video, image, gallery, audio item, text document, group, performer, or studio where supported. Contextual tag applications can instead describe an occurrence—such as a performer within a video—or a host range. A raw segment can also point to a tag while preserving its own timing and source.
+
+## Identity and lifecycle
+
+Renaming a tag keeps its relationships because records refer to tag identity, not display text. Merging or deleting a tag can affect many library records and should be reviewed as a vocabulary change. Provider remote IDs help reconnect imported metadata to the same external concept.
+
+## Related reference
+
+- [Metadata](../metadata/)
+- [Performers](../performers/)
+- [Raw segments](../raw-segments/)

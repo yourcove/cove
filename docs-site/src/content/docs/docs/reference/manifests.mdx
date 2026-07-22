@@ -1,0 +1,30 @@
+---
+title: Manifests
+description: Reference for extension.json package metadata and declarations.
+---
+
+A manifest is the `extension.json` file that identifies an extension and declares its package metadata. Cove reads it before activating package contributions.
+
+## Identity and metadata
+
+Core fields identify the extension by stable ID, display name, and version. Optional metadata can describe the author, description, project URL, categories, and assets. The ID is a machine identity and should not change merely because the display name changes.
+
+## Compatibility and dependencies
+
+A manifest can declare a minimum Cove version and extension dependencies. These fields help Cove decide whether the package can be loaded; they do not guarantee that code using undocumented internals remains compatible.
+
+## Contributions and assets
+
+The manifest can point to compiled assemblies, frontend modules, scraper definitions, bundles, settings, and other supported package assets. It can also declare requested host and network permissions. The exact schema depends on the manifest version and contribution type.
+
+Permission declarations are review and compatibility metadata, not a runtime security sandbox. Installation should still be treated as running trusted code within the Cove process.
+
+## Validation
+
+Use the repository packaging workflow to assemble the final bundle and validate its manifest. Validate the packaged artifact, not only the source file, because paths and generated assets are resolved in package context.
+
+## Related reference
+
+- [Extensions](../extensions/)
+- [Create an extension](../../developer/extensions/create-extension/)
+- [Extension permissions](../../developer/extensions/permissions/)

@@ -1,0 +1,26 @@
+---
+title: Role assignments
+description: Reference for connections between users and roles.
+---
+
+A role assignment connects one user to one role and makes that role's permissions available during authorization. It is the membership edge between identities and reusable policy.
+
+## Evaluation
+
+A user can have multiple assignments. Applicable permission grants combine with ownership, explicit entity decisions, and content rules when Cove evaluates a protected operation. The assignment does not copy permissions into the user, so later role edits affect assigned users.
+
+## Scope and lifecycle
+
+Assignments are local to an instance. They do not transfer through a copied username or external identity unless an import or provisioning workflow explicitly creates the corresponding local assignment.
+
+Removing an assignment revokes that role as a source of future authorization. It does not revoke unrelated roles, delete API tokens, end every existing session, or undo actions the user already performed. Review all authentication and authorization paths when offboarding an account.
+
+## Design guidance
+
+Prefer roles that describe stable responsibilities and assignments that describe who currently holds them. Creating a one-off role for every user can make policy harder to audit unless their access truly is unique.
+
+## Related reference
+
+- [Users](../users/)
+- [Roles](../roles/)
+- [Permissions](../permissions/)

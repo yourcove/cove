@@ -1,0 +1,26 @@
+---
+title: API tokens
+description: Reference for revocable credentials used by API clients.
+---
+
+An API token—also called a personal access token (PAT) in technical contexts—is a revocable credential that lets a client use Cove's API within an explicitly granted scope.
+
+## Principal and scope
+
+A token belongs to a local user. Requests authenticate as that user and remain subject to the token's scopes plus the user's roles, permissions, content rules, and instance state. Give an integration a dedicated local user when it needs an identity separate from a person. A token cannot safely be treated as portable between instances.
+
+## Secret lifecycle
+
+The secret value is sensitive authentication material and may be shown only when created. Store it in a secret manager or protected environment variable, never in source control, screenshots, logs, issue bodies, or shared URLs.
+
+Use separate, narrowly scoped tokens for different integrations. Revocation stops future authentication with that token without changing the user's password, other tokens, or historical audit events. Rotation means provisioning a replacement, updating the client, verifying it, and then revoking the old credential.
+
+## Use
+
+Send the token only over a trusted connection using the authentication scheme documented by the running instance's API. The OpenAPI document describes current routes and request schemas; it does not expose the token secret.
+
+## Related reference
+
+- [Users](../users/)
+- [Permissions](../permissions/)
+- [API surface](../../developer/api/overview/)

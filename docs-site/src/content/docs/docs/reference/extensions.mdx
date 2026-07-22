@@ -1,0 +1,26 @@
+---
+title: Extensions
+description: Reference for installable Cove capability packages.
+---
+
+An extension is an installable package that adds one or more capabilities through supported Cove contracts. The package is the unit of identity, compatibility, dependency resolution, installation, enablement, and removal.
+
+## Package identity
+
+Every extension has an `extension.json` [manifest](../manifests/) containing its stable ID, name, version, and declarations. A package can include a compiled backend assembly, frontend assets, declarative scraper definitions, dependencies, or a combination of these.
+
+## Lifecycle
+
+Cove discovers and validates installed packages, resolves dependencies and compatibility, constructs eligible compiled extensions, registers their services and contributions, and activates them with the host. Disabling or removing an extension makes its contributions unavailable; data previously written by it can remain.
+
+## Capability boundary
+
+An extension participates through extension points rather than replacing arbitrary host internals. It can contribute providers, services, jobs, API routes, settings, UI elements, fields, filters, sorts, themes, and other declared capabilities. Exact availability depends on the installed Cove version and the contracts used.
+
+An extension runs inside Cove's trust boundary. Manifest permissions communicate requested access but are not a process or network sandbox. Review packages and their source before installation.
+
+## Related reference
+
+- [Manifests](../manifests/)
+- [Extension points](../extension-points/)
+- [Contributions](../contributions/)

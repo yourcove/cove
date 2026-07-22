@@ -1,0 +1,26 @@
+---
+title: Raw segments
+description: Reference for stored points and time ranges on media.
+---
+
+A raw segment is a stored point or time range attached to one video, image, or audio host. It preserves source-level timing and meaning before display rules combine or suppress records.
+
+## Record model
+
+A raw segment identifies its host and start time, with an optional end time. It can also carry a tag, kind, external reference, structured payload, source key, source run, confidence, title, color hint, and image reference.
+
+An absent end represents a point. On video and audio, a start/end pair represents a timed interval. Images can host point-like segment data for annotations or detections even though they have no playback timeline.
+
+## Sources
+
+Users, metadata providers, analyzers, and extensions can create raw segments. `SourceKey` identifies the producer class, while a source run can tie records to one execution. Confidence and payload let downstream display rules interpret automated output without flattening it into manual metadata.
+
+## Resolution
+
+Display profiles filter raw segments by source, kind, tag, category, host type, confidence, or duration. Rules can hide, merge, collapse, recolor, prioritize, or lane qualifying records. The resulting display-ready unit is a [segment](../segments/); the raw records remain the provenance-bearing input.
+
+## Related reference
+
+- [Segments](../segments/)
+- [Sub-videos](../sub-videos/)
+- [Provenance](../provenance/)
