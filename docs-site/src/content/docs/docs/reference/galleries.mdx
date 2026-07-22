@@ -3,21 +3,38 @@ title: Galleries
 description: Reference for image collections in Cove.
 ---
 
+import MediaReferenceTable from '../../../../components/reference/MediaReferenceTable.astro';
+import { galleryReference } from '../../../../data/reference/media';
+
 A gallery is a primary media record that presents related images as one browsable item. It has its own identity and metadata; it is not merely the directory containing its image files.
 
-## Record model
+## Descriptive fields
 
-A gallery can carry a title, date, details, organized state, studio, tags, performers, groups, URLs, custom fields, and cover imagery. Gallery chapters can define named divisions within the ordered image sequence.
+<MediaReferenceTable reference={galleryReference} section="fields" />
 
-## Membership
+## Relationships
 
-Gallery membership connects existing image records to the gallery. An image can belong to multiple galleries, and its shared metadata remains on the image record. Removing membership therefore does not inherently delete the image record or file.
+<MediaReferenceTable reference={galleryReference} section="relationships" />
 
-Some gallery workflows discover images from a gallery-associated path, while others organize images that already exist in the library. The gallery record is the stable collection boundary in both cases.
+## Files and technical values
 
-## Lifecycle and access
+<MediaReferenceTable reference={galleryReference} section="files" />
 
-Editing the gallery and editing a member image are separate operations with separate permission checks. Deleting a gallery removes the collection and its relationships; it does not inherently delete member image records or their source files.
+## Capabilities
+
+<MediaReferenceTable reference={galleryReference} section="capabilities" />
+
+## Availability and requirements
+
+<MediaReferenceTable reference={galleryReference} section="availability" />
+
+## Lifecycle and deletion
+
+<MediaReferenceTable reference={galleryReference} section="lifecycle" />
+
+## Gallery-specific structure
+
+Some workflows discover images from a gallery-associated path, while others organize image records already in the library. The gallery remains the stable collection boundary in both cases. Chapters store a title and image index for API workflows, but the current core UI does not surface them and image membership itself does not store an order.
 
 ## Related reference
 

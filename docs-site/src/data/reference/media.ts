@@ -172,6 +172,64 @@ export const audioReference = defineMediaReference({
   ],
 });
 
+export const galleryReference = defineMediaReference({
+  fields: [
+    { name: 'Title', meaning: 'Display title for the gallery.' },
+    { name: 'Date', meaning: 'Calendar date associated with the gallery.' },
+    { name: 'Code', meaning: 'Studio- or publisher-assigned catalog code.' },
+    { name: 'Photographer', meaning: 'Free-text photographer value.' },
+    { name: 'Details', meaning: 'Longer free-text description.' },
+    { name: 'Organized', meaning: 'User-managed organization state.' },
+    { name: 'Cover imagery', meaning: 'Front, back, or selected member imagery used to represent the gallery.' },
+    { name: 'Created and Updated', meaning: 'Timestamps maintained by Cove for the record.' },
+  ],
+  relationships: [
+    { name: 'Studio', cardinality: 'Zero or one', behavior: 'Primary studio associated with the gallery.' },
+    { name: 'Tags', cardinality: 'Zero or more', behavior: 'Reusable classification metadata.' },
+    { name: 'Performers', cardinality: 'Zero or more', behavior: 'Associated performer identities.' },
+    { name: 'Images', cardinality: 'Zero or more', behavior: 'Member images; membership does not store an image order.' },
+    { name: 'Videos', cardinality: 'Zero or more', behavior: 'Related video records displayed separately from member images.' },
+    { name: 'Groups', cardinality: 'Zero or more', behavior: 'Group memberships that include the gallery.' },
+    { name: 'URLs', cardinality: 'Zero or more', behavior: 'External links associated with the record.' },
+    { name: 'Custom Fields', cardinality: 'Zero or more', behavior: 'Administrator-defined gallery fields and values.' },
+  ],
+  files: [
+    { name: 'Folder path', meaning: 'Configured folder backing a folder-based gallery; it can be present without a directly attached gallery file.' },
+    { name: 'Path', meaning: 'Cove-visible path for a file attached directly to the gallery.' },
+    { name: 'File Size', meaning: 'Size in bytes, formatted for display.' },
+    { name: 'Modified', meaning: 'Filesystem modification time discovered during scanning.' },
+    { name: 'Fingerprints', meaning: 'Available hashes for the attached file.' },
+    { name: 'Member image files', meaning: 'Belong to the related image records rather than to the gallery record.' },
+  ],
+  capabilities: [
+    { name: 'Library list', support: 'Built in', behavior: 'Supports search, filters, sorts, display modes, selection actions, and extension contributions.' },
+    { name: 'Image membership', support: 'Supported', behavior: 'Collects existing image records without transferring their identity or metadata.' },
+    { name: 'Related videos', support: 'Supported', behavior: 'Associates videos with the gallery independently of image membership.' },
+    { name: 'Chapters', support: 'Supported', behavior: 'Stores a title and image index as API metadata; the current core gallery UI does not surface chapters.' },
+    { name: 'Engagement', support: 'Supported', behavior: 'Ratings and favorites are user-specific rather than shared descriptive fields.' },
+    { name: 'Playback', support: 'Not applicable', behavior: 'The gallery is a collection record rather than one playable media source.' },
+  ],
+  availability: [
+    { name: 'Browsing and detail', requirement: 'Requires gallery-read access; content rules can further determine which records are visible.' },
+    { name: 'Editing', requirement: 'Requires gallery-write access.' },
+    { name: 'Editing a member image', requirement: 'Requires image-write access; gallery-write access does not grant authority over the image record.' },
+    { name: 'Deletion', requirement: 'Requires gallery-delete access.' },
+    { name: 'Images tab', requirement: 'Requires image-read access in addition to access to the gallery.' },
+    { name: 'Videos tab', requirement: 'Requires video-read access in addition to access to the gallery.' },
+    { name: 'File Info tab', requirement: 'Requires gallery-read access; unlike Video File Info, it does not add a file-read requirement.' },
+    { name: 'Rescan', requirement: 'Requires library-scan access and an attached folder or file path.' },
+    { name: 'Extension surfaces', requirement: 'Appear only when the contributing extension is installed and enabled and the operation is authorized.' },
+  ],
+  lifecycle: [
+    { operation: 'Create without members', effect: 'A gallery can exist before images or videos are associated with it.' },
+    { operation: 'Add or remove image membership', effect: 'Changes the collection relationship without changing or deleting the image record or source file.' },
+    { operation: 'Add or remove a related video', effect: 'Changes only the gallery relationship to that video.' },
+    { operation: 'Delete gallery', effect: 'Removes the gallery and foreign-key-backed relationships such as image and video memberships without deleting those records.' },
+    { operation: 'Existing group items', effect: 'Generic group-item references to a deleted gallery are not removed automatically.' },
+    { operation: 'Source-file deletion', effect: 'Gallery deletion does not offer deletion of member image files, related video files, or directly attached gallery files.' },
+  ],
+});
+
 export const imageReference = defineMediaReference({
   fields: [
     { name: 'Title', meaning: 'Display title for the image.' },
