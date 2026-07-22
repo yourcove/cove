@@ -1,6 +1,8 @@
 ---
 import DefaultHead from '@astrojs/starlight/components/Head.astro';
 import manropeLatinUrl from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
+import { isProductionDeployment } from '../../lib/deployment';
+import { getAbsoluteUrl } from '../../lib/seo';
 import { getDocPageSchema } from '../../lib/seo';
 
 const { entry } = Astro.locals.starlightRoute;
@@ -9,8 +11,10 @@ const pageSchema = getDocPageSchema({
   description: entry.data.description ?? '',
   pathname: Astro.url.pathname,
 });
+const isProduction = isProductionDeployment();
 ---
 
 <DefaultHead />
+{!isProduction && <link rel="canonical" href={getAbsoluteUrl(Astro.url.pathname)} />}
 <link rel="preload" href={manropeLatinUrl} as="font" type="font/woff2" crossorigin="anonymous" />
 <script is:inline type="application/ld+json" set:html={JSON.stringify(pageSchema)} />

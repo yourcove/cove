@@ -2,14 +2,21 @@ import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
+import { isProductionDeployment, PREVIEW_ROBOTS, PRODUCTION_ROBOTS } from './src/lib/deployment.ts';
 import { COVE_REPO, COVE_SITE } from './src/lib/site.ts';
 import { DEFAULT_OG_IMAGE, SITE_DESCRIPTION, SITE_NAME, getAbsoluteUrl, getDocsSiteSchema } from './src/lib/seo.ts';
 
 const [, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
-const site = process.env.SITE_URL ?? COVE_SITE;
-const isGitHubPages = site.includes('github.io');
+const configuredSite = process.env.SITE_URL ?? COVE_SITE;
+const isProduction = isProductionDeployment();
+const site = isProduction ? configuredSite : undefined;
+const isGitHubPages = configuredSite.includes('github.io');
 const base = isGitHubPages && repo ? `/${repo}/` : '/';
 const docsOgImage = getAbsoluteUrl(DEFAULT_OG_IMAGE, site);
+const sitemapUrl = new URL('sitemap-index.xml', `${configuredSite.replace(/\/+$/, '')}/`).href;
+// Starlight otherwise adds its sitemap integration automatically, even when a preview
+// intentionally has no public site URL. This named no-op keeps previews warning-free.
+const previewSitemap = { name: '@astrojs/sitemap', hooks: {} };
 
 export default defineConfig({
   site,
@@ -21,6 +28,7 @@ export default defineConfig({
       titleDelimiter: '\u00B7',
       favicon: '/favicon.svg',
       components: {
+        Banner: './src/components/starlight/Banner.astro',
         Head: './src/components/starlight/Head.astro',
         PageTitle: './src/components/starlight/PageTitle.astro',
         SiteTitle: './src/components/starlight/SiteTitle.astro',
@@ -38,9 +46,18 @@ export default defineConfig({
           tag: 'meta',
           attrs: {
             name: 'robots',
-            content: 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
+            content: isProduction ? PRODUCTION_ROBOTS : PREVIEW_ROBOTS,
           },
         },
+        ...(isProduction
+          ? [{
+              tag: 'link',
+              attrs: {
+                rel: 'sitemap',
+                href: sitemapUrl,
+              },
+            }]
+          : []),
         {
           tag: 'meta',
           attrs: {
@@ -144,6 +161,6 @@ export default defineConfig({
       credits: false,
     }),
     mdx(),
-    sitemap(),
+    isProduction ? sitemap() : previewSitemap,
   ],
 });

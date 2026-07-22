@@ -1,0 +1,34 @@
+---
+import { COVE_SITE } from '../lib/site';
+---
+
+<aside class="preview-notice" data-preview-notice aria-label="Documentation preview">
+  <strong>Documentation preview</strong>
+  <span>This site may contain unfinished changes. <a href={COVE_SITE}>Open the production site.</a></span>
+</aside>
+
+<style>
+  .preview-notice {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.35rem 0.75rem;
+    padding: 0.7rem 1rem;
+    border-block: 1px solid rgba(251, 191, 36, 0.5);
+    background: #422006;
+    color: #fef3c7;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  .preview-notice strong {
+    color: #fbbf24;
+  }
+
+  .preview-notice a {
+    color: inherit;
+    text-decoration-thickness: 0.08em;
+    text-underline-offset: 0.15em;
+  }
+</style>

@@ -1,0 +1,10 @@
+---
+import DefaultBanner from '@astrojs/starlight/components/Banner.astro';
+import PreviewNotice from '../PreviewNotice.astro';
+import { isProductionDeployment } from '../../lib/deployment';
+
+const showPreviewNotice = !isProductionDeployment();
+---
+
+<DefaultBanner />
+{showPreviewNotice && <PreviewNotice />}

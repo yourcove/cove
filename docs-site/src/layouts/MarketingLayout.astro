@@ -3,6 +3,8 @@ import '../styles/global.css';
 import manropeLatinUrl from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
 import CoveWordmark from '../components/CoveWordmark.astro';
 import MarketingSeo from '../components/MarketingSeo.astro';
+import PreviewNotice from '../components/PreviewNotice.astro';
+import { isProductionDeployment } from '../lib/deployment';
 import { withBase } from '../lib/paths';
 import { SITE_DESCRIPTION } from '../lib/seo';
 
@@ -35,6 +37,7 @@ const navItems = [
 ];
 
 const currentPath = Astro.url.pathname;
+const showPreviewNotice = !isProductionDeployment();
 ---
 
 <!doctype html>
@@ -56,6 +59,7 @@ const currentPath = Astro.url.pathname;
     />
   </head>
   <body class="marketing-body">
+    {showPreviewNotice && <PreviewNotice />}
     <header class="site-header">
       <div class="site-header-inner">
         <a class="brand-lockup" href={withBase('')} aria-label="Cove home">

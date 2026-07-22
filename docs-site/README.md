@@ -17,6 +17,13 @@ npm --prefix docs-site run dev
 npm --prefix docs-site run build
 ```
 
+Builds default to preview behavior: pages show a preview notice, ask crawlers not
+to index them, and do not publish a sitemap. Production deployments must opt in:
+
+```bash
+COVE_DOCS_DEPLOYMENT=production npm --prefix docs-site run build
+```
+
 ## Notes
 
 - The docs side is split into user docs and developer docs.

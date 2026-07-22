@@ -6,6 +6,8 @@ import {
   getAbsoluteUrl,
   getMarketingPageSchemas,
 } from '../lib/seo';
+import { isProductionDeployment, PREVIEW_ROBOTS, PRODUCTION_ROBOTS } from '../lib/deployment';
+import { withBase } from '../lib/paths';
 
 interface Props {
   title: string;
@@ -27,6 +29,7 @@ const {
 
 const canonicalUrl = getAbsoluteUrl(Astro.url.pathname, Astro.site);
 const ogImageUrl = getAbsoluteUrl(imagePath, Astro.site);
+const isProduction = isProductionDeployment();
 const schema = [
   ...getMarketingPageSchemas({
     title,
@@ -40,8 +43,8 @@ const schema = [
 ---
 
 <link rel="canonical" href={canonicalUrl} />
-<link rel="sitemap" href={getAbsoluteUrl('/sitemap-index.xml', Astro.site)} />
-<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+{isProduction && <link rel="sitemap" href={getAbsoluteUrl(withBase('sitemap-index.xml'), Astro.site)} />}
+<meta name="robots" content={isProduction ? PRODUCTION_ROBOTS : PREVIEW_ROBOTS} />
 <meta name="application-name" content={SITE_NAME} />
 <meta property="og:title" content={title} />
 <meta property="og:description" content={description} />
