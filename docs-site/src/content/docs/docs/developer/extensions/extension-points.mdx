@@ -63,7 +63,7 @@ Scrapers declare supported entities, URL patterns, invocation capabilities, pref
 
 Downloaders declare supported entities, URL patterns, and capabilities such as resume, range requests, multiple qualities, or inline metadata. Cove supplies a temporary directory, HTTP clients, logging, and progress reporting through `IDownloaderHost`.
 
-For implementation guidance, see [Create a scraper](./create-scraper/) and [Create a downloader](./create-downloader/).
+For implementation guidance, see [Create a scraper](../create-scraper/) and [Create a downloader](../create-downloader/).
 
 ## Specialized service contributions
 
@@ -82,7 +82,7 @@ These are shared service contracts rather than standalone extension lifecycles; 
 
 Implement `IUIExtension.GetUIManifest` to declare frontend contributions. Ship an ESM bundle when a contribution references a React component or frontend handler, and a CSS asset when the extension needs custom styles. A single `UIManifest` can contain any combination of the following contributions.
 
-See [UI extension points](./ui-extension-points/) for the fields, supported targets, runtime behavior, and limitations of each contribution.
+See [UI extension points](../ui-extension-points/) for the fields, supported targets, runtime behavior, and limitations of each contribution.
 
 ### Additive UI
 
@@ -155,4 +155,4 @@ Start from the user-visible behavior:
 | Own relational data | `IDataExtension` |
 | Customize existing UI | An additive UI contribution first; an override only when replacement is required |
 
-Most full-featured extensions pair one workflow capability with `IUIExtension`, `IApiExtension`, and one storage option. Keep permissions narrow, preserve metadata provenance, and package pre-built backend and frontend artifacts as described in [Packaging](./packaging/).
+Most full-featured extensions pair one workflow capability with `IUIExtension`, `IApiExtension`, and one storage option. Keep permissions narrow, preserve metadata provenance, and package pre-built backend and frontend artifacts as described in [Packaging](../packaging/).

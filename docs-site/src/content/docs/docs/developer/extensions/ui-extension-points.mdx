@@ -5,7 +5,7 @@ description: Detailed reference for Cove pages, slots, tabs, settings, actions, 
 
 A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports that bundle, registers functions from its default export's `components` map, and combines the manifest with contributions from other enabled extensions.
 
-This page describes the UI contributions Cove currently renders. The [general extension-point catalog](./extension-points/) covers backend and provider capabilities.
+This page describes the UI contributions Cove currently renders. The [general extension-point catalog](../extension-points/) covers backend and provider capabilities.
 
 ## Runtime contract
 
@@ -183,4 +183,4 @@ Treat them as reserved contract surface, not working extension points. Shipping 
 | Advertise a host-known capability | `UIFeatureDefinition` |
 | Replace a built-in page | `UIPageOverride`, only when additive points cannot work |
 
-After choosing the contribution, see [Packaging](./packaging/) for the asset layout and [Permissions](./permissions/) for access design.
+After choosing the contribution, see [Packaging](../packaging/) for the asset layout and [Permissions](../permissions/) for access design.
