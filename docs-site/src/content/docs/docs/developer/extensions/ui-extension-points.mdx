@@ -1,6 +1,13 @@
 ---
 title: UI Extension Points
 description: Detailed reference for Cove pages, slots, tabs, settings, actions, themes, list contributions, and UI overrides.
+compatibility:
+  sdk: true
+  sources:
+    - src/Cove.Plugins/IExtension.cs
+    - src/Cove.Sdk/UIManifestBuilder.cs
+    - ui/src/App.tsx
+    - ui/src/extensions/ExtensionLoader.tsx
 ---
 
 A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports that bundle, registers functions from its default export's `components` map, and combines the manifest with contributions from other enabled extensions.

@@ -1,9 +1,25 @@
 ---
 title: Extension Overview
 description: High-level extension architecture and host boundaries in Cove.
+compatibility:
+  sdk: true
+  sources:
+    - src/Cove.Plugins/IExtension.cs
+    - src/Cove.Plugins/ExtensionManager.cs
+    - src/Cove.Sdk/README.md
 ---
 
 Cove’s extension system is meant to be broad enough for real product extensions, not just narrow one-off hooks.
+
+## Version and compatibility boundaries
+
+Three version values answer different questions:
+
+- The **Cove application version** identifies the running host and the contracts it implements.
+- The **Cove.Sdk package version** identifies the compile-time helpers and host contracts used to build an extension. A Cove.Sdk package reference does not set the minimum Cove host version.
+- The manifest's **`minCoveVersion`** is a declared compatibility floor for the application version. It does not select a Cove.Sdk package and is not proof that an extension works on every newer host. Supported **Install from URL** and registry installers enforce `minCoveVersion`. For compiled extensions, startup dependency validation reports a version mismatch as a dependency problem, but the current initialization path may still initialize a package placed directly on disk. Manifest-only `bundle` and `scraper-pack` packages are outside the compiled-extension set, so startup validation does not report their Cove-version mismatch.
+
+Build against the Cove.Sdk version matching the Cove release you test. Set `minCoveVersion` to the oldest Cove release you have actually verified, and retest before claiming compatibility with older or newer releases. Install through a supported installer; do not treat startup validation of a manually copied package as compatibility enforcement.
 
 ## What extensions can contribute
 

@@ -1,6 +1,12 @@
 ---
 title: Create an Extension
 description: Build, package, install, and verify a minimal Cove extension.
+compatibility:
+  sdk: true
+  sources:
+    - src/Cove.Sdk/CoveExtensionBase.cs
+    - src/Cove.Sdk/Cove.Sdk.csproj
+    - src/Cove.Plugins/IExtension.cs
 ---
 
 This tutorial builds a small backend extension named **Hello Cove**. When you finish, Cove will load it from a ZIP package and show it in the installed extensions list. The example deliberately has no frontend bundle; seeing the enabled extension proves that the manifest, compiled assembly, package layout, and install flow all work before you add a UI or another capability.
@@ -213,6 +219,6 @@ Run `dotnet publish` again instead of copying only your extension DLL. Private d
 
 ### Cove rejects the compatibility requirement
 
-The host compares the running Cove instance version with `minCoveVersion` and refuses to load the extension when the running Cove version is lower. Upgrade Cove or lower the requirement only if you have built and tested against that older host contract.
+**Install from URL** rejects the package when the running Cove version is lower than `minCoveVersion`; registry installation also filters or rejects incompatible versions. Upgrade Cove or lower the requirement only if you have built and tested against that older host contract. A package copied directly into the extension directory can report the mismatch during startup validation yet still initialize in the current host, so manual placement is not a compatibility bypass or a supported verification result.
 
 Once this minimal package works, add a frontend contribution only when the feature needs one. See [UI extension points](../ui-extension-points/) for bundle and component registration.

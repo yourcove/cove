@@ -1,6 +1,12 @@
 ---
 title: Extension Permissions
 description: Manifest declarations, contributed role permissions, endpoint enforcement, and content-policy limits.
+compatibility:
+  sdk: true
+  sources:
+    - src/Cove.Sdk/IPermissionContributor.cs
+    - src/Cove.Api/Program.cs
+    - src/Cove.Api/Middleware/PermissionAuthorizationFilter.cs
 ---
 
 Cove has two different extension permission surfaces:

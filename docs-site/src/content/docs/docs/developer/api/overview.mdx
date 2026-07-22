@@ -1,6 +1,12 @@
 ---
 title: API Surface
 description: Authentication, OpenAPI discovery, routes, pagination, filtering, errors, and extension endpoints.
+compatibility:
+  api: true
+  sources:
+    - src/Cove.Api/Program.cs
+    - src/Cove.Api/Middleware/PermissionAuthorizationFilter.cs
+    - src/Cove.Api/Controllers/ApiTokensController.cs
 ---
 
 Cove exposes a JSON HTTP API for its own frontend, external automation, and runtime-loaded extension endpoints. Use it instead of reading or writing Cove's database directly so permissions, content rules, provenance, jobs, and host behavior remain in effect.
@@ -15,7 +21,7 @@ http://localhost:5073/api/tags
 http://localhost:5073/api/extensions
 ```
 
-There is no `/api/v1` compatibility prefix or negotiated API version. The `v1` in the OpenAPI document name identifies the generated document, not a versioned route base. Pin automation to a tested Cove release and compare its OpenAPI contract during upgrades.
+There is no `/api/v1` compatibility prefix or negotiated API version. The `v1` in the OpenAPI document name identifies the generated document, not a versioned route base. Cove makes no stable cross-release compatibility guarantee for these unversioned routes. Pin automation to a tested Cove release and compare its OpenAPI contract during upgrades.
 
 Controller paths and HTTP methods vary by resource. Do not infer a mutation route from a list route; use the running build's OpenAPI document for the exact request and response schema.
 

@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Configure GitHub Pages
         if: github.event_name != 'pull_request'
@@ -48,6 +50,7 @@ jobs:
         run: npm run build
         env:
           SITE_URL: ${{ steps.pages.outputs.base_url || 'https://yourcove.net' }}
+          COVE_DOCS_REQUIRE_GIT_PROVENANCE: 'true'
 
       - name: Upload artifact
         if: github.event_name != 'pull_request'

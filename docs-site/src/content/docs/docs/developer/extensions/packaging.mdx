@@ -1,6 +1,12 @@
 ---
 title: Extension Packaging
 description: Archive layout, manifest fields, dependencies, validation, and release workflow for Cove extensions.
+compatibility:
+  sdk: true
+  sources:
+    - src/Cove.Plugins/IExtension.cs
+    - src/Cove.Api/Controllers/ExtensionsController.cs
+    - src/Cove.Sdk/buildTransitive/Cove.Sdk.targets
 ---
 
 Cove installs extensions from ZIP archives. A package can contain a compiled .NET extension, a manifest-only bundle, or a scraper pack, but every package uses `extension.json` as its identity and compatibility contract.
@@ -62,7 +68,7 @@ JSON property matching is case-insensitive, but use the camel-case names shown h
 | `iconUrl` | Optional | Extension icon URL. |
 | `kind` | `extension` | `extension` for compiled code; `bundle` and `scraper-pack` are manifest-only kinds. |
 | `categories` | `[]` | Labels used for registry and installed-extension filtering. Prefer Cove's well-known category strings where they fit. |
-| `minCoveVersion` | Any Cove version | Minimum running Cove version. An installer rejects a package when it can parse both versions and the running version is lower. |
+| `minCoveVersion` | Any Cove version | Declared minimum running Cove version. Install from URL rejects an incompatible package, and registry selection excludes or rejects incompatible versions. See the startup-discovery limitation below. |
 | `dependencies` | `{}` | Map of extension id to one supported semantic-version range: exact, `=`, `>`, `>=`, `<`, or `<=` followed by a version. Cove uses it for dependency validation and initialization order. |
 | `externalDependencies` | `[]` | User-visible tools, runtimes, services, executables, environment variables, or configuration requirements. These describe requirements; the extension remains responsible for probing what it uses. |
 | `settings` | `[]` | Generic settings shown in the Extensions settings UI. Each item names the setting and type and can include a display name, description, and applicable extension ids. |
@@ -159,6 +165,8 @@ Each `dependencies` value is one comparison, not an npm-style compound expressio
 Cove orders installed dependencies before dependents and reports missing extensions or version mismatches. Registry installs can resolve and install declared dependencies when the user approves that plan. A direct URL package should be tested with its dependencies already installed.
 
 `minCoveVersion` compares the **running Cove version** with the minimum in the package. It is not a comparison between the extension's own `version` and `minCoveVersion`. Use the oldest Cove version against which the built binary and its public host contracts were actually tested.
+
+Supported installers enforce `minCoveVersion`: the **Install from URL** endpoint rejects a package whose parsed floor is above the running host version, while registry version selection filters incompatible candidates and rejects an explicitly requested incompatible version. Startup discovery of a compiled extension already placed on disk is less strict: dependency validation reports the mismatch, but the current initialization order does not exclude that extension solely for the Cove-version mismatch, so it may still initialize. Manifest-only `bundle` and `scraper-pack` packages are not added to the compiled extension set checked by dependency validation, so startup does not report their Cove-version mismatch. Do not use direct filesystem placement to bypass the supported installers or to claim compatibility.
 
 ## Install-time validation and failures
 

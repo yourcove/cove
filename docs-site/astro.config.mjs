@@ -22,6 +22,7 @@ export default defineConfig({
       favicon: '/favicon.svg',
       components: {
         Head: './src/components/starlight/Head.astro',
+        PageTitle: './src/components/starlight/PageTitle.astro',
         SiteTitle: './src/components/starlight/SiteTitle.astro',
       },
       customCss: ['./src/styles/global.css'],

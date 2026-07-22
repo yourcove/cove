@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && npm run test:links && astro build && npm run check:links",
+    "build": "astro check && npm run test:content && npm run test:links && astro build && npm run check:links",
     "preview": "astro preview",
     "check": "astro check",
+    "check:compatibility": "node scripts/check-compatibility-provenance.mjs",
     "check:links": "node scripts/check-internal-links.mjs",
+    "test:content": "npm run check:compatibility && node --test scripts/check-compatibility-scope.test.mjs",
     "test:links": "node --test scripts/check-internal-links.test.mjs"
   },
   "dependencies": {

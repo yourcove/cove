@@ -1,0 +1,58 @@
+---
+import { Aside } from '@astrojs/starlight/components';
+import {
+  COVE_DOCUMENTED_RELEASE_VERSION,
+  COVE_DOCUMENTED_SDK_VERSION,
+  COVE_REVIEWED_SOURCE_REVISION,
+  COVE_REVIEWED_SOURCE_URL,
+  COVE_SOURCE_REF,
+  COVE_SOURCE_VERSION,
+  getCoveSourceUrl,
+} from '../lib/compatibility.mjs';
+
+interface Props {
+  api?: boolean;
+  sdk?: boolean;
+  sources: string[];
+}
+
+const { api = false, sdk = false, sources } = Astro.props;
+---
+
+<Aside title="Compatibility scope">
+  <p>
+    Documented tagged baseline: Cove {COVE_DOCUMENTED_RELEASE_VERSION}{sdk && <> and Cove.Sdk {COVE_DOCUMENTED_SDK_VERSION}</>}.
+    This page's contract details were checked against the <code>{COVE_SOURCE_REF}</code> source branch at{' '}
+    <a href={COVE_REVIEWED_SOURCE_URL}><code>{COVE_REVIEWED_SOURCE_REVISION.slice(0, 12)}</code></a>,
+    an untagged build that reports {COVE_SOURCE_VERSION}. These fixed audit values advance only after the
+    documentation is re-audited; they are not an automatic latest-version claim. The living source links
+    below follow the branch and can be newer than both the reviewed revision and documented release.
+  </p>
+  {sdk && (
+    <p>
+      The Cove version identifies the running application and extension host. The Cove.Sdk version
+      identifies the compile-time NuGet package. An extension manifest's <code>minCoveVersion</code> is
+      a declared host compatibility floor; it does not select an SDK package or guarantee compatibility
+      with one. Supported Install from URL and registry installers enforce the floor. For compiled
+      extensions, startup dependency validation reports a mismatch, but current initialization may still
+      initialize the extension. Manifest-only <code>bundle</code> and <code>scraper-pack</code> packages are
+      outside that compiled-extension validation, so startup does not report a Cove-version mismatch for them.
+    </p>
+  )}
+  {api && (
+    <p>
+      Cove's HTTP API uses unversioned <code>/api</code> routes and has no release-independent
+      compatibility guarantee. Verify automation against the OpenAPI contract from the same Cove
+      release or source revision.
+    </p>
+  )}
+  <p>
+    Living contract:{' '}
+    {sources.map((source, index) => (
+      <>
+        {index > 0 && ', '}
+        <a href={getCoveSourceUrl(source)}><code>{source}</code></a>
+      </>
+    ))}
+  </p>
+</Aside>
