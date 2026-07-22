@@ -1,48 +1,81 @@
 ---
 title: Import an Existing Library
-description: Bring an existing media library into Cove and review the imported organization carefully.
+description: Import a Stash library during first-run setup or transfer supported named metadata between Cove instances.
 ---
 
-If you already maintain a library somewhere else, treat migration as a review workflow instead of a one-click finish line. The goal is to bring useful structure forward while taking advantage of the parts of Cove that go further.
+Cove has two supported import paths: a first-run Stash migration and a limited import of JSON metadata previously exported by Cove. There is no generic third-party importer in the current UI.
 
-## What to bring first
+Neither workflow is a substitute for a backup. Preserve the source library until you have checked paths, counts, relationships, and representative items in Cove.
 
-Start with the information that is hardest to rebuild manually:
+## Import from Stash during first-run setup
 
-- media records and paths
-- titles and descriptions
-- performers, studios, and tags
-- groups or collections
-- URLs and source references
+The Stash importer only appears before setup is complete. Once an instance is configured, you cannot reopen this first-run setup wizard from Settings. If you already use that Cove instance, create a separate fresh instance for a trial migration instead of wiping it.
 
-Do not assume every old workflow maps perfectly. A migration is usually most successful when you import the useful structure, then adopt Cove-native features such as segments, dynamic groups, richer permissions, and contextual tagging afterward.
+### Prepare the files
 
-## Recommended migration flow
+1. Back up Stash.
+2. Make the directory containing `stash-go.sqlite` available to the Cove process. The importer usually also reads Stash's `config.yml` from beside the database.
+3. Make every source-media path available to Cove. The importer does not copy the source media; it imports records and relationships that point to those files.
+4. For Docker, add read-only mounts before starting Cove. For example:
 
-1. Back up the current library before touching anything.
-2. Install Cove and run a clean first scan on the same media paths if possible.
-3. Import the existing metadata and relationships.
-4. Review a representative sample before trusting the whole result.
-5. Rebuild higher-value recurring views as saved filters or dynamic groups.
-6. Add Cove-native workflows only after the base library looks trustworthy.
+   ```yaml
+   volumes:
+     - /srv/stash/config:/stash:ro
+     - /srv/media:/media:ro
+   ```
 
-## What to review after import
+   You would then enter `/stash/stash-go.sqlite`, not the host path, in the wizard.
 
-- duplicate or moved paths
-- missing performers, studios, or tags
-- unexpected tag normalization or alias differences
-- group membership that does not match the old library
-- metadata that should now be handled through provenance-aware workflows
+### Preview and run the import
 
-## What usually improves after the move
+1. Start a new Cove instance and select **Get Started**.
+2. At **How would you like to start?**, select **Import from Stash**.
+3. Enter the server-visible path to `stash-go.sqlite` and select **Preview**.
+4. Check the preview counts for videos, images, galleries, performers, tags, and studios.
+5. Expand **Optional import settings** when needed:
+   - **Migrate generated content** copies available Stash screenshots, previews, sprite sheets, and VTT files. It is enabled by default.
+   - **Cove generated content path** chooses where those generated assets are written.
+   - **Stash path mappings** translate paths stored in Stash to paths Cove can access, such as an old host path mapped to `/media` in Docker.
+6. Select **Import** and keep the wizard open while its progress card is running.
+7. When the import finishes, complete the owner and theme steps.
 
-People usually migrate because they want a higher ceiling than their old setup provided. After the import, the biggest gains tend to be:
+If Preview cannot find generated content, the metadata import can still proceed, but those derived files will not be copied. Fix missing media-path mappings before the import; a record whose path Cove cannot read will not become playable merely because its metadata was imported.
 
-- richer search and filter workflows
-- contextual tagging and timing-aware organization
-- dynamic groups and watch-state views
-- audio and text support in the same library
-- users, roles, content rules, and share links
-- downloaders, scrapers, and a deeper extension surface
+## Import supported metadata from another Cove instance
 
-Use the rest of the user docs to make those workflows native to the new library instead of forcing Cove to behave exactly like the old one forever.
+Use this workflow only to transfer tags, studios, performers, and groups. It is not a complete Cove-to-Cove migration.
+
+Full Export and Import are not symmetric. Full Export can write videos, performers, studios, tags, galleries, and groups; images are not included in Full Export. The current Cove JSON importer reads only tags, studios, performers, and groups. Videos and galleries present in the JSON are ignored.
+
+### Export from the source Cove
+
+1. Open **Settings → Operations → Backup & Restore**.
+2. Expand **Full Export**. Select **Tags**, **Studios**, **Performers**, and **Groups**. Clear **Videos** and **Galleries** when this file is intended for the JSON importer because those collections will not be processed.
+3. Monitor **Settings → Operations → Jobs** until the export completes.
+4. The file is written under the configured generated path in `export/cove-export-<timestamp>.json`. In the provided Docker setup that is `/generated/export/`. Use **Settings → System Info → Logs** to confirm the exact server path.
+5. Copy that export to a location the target Cove process can read.
+
+### Import into the target Cove
+
+1. Open **Settings → Operations → Backup & Restore**.
+2. Expand **Import** and enter the server-visible path to the previously exported Cove JSON file.
+3. Leave **Overwrite existing entries** off for the first trial unless you intentionally want matching tags, studios, performers, and groups updated.
+4. Select **Run**, then monitor **Settings → Operations → Jobs**.
+5. Verify the four supported entity types directly. A **completed** job means the supported collections were processed; it does not mean videos or galleries in the file were migrated, and the job does not currently warn about those ignored collections.
+
+A Full Export does not include source media, images, users, roles, API tokens, configuration, generated files, or a restorable PostgreSQL database. Scan media separately when building a new library. Use [Backups and Upgrades](../../admin/backups-migrations-upgrades/) when you need to recover or move a complete Cove instance, including its videos, galleries, images, users, and settings.
+
+## Review a Stash import
+
+- Compare the reported counts with the source.
+- Open representative videos, images, galleries, performers, tags, studios, and groups.
+- Check moved or containerized media paths and confirm files play.
+- Run a selective scan only after imported paths are correct.
+- Keep the source library and pre-import backup until the migrated instance has been used long enough to trust it.
+
+## Review a Cove JSON import
+
+- Check representative tags, studios, performers, and groups.
+- Review duplicate names before enabling **Overwrite existing entries**.
+- Confirm video, image, and gallery counts did not change as a result of the JSON import.
+- Keep the source and pre-import backup until the supported metadata has been checked.

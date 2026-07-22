@@ -1,30 +1,102 @@
 ---
 title: Troubleshooting
-description: Common checks for install, scan, search, media, and extension issues.
+description: Locate Cove logs, run safe deployment checks, resolve common failures, and prepare a useful report.
 ---
 
-Start with the narrowest failing workflow and collect the logs around that action.
+Reproduce the narrowest failing action once, note the time, and inspect the matching job and log entries. Avoid repeatedly queueing full scans or imports while diagnosing a failure.
 
-## Install or startup
+## Find the logs
 
-- Confirm the container or service is running.
-- Check database connectivity.
-- Verify ports and reverse proxy rules.
-- Review environment variables and mounted volumes.
+The easiest path on every deployment is **Settings → System Info → Logs**. Use **Filter** to narrow the rows shown in the browser. Changing **Server log level** changes what Cove records; return it to its prior level after collecting a short reproduction.
 
-## Scanning and media
+On disk, Cove writes daily logs under `<COVE_HOME>/logs` and retains a rolling history:
 
-- Confirm Cove can read the media path.
-- Check generated-media write permissions.
-- Re-run a targeted scan before rescanning the whole library.
-- Look for skipped files, unsupported formats, or moved paths.
+- **Provided Docker setup:** container path `/config/logs`; default host path `${COVE_DATA_DIR}/config/logs`.
+- **Native app:** the `logs` directory under the current Cove Instance Manager instance home.
+- **Source run:** `$COVE_HOME/logs` when `COVE_HOME` is set, or `logs` under the platform-local Cove data directory.
 
-## Search and organization
+Docker also exposes startup output even when Cove cannot initialize its file logger:
 
-- Refresh saved filters after major metadata changes.
-- Check whether content rules or permissions are hiding expected results.
-- Review provenance if an automated provider changed metadata unexpectedly.
+```bash
+docker compose --file docker-compose.allinone.yml ps
+docker compose --file docker-compose.allinone.yml logs --tail 200 cove
+```
 
-## Extensions
+For the separate app-and-database compose file, use `docker-compose.yml` and check both services:
 
-Use troubleshooting mode when an extension affects the UI or runtime. Disable one extension at a time when isolating a behavior change.
+```bash
+docker compose --file docker-compose.yml logs --tail 200 cove
+docker compose --file docker-compose.yml logs --tail 200 db
+```
+
+When running from source, backend messages appear in the terminal that launched this command from the repository root:
+
+```bash
+dotnet run --project src/Cove.Api/Cove.Api.csproj
+```
+
+Frontend build and browser-proxy messages appear in the `ui/` terminal that launched `npm run dev`.
+
+## Safe Docker checks
+
+Run these from the directory containing the compose file. They inspect state without changing it:
+
+```bash
+docker compose --file docker-compose.allinone.yml config --services
+docker compose --file docker-compose.allinone.yml ps
+docker compose --file docker-compose.allinone.yml exec cove id
+docker compose --file docker-compose.allinone.yml exec cove ls --long --numeric-uid-gid --directory /config /generated /backups /media
+docker compose --file docker-compose.allinone.yml exec cove test -r /media
+docker compose --file docker-compose.allinone.yml exec cove test -x /media
+docker compose --file docker-compose.allinone.yml exec cove test -w /config
+docker compose --file docker-compose.allinone.yml exec cove test -x /config
+docker compose --file docker-compose.allinone.yml exec cove test -w /generated
+docker compose --file docker-compose.allinone.yml exec cove test -x /generated
+docker compose --file docker-compose.allinone.yml exec cove test -w /backups
+docker compose --file docker-compose.allinone.yml exec cove test -x /backups
+```
+
+The `ls` command reports mode and numeric ownership, but mode and ownership do not by themselves prove effective access. Each `test` command safely checks access as the user running Cove without creating or deleting a file. The `-r` check covers reading `/media`, and `-w` covers writing Cove's data directories. The `-x` checks cover permission to search and traverse those directories, which Cove also needs to reach files inside them. Each command produces no output and exits with status 0 when the requested access is available; a nonzero status identifies the failed path. Do not apply a recursive ownership command blindly. Compare the Cove user, mount mode, and affected host directory first, then correct only that directory.
+
+## Startup or browser problems
+
+- If `ps` does not show Cove running, read the container logs from the first error onward.
+- If the log says Cove cannot write its config/data directory, inspect ownership of the host directory mounted at `/config`.
+- If the separate database is unhealthy, check the `db` logs and confirm Cove and PostgreSQL use matching credentials.
+- If Cove is running but `http://localhost:5073` does not open on the host, confirm the compose file publishes `5073:5073`. From another computer, use the server address instead of `localhost` and check the host firewall or reverse proxy.
+- If an upgrade is still applying migrations, wait for completion. Do not start another migration or restore concurrently.
+
+## Scan and media problems
+
+- **No files found:** enter the container path from the media mount, not the host path. Then check **Settings → Library → Paths & Storage**, media-type exclusions, file extensions, and exclude patterns.
+- **Permission denied:** verify the Cove process can read source media and write the generated directory. A read-only `/media` mount is expected; `/generated` must be writable.
+- **Some files are skipped:** run a selective scan on one folder and inspect the job and logs. Use **Force rescan (ignore mtime)** only for files that should be reconsidered.
+- **Covers or previews fail:** open **Settings → Library → Scanning & Assets**, confirm the generated path and FFmpeg settings, then inspect FFmpeg errors in the logs.
+- **A job appears stuck:** open **Settings → Operations → Jobs** before queueing another job. Record its name, progress text, and last update.
+
+## Search, access, and metadata problems
+
+- Check whether the signed-in user's roles and content rules hide the expected result.
+- Remove filters one at a time and refresh a saved filter after major metadata changes.
+- Review provenance when a provider or scraper changed a field unexpectedly.
+- Verify the item exists on its media-type page before treating the problem as search-only.
+
+## Extension problems
+
+Open **Settings → Extensions → Installed Extensions** and confirm the extension is enabled and compatible. Check **Settings → System Info → Logs** for its identifier near the failure. Disable one suspected extension at a time, reproduce once, and re-enable unrelated extensions after isolation.
+
+## Prepare a useful report
+
+Include:
+
+- Cove version from **Settings → System Info → About**
+- native, all-in-one Docker, separate Docker, or source deployment
+- operating system, browser, and relevant image tag
+- exact steps, expected result, and actual result
+- failure timestamp and time zone
+- job name, state, progress message, and error when applicable
+- a short sanitized log excerpt covering the action
+- the container-side mount paths and numeric ownership when the issue is filesystem-related
+- whether the issue still occurs with the suspected extension disabled
+
+Redact API tokens, passwords, database connection strings, private host paths, share links, and personal library names. Never include an API token or an entire config file in a public issue.
