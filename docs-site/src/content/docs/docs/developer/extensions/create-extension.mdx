@@ -9,6 +9,8 @@ compatibility:
     - src/Cove.Plugins/IExtension.cs
 ---
 
+import DocsScreenshot from '../../../../../components/DocsScreenshot.astro';
+
 This tutorial builds a small backend extension named **Hello Cove**. When you finish, Cove will load it from a ZIP package and show it in the installed extensions list. The example deliberately has no frontend bundle; seeing the enabled extension proves that the manifest, compiled assembly, package layout, and install flow all work before you add a UI or another capability.
 
 ## Prerequisites
@@ -185,6 +187,14 @@ For a containerized or remote Cove server, replace `127.0.0.1` with a host name 
 4. Enter the package URL and select **Install**.
 5. Read the **Install Unverified Extension** warning. If you trust this package you just built, select **Install** to confirm.
 6. Open **Settings → Extensions → Installed Extensions**.
+
+<DocsScreenshot
+  src="images/docs/install-extension-from-url.png"
+  alt="Discover page showing the empty Install from URL form beneath registry controls"
+  width={1128}
+  height={337}
+  caption="The URL field opens beneath the registry filters; the Cove server must be able to reach the entered address."
+/>
 
 The list should contain **Hello Cove**, version `0.1.0`, with **Unverified** and an **Enabled** control. URL-installed development packages are unverified because they do not come from Cove's registry. That is the expected observable result for this backend-only example.
 
