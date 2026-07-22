@@ -18,7 +18,7 @@ The native app includes Cove Instance Manager. Each instance has its own home di
 
 ## Docker: all in one
 
-The all-in-one image runs Cove, PostgreSQL, pgvector, and FFmpeg in one container. It is the simplest Docker deployment.
+The all-in-one image runs Cove, PostgreSQL, pgvector, and FFmpeg in one container, so you operate one application container instead of separate Cove and database containers.
 
 1. Install Docker Engine with the Compose plugin.
 2. Download [`docker-compose.allinone.yml`](https://github.com/yourcove/cove/blob/main/docker/docker-compose.allinone.yml) from Cove's `docker/` directory and work from the directory containing that file.
@@ -67,11 +67,11 @@ The app is still available at `http://localhost:5073`. The compose file provides
 
 For a new library, choose **Start Fresh**, enter one or more paths that Cove can see, review them, and select **Save & Continue**. In Docker, use container paths such as `/media`, not host paths such as `/srv/media`.
 
-After setup, follow [First Scan](../first-scan/) to run, monitor, and verify the initial scan. The owner can later change library paths, create users and roles, create API tokens, and configure providers, downloaders, and extensions.
+After setup, follow [First scan](../first-scan/) to run, monitor, and verify the initial scan. The owner can later change library paths, create users and roles, create API tokens, and configure providers, downloaders, and extensions.
 
 ## Run from source
 
-If you want to inspect or modify Cove itself, see [Run Cove Locally](../../../developer/getting-started/local-development/). A source checkout is a development workflow, not the recommended production installation.
+If you want to inspect or modify Cove itself, see [Run Cove locally](../../../developer/getting-started/local-development/). A source checkout is a development workflow, not the recommended production installation.
 
 ## Expose Cove outside your network
 

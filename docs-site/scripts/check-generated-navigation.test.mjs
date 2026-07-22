@@ -30,7 +30,7 @@ test('generated navigation checker rejects a mutated developer next link', async
     await assert.rejects(
       execFileAsync(process.execPath, [checkerPath, fixtureDist], { env: process.env }),
       (error) => {
-        assert.match(error.stderr, /Developer Guide next href must match its route and the active site base/);
+        assert.match(error.stderr, /Developer guide next href must match its route and the active site base/);
         return true;
       },
     );

@@ -1,5 +1,5 @@
 ---
-title: Import an Existing Library
+title: Import an existing library
 description: Import a Stash library during first-run setup or transfer supported named metadata between Cove instances.
 compatibility:
   sources:
@@ -44,13 +44,13 @@ The Stash importer only appears before setup is complete. Once an instance is co
 6. Select **Import** and keep the wizard open while its progress card is running.
 7. When the import finishes, complete the owner and theme steps.
 
-If Preview cannot find generated content, the metadata import can still proceed, but those derived files will not be copied. Fix missing media-path mappings before the import; a record whose path Cove cannot read will not become playable merely because its metadata was imported.
+If **Preview** cannot find generated content, the metadata import can still proceed, but those derived files will not be copied. Fix missing media-path mappings before the import; a record whose path Cove cannot read will not become playable merely because its metadata was imported.
 
 ## Import supported metadata from another Cove instance
 
 Use this workflow only to transfer tags, studios, performers, and groups. It is not a complete Cove-to-Cove migration.
 
-Full Export and Import are not symmetric. Full Export can write videos, performers, studios, tags, galleries, and groups; images are not included in Full Export. The current Cove JSON importer reads only tags, studios, performers, and groups. Videos and galleries present in the JSON are ignored.
+**Full Export** and **Import** are not symmetric. **Full Export** can write videos, performers, studios, tags, galleries, and groups; images are not included in **Full Export**. The current Cove JSON importer reads only tags, studios, performers, and groups. Videos and galleries present in the JSON are ignored.
 
 ### Export from the source Cove
 
@@ -68,7 +68,7 @@ Full Export and Import are not symmetric. Full Export can write videos, performe
 4. Select **Run**, then monitor **Settings → Operations → Jobs**.
 5. Verify the four supported entity types directly. A **completed** job means the supported collections were processed; it does not mean videos or galleries in the file were migrated, and the job does not currently warn about those ignored collections.
 
-A Full Export does not include source media, images, users, roles, API tokens, configuration, generated files, or a restorable PostgreSQL database. Scan media separately when building a new library. Use [Backups and Upgrades](../../admin/backups-migrations-upgrades/) when you need to recover or move a complete Cove instance, including its videos, galleries, images, users, and settings.
+A **Full Export** does not include source media, images, users, roles, API tokens, configuration, generated files, or a restorable PostgreSQL database. Scan media separately when building a new library. Use [Backups and upgrades](../../admin/backups-migrations-upgrades/) when you need to recover or move a complete Cove instance, including its videos, galleries, images, users, and settings.
 
 ## Review a Stash import
 

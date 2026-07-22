@@ -1,5 +1,5 @@
 ---
-title: Create an Extension
+title: Create an extension
 description: Build, package, install, and verify a minimal Cove extension.
 compatibility:
   sdk: true
@@ -66,7 +66,7 @@ Use `Cove.Sdk` for new host-aware extensions:
 - Extend `FullExtensionBase` only when one extension needs several of its API, data, event, job, state, and scan capabilities. Its extra interfaces are unnecessary for this first extension.
 - Implement a narrow contract directly only when you intentionally do not need the SDK helpers.
 
-## Switch the template to Cove.Sdk
+## Switch the template to `Cove.Sdk`
 
 Replace `src/ExampleExtension/ExampleExtension.csproj` with this project. `Cove.Sdk` 1.0.0 supplies the host contracts and automatically keeps host-provided assemblies out of the published extension.
 
@@ -159,7 +159,7 @@ python3 -m zipfile \
   --list artifacts/com.example.hello-cove-dev.zip
 ```
 
-The listing must show `extension.json` and `ExampleExtension.dll` without an enclosing `artifacts/extension` directory. Cove accepts the manifest at the archive root or inside one top-level extension directory; a root manifest makes the package easiest to inspect.
+The listing must show `extension.json` and `ExampleExtension.dll` without an enclosing `artifacts/extension` directory. Cove accepts the manifest at the archive root or inside one top-level extension directory; a root manifest keeps the package contents directly visible to archive-listing tools.
 
 ## Serve the development ZIP
 
@@ -219,7 +219,7 @@ Run the archive listing command again. `extension.json` must be at the root or i
 
 The Cove server downloads the package. Use a URL reachable from the server or its container, check the temporary HTTP server output for Cove's request, and avoid `127.0.0.1` when it would point back to a different container or machine.
 
-### Installation succeeds but Hello Cove is absent
+### Installation succeeds but the extension is absent
 
 Check that `entryDll` exactly matches `ExampleExtension.dll` and that the archive contains that file. Then open **Settings → System Info → Logs** and look for an extension load error naming the manifest id or DLL.
 

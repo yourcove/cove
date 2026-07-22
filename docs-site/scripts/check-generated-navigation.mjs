@@ -13,53 +13,53 @@ const basePath = configuredSite.includes('github.io') && repositoryName
 const samples = [
   {
     route: '/docs/',
-    title: 'Documentation Home',
+    title: 'Documentation home',
     prev: null,
     next: null,
   },
   {
     route: '/docs/user/',
-    title: 'User Guide',
+    title: 'User guide',
     prev: null,
     next: { route: '/docs/user/getting-started/install/', label: 'Install' },
   },
   {
     route: '/docs/user/troubleshooting/',
     title: 'Troubleshooting',
-    prev: { route: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups and Upgrades' },
+    prev: { route: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups and upgrades' },
     next: null,
   },
   {
     route: '/docs/developer/',
-    title: 'Developer Guide',
+    title: 'Developer guide',
     prev: null,
     next: {
       route: '/docs/developer/getting-started/local-development/',
-      label: 'Run Cove Locally',
+      label: 'Run Cove locally',
     },
   },
   {
     route: '/docs/developer/getting-started/local-development/',
-    title: 'Run Cove Locally',
-    prev: { route: '/docs/developer/', label: 'Developer Guide' },
+    title: 'Run Cove locally',
+    prev: { route: '/docs/developer/', label: 'Developer guide' },
     next: {
       route: '/docs/developer/extensions/create-extension/',
-      label: 'Create an Extension',
+      label: 'Create an extension',
     },
   },
   {
     route: '/docs/developer/extensions/create-downloader/',
-    title: 'Create a Downloader',
+    title: 'Create a downloader',
     prev: {
       route: '/docs/developer/extensions/create-scraper/',
-      label: 'Create a Scraper',
+      label: 'Create a scraper',
     },
     next: { route: '/docs/developer/extensions/overview/', label: 'Architecture' },
   },
   {
     route: '/docs/developer/contributing/website/',
-    title: 'Documentation Style Guide',
-    prev: { route: '/docs/developer/api/overview/', label: 'API Surface' },
+    title: 'Documentation style guide',
+    prev: { route: '/docs/developer/api/overview/', label: 'API surface' },
     next: null,
   },
 ];

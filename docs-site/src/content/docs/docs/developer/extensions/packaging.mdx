@@ -1,5 +1,5 @@
 ---
-title: Extension Packaging
+title: Extension packaging
 description: Archive layout, manifest fields, dependencies, validation, and release workflow for Cove extensions.
 compatibility:
   sdk: true
@@ -68,7 +68,7 @@ JSON property matching is case-insensitive, but use the camel-case names shown h
 | `iconUrl` | Optional | Extension icon URL. |
 | `kind` | `extension` | `extension` for compiled code; `bundle` and `scraper-pack` are manifest-only kinds. |
 | `categories` | `[]` | Labels used for registry and installed-extension filtering. Prefer Cove's well-known category strings where they fit. |
-| `minCoveVersion` | Any Cove version | Declared minimum running Cove version. Install from URL rejects an incompatible package, and registry selection excludes or rejects incompatible versions. See the startup-discovery limitation below. |
+| `minCoveVersion` | Any Cove version | Declared minimum running Cove version. **Install from URL** rejects an incompatible package, and registry selection excludes or rejects incompatible versions. See the startup-discovery limitation below. |
 | `dependencies` | `{}` | Map of extension id to one supported semantic-version range: exact, `=`, `>`, `>=`, `<`, or `<=` followed by a version. Cove uses it for dependency validation and initialization order. |
 | `externalDependencies` | `[]` | User-visible tools, runtimes, services, executables, environment variables, or configuration requirements. These describe requirements; the extension remains responsible for probing what it uses. |
 | `settings` | `[]` | Generic settings shown in the Extensions settings UI. Each item names the setting and type and can include a display name, description, and applicable extension ids. |

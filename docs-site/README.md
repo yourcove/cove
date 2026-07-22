@@ -1,6 +1,6 @@
 # Cove Website
 
-Astro + Starlight site for Cove's marketing pages, User Docs, and Developer Docs.
+Astro + Starlight site for Cove's marketing pages, user docs, and developer docs.
 
 ## Development
 
@@ -19,5 +19,5 @@ npm --prefix docs-site run build
 
 ## Notes
 
-- The docs side is split into User Docs and Developer Docs.
+- The docs side is split into user docs and developer docs.
 - GitHub Pages deployment is managed by the Cove repository workflow.
