@@ -55,6 +55,8 @@ Large libraries often combine manual edits, import data, scrapers, metadata serv
 
 Cove works with metadata servers — community-run databases you point Cove at to identify and enrich your library. Add one under **Settings → Data Sources & Data → Metadata Servers** by pasting its endpoint and your API key, then use it from the **Identify** and **Tagger** options.
 
+Metadata servers may use their own vocabulary. Several call a video record a **scene**; Cove matches and stores those records as videos. In the table below, “scene” describes the provider's catalog rather than a separate Cove media type.
+
 <DocsScreenshot
   src="images/docs/metadata-server-configuration.png"
   alt="Empty metadata server row showing name, endpoint, API key, request limit, and validation controls"

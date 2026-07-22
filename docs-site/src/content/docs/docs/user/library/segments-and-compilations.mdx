@@ -3,11 +3,11 @@ title: Segments and compilations
 description: Work with segments, sub-videos, and compilations in Cove.
 ---
 
-Segments are one of the main reasons Cove can organize a library in more detail than a simple whole-file model allows.
+Segments are one of the main reasons Cove can organize a library in more detail than a simple whole-file model allows. Cove keeps the stored source records separate from the results you browse: raw segments preserve the original marks, while derived segments are resolved from those records for display, search, and playback.
 
-## What a segment is
+## What a raw segment is
 
-A segment is a stored point or time range attached to a video, image, or audio record. Depending on the workflow, a segment can represent:
+A raw segment is a stored point or time range attached to a video, image, or audio record. Depending on the workflow, a raw segment can represent:
 
 - a chapter or part of a video
 - a highlight
@@ -16,27 +16,27 @@ A segment is a stored point or time range attached to a video, image, or audio r
 - a performer or face occurrence
 - a tag or metadata event tied to time
 
-## What a span is
+## What a segment is
 
-For videos, Cove can resolve one or more stored segments into a span for display, search, or playback. A display profile or query determines which segments contribute, whether nearby intervals merge, and how short intervals are handled. Spans are computed results rather than separate stored segment records.
+For videos, Cove resolves one or more raw segments into a segment for display, search, or playback. A display profile or query determines which raw segments contribute, whether nearby intervals merge, and how short intervals are handled. These derived segments are computed results rather than separate stored records.
 
-The default **Segments** view shows resolved spans. Select **Raw segments** when you need to inspect the stored records from which those spans are produced.
+The default **Segments** view shows derived segments. Select **Raw segments** when you need to inspect the stored records from which they are produced.
 
 ## Why segments matter
 
-Segments and their resolved spans make the rest of the library more expressive:
+Raw and derived segments make the rest of the library more expressive:
 
 - you can tag a moment, not just a whole file
 - you can track who appears when
 - you can build compilations without duplicating media
 - you can turn internal structure into something the rest of the app can search and reuse
 
-## Stored and resolved structure
+## Raw and derived structure
 
 In practice, the important distinction is:
 
-- **stored segments** preserve where the timing and meaning came from
-- **resolved spans** provide the intervals Cove uses to browse, play, filter, and compile the result
+- **raw segments** preserve where the timing and meaning came from
+- **derived segments** provide the intervals Cove uses to browse, play, filter, and compile the result
 
 That difference is most useful when you want both explainability and a cleaner day-to-day browsing surface.
 
@@ -46,7 +46,7 @@ Sub-videos are useful when one source file really contains multiple meaningful p
 
 ## Compilations
 
-Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful spans rather than only full videos.
+Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful segments rather than only full videos.
 
 Use compilations when:
 
