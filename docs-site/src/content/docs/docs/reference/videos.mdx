@@ -3,65 +3,46 @@ title: Videos
 description: Reference for Cove video records, metadata, files, views, filters, tabs, operations, and availability rules.
 ---
 
-Use this page to look up the built-in video record and the core video interface. It describes the current Cove UI; permissions can hide controls, configured services can add optional similarity features, and extensions can contribute more actions, tabs, filters, or sorts. For HTTP request and response schemas, use the running instance's OpenAPI document as described in [API surface](../../developer/api/overview/).
+import MediaReferenceTable from '../../../../components/reference/MediaReferenceTable.astro';
+import { videoReference } from '../../../../data/reference/media';
 
-## Record model
+Use this page to look up the built-in video record and the core video interface. It describes the current Cove UI; permissions can hide controls, configured services can add optional similarity features, and extensions can contribute more actions, tabs, filters, or sorts. For HTTP request and response schemas, use the running instance's OpenAPI document as described in [API surface](../../developer/api/overview/).
 
 A video is a library record, not the source file itself. Shared metadata and relationships belong to the video record, while technical media properties belong to each attached file. A video can exist without a file, can have more than one file, or can be a sub-video that presents a time range from a parent video's files.
 
 When a title is absent, Cove uses an available file name or a generated `Video <id>` label where the interface needs a display name.
 
-### Descriptive fields
+## Descriptive fields
 
-| Field | Meaning |
-| --- | --- |
-| **Title** | Display title for the video. |
-| **Date** | Calendar date associated with the video. |
-| **Studio Code** | Studio- or publisher-assigned catalog code. |
-| **Director** | Free-text director value. |
-| **Details** | Longer free-text description. |
-| **Captions** | Free-text captions metadata retained on the video record and available to filtering; distinct from discovered sidecar caption tracks. |
-| **Organized** | User-managed flag indicating that the record has reached the library's desired organization state. |
-| **VR** | Marks the video as virtual-reality content. |
-| **Cover** | Selected or generated image used to represent the video. |
-| **Created** and **Updated** | Timestamps maintained by Cove for the record. |
+<MediaReferenceTable reference={videoReference} section="fields" />
 
 Imported or automated values can include provenance. Hover information in the interface identifies the source when provenance is available; see [Metadata provenance](../../user/metadata/provenance/).
 
-### Relationships and external identity
+## Relationships
 
-| Field | Cardinality and behavior |
-| --- | --- |
-| **Studio** | Zero or one studio. |
-| **Tags** | Zero or more tags. Contextual tag applications can also describe a particular performer occurrence or time range without becoming ordinary whole-video tags. |
-| **Performers** | Zero or more performers. A dated video can display a performer's age at that date. |
-| **Groups** | Zero or more groups. Each membership can carry a **Video #** position used for ordered groups. |
-| **Galleries** | Zero or more related galleries. |
-| **URLs** | Zero or more external links. |
-| **Remote IDs** | Provider endpoint and remote identifier pairs used to reconnect a record to external metadata. |
-| **Custom Fields** | Administrator-defined video fields and values. |
-| **Parent video** | Present only for a sub-video; the clip start and end define the playable range within the root parent's media. |
+<MediaReferenceTable reference={videoReference} section="relationships" />
 
-Ratings, likes, favorites, play counts, playback sessions, watched duration, and resume position are engagement data. Cove keeps them separately from the shared descriptive fields so the visible values can follow the current signed-in user.
+Ratings, likes, favorites, play counts, playback sessions, watched duration, and resume position are user engagement rather than shared descriptive metadata.
 
-## Files and derivatives
+## Files and technical values
 
-The **File Info** tab lists every file attached to the record. A sub-video with no directly attached files resolves the parent video's files for playback.
+<MediaReferenceTable reference={videoReference} section="files" />
 
-| File value | Format |
-| --- | --- |
-| **Path** | Cove-visible filesystem path. In Docker this is the container path, not the host path. |
-| **File Size** | Bytes formatted for display. |
-| **Duration** | Playback duration. |
-| **Dimensions** | Pixel width × height. |
-| **Frame Rate** | Frames per second. |
-| **Bitrate** | Kilobits per second in the interface. |
-| **Video Codec** and **Audio Codec** | Codec names reported during scanning. |
-| **Fingerprints** | Available file hashes, such as `oshash`, `md5`, or `phash`. |
+The **File Info** tab lists every resolved file but does not list discovered sidecar caption tracks.
 
-Discovered VTT or SRT sidecar caption tracks are associated with individual files and used by the player, but the **File Info** tab does not list them.
+## Capabilities
 
-[Generated media](../generated-media/) is stored and managed separately from source files. Deleting from the detail page can remove only the video record or also request source-file deletion; bulk deletion additionally offers a generated-files choice. Deleting a parent also deletes its sub-video records, while deleting a sub-video does not delete the parent's source files. Cove retains a source path when a video outside the deletion still references it. Source-file deletion requires a writable [library path](../library-paths/).
+<MediaReferenceTable reference={videoReference} section="capabilities" />
+
+## Availability and requirements
+
+<MediaReferenceTable reference={videoReference} section="availability" />
+
+## Lifecycle and deletion
+
+<MediaReferenceTable reference={videoReference} section="lifecycle" />
+
+[Generated media](../generated-media/) is stored and managed separately from source files. Source-file deletion requires a writable [library path](../library-paths/).
 
 ## Videos page
 

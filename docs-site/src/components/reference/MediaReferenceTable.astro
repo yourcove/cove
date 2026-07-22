@@ -1,0 +1,55 @@
+---
+import {
+  MEDIA_REFERENCE_SECTIONS,
+  type MediaReference,
+  type MediaReferenceSection,
+} from '../../data/reference/media';
+
+interface Props {
+  reference: MediaReference;
+  section: MediaReferenceSection;
+}
+
+const { reference, section } = Astro.props;
+const sectionDefinition = MEDIA_REFERENCE_SECTIONS.find((candidate) => candidate.key === section)!;
+
+const tables = {
+  fields: {
+    rows: reference.fields.map((row) => [row.name, row.meaning]),
+  },
+  relationships: {
+    rows: reference.relationships.map((row) => [row.name, row.cardinality, row.behavior]),
+  },
+  files: {
+    rows: reference.files.map((row) => [row.name, row.meaning]),
+  },
+  capabilities: {
+    rows: reference.capabilities.map((row) => [row.name, row.support, row.behavior]),
+  },
+  availability: {
+    rows: reference.availability.map((row) => [row.name, row.requirement]),
+  },
+  lifecycle: {
+    rows: reference.lifecycle.map((row) => [row.operation, row.effect]),
+  },
+} satisfies Record<MediaReferenceSection, { rows: string[][] }>;
+
+const table = tables[section];
+---
+
+<table>
+  <thead>
+    <tr>
+      {sectionDefinition.columns.map((column) => <th scope="col">{column}</th>)}
+    </tr>
+  </thead>
+  <tbody>
+    {table.rows.map((row) => (
+      <tr>
+        {row.map((cell, index) => (
+          index === 0 ? <th scope="row">{cell}</th> : <td>{cell}</td>
+        ))}
+      </tr>
+    ))}
+  </tbody>
+</table>

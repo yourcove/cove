@@ -55,6 +55,8 @@ Audience is secondary to purpose. Some material is relevant only to contributors
 - Separate supported behavior from reserved, deprecated, or unsupported behavior.
 - Link to the source contract or relevant how-to guide when useful.
 
+Related entity references should use a shared typed structure when readers benefit from comparing them. Media references define fields, relationships, file values, capabilities, availability, and lifecycle in `src/data/reference/media.ts`; its `MEDIA_REFERENCE_SECTIONS` constant owns their order, headings, and column names, while `MediaReferenceTable.astro` renders the rows consistently. Keep those headings as literal Markdown in the declared order so Starlight can add them to the table of contents, and put type-specific sections after the shared core. TypeScript validates the data shape and comparison vocabulary; review the MDX heading and component order as page structure rather than adding prose-specific tests.
+
 ## Write with enough depth
 
 A heading followed only by a list is usually an outline, not finished documentation. Add the context a reader needs to understand why the section matters, how its parts relate, and what changes when they make a choice.

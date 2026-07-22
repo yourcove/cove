@@ -3,21 +3,38 @@ title: Audio
 description: Reference for Cove audio records, tracks, and files.
 ---
 
+import MediaReferenceTable from '../../../../components/reference/MediaReferenceTable.astro';
+import { audioReference } from '../../../../data/reference/media';
+
 Audio is a primary media record for sound content without a required video component. Its descriptive identity is separate from attached audio files and their technical properties.
 
-## Record model
+## Descriptive fields
 
-An audio record can contain a title, date, details, organized state, studio, tags, performers, groups, URLs, custom fields, and cover art. Audio tracks can describe subdivisions such as named or numbered tracks without turning each subdivision into a separate primary record.
+<MediaReferenceTable reference={audioReference} section="fields" />
 
-Attached files carry path, size, duration, codec and other discovered technical values. A record can be present while its file is temporarily unavailable or before a downloader supplies it.
+## Relationships
 
-## Timeline data
+<MediaReferenceTable reference={audioReference} section="relationships" />
 
-Audio can host raw segments. These can represent points or ranges such as chapters, annotations, or analysis output. Unlike video segments, they do not currently become video sub-clips.
+## Files and technical values
 
-## Availability
+<MediaReferenceTable reference={audioReference} section="files" />
 
-Playback, file operations, metadata workflows, generated assets, and extension actions depend on the signed-in user's permissions and configured services. Deleting a record and deleting its source file remain separate choices.
+## Capabilities
+
+<MediaReferenceTable reference={audioReference} section="capabilities" />
+
+## Availability and requirements
+
+<MediaReferenceTable reference={audioReference} section="availability" />
+
+## Lifecycle and deletion
+
+<MediaReferenceTable reference={audioReference} section="lifecycle" />
+
+## Audio-specific structure
+
+Audio tracks describe named, ordered ranges without turning each range into a separate primary record. Raw segments can preserve points or ranges supplied by users, providers, or analysis workflows.
 
 ## Related reference
 

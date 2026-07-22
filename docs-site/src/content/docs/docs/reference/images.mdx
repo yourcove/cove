@@ -3,23 +3,38 @@ title: Images
 description: Reference for Cove image records and their relationships.
 ---
 
+import MediaReferenceTable from '../../../../components/reference/MediaReferenceTable.astro';
+import { imageReference } from '../../../../data/reference/media';
+
 An image is a primary media record for one still image. The record owns descriptive metadata and relationships; its attached image file owns technical values such as path, dimensions, format, size, and fingerprints.
 
-## Record model
+## Descriptive fields
 
-An image can carry a title, date, details, organized state, and created and updated timestamps. It can relate to tags, performers, a studio, galleries, groups, URLs, and custom fields. Configured providers or extensions can add analysis and actions.
+<MediaReferenceTable reference={imageReference} section="fields" />
 
-An image can participate in raw segments as a point-like host. It can also carry detections produced by analysis services. Those records are separate from whole-image tags and performer relationships.
+## Relationships
 
-## Galleries and files
+<MediaReferenceTable reference={imageReference} section="relationships" />
 
-An image can belong to more than one gallery. Gallery membership supplies collection context without changing the image's own identity or metadata.
+## Files and technical values
 
-Source files are separate from generated thumbnails, previews, and analysis output. Record deletion and source-file deletion are distinct; deleting a source file requires a writable library path.
+<MediaReferenceTable reference={imageReference} section="files" />
 
-## Interface and availability
+## Capabilities
 
-Image lists support search, filters, sorts, selection actions, and extension contributions. Detail controls depend on image, file, metadata, and job permissions. Similarity or detection surfaces appear only when the corresponding service is configured.
+<MediaReferenceTable reference={imageReference} section="capabilities" />
+
+## Availability and requirements
+
+<MediaReferenceTable reference={imageReference} section="availability" />
+
+## Lifecycle and deletion
+
+<MediaReferenceTable reference={imageReference} section="lifecycle" />
+
+## Image-specific structure
+
+Gallery membership supplies collection context without changing the image identity or metadata. Raw segments and detections are separate from whole-image tags and performer relationships.
 
 ## Related reference
 
