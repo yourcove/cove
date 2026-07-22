@@ -1,0 +1,158 @@
+---
+title: Extension Points
+description: A catalog of the backend, frontend, metadata, and manifest extension points available in Cove.
+---
+
+Cove extensions start with `IExtension` and opt into one or more capability interfaces. An extension can combine capabilities—for example, a scraper can also expose settings, an API, and a background worker.
+
+This page catalogs the public extension contracts in `Cove.Plugins`. Use it to choose the smallest hooks that fit your feature.
+
+## Core lifecycle and services
+
+Every compiled extension implements `IExtension`.
+
+| Contract | Use it to |
+| --- | --- |
+| `IExtension.ConfigureServices` | Register extension-owned services in the extension's dependency-injection container. |
+| `IExtension.InitializeAsync` | Start work that requires the built service provider. |
+| `IExtension.ShutdownAsync` | Stop cleanly when the extension is disabled, uninstalled, or Cove exits. |
+| `IExtension.OnInstallAsync` | Seed data or create non-database resources during installation. Keep this hook idempotent because reinstall and hot-replacement paths may invoke it again. |
+| `IExtension.OnUninstallAsync` | Remove non-database resources before uninstall completes. |
+| `IManifestAware` | Source identity, compatibility, categories, and dependency metadata from `extension.json`. Extension base classes normally handle this for you. |
+
+`ExtensionContext` supplies Cove configuration, the extension data directory, the running Cove version, and the UI registry. Dependencies declared by extension id and semantic-version range control initialization order and enable/disable behavior.
+
+Extensions may register their own services. They should treat host services as an explicit compatibility boundary, not assume every internal Cove service is stable. `IExtensionServiceExchange` is the supported opt-in exchange for publishing and resolving services across extension containers.
+
+## Backend capabilities
+
+Implement only the interfaces your extension needs.
+
+| Contract | Extension point |
+| --- | --- |
+| `IApiExtension` | Map minimal-API endpoints with `MapEndpoints`. Cove adds and removes the routes with the extension at runtime. |
+| `IMiddlewareExtension` | Inspect, transform, or short-circuit every HTTP request and response. Call `next` to continue the pipeline. |
+| `IJobExtension` | Declare named jobs and run them with parameters, cancellation, and progress reporting. `ShowInTaskList` can expose a job in Cove's task UI. |
+| `IBackgroundExtension` | Run a host-managed long-lived worker until its cancellation token is signaled. |
+| `IEventExtension` | Receive entity lifecycle events such as `video.created`, `performer.updated`, or `tag.deleted`. |
+| `IScanParticipant` | Join a core library scan, receive resolved scan paths and exclusions, and report progress within the scan job. |
+| `IStatefulExtension` | Receive an extension-scoped `IExtensionStore` for persistent string key/value data. |
+| `IDataExtension` | Add extension-owned EF Core model configuration and ordered, forward-only SQL migrations. Do not drop core tables or columns. |
+| `IActionExtension` | Contribute toolbar and bulk actions backed by an API endpoint or frontend handler. The contract declares context-menu actions, but the frontend does not currently render them. |
+
+### Service and storage choices
+
+Choose storage by shape:
+
+- use `IExtensionStore` for small durable key/value state
+- use `IDataExtension` for structured, queryable extension-owned tables
+- use manifest `settings` for administrator-editable configuration
+
+Background workers should create a dependency-injection scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
+
+## Metadata and intake providers
+
+These provider interfaces integrate with Cove's built-in review, provenance, and intake workflows.
+
+| Contract | Extension point |
+| --- | --- |
+| `IScraperProvider` | Declare scrapers and scrape or search videos, performers, galleries, images, groups, audio, and text. |
+| `IDownloaderProvider` | Match source URLs, offer quality choices, and download videos, images, galleries, audio, or text into Cove's intake flow. |
+
+Scrapers declare supported entities, URL patterns, invocation capabilities, preference sites, and a risk level. Cove passes the approved network, JavaScript, and browser-debugging permissions with each request.
+
+Downloaders declare supported entities, URL patterns, and capabilities such as resume, range requests, multiple qualities, or inline metadata. Cove supplies a temporary directory, HTTP clients, logging, and progress reporting through `IDownloaderHost`.
+
+For implementation guidance, see [Create a scraper](./create-scraper/) and [Create a downloader](./create-downloader/).
+
+## Specialized service contributions
+
+Some host-consumed contracts live in `Cove.Core.Interfaces` instead of deriving from `IExtension`. Publish their implementations through `IExtensionServiceExchange` when building these specialized integrations.
+
+| Contract | Extension point |
+| --- | --- |
+| `ITextEncoder` | Encode text into vectors for a named embedding family. |
+| `IFaceSuggester` | Supply single-face and batch performer suggestions. |
+| `IFaceSuggestionDecisionHandler` | Handle accept, reject, or merge decisions for provider-owned face suggestions. |
+| `IFaceLifecycleParticipant` | Clean up provider state when faces are deleted or AI face data is purged. |
+
+These are shared service contracts rather than standalone extension lifecycles; the providing package still implements `IExtension` and publishes the service instance during initialization.
+
+## Frontend contributions
+
+Implement `IUIExtension.GetUIManifest` to declare frontend contributions. Ship an ESM bundle when a contribution references a React component or frontend handler, and a CSS asset when the extension needs custom styles. A single `UIManifest` can contain any combination of the following contributions.
+
+See [UI extension points](./ui-extension-points/) for the fields, supported targets, runtime behavior, and limitations of each contribution.
+
+### Additive UI
+
+| Contribution | Where it appears |
+| --- | --- |
+| `UIPageDefinition` | A new route with an optional navigation item. |
+| `UISlotContribution` | React component or HTML inserted into a host-defined named slot. |
+| `UITabContribution` | A tab on a supported entity detail page, optionally with a count badge. |
+| `UISettingsTab` | A dedicated tab in the Extensions settings group, with either panel or full-page layout. |
+| `UISettingsPanel` | A settings component in an extension tab or a targeted built-in tab and section. |
+| `ExtensionAction` | A toolbar or bulk action. Actions may also come from `IActionExtension`; the declared context-menu type is currently reserved. |
+| `UITutorialTopic` | An in-app Cove Manual topic made from slides, Markdown, images, and links. |
+| `UIListFilterContribution` | A first-class filter criterion on a built-in entity list, including custom-field-backed filters. |
+| `UIListSortContribution` | A first-class sort option on a built-in entity list, including custom-field-backed sorts. |
+| `UIFeatureDefinition` | Named feature metadata and string options that the host UI can inspect. |
+
+Slots, tabs, and page overrides only render where Cove publishes the corresponding stable slot, page type, or page key. Use the host-defined identifiers rather than inventing a target name.
+
+### Appearance
+
+| Contribution | Use it to |
+| --- | --- |
+| `UIThemeDefinition` | Add a theme with CSS variables, an optional stylesheet, component and layout layers, background animation, and color scheme. |
+| `UIComponentStyleDef` | Add a named component-style preset. |
+| `UILayoutStyleDef` | Add a named layout preset. |
+
+### Page replacements
+
+Page overrides are intentionally broader than additive contributions. Prefer a page, slot, or tab when that meets the need.
+
+| Contribution | Replaces |
+| --- | --- |
+| `UIPageOverride` | A built-in page identified by its exact page key. |
+
+When multiple extensions target the same page, priority determines the winner. Page overrides carry greater compatibility risk because they replace host-owned UI rather than add to it.
+
+### Reserved UI declarations
+
+`UIManifest` also defines panes, component overrides, selector overrides, dialog overrides, and a `DetailRoute` value on page definitions. Cove currently transports these declarations but does not consume them in the frontend, so they are not usable extension points yet. The `*` target documented on `UIPageOverride` is likewise not a working application-shell override; use an exact built-in page key.
+
+## Manifest-only contributions
+
+Not every package needs a DLL. `extension.json` can describe a manifest-only `bundle` or `scraper-pack`, and can contribute:
+
+- generic settings surfaced in the Extensions settings UI
+- in-app Cove Manual topics
+- external tool, runtime, service, environment-variable, and configuration requirements
+- extension dependencies and Cove version compatibility
+- runtime network, scraper, and downloader permissions
+
+A YAML scraper pack contributes scraper definitions without compiling a .NET provider. A bundle can group contributions and dependencies under one installable identity.
+
+Frontend JavaScript and CSS require a loaded `IUIExtension`; declaring bundle paths on a manifest-only package does not load those assets.
+
+## Choosing extension points
+
+Start from the user-visible behavior:
+
+| Goal | Start with |
+| --- | --- |
+| Add a screen or panel | `IUIExtension` with a page, tab, slot, or settings contribution |
+| Add an HTTP operation | `IApiExtension` |
+| Run work on demand | `IJobExtension` |
+| Run continuously | `IBackgroundExtension` |
+| React to library changes | `IEventExtension` |
+| Participate in scans | `IScanParticipant` |
+| Enrich existing items | `IScraperProvider` |
+| Bring media into Cove | `IDownloaderProvider` |
+| Store small durable state | `IStatefulExtension` |
+| Own relational data | `IDataExtension` |
+| Customize existing UI | An additive UI contribution first; an override only when replacement is required |
+
+Most full-featured extensions pair one workflow capability with `IUIExtension`, `IApiExtension`, and one storage option. Keep permissions narrow, preserve metadata provenance, and package pre-built backend and frontend artifacts as described in [Packaging](./packaging/).

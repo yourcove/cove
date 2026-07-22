@@ -1,0 +1,186 @@
+---
+title: UI Extension Points
+description: Detailed reference for Cove pages, slots, tabs, settings, actions, themes, list contributions, and UI overrides.
+---
+
+A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports that bundle, registers functions from its default export's `components` map, and combines the manifest with contributions from other enabled extensions.
+
+This page describes the UI contributions Cove currently renders. The [general extension-point catalog](./extension-points/) covers backend and provider capabilities.
+
+## Runtime contract
+
+Set `JsBundle` in `extension.json` when a contribution references a React component or frontend handler, and set `CssBundle` when custom styles are needed. Put the React components named by page, tab, slot, settings, and override contributions in the default export's `components` map. Contribution ids and keys should be stable across releases because Cove uses them for registration, routing, preferences, and ordering.
+
+Most contribution records contain:
+
+- `ExtensionId`, which must identify the owning extension
+- an exported `ComponentName` when the contribution renders React
+- `Order`, where lower values render earlier
+- a stable contribution-specific id or key
+
+Extension components render inside an error boundary. They should still handle missing data, failed requests, and permission errors locally.
+
+## Pages
+
+`UIPageDefinition` adds a top-level route.
+
+| Field | Behavior |
+| --- | --- |
+| `Route` | Page key used by Cove routing. Keep it unique and stable. |
+| `Label` | Navigation and page label. |
+| `ComponentName` | Exported React component. Cove passes `onNavigate`; numeric detail-style routes also receive `id`. |
+| `ShowInNav` | Adds the page to the main navigation when `true`. Pages remain directly routable when it is `false`. |
+| `NavOrder` | Positions the navigation item. |
+| `Icon` | Optional navigation icon. The currently recognized values are `music` and `puzzle`; other values render no icon. |
+
+`DetailRoute` and `RequiredPermission` exist in the contract but the frontend does not currently consume them. Do not rely on them for a second route or access control. Enforce authorization in the extension's API, and expose a page only to audiences that may navigate to it.
+
+## Named slots
+
+`UISlotContribution` inserts content at a host-published slot. Set `ContentType` to `component` with a `ComponentName`, or to `html` with `Html`. Multiple contributions to the same slot render in ascending `Order`.
+
+The host passes a context object appropriate to the location. Detail slots receive the current entity and `onNavigate`; shared list slots receive the page key, title, filter state, filter callback, total count, and loading state. Treat context fields as location-specific rather than assuming every slot receives the same props.
+
+### Published detail slots
+
+| Page | Slot keys |
+| --- | --- |
+| Video | `video-detail-actions`, `video-detail-main-bottom` |
+| Performer | `performer-detail-actions`, `performer-detail-bottom` |
+| Studio | `studio-detail-actions`, `studio-detail-sidebar-bottom`, `studio-detail-bottom` |
+| Tag | `tag-detail-actions`, `tag-detail-sidebar-bottom`, `tag-detail-bottom` |
+| Gallery | `gallery-detail-actions`, `gallery-detail-main-bottom`, `gallery-detail-bottom` |
+| Image | `image-detail-actions`, `image-detail-sidebar-bottom`, `image-detail-main-bottom` |
+| Group | `group-detail-actions`, `group-detail-sidebar-bottom`, `group-detail-main-bottom`, `group-detail-bottom` |
+
+### Published list and card slots
+
+| Slot key | Location |
+| --- | --- |
+| `list-page-toolbar-end` | End of every shared list-page toolbar. |
+| `<page-key>-list-toolbar-end` | End of a specific list page's toolbar. |
+| `<page-key>-list-row` | Shared list-page row or grid extension region. |
+| `tag-card-footer` | Footer of a tag card. |
+| `performer-card-footer` | Footer of a performer card. |
+| `studio-card-footer` | Footer of a studio card. |
+| `video-card-content` | Bounded extension region within a video card. |
+
+Use only a slot key Cove publishes. An arbitrary name remains in the manifest but never renders.
+
+## Detail tabs
+
+`UITabContribution` adds a tab to supported detail pages. Cove currently consumes page types `video`, `performer`, `studio`, `tag`, `gallery`, and `group`.
+
+| Field | Behavior |
+| --- | --- |
+| `Key` | Stable tab key. Cove prefixes it internally with `ext:`. |
+| `Label` | Visible tab label. |
+| `PageType` | Host detail-page type receiving the tab. |
+| `ComponentName` | Exported component; receives `entityId` and `onNavigate`. |
+| `Order` | Interleaves the tab with built-in tabs on performer, studio, tag, gallery, and group pages. |
+| `CountEndpoint` | On performer, studio, tag, gallery, and group pages, an optional endpoint template using `{entityId}`; return JSON containing `count`. |
+| `Icon` | Optional icon name used by extension count-summary cards on performer, studio, and tag pages. |
+| `ManualContexts` | Manual contexts active while the tab is selected. |
+
+Video renders contributed tabs after its built-in history tab and ignores `Order`, `CountEndpoint`, and `Icon`. The contract also names `image` and `settings`, but those page types do not currently mount contributed detail tabs. Use settings contributions for settings UI.
+
+## Settings tabs and panels
+
+`UISettingsTab` creates a route under `/settings/<key>` in the Extensions settings group.
+
+| Field | Behavior |
+| --- | --- |
+| `Key` | Stable route segment and tab key. |
+| `Label`, `Description` | Navigation and page copy. |
+| `Icon` | Optional icon name. Supported normalized values are `database`, `download`, `filetext`, `folderopen`, `harddrive`, `history`, `info`, `keyboard`, `keyround`, `layers`, `monitor`, `playcircle`, `plug`, `scrolltext`, `search`, `searchcode`, `server`, `shield`, `upload`, `usercog`, and `users`; unknown values fall back to `plug`. |
+| `ParentTabKey` | Nests the tab beneath another contributed settings tab. |
+| `SearchKeywords`, `Aliases` | Makes settings search and alternate URLs easier to discover. |
+| `Layout` | `Panels` wraps contributions in cards; `Page` gives panels a full-width canvas. |
+| `Order` | Positions the tab within the Extensions group. |
+
+`UISettingsPanel` supplies the rendered component. With no `TargetTab`, it appears on the built-in Extensions page. A panel can target a contributed settings-tab key or one of the explicitly mounted built-in keys: `extensions`, `library`, or `ai-data`. The only currently published built-in section target is `TargetTab = "library"` with `TargetSection = "extensions"`; other built-in route and section keys do not create mount points automatically. Panels receive no universal save contract; the component owns its data loading, validation, permissions, and mutations.
+
+## Actions
+
+`ExtensionAction` adds executable UI actions. Contributions may come from `UIManifest.Actions` or `IActionExtension.GetActions()`.
+
+| Field | Behavior |
+| --- | --- |
+| `Id`, `Label` | Stable action identity and visible label. |
+| `ActionType` | Use `toolbar` for single-entity actions or `bulk` for selected list entities. |
+| `EntityTypes` | Limits the action to matching entity types; an empty array matches all. |
+| `Pages` | Optionally limits toolbar actions to matching page keys. Bulk action lookup does not apply this field. |
+| `ApiEndpoint` | Endpoint Cove invokes with action, entity, page, and selected-id data. |
+| `HandlerName` | Exported frontend handler used instead of the endpoint when found. |
+| `RequiredPermission` | Hides the action when permission is absent. |
+| `SuppressSuccessAlert` | Skips Cove's default queued-action success alert. |
+| `Order` | Sorts matching actions. |
+
+Toolbar rendering is currently available for video and image entity actions. Bulk actions render for selectable entity lists. `context-menu` is declared by the contract but has no frontend consumer yet.
+
+## List filters and sorts
+
+`UIListFilterContribution` adds an advanced-filter row to the list matching `EntityType`.
+
+- Use `FilterKey` to target a filter key understood by that list's backend request contract.
+- For extension-owned custom fields, set `CustomFieldKey` and `CustomFieldType`; Cove creates an extension-scoped filter key.
+- `CriterionType` controls the editor, with `Modifiers`, `Options`, and `EntityReferenceType` refining supported operations.
+- `Order` positions the filter among other extension contributions.
+
+`UIListSortContribution` adds a sort choice for the matching entity type. Set either a backend-supported `SortKey` or a `CustomFieldKey` with its `CustomFieldType`. A visible sort option does not implement backend sorting by itself; the corresponding server-side list contract must understand the generated key.
+
+## Themes and appearance layers
+
+`UIThemeDefinition` contributes a selectable theme. It can set CSS variables, load a theme stylesheet, select a component-style layer and layout-style layer, name a background animation, and declare a light or dark color scheme.
+
+`UIComponentStyleDef` and `UILayoutStyleDef` add named appearance-layer choices. Their ids connect UI preferences to CSS behavior shipped by the extension; the records themselves only provide identity, labels, and descriptions.
+
+Theme, component-style, and layout ids become stored user preferences. Keep them stable, and provide sensible behavior when a user retains an id after an extension is disabled.
+
+## Manual topics
+
+`UITutorialTopic` contributes a topic to Cove Manual. Topics can be scoped by page and runtime context, nested with `ParentTopicId`, and ordered alongside built-in and other extension topics.
+
+Each `UITutorialSlide` can contain a title, caption, bullet points, Markdown body, image, mock kind, and external links. Set `Kind` to `setup` when the topic is an installation or first-run guide that Cove should surface after install.
+
+## Feature declarations
+
+`UIFeatureDefinition` publishes a case-insensitive feature key and string options. Host UI code must explicitly look up that key; declaring one does not create visible UI on its own. Use a feature declaration when Cove already defines the integration key, and pair custom behavior with another visible contribution.
+
+## Page overrides
+
+`UIPageOverride` replaces the component for an exact built-in page key. Cove chooses the highest `Priority` when multiple extensions target the same page, then renders the named component with `onNavigate`.
+
+Prefer additive pages, tabs, and slots when possible. An override owns the whole page body and therefore couples more closely to routing and host expectations. The declared `*` target is not currently implemented and does not replace the application shell.
+
+## Reserved declarations
+
+The public manifest also contains these declarations, but Cove does not currently render them:
+
+- `UIPaneContribution`
+- `UIComponentOverride`
+- `UISelectorOverride`
+- `UIDialogOverride`
+- `UIPageDefinition.DetailRoute`
+- `UIPageDefinition.RequiredPermission`
+- `UIPageOverride` with target `*`
+- `ExtensionAction` with action type `context-menu`
+
+Treat them as reserved contract surface, not working extension points. Shipping one today leaves the contribution unused rather than falling back to another location.
+
+## Choosing a UI point
+
+| Goal | Preferred contribution |
+| --- | --- |
+| Add a new workflow | `UIPageDefinition` |
+| Add a small element to an existing screen | `UISlotContribution` |
+| Add entity-specific detail content | `UITabContribution` |
+| Add configuration UI | `UISettingsTab` and `UISettingsPanel` |
+| Run an operation from an entity or selection | `ExtensionAction` |
+| Extend list querying | `UIListFilterContribution` or `UIListSortContribution` |
+| Add visual presets | `UIThemeDefinition`, `UIComponentStyleDef`, or `UILayoutStyleDef` |
+| Add in-app help | `UITutorialTopic` |
+| Advertise a host-known capability | `UIFeatureDefinition` |
+| Replace a built-in page | `UIPageOverride`, only when additive points cannot work |
+
+After choosing the contribution, see [Packaging](./packaging/) for the asset layout and [Permissions](./permissions/) for access design.
