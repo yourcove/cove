@@ -1,5 +1,6 @@
 ---
 import DefaultHead from '@astrojs/starlight/components/Head.astro';
+import manropeLatinUrl from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
 import { getDocPageSchema } from '../../lib/seo';
 
 const { entry } = Astro.locals.starlightRoute;
@@ -11,4 +12,5 @@ const pageSchema = getDocPageSchema({
 ---
 
 <DefaultHead />
+<link rel="preload" href={manropeLatinUrl} as="font" type="font/woff2" crossorigin="anonymous" />
 <script is:inline type="application/ld+json" set:html={JSON.stringify(pageSchema)} />

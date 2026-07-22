@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import manropeLatinUrl from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
 import CoveWordmark from '../components/CoveWordmark.astro';
 import MarketingSeo from '../components/MarketingSeo.astro';
 import { withBase } from '../lib/paths';
@@ -44,6 +45,7 @@ const currentPath = Astro.url.pathname;
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={withBase('favicon.svg')} />
+    <link rel="preload" href={manropeLatinUrl} as="font" type="font/woff2" crossorigin="anonymous" />
     <MarketingSeo
       title={pageTitle}
       description={description}
