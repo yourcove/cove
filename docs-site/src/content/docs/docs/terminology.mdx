@@ -13,6 +13,7 @@ Use this reference when a Cove term is unfamiliar or when two related concepts n
 | Library path | A library path is a configured filesystem location that Cove scans for media. |
 | Media | Media is content managed by Cove as a video, image, gallery, audio, or text record. |
 | Video | A video is a primary media record for moving-image content and its associated metadata. |
+| Scene | A scene is a term some metadata providers use for an entry that Cove stores as a video; Cove documentation uses video for the Cove record. |
 | Image | An image is a primary media record for a single still-image file. |
 | Gallery | A gallery is a primary media record that groups related images into one browsable item. |
 | Audio | Audio is a primary media record for sound content without a required video component. |
@@ -29,7 +30,8 @@ See [Media types](../user/library/media-types/) for a fuller explanation of the 
 | Performer | A performer is a person or identity associated with media in the library. |
 | Studio | A studio is an organization, publisher, or source associated with media in the library. |
 | Group | A group is an ordered collection of supported library entities or media ranges whose membership is curated or resolved dynamically. |
-| Segment | A segment is a meaningful range within a video, image, or audio record. |
+| Segment | A segment is a stored point or time range attached to a video, image, or audio record. |
+| Span | A span is a resolved video time range produced from one or more segments by a display profile or query. |
 | Sub-video | A sub-video is a child video record that presents a defined time range of its parent video. |
 | Compilation | A compilation is a group configured to play ordered videos or video ranges back to back. |
 | Dynamic group | A dynamic group is a collection whose membership updates from rules, activity, or saved intent. |
@@ -73,9 +75,10 @@ See [Extension architecture](../developer/extensions/overview/) and [Extension p
 | User | A user is a person or service identity that signs in to a Cove instance. |
 | Owner | The owner is the initial administrative account with authority to configure an instance and delegate access. |
 | Role | A role is a reusable collection of permissions assigned to users. |
+| Role assignment | A role assignment connects a user to a role and its permissions. |
 | Permission | A permission is a named authorization to perform a particular operation or access a protected capability. |
-| Content rule | A content rule limits which records a user can discover or access independently of their operation permissions. |
-| Personal access token | A personal access token is a revocable credential that lets a client use Cove's API within an explicitly granted scope. |
+| Content rule | A content rule can grant or restrict scoped read access to matching records, including granting access without a direct role read permission, while write and delete rules only restrict permissions the role already has. |
+| API token | An API token, also called a personal access token (PAT) in technical contexts, is a revocable credential that lets a client use Cove's API within an explicitly granted scope. |
 | Share link | A share link is a limited URL that grants access to selected content without exposing the full library. |
 
 See [Users, roles, and permissions](../user/security/users-roles-permissions/) for the access model.

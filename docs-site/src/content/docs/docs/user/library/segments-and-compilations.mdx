@@ -7,30 +7,36 @@ Segments are one of the main reasons Cove can organize a library in more detail 
 
 ## What a segment is
 
-A segment is a meaningful span inside a scene. Depending on the workflow, that span can represent:
+A segment is a stored point or time range attached to a video, image, or audio record. Depending on the workflow, a segment can represent:
 
-- a sub-scene
+- a chapter or part of a video
 - a highlight
-- a manually selected range
-- a detected range
+- a manually selected point or range
+- a detected interval
 - a performer or face occurrence
 - a tag or metadata event tied to time
 
+## What a span is
+
+For videos, Cove can resolve one or more stored segments into a span for display, search, or playback. A display profile or query determines which segments contribute, whether nearby intervals merge, and how short intervals are handled. Spans are computed results rather than separate stored segment records.
+
+The default **Segments** view shows resolved spans. Select **Raw segments** when you need to inspect the stored records from which those spans are produced.
+
 ## Why segments matter
 
-Segments make the rest of the library more expressive:
+Segments and their resolved spans make the rest of the library more expressive:
 
 - you can tag a moment, not just a whole file
 - you can track who appears when
 - you can build compilations without duplicating media
 - you can turn internal structure into something the rest of the app can search and reuse
 
-## Raw and derived structure
+## Stored and resolved structure
 
-Some segment data is recorded directly. Some of it is derived from other timing-aware information. In practice, the important distinction is:
+In practice, the important distinction is:
 
-- **raw** structure helps explain where the timing came from
-- **derived** structure helps you browse, play, filter, and compile the result
+- **stored segments** preserve where the timing and meaning came from
+- **resolved spans** provide the intervals Cove uses to browse, play, filter, and compile the result
 
 That difference is most useful when you want both explainability and a cleaner day-to-day browsing surface.
 
@@ -40,7 +46,7 @@ Sub-videos are useful when one source file really contains multiple meaningful p
 
 ## Compilations
 
-Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful spans rather than only full scenes.
+Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful spans rather than only full videos.
 
 Use compilations when:
 
