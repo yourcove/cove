@@ -3,19 +3,38 @@ title: Text
 description: Reference for Cove text document records.
 ---
 
-Text is a primary media record for written content stored or indexed by Cove. It lets written material participate in the same library organization and access model as audiovisual media.
+import MediaReferenceTable from '../../../../components/reference/MediaReferenceTable.astro';
+import { textReference } from '../../../../data/reference/media';
 
-## Record model
+Text is a primary media record for written content stored or indexed by Cove. It has its own identity and descriptive metadata, separate from the document body Cove extracts from an attached file for reading.
 
-A text record has its own identity, title and descriptive metadata, created and updated timestamps, and organization state. It can relate to tags, performers, studios, groups, URLs, and custom fields where those capabilities are available.
+## Descriptive fields
 
-The stored or indexed body is content rather than a substitute for the record's title, relationships, and provenance. Source location, format, and size are file concerns when a file backs the record.
+<MediaReferenceTable reference={textReference} section="fields" />
 
-## Library behavior
+## Relationships
 
-Text records can appear in search, filters, groups, and permission rules alongside other supported entities. Playback-only concepts such as duration, resume position, and timeline segments do not apply unless an extension introduces a separate capability.
+<MediaReferenceTable reference={textReference} section="relationships" />
 
-Installed extensions can add importers, metadata, actions, fields, or presentation. Those contributions do not change the distinction between the text record and its source.
+## Files and technical values
+
+<MediaReferenceTable reference={textReference} section="files" />
+
+## Capabilities
+
+<MediaReferenceTable reference={textReference} section="capabilities" />
+
+## Availability and requirements
+
+<MediaReferenceTable reference={textReference} section="availability" />
+
+## Lifecycle and deletion
+
+<MediaReferenceTable reference={textReference} section="lifecycle" />
+
+## Text-specific structure
+
+A text record can have no file or several attached files. Cove selects an attached file for the reading surface and extracts content when it is requested. The render mode follows the source format, while the title, details, relationships, provenance, and organization state remain metadata on the text record.
 
 ## Related reference
 
