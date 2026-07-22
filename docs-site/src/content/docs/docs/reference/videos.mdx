@@ -1,0 +1,160 @@
+---
+title: Videos
+description: Reference for Cove video records, metadata, files, views, filters, tabs, operations, and availability rules.
+---
+
+Use this page to look up the built-in video record and the core video interface. It describes the current Cove UI; permissions can hide controls, configured services can add optional similarity features, and extensions can contribute more actions, tabs, filters, or sorts. For HTTP request and response schemas, use the running instance's OpenAPI document as described in [API surface](../../developer/api/overview/).
+
+## Record model
+
+A video is a library record, not the source file itself. Shared metadata and relationships belong to the video record, while technical media properties belong to each attached file. A video can exist without a file, can have more than one file, or can be a sub-video that presents a time range from a parent video's files.
+
+When a title is absent, Cove uses an available file name or a generated `Video <id>` label where the interface needs a display name.
+
+### Descriptive fields
+
+| Field | Meaning |
+| --- | --- |
+| **Title** | Display title for the video. |
+| **Date** | Calendar date associated with the video. |
+| **Studio Code** | Studio- or publisher-assigned catalog code. |
+| **Director** | Free-text director value. |
+| **Details** | Longer free-text description. |
+| **Captions** | Free-text captions metadata retained on the video record and available to filtering; distinct from discovered sidecar caption tracks. |
+| **Organized** | User-managed flag indicating that the record has reached the library's desired organization state. |
+| **VR** | Marks the video as virtual-reality content. |
+| **Cover** | Selected or generated image used to represent the video. |
+| **Created** and **Updated** | Timestamps maintained by Cove for the record. |
+
+Imported or automated values can include provenance. Hover information in the interface identifies the source when provenance is available; see [Metadata provenance](../../user/metadata/provenance/).
+
+### Relationships and external identity
+
+| Field | Cardinality and behavior |
+| --- | --- |
+| **Studio** | Zero or one studio. |
+| **Tags** | Zero or more tags. Contextual tag applications can also describe a particular performer occurrence or time range without becoming ordinary whole-video tags. |
+| **Performers** | Zero or more performers. A dated video can display a performer's age at that date. |
+| **Groups** | Zero or more groups. Each membership can carry a **Video #** position used for ordered groups. |
+| **Galleries** | Zero or more related galleries. |
+| **URLs** | Zero or more external links. |
+| **Remote IDs** | Provider endpoint and remote identifier pairs used to reconnect a record to external metadata. |
+| **Custom Fields** | Administrator-defined video fields and values. |
+| **Parent video** | Present only for a sub-video; the clip start and end define the playable range within the root parent's media. |
+
+Ratings, likes, favorites, play counts, playback sessions, watched duration, and resume position are engagement data. Cove keeps them separately from the shared descriptive fields so the visible values can follow the current signed-in user.
+
+## Files and generated media
+
+The **File Info** tab lists every file attached to the record. A sub-video with no directly attached files resolves the parent video's files for playback.
+
+| File value | Format |
+| --- | --- |
+| **Path** | Cove-visible filesystem path. In Docker this is the container path, not the host path. |
+| **File Size** | Bytes formatted for display. |
+| **Duration** | Playback duration. |
+| **Dimensions** | Pixel width × height. |
+| **Frame Rate** | Frames per second. |
+| **Bitrate** | Kilobits per second in the interface. |
+| **Video Codec** and **Audio Codec** | Codec names reported during scanning. |
+| **Fingerprints** | Available file hashes, such as `oshash`, `md5`, or `phash`. |
+
+Discovered VTT or SRT sidecar caption tracks are associated with individual files and used by the player, but the **File Info** tab does not list them.
+
+Source files are distinct from generated covers, thumbnails, previews, sprites, and other derived assets. Deleting from the detail page can remove only the video record or also request source-file deletion. Bulk deletion additionally offers a separate generated-files choice. Deleting a parent video also deletes its sub-video records, while deleting a sub-video does not delete the parent's source files. Cove also retains a source path when another video record not included in the deletion still references it. Source-file deletion requires a writable media path; it fails on an intentional read-only mount. Keep source media backed up before enabling destructive workflows.
+
+## Videos page
+
+The **Videos** page combines browsing, search, filtering, sorting, selection, and playback queues.
+
+### Display modes
+
+| Mode | Purpose |
+| --- | --- |
+| **Grid** | Cover-oriented cards with compact metadata. |
+| **List** | Denser row-based comparison. |
+| **Wall** | Multi-column visual browsing with adjustable column count. |
+| **Tagger** | Tagging-oriented review across the loaded results. |
+| **Feed** | Large sequential cards; uses infinite loading. |
+| **Vertical Viewer** | Full-height, swipe-like playback; uses infinite loading and can enter full screen. |
+
+Paged and **Infinite** page sizes are available outside the modes that require infinite loading. The **Include Compilations** filter can add compilation groups to compatible video results.
+
+### Search, filters, and sorts
+
+**Text** search covers videos and related metadata such as tags and performers. **Visual** search and its **Visual Match** sort appear only when a visual-similarity provider is available.
+
+Built-in filter criteria are grouped here for lookup; the filter dialog supplies the field-appropriate text, inclusion, equality, comparison, interval, or date controls. Configured custom fields and installed extensions can add more criteria.
+
+| Filter area | Criteria |
+| --- | --- |
+| Identity and text | **Title**, **Studio Code**, **Details**, **Director**, **URL**, **Remote ID**, **Remote ID Count**, **Captions** |
+| Relationships | **Tags**, **Tag Count**, **Performers**, **Performer Count**, **Performer Tags**, **Performer Favorite**, **Performer Age**, **Studios**, **Groups**, **Galleries** |
+| File and media | **Path**, **Hash**, **Duplicated (pHash)**, **Duration**, **Tag Duration**, **Resolution**, **Orientation**, **Video Codec**, **Audio Codec**, **Frame Rate**, **Bitrate (kbps)**, **File Count** |
+| Record and engagement | **Duplicated Title**, **Duplicated Remote ID**, **Rating**, **Likes**, **Organized**, **VR**, **Play Count**, **Resume Time**, **Play Duration**, **Last Played** |
+| Dates | **Date**, **Created At**, **Updated At** |
+| Result composition | **Include Compilations** |
+
+Built-in sorts are listed below. Configured sortable custom fields and installed extensions can add more.
+
+- record values: **Updated At**, **Created At**, **Title**, **Date**, **Rating**, **Organized**, **Studio**, **Studio Code**
+- engagement: **Play Count**, **Likes**, **Last Like Date**, **Last Played**, **Play Duration**, **Resume Time**
+- files: **Duration**, **File Size**, **File Modification Time**, **File Count**, **Path**, **Resolution**, **Frame Rate**, **Bitrate**, **pHash**
+- relationships: **Tag Count**, **Performer Count**, **Performer Age**
+- utility: **Random**, plus **Visual Match** when visual search is active
+
+For reusable filters, query behavior, and saved defaults, see [Search and filters](../../user/library/search-and-filters/).
+
+### Selection actions
+
+Selecting videos can expose these core actions:
+
+| Action | Behavior and availability |
+| --- | --- |
+| **Download** | Queues media retrieval for selected file-less records when downloads and jobs are available. |
+| **Edit** | Bulk-edits rating, organized state, VR state, studio, date, studio code, director, tags, performers, or groups. Multi-value relationships can be added, removed, or replaced. |
+| **Identify** | Runs configured identification workflows. |
+| **Merge** | Combines two or more selected records into a chosen target. |
+| **Play** | Creates a playback queue from the selected videos. |
+| **Delete** | Deletes selected records. The bulk confirmation provides separate choices for source files and generated files. Deleting a selected parent also deletes its sub-video records. |
+| Extension actions | Installed extensions can add actions for a video selection. |
+
+## Video detail page
+
+The detail page combines the player with metadata and operations for one record.
+
+### Tabs
+
+| Tab | Contents and availability |
+| --- | --- |
+| **Details** | Created and updated times, studio code, director, description, tags, performers and occurrence tags, groups, galleries, detected faces, URLs, remote IDs, and custom fields. |
+| **Segments** | Raw segments and display-ready segments for the video. Reading and editing depend on segment permissions. |
+| **Similar** | Visual matches when visual similarity is available. |
+| **Audio Similar** | Audio matches when audio similarity is available. |
+| **Filters** | Playback-only brightness, contrast, gamma, saturation, and hue controls. They do not modify the source file or video metadata. |
+| **File Info** | Every resolved video file and its technical values; requires file-read access. |
+| **History** | Play count, watched duration, play events, and recent playback sessions. Users with video-write access can remove the last play or reset the play count. |
+| Extension tabs | Tabs contributed by enabled extensions for the video page. |
+| **Edit** | Editable metadata and relationships; requires video-write access. |
+
+### Core operations
+
+The header can mark the video **Organized**, open its stream in an external player, and navigate a selected playback queue. The **Operations** menu can contain:
+
+- **Download Media…** for a record without a file
+- **Rescan** for an attached file
+- **Scrape / Metadata…** and **Identify…**
+- extension-contributed video actions
+- **Generate…** for derived media
+- **Set Cover…**
+- **Merge…**
+- **Delete**
+
+The exact list depends on video access, job and scan permissions, configured providers, attached files, and installed extensions. See [Users, roles, and permissions](../../user/security/users-roles-permissions/) for the access model and [Providers, scrapers, and downloaders](../../user/metadata/providers-scrapers-downloaders/) for metadata workflows.
+
+## Related documentation
+
+- [Media types](../../user/library/media-types/) explains how videos compare with images, galleries, audio, and text.
+- [Organizing your library](../../user/library/organizing/) explains when to use tags, performers, studios, and groups.
+- [Segments and compilations](../../user/library/segments-and-compilations/) explains timeline ranges, sub-videos, and compilation playback.
+- [Terminology](../../terminology/) provides concise definitions of video, generated media, segment, sub-video, and compilation.

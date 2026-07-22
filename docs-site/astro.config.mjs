@@ -91,7 +91,6 @@ export default defineConfig({
           label: 'Docs home',
           items: [
             { link: '/docs/', label: 'Documentation home' },
-            { link: '/docs/terminology/', label: 'Terminology' },
           ],
         },
         {
@@ -126,6 +125,14 @@ export default defineConfig({
             { link: '/docs/user/security/users-roles-permissions/', label: 'Users and permissions' },
             { link: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups and upgrades' },
             { link: '/docs/user/troubleshooting/', label: 'Troubleshooting' },
+          ],
+        },
+        {
+          label: 'Reference',
+          items: [
+            { link: '/docs/reference/', label: 'Reference overview' },
+            { link: '/docs/terminology/', label: 'Terminology' },
+            { link: '/docs/reference/videos/', label: 'Videos' },
           ],
         },
         {
