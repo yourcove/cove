@@ -24,6 +24,118 @@ Every compiled extension implements `IExtension`.
 
 Extensions may register their own services. They should treat host services as an explicit compatibility boundary, not assume every internal Cove service is stable. `IExtensionServiceExchange` is the supported opt-in exchange for publishing and resolving services across extension containers.
 
+## SDK base classes
+
+`Cove.Sdk` provides manifest-aware base classes and a UI builder. They reduce lifecycle and dispatch boilerplate; they do not add capabilities that their implemented interfaces do not list.
+
+| Base | Implements | Choose it when |
+| --- | --- | --- |
+| `CoveExtensionBase` | `IUIExtension`, `IManifestAware` | The extension needs normal lifecycle and service registration, an optional UI manifest, or a base for one manually implemented capability. |
+| `DataExtensionBase` | `CoveExtensionBase`, `IDataExtension` | The extension owns relational tables or forward-only SQL migrations and does not need the full combined base. |
+| `EventExtensionBase` | `CoveExtensionBase`, `IEventExtension` | The extension mainly routes entity lifecycle events to handlers. |
+| `JobExtensionBase` | `CoveExtensionBase`, `IJobExtension` | The extension mainly declares named, host-run jobs. |
+| `FullExtensionBase` | Data, API, UI, events, jobs, state, and scan participation | One extension genuinely needs several of those capabilities. All listed capabilities have safe no-op defaults, but the extension still advertises every listed interface to the host. |
+
+There are no capability-specific SDK bases for API endpoints, background workers, middleware, actions, scrapers, downloaders, or permission contributions. Derive from `CoveExtensionBase` and implement only the needed interface for those cases.
+
+### `CoveExtensionBase`
+
+The host applies `extension.json` immediately after constructing a manifest-aware extension. `Id`, `Name`, `Version`, description, author, URL, categories, `MinCoveVersion`, and dependencies then come from that manifest. `Manifest` is available from `ConfigureServices` onward.
+
+The main override and helper signatures are:
+
+```csharp
+public virtual void ConfigureServices(
+    IServiceCollection services,
+    ExtensionContext context);
+
+public virtual UIManifest GetUIManifest();
+
+public virtual Task InitializeAsync(
+    IServiceProvider services,
+    CancellationToken ct = default);
+
+public virtual Task ShutdownAsync(CancellationToken ct = default);
+public virtual Task OnInstallAsync(
+    IServiceProvider services,
+    CancellationToken ct = default);
+public virtual Task OnUninstallAsync(
+    IServiceProvider services,
+    CancellationToken ct = default);
+
+protected UIManifestBuilder ManifestBuilder();
+protected void PublishContributions<T>(IServiceProvider services)
+    where T : class;
+```
+
+Lifecycle methods and `GetUIManifest()` default to no work. Override `ConfigureServices` for extension-owned DI registrations. Call `PublishContributions<T>` during `InitializeAsync` only for a shared contract that sibling extensions should resolve through `IExtensionServiceExchange`; the host withdraws published instances when the extension stops.
+
+### Capability-specific bases
+
+`DataExtensionBase` requires `ConfigureModel(ModelBuilder)` and provides `DefineMigrations()` plus `Migration(name, sql)`. Migrations are forward-only, ordered as added, and tracked by name.
+
+`EventExtensionBase` calls `RegisterHandlers()` from its constructor. Register exact event strings with `On`, or use `OnCreated`, `OnUpdated`, and `OnDeleted`. Handlers receive the event and cancellation token.
+
+`JobExtensionBase` calls `DefineJobs()` from its constructor. `Job(...)` binds an id and label to a handler and can declare parameters, description, and `showInTaskList`. Do not rely on derived-class fields that have not initialized yet from either constructor-time registration method.
+
+`FullExtensionBase` combines the data helpers with `MapEndpoints`, `DefineEventHandlers`, `DefineJobs`, `Store`, and `ScanAsync`. It does **not** implement `IBackgroundExtension`, `IMiddlewareExtension`, `IActionExtension`, provider interfaces, or permission contributors. Add those interfaces explicitly when needed, or use a narrow base if most combined capabilities would remain empty.
+
+### `UIManifestBuilder`
+
+`UIManifestBuilder` creates a `UIManifest` and automatically stamps supported contributions with the extension id. A manifest-backed extension normally starts with the protected `ManifestBuilder()` helper:
+
+```csharp
+public sealed class ReportsExtension : CoveExtensionBase
+{
+    public override UIManifest GetUIManifest() =>
+        ManifestBuilder()
+            .AddPage(
+                route: "example-reports",
+                label: "Reports",
+                componentName: "ReportsPage",
+                icon: "puzzle")
+            .AddSettingsTab(
+                key: "example-reports-settings",
+                label: "Example reports")
+            .Build();
+}
+```
+
+Representative signatures are:
+
+```csharp
+public UIManifestBuilder AddPage(
+    string route,
+    string label,
+    string componentName,
+    string? icon = null,
+    string? detailRoute = null,
+    bool showInNav = true,
+    int navOrder = 100);
+
+public UIManifestBuilder AddSlot(
+    string slot,
+    string componentName,
+    string? id = null,
+    int order = 100);
+
+public UIManifestBuilder AddTab(
+    string pageType,
+    string key,
+    string label,
+    string componentName,
+    int order = 100,
+    string? countEndpoint = null,
+    string? icon = null,
+    string[]? manualContexts = null);
+
+public UIManifest Build();
+```
+
+The builder also has methods for actions, settings tabs and panels, tutorial topics, features, and list filters and sorts. `AddPane` and `OverrideComponent` build declarations whose frontend consumers are currently reserved; see [UI extension points](../ui-extension-points/) before choosing a method.
+
+`UIManifestBuilder` does not replace `extension.json`. In particular, package frontend files with manifest `jsBundle` and `cssBundle`. Although the builder exposes `WithJsBundle`, `WithCssBundle`, and `WithRuntimeVersion`, the aggregated host manifest supplies asset URLs from the package manifest and supplies its own frontend runtime version. Do not use those methods as package configuration.
+
 ## Backend capabilities
 
 Implement only the interfaces your extension needs.
@@ -59,7 +171,7 @@ These provider interfaces integrate with Cove's built-in review, provenance, and
 | `IScraperProvider` | Declare scrapers and scrape or search videos, performers, galleries, images, groups, audio, and text. |
 | `IDownloaderProvider` | Match source URLs, offer quality choices, and download videos, images, galleries, audio, or text into Cove's intake flow. |
 
-Scrapers declare supported entities, URL patterns, invocation capabilities, preference sites, and a risk level. Cove passes the approved network, JavaScript, and browser-debugging permissions with each request.
+Scrapers declare supported entities, URL patterns, invocation capabilities, preference sites, and a risk level. Cove passes a `ScraperPermissions` value with each request. The current host derives the allowed network host from a URL input and leaves JavaScript and browser debugging disabled; name-only searches receive no allowed host. Providers must honor that request value.
 
 Downloaders declare supported entities, URL patterns, and capabilities such as resume, range requests, multiple qualities, or inline metadata. Cove supplies a temporary directory, HTTP clients, logging, and progress reporting through `IDownloaderHost`.
 
@@ -131,11 +243,13 @@ Not every package needs a DLL. `extension.json` can describe a manifest-only `bu
 - in-app Cove Manual topics
 - external tool, runtime, service, environment-variable, and configuration requirements
 - extension dependencies and Cove version compatibility
-- runtime network, scraper, and downloader permissions
+- declarative network, scraper-runtime, and downloader-runtime requirements
 
 A YAML scraper pack contributes scraper definitions without compiling a .NET provider. A bundle can group contributions and dependencies under one installable identity.
 
 Frontend JavaScript and CSS require a loaded `IUIExtension`; declaring bundle paths on a manifest-only package does not load those assets.
+
+The manifest permission lists are not a runtime authorization boundary. See [Extension permissions](../permissions/) for their exact fields and current behavior.
 
 ## Choosing extension points
 

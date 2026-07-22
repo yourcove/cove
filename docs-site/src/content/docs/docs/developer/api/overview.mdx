@@ -1,36 +1,158 @@
 ---
 title: API Surface
-description: How extensions and integrations should think about Cove APIs and host boundaries.
+description: Authentication, OpenAPI discovery, routes, pagination, filtering, errors, and extension endpoints.
 ---
 
-Cove exposes APIs for the application itself, extension-backed workflows, and automation that lives outside the app.
+Cove exposes a JSON HTTP API for its own frontend, external automation, and runtime-loaded extension endpoints. Use it instead of reading or writing Cove's database directly so permissions, content rules, provenance, jobs, and host behavior remain in effect.
 
-## The main rule
+## Base URL and route versioning
 
-Use the supported host and API surfaces instead of reaching into storage directly.
+Core endpoints are under the same origin as Cove, with an unversioned `/api/` base path:
 
-That matters because Cove’s real value is not only the data model. It is also the behavior around permissions, provenance, jobs, and host-aware UI.
+```text
+http://localhost:5073/api/performers
+http://localhost:5073/api/tags
+http://localhost:5073/api/extensions
+```
 
-## Practical integration principles
+There is no `/api/v1` compatibility prefix or negotiated API version. The `v1` in the OpenAPI document name identifies the generated document, not a versioned route base. Pin automation to a tested Cove release and compare its OpenAPI contract during upgrades.
 
-- keep long-running work in jobs or services instead of request handlers
-- respect user, role, permission, and content-rule boundaries
-- preserve provenance when automations change user-visible metadata
-- pair user-configurable API behavior with an understandable UI surface when possible
+Controller paths and HTTP methods vary by resource. Do not infer a mutation route from a list route; use the running build's OpenAPI document for the exact request and response schema.
 
-## Data ownership
+## Discover the OpenAPI contract
 
-Extensions can own data, but that ownership should still be understandable:
+When Cove runs in ASP.NET Core **Development** mode only, it publishes its generated OpenAPI document at:
 
-- administrators should know what the extension stores
-- administrators should know which permissions control it
-- users should be able to tell when that data affects the library
+```text
+/openapi/v1.json
+```
 
-## Use this page with the extension guides
+For a local source checkout, open `http://localhost:5073/openapi/v1.json` or save it for a client generator:
 
-This page is the conceptual boundary. Use it together with:
+```bash
+curl --silent \
+  --show-error \
+  --fail-with-body \
+  --output cove-openapi.json \
+  "${COVE_URL}/openapi/v1.json"
+```
 
-- [Run Cove locally](../../getting-started/local-development/)
-- [Create an extension](../../extensions/create-extension/)
-- [Create a scraper](../../extensions/create-scraper/)
-- [Create a downloader](../../extensions/create-downloader/)
+Production mode does not map this discovery route. Generate or inspect the contract from a Development instance built from the same Cove revision; do not expose a development server merely to make discovery public.
+
+## Authenticate with an API token
+
+In Cove, open **Settings → Security & Access → API tokens**, create a token, and copy the plaintext value when it is issued. Store it as a secret. Send it in the bearer header:
+
+```http
+Authorization: Bearer cove_pat_...
+```
+
+An API token acts as its owner, not as a separate administrator. Its effective permissions are the intersection of:
+
+1. the owner's current role permissions, including implied permissions; and
+2. the token's optional scope.
+
+A token with no scope uses the owner's current permissions. A scoped token can only remove access; it cannot add a permission the owner lacks. Disabling or locking the user, revoking the token, token expiry, role changes, and role content rules all affect later requests.
+
+Use an environment variable or secret store rather than putting the token in a URL, tracked script, or command history. The examples assume `COVE_URL` and `COVE_API_TOKEN` are already set:
+
+```bash
+curl --silent \
+  --show-error \
+  --fail-with-body \
+  --get \
+  --header "Accept: application/json" \
+  --header "Authorization: Bearer ${COVE_API_TOKEN}" \
+  --data-urlencode "q=example" \
+  --data-urlencode "page=1" \
+  --data-urlencode "perPage=25" \
+  "${COVE_URL}/api/performers"
+```
+
+Use HTTPS whenever the request crosses a trusted local boundary.
+
+## Pagination and simple filters
+
+Many entity list endpoints accept these query parameters:
+
+| Parameter | Common meaning |
+| --- | --- |
+| `q` | Full-text or resource-appropriate search text. |
+| `page` | One-based page number. |
+| `perPage` | Requested page size. Defaults and maximum clamps differ by endpoint. |
+| `sort` | Resource-specific sort key. |
+| `direction` | `asc` or `desc`; supported values and defaults are endpoint-specific. |
+
+Common paginated responses return `items`, `totalCount`, `page`, and `perPage`:
+
+```json
+{
+  "items": [],
+  "totalCount": 0,
+  "page": 1,
+  "perPage": 25
+}
+```
+
+Do not assume every list uses the same maximum `perPage` or sort vocabulary. Some specialized endpoints return a `hasMore` value or a resource-specific response instead of `totalCount`.
+
+## Advanced filtering
+
+Resources with advanced filters commonly expose `POST /api/<resource>/find`. The request has a `findFilter` for paging and sorting and an `objectFilter` whose fields depend on that resource:
+
+```json
+{
+  "findFilter": {
+    "q": "example",
+    "page": 1,
+    "perPage": 25,
+    "sort": "name",
+    "direction": "asc"
+  },
+  "objectFilter": {
+    "favorite": true
+  }
+}
+```
+
+Criteria can include modifiers such as `equals`, `notEquals`, `greaterThan`, `includes`, `includesAll`, `between`, or null checks, but each object-filter field supports only the operations implemented for that resource. JSON enum values are camel case. Read the generated OpenAPI schema and verify the endpoint implementation before persisting a filter payload.
+
+## Common errors
+
+Authorization failures have stable top-level codes:
+
+| Status | Typical body or meaning |
+| --- | --- |
+| `400 Bad Request` | Invalid input. ASP.NET validation commonly returns problem details with an `errors` map; some operations return a specific message. |
+| `401 Unauthorized` | `{ "code": "UNAUTHORIZED", "message": "Authentication required." }` when no valid principal is present. |
+| `403 Forbidden` | `{ "code": "FORBIDDEN", "missing": ["permission.key"] }` when an authenticated principal lacks a declared permission. A strict default-deny endpoint without a policy returns problem details instead. |
+| `404 Not Found` | The requested visible resource or route was not found. Content filtering can make an inaccessible entity indistinguishable from a missing one. |
+| `409 Conflict` | The operation conflicts with current state, such as an extension directory that cannot be replaced. The body is operation-specific. |
+| `429 Too Many Requests` | A rate-limit policy rejected the request. Back off rather than retrying immediately. |
+| `503 Service Unavailable` | Cove is initializing, in maintenance, or cannot reach its database. Retry only after the service becomes ready. |
+
+Endpoint-specific failures may use other statuses and response shapes. With `curl`, keep `--fail-with-body` so a non-success response fails the command without discarding its diagnostic body.
+
+## Extension API endpoints
+
+An `IApiExtension` maps ASP.NET Core minimal-API routes in `MapEndpoints(IEndpointRouteBuilder)`. Cove adds or removes those routes when the extension loads or unloads and executes them with the extension's service container.
+
+Cove does not automatically prefix or version an extension route. Use a collision-resistant namespace such as:
+
+```text
+/api/ext/<extension-id>/...
+```
+
+The global MVC permission filter does not wrap extension minimal-API delegates. The extension must enforce authentication and its contributed permissions in each server-side operation. See [Extension permissions](../../extensions/permissions/) for an endpoint example.
+
+An extension can add OpenAPI metadata to its minimal routes with the normal ASP.NET Core endpoint conventions. Verify how those routes appear in `/openapi/v1.json`; a route without request, response, and error metadata may be callable but still produce an incomplete generated client contract.
+
+## Integration boundaries
+
+- Keep long-running work in Cove jobs or extension services instead of holding an HTTP request open.
+- Preserve field provenance when automation changes user-visible metadata.
+- Follow pagination and rate limits; do not scrape the frontend's HTML or depend on its internal component state.
+- Treat response fields not present in the OpenAPI schema as implementation details.
+- Test with a narrowly scoped API token and a role subject to the same content rules as the intended operator.
+
+For an in-process integration, start with [Extension points](../../extensions/extension-points/). For a standalone development checkout, see [Run Cove locally](../../getting-started/local-development/).

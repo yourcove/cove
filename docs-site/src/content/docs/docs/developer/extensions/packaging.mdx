@@ -1,18 +1,191 @@
 ---
 title: Extension Packaging
-description: Package Cove extensions so the host can load them predictably.
+description: Archive layout, manifest fields, dependencies, validation, and release workflow for Cove extensions.
 ---
 
-An extension package should make its host requirements, permissions, UI contributions, backend contributions, settings, and assets clear.
+Cove installs extensions from ZIP archives. A package can contain a compiled .NET extension, a manifest-only bundle, or a scraper pack, but every package uses `extension.json` as its identity and compatibility contract.
 
-## Package contents
+For a first working package, follow [Create an extension](../create-extension/). This page is the format reference.
 
-- Manifest metadata: id, name, version, description, author, and compatibility.
-- Backend assemblies or services when the extension contributes server behavior.
-- Frontend assets when the extension contributes pages, tabs, slots, dialogs, settings, or themes.
-- Schema or data contribution metadata when the extension stores structured data.
-- Permission declarations administrators can review.
+## Accepted archive layouts
 
-## Release expectations
+The portable layout puts the manifest at the archive root. A manifest at the archive root works with all installation workflows, including registry installation, **Install from URL**, and local extension-directory discovery. A registry release ZIP must therefore contain its manifest at the archive root.
 
-Use stable extension ids, semantic versions, clear changelogs, and reproducible builds. Do not rename ids casually; Cove uses extension identity to connect settings, permissions, and stored data.
+```text
+com.example.reports.zip
+├── extension.json
+├── Example.Reports.dll
+├── Example.Reports.deps.json
+├── Private.Dependency.dll
+└── assets
+    ├── ui.mjs
+    └── ui.css
+```
+
+A single wrapper has narrower support. Exactly one top-level wrapper is accepted only by **Install from URL**:
+
+```text
+com.example.reports.zip
+└── com.example.reports
+    ├── extension.json
+    ├── Example.Reports.dll
+    └── assets
+        ├── ui.mjs
+        └── ui.css
+```
+
+After validating a URL-installed archive, Cove flattens the wrapper by moving that directory to the final extension directory. Do not publish this layout as a registry release: the registry extracts archive paths directly into the extension directory, and normal discovery looks for `extension.json` directly in that directory.
+
+For **Install from URL**, a manifest at `release/com.example.reports/extension.json` is too deep, and manifests in two top-level directories make the package root ambiguous. The URL installer also rejects ZIP entries that attempt path traversal outside its temporary extraction directory.
+
+List the finished archive before publishing it:
+
+```bash
+python3 -m zipfile \
+  --list artifacts/com.example.reports.zip
+```
+
+Paths in `entryDll`, `jsBundle`, and `cssBundle` are relative to the directory containing `extension.json`. Preserve path case: Cove may run on a case-sensitive filesystem.
+
+## Manifest reference
+
+JSON property matching is case-insensitive, but use the camel-case names shown here. Empty collections are the defaults unless noted.
+
+| Field | Required or default | Meaning |
+| --- | --- | --- |
+| `id` | Required | Stable extension identity. A reverse-domain value is recommended. The URL installer rejects empty ids, rooted paths, `..`, and platform-invalid filename characters. |
+| `name` | Required | Human-readable name shown in extension management. |
+| `version` | Required | Installed extension version. Use a numeric semantic version such as `1.2.0`. |
+| `description` | Optional | Short user-facing purpose. |
+| `author` | Optional | Author or organization. |
+| `url` | Optional | Project or source URL. |
+| `iconUrl` | Optional | Extension icon URL. |
+| `kind` | `extension` | `extension` for compiled code; `bundle` and `scraper-pack` are manifest-only kinds. |
+| `categories` | `[]` | Labels used for registry and installed-extension filtering. Prefer Cove's well-known category strings where they fit. |
+| `minCoveVersion` | Any Cove version | Minimum running Cove version. An installer rejects a package when it can parse both versions and the running version is lower. |
+| `dependencies` | `{}` | Map of extension id to one supported semantic-version range: exact, `=`, `>`, `>=`, `<`, or `<=` followed by a version. Cove uses it for dependency validation and initialization order. |
+| `externalDependencies` | `[]` | User-visible tools, runtimes, services, executables, environment variables, or configuration requirements. These describe requirements; the extension remains responsible for probing what it uses. |
+| `settings` | `[]` | Generic settings shown in the Extensions settings UI. Each item names the setting and type and can include a display name, description, and applicable extension ids. |
+| `tutorialTopics` | `[]` | In-app Cove Manual topics contributed by this package. |
+| `entryDll` | Auto-discover root DLLs | DLL containing an `IExtension` implementation. Set it for compiled packages so Cove loads one intentional entry assembly instead of inspecting every root DLL. |
+| `sharedAssemblies` | `[]` | Assembly **simple names**, without `.dll`, that multiple extensions must load as one shared type identity. Use only for a deliberately shared cross-extension contract. |
+| `jsBundle` | Optional | Relative path to the frontend ESM bundle for a loaded `IUIExtension`. |
+| `cssBundle` | Optional | Relative path to the frontend stylesheet for a loaded `IUIExtension`. |
+| `permissions` | Empty permission lists | Declarative `network`, `scraperRuntime`, and `downloaderRuntime` string lists. See [Extension permissions](../permissions/) for their current runtime boundary. |
+| `checksum` | Optional legacy; read if present | Retained in the manifest schema for compatibility. The package checksum used to verify a registry download lives in external registry metadata, not this field. |
+| `registryUrl` | Optional legacy; read if present | Retained for legacy source inference. Current URL and registry installation source is persisted separately in Cove's installation state. |
+
+Current installers do not write or populate either legacy field in `extension.json`. Leave both out of newly built packages. Registry release metadata supplies each version's SHA-256 checksum, and Cove records a successful install's source as `registry` or `url` in its separate installation state.
+
+### Complete compiled example
+
+```json
+{
+  "id": "com.example.reports",
+  "name": "Example reports",
+  "version": "1.2.0",
+  "description": "Adds library reports to Cove.",
+  "author": "Example",
+  "url": "https://example.invalid/reports",
+  "kind": "extension",
+  "categories": ["analytics", "tools"],
+  "minCoveVersion": "1.0.0",
+  "entryDll": "Example.Reports.dll",
+  "dependencies": {
+    "com.example.shared-contract": ">=1.1.0"
+  },
+  "externalDependencies": [],
+  "settings": [],
+  "tutorialTopics": [],
+  "sharedAssemblies": ["Example.SharedContract"],
+  "jsBundle": "assets/ui.mjs",
+  "cssBundle": "assets/ui.css",
+  "permissions": {
+    "network": [],
+    "scraperRuntime": [],
+    "downloaderRuntime": []
+  }
+}
+```
+
+Keep the same `id` across releases. Cove connects installation state, settings, contributed permissions, and stored extension data to that value.
+
+## Backend assemblies
+
+Publish the project; do not package only the main DLL. A normal publish directory contains the extension assembly, its `.deps.json`, and any extension-private dependencies.
+
+```bash
+dotnet publish src/Example.Reports/Example.Reports.csproj \
+  --configuration Release \
+  --output artifacts/extension
+```
+
+Referencing the `Cove.Sdk` package imports its packaging targets. Those targets include private dependencies while removing host-provided assemblies such as `Cove.Sdk`, `Cove.Plugins`, `Cove.Core`, EF Core, Npgsql, and Pgvector. The running Cove process supplies one copy of those contract assemblies.
+
+Do not add host-provided assemblies back to the ZIP. Cove resolves its own copy and logs a warning when a package bundles one. Shipping a second copy wastes space and risks incompatible type identities. A library used only inside your extension is a private dependency and should stay in the publish output.
+
+`sharedAssemblies` is a different mechanism. Use it only when types from a third-party contract intentionally cross between extension containers. Every participating package must ship a compatible assembly with the same simple name. Cove chooses one preferred file and shares that loaded identity, so incompatible versions can break every participant. Ordinary implementation libraries belong to each extension's private load context instead.
+
+## Frontend assets
+
+Set `jsBundle` and `cssBundle` to files inside the package. Cove serves those files through its authenticated extension-asset route and combines assets from enabled compiled UI extensions.
+
+The JavaScript file must be an ESM module. Components named by pages, tabs, slots, settings panels, and overrides belong in the default export's `components` map. Frontend action handlers belong in `actionHandlers` (the legacy `handlers` alias is also read). Build production assets before creating the ZIP; Cove does not run npm or a bundler during install.
+
+```js
+import ReportsPage from './ReportsPage.js';
+
+export default {
+  components: { ReportsPage },
+  actionHandlers: {},
+};
+```
+
+Declaring bundle paths is not enough for a manifest-only `bundle` or `scraper-pack`: JavaScript and CSS are collected only for a loaded, enabled `IUIExtension`. See [UI extension points](../ui-extension-points/) for component and contribution fields.
+
+## Dependencies and compatibility
+
+Each `dependencies` value is one comparison, not an npm-style compound expression. These are supported:
+
+```json
+{
+  "dependencies": {
+    "com.example.base": ">=1.4.0",
+    "com.example.schema": "=2.0.0"
+  }
+}
+```
+
+Cove orders installed dependencies before dependents and reports missing extensions or version mismatches. Registry installs can resolve and install declared dependencies when the user approves that plan. A direct URL package should be tested with its dependencies already installed.
+
+`minCoveVersion` compares the **running Cove version** with the minimum in the package. It is not a comparison between the extension's own `version` and `minCoveVersion`. Use the oldest Cove version against which the built binary and its public host contracts were actually tested.
+
+## Install-time validation and failures
+
+For an **Install from URL** package, Cove performs these checks before replacing the installed directory:
+
+1. Explicit trust confirmation is present and the URL is absolute HTTP or HTTPS.
+2. The download succeeds.
+3. Every ZIP entry remains inside the temporary extraction directory.
+4. Exactly one accepted package root contains `extension.json`.
+5. The manifest parses, has a valid `id`, and does not require a newer Cove version.
+
+After those validations, replacement is not transactional. Cove unloads the existing same-id extension, deletes its directory, moves the new package into place, discovers it, and initializes it. Endpoint registration, installation-source persistence, and scraper reload happen only after initialization succeeds.
+
+The installer returns `400` for an invalid URL, unsafe or ambiguous archive, invalid manifest id, or incompatible Cove version. It returns `409` if the existing directory cannot be deleted because files remain locked. If discovery or initialization fails, it returns `500`; by then the old extension has already been removed, and the new package files can remain installed while the extension is disabled or not loaded.
+
+Review the Cove logs for discovery, assembly-load, dependency, and initialization details. Correct the archive and install the same URL again, or reinstall a known-good package with the same `id` to recover from a failed replacement.
+
+## Release workflow
+
+Use a reproducible release pipeline:
+
+1. Update the manifest `version`, changelog, and `minCoveVersion` when the compatibility floor changes.
+2. Restore, test, build production frontend assets, and run `dotnet publish`.
+3. Copy `extension.json` and frontend assets into the publish directory.
+4. Create the ZIP from inside that directory so `extension.json` is at the archive root, then inspect its file listing.
+5. Install the package into the oldest supported Cove version and a current Cove version. Exercise its permissions, settings, UI, jobs, and uninstall behavior.
+6. Publish an immutable ZIP for the matching version tag. Let release or registry automation calculate its checksum.
+7. For development iteration, rebuild the archive and install the same URL again; Cove hot-replaces that extension.
+
+The official [single-extension repository template](https://github.com/yourcove/single-extension-repo-template) includes a tag-driven release workflow. Registry metadata is a separate publication step after the versioned extension release exists.

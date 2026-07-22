@@ -1,21 +1,134 @@
 ---
 title: Extension Permissions
-description: Design extension permissions that administrators can understand and assign safely.
+description: Manifest declarations, contributed role permissions, endpoint enforcement, and content-policy limits.
 ---
 
-Extensions should ask for the minimum access needed to do their job.
+Cove has two different extension permission surfaces:
 
-## Permission design
+- `extension.json` can declare scraper and downloader runtime needs.
+- Compiled extensions can contribute assignable role permissions with `IPermissionContributor`.
 
-- Name permissions after the capability they unlock.
-- Keep read and write actions separate when possible.
-- Avoid broad administrator-level requirements for ordinary workflows.
-- Explain user-facing impact in settings and documentation.
+They are not interchangeable. A manifest declaration does not grant a Cove user a role permission, and registering a role permission does not automatically protect extension code.
 
-## Administrator review
+## Manifest runtime declarations
 
-Administrators need to understand what an extension can read, write, display, schedule, and expose through APIs. Permission names and descriptions should be specific enough to support that review without reading source code.
+The `permissions` object has exactly three lists:
 
-## Runtime behavior
+```json
+{
+  "permissions": {
+    "network": ["metadata.example.invalid"],
+    "scraperRuntime": ["javascript"],
+    "downloaderRuntime": []
+  }
+}
+```
 
-When a permission is missing, fail clearly and locally. Do not hide denied work behind partial output that looks successful.
+| Field | Intended declaration |
+| --- | --- |
+| `network` | Network hosts the package expects to contact. |
+| `scraperRuntime` | Extra scraper runtime capabilities the package expects, such as JavaScript or browser debugging. |
+| `downloaderRuntime` | Extra downloader runtime capabilities the package expects. |
+
+These values currently deserialize as arbitrary strings. Cove does not validate a vocabulary, present an approval grant, or use these lists as a runtime authorization boundary. Treat them as package metadata, not a sandbox policy.
+
+For current provider requests, Cove derives `AllowNetworkHosts` from the host in the requested URL. Name-only scraper searches receive no allowed host, and scraper `AllowJavaScript` and `AllowCdp` remain `false`. Downloader requests likewise receive the requested URL host. A provider must honor the `ScraperPermissions` or `DownloaderPermissions` passed with each request and must not infer access from its manifest.
+
+## Contribute assignable permissions
+
+Implement `IPermissionContributor` when administrators should be able to grant a compiled extension capability through **Settings → Security & Access → Roles**.
+
+```csharp
+using Cove.Core.Auth;
+using Cove.Plugins;
+using Cove.Sdk;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+namespace Example.Reports;
+
+public sealed class ReportsExtension : CoveExtensionBase,
+    IPermissionContributor,
+    IApiExtension
+{
+    private const string ViewReports = "com.example.reports.read";
+
+    public IEnumerable<PermissionDefinition> ContributePermissions() =>
+    [
+        new(
+            Key: ViewReports,
+            Category: "Example reports",
+            Description: "View generated library reports.")
+    ];
+
+    public void MapEndpoints(IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapGet(
+            "/api/ext/com.example.reports/summary",
+            (ICurrentPrincipalAccessor principals) =>
+            {
+                var principal = principals.Current;
+                if (principal is null || principal.Kind == PrincipalKind.Anonymous)
+                    return Results.Unauthorized();
+
+                if (!principal.Has(ViewReports))
+                {
+                    return Results.Json(
+                        new { code = "FORBIDDEN", missing = new[] { ViewReports } },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+
+                return Results.Ok(new { status = "ready" });
+            });
+    }
+}
+```
+
+### `PermissionDefinition` fields
+
+| Field | Behavior |
+| --- | --- |
+| `Key` | Stable machine key. It must start with the exact extension id plus `.`, such as `com.example.reports.read`. |
+| `Category` | Group heading in the permission catalog and role editor. |
+| `Description` | Administrator-facing description of what the permission permits. |
+| `Dangerous` | Marks a high-impact capability for stronger visual review. Default `false`. |
+| `Implies` | Optional permission keys expanded when this permission is granted. Use only keys that are meaningful to the host. |
+| `Source` | The registry overwrites this with `extension:<extension-id>`. Do not depend on a value supplied by the extension. |
+| `GrantToAdminsByDefault` | When `true`, Cove adds this key to the built-in Admin role during catalog refresh. Default `false`; use it deliberately. |
+
+The registry rejects `*` and every key outside the contributor's `<extension-id>.` namespace. Accepted definitions are added to the in-memory catalog, persisted to the permission table, and exposed to role management. If a definition disappears on a later startup, its persisted catalog row is marked orphaned rather than silently reused as a live definition.
+
+Permission contributors are collected after extensions initialize during Cove startup. Installing a new contributor at runtime does not refresh that collection in the current host; restart Cove before expecting its keys in the role editor.
+
+## Enforce contributed permissions
+
+`IPermissionContributor` registers metadata. It does not guard an endpoint, job, event handler, background worker, or service call.
+
+- An extension minimal-API endpoint should read `ICurrentPrincipalAccessor.Current` or call Cove's `IAuthorizationService`, return `401` for an anonymous caller, and return `403` with the missing key for an authenticated caller without access.
+- A job or other non-HTTP entry point must receive or resolve the calling principal where its host contract provides one and make the same authorization decision before work begins.
+- Frontend checks are presentation only. `ExtensionAction.RequiredPermission` hides an action in supported UI locations, but the endpoint still needs server-side enforcement. `UIPageDefinition.RequiredPermission` is not currently consumed by the frontend.
+- Do not use raw role names as authorization. Roles collect permissions; the permission key is the stable capability boundary.
+
+API token scope is an additional restriction. Cove intersects an API token's scope with the token owner's current role permissions, so a scoped token cannot expand the permission contributed by the extension.
+
+## Contribute content policies
+
+`IContentPolicyContributor` has this contract:
+
+```csharp
+IReadOnlyList<ContentPolicy> ContributePolicies();
+```
+
+A `ContentPolicy` has a stable id, an `EntityKind`, a description, a required `CanRead` predicate, and optional `CanWrite` and `CanDelete` predicates. Predicates receive a `ContentEvaluationContext` containing the current `CovePrincipal`, entity kind and id, and request service provider. Name policy ids with the extension id so logs and inspection remain unambiguous.
+
+This contract is reserved for a later enforcement stage. Cove currently registers contributed policies for inspection and audit, but they are **not composed into the EF query authorization filters**, and no general request consumer calls their predicates. Do not claim that an `IContentPolicyContributor` hides or protects content today. Use Cove's built-in role content rules for supported content visibility, and enforce extension-owned access explicitly in the extension's server-side operations.
+
+## Review checklist
+
+Before release:
+
+1. Keep each contributed key inside the extension namespace and separate read, write, run, and destructive capabilities where administrators need that control.
+2. Mark destructive or external side-effect permissions as `Dangerous`.
+3. Check every server-side entry point rather than relying on a hidden button or manifest declaration.
+4. Test an owner, a role with only the new permission, an authenticated role without it, an API token with a narrower scope, and an anonymous request.
+5. Describe any requested runtime host or capability in the manifest while still honoring the per-request provider permissions.
