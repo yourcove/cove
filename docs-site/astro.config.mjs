@@ -74,14 +74,14 @@ export default defineConfig({
         {
           label: 'Docs Home',
           items: [
-            { link: '/docs/', label: 'Overview' },
+            { link: '/docs/', label: 'Documentation Home' },
             { link: '/docs/terminology/', label: 'Terminology' },
           ],
         },
         {
           label: 'User Docs',
           items: [
-            { link: '/docs/user/', label: 'Overview' },
+            { link: '/docs/user/', label: 'User Guide' },
             {
               label: 'Getting Started',
               items: [
@@ -115,7 +115,7 @@ export default defineConfig({
         {
           label: 'Developer Docs',
           items: [
-            { link: '/docs/developer/', label: 'Overview' },
+            { link: '/docs/developer/', label: 'Developer Guide' },
             {
               label: 'Local Development',
               items: [
@@ -125,18 +125,13 @@ export default defineConfig({
             {
               label: 'Extensions',
               items: [
-                { link: '/docs/developer/extensions/overview/', label: 'Architecture' },
-                { link: '/docs/developer/extensions/packaging/', label: 'Packaging' },
-                { link: '/docs/developer/extensions/permissions/', label: 'Permissions' },
                 { link: '/docs/developer/extensions/create-extension/', label: 'Create an Extension' },
                 { link: '/docs/developer/extensions/create-scraper/', label: 'Create a Scraper' },
                 { link: '/docs/developer/extensions/create-downloader/', label: 'Create a Downloader' },
-              ],
-            },
-            {
-              label: 'Extension Points',
-              items: [
-                { link: '/docs/developer/extensions/extension-points/', label: 'Overview' },
+                { link: '/docs/developer/extensions/overview/', label: 'Architecture' },
+                { link: '/docs/developer/extensions/packaging/', label: 'Packaging' },
+                { link: '/docs/developer/extensions/permissions/', label: 'Permissions' },
+                { link: '/docs/developer/extensions/extension-points/', label: 'Extension Point Catalog' },
                 { link: '/docs/developer/extensions/ui-extension-points/', label: 'UI Extension Points' },
               ],
             },
