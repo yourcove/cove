@@ -2,7 +2,9 @@
 import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
 import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
 import MobileMenuFooter from '@astrojs/starlight/components/MobileMenuFooter.astro';
+import { Icon } from '@astrojs/starlight/components';
 import type { StarlightRouteData } from '@astrojs/starlight/route-data';
+import type { StarlightIcon } from '@astrojs/starlight/types';
 
 const { sidebar } = Astro.locals.starlightRoute;
 
@@ -27,10 +29,17 @@ function panelId(label: string): string {
   return `docs-section-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`;
 }
 
+const sectionIcons: Record<string, StarlightIcon> = {
+  'Get Started': 'rocket',
+  'User Guide': 'open-book',
+  Developer: 'code-branch',
+  Reference: 'information',
+};
+
 assertGroups(sidebar);
 
 const activeSection = sidebar.findIndex((section) => containsCurrent(section.entries));
-const initialSection = activeSection === -1 ? 1 : activeSection;
+const initialSection = activeSection === -1 ? 0 : activeSection;
 const isDocsHome = /\/docs\/?$/.test(Astro.url.pathname);
 const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
 ---
@@ -55,7 +64,8 @@ const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
                 data-panel-id={id}
                 data-initial={index === initialSection ? 'true' : undefined}
               >
-                {section.label}
+                <Icon name={sectionIcons[section.label] ?? 'document'} class="section-icon" />
+                <span>{section.label}</span>
               </a>
             </li>
           );
@@ -97,6 +107,7 @@ const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
       const initialIndex = Math.max(0, tabs.findIndex((tab) => tab.dataset.initial === 'true'));
 
       tabList?.setAttribute('role', 'tablist');
+      tabList?.setAttribute('aria-orientation', 'vertical');
       tabs.forEach((tab, index) => {
         tab.id = `${tab.dataset.panelId}-tab`;
         tab.setAttribute('role', 'tab');
@@ -159,10 +170,10 @@ const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
 
   .section-tabs {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.25rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.125rem;
     margin: 0 0 1rem;
-    padding: 0.25rem;
+    padding: 0.35rem;
     list-style: none;
     border: 1px solid var(--sl-color-hairline-light);
     border-radius: 0.65rem;
@@ -170,16 +181,25 @@ const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
   }
 
   .section-tabs a {
-    display: block;
-    padding: 0.5rem 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-height: 2.4rem;
+    padding: 0.5rem 0.65rem;
     border: 1px solid transparent;
     border-radius: 0.45rem;
     color: var(--sl-color-gray-3);
-    font-size: var(--sl-text-xs);
+    font-size: var(--sl-text-sm);
     font-weight: 600;
     line-height: 1.2;
-    text-align: center;
+    text-align: left;
     text-decoration: none;
+  }
+
+  .section-tabs :global(.section-icon) {
+    flex: 0 0 auto;
+    color: var(--sl-color-gray-3);
+    font-size: 1rem;
   }
 
   .section-tabs a:hover {
@@ -191,6 +211,10 @@ const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
     border-color: var(--sl-color-hairline-light);
     color: var(--sl-color-text-accent);
     background: var(--sl-color-bg);
+  }
+
+  .section-tabs a[aria-selected='true'] :global(.section-icon) {
+    color: var(--sl-color-text-accent);
   }
 
   .section-tabs a:focus-visible {

@@ -1,0 +1,88 @@
+---
+title: Install Cove with Docker
+description: Run Cove with the supported Docker Compose files and preserve its application data.
+prev:
+  link: /docs/user/getting-started/install/
+  label: Choose an installation
+next:
+  link: /docs/user/getting-started/first-run-setup/
+  label: Complete first-run setup
+---
+
+Use Docker on any system that can run Linux containers. This includes Docker Engine on Linux and Docker Desktop on Windows or macOS. Cove publishes Linux `amd64` and `arm64` images for stable releases and provides two Compose files:
+
+- **All in one** runs Cove, PostgreSQL, pgvector, and FFmpeg in one application container. Choose it when you want the fewest services to operate.
+- **App and database** runs Cove and PostgreSQL as separate services. Choose it when you want to manage the database container separately.
+
+Install Docker with Compose before continuing. If you use Docker Desktop on Windows, make sure it is configured to run Linux containers.
+
+Do not expose a new deployment to the internet before first-run setup is complete. The provided Compose files publish port `5073` on all host interfaces, and owner creation remains open until the first owner exists. Restrict the host to a trusted network with a firewall or reverse proxy until you have created the owner account.
+
+## Prepare persistent storage and media
+
+1. Download [`docker-compose.allinone.yml`](https://github.com/yourcove/cove/blob/main/docker/docker-compose.allinone.yml) or [`docker-compose.yml`](https://github.com/yourcove/cove/blob/main/docker/docker-compose.yml) from Cove's `docker` directory.
+2. Work from the directory containing the selected file.
+3. Choose a host directory for persistent Cove data. The files use `./cove-data` by default. To keep it elsewhere on any host platform, create a `.env` file beside the Compose file and add `COVE_DATA_DIR=your-path`, using a path Docker can access.
+4. Edit the commented media-volume example so its host path points to your library:
+
+   ```yaml
+   volumes:
+     # Choose the host path for your platform:
+     - /srv/media:/media                  # Linux
+     # - /Users/your-name/Media:/media    # macOS
+     # - C:/Media:/media                  # Windows
+   ```
+
+Use only one media line. The value before the colon is a path on the host; `/media` is the path visible inside Cove and is the path you enter during first-run setup. Docker Desktop must be allowed to share the selected Windows or macOS directory.
+
+The provided media mount is read-write so Cove can delete source files and installed extensions can provide rename workflows. Append `:ro` only when you intentionally want to prevent those changes. Scanning still works with a read-only media mount.
+
+## Start the all-in-one deployment
+
+From the directory containing `docker-compose.allinone.yml`, run:
+
+```bash
+docker compose --file docker-compose.allinone.yml up --detach
+docker compose --file docker-compose.allinone.yml ps
+```
+
+The output should show the `cove` service running. Compose automatically reads `COVE_DATA_DIR` from the optional `.env` file; without one, it uses `./cove-data`.
+
+## Start the app-and-database deployment
+
+From the directory containing `docker-compose.yml`, run:
+
+```bash
+docker compose --file docker-compose.yml up --detach
+docker compose --file docker-compose.yml ps
+```
+
+The output should show `cove` running and `db` healthy. The Compose file supplies their internal database connection. If you change its database credentials, update both the PostgreSQL service and Cove's connection string so they continue to match.
+
+## Know what is persisted
+
+Both provided deployments use the same host layout under `COVE_DATA_DIR`:
+
+| Host location | Container path | Contents |
+| --- | --- | --- |
+| `${COVE_DATA_DIR}/pgdata` | Deployment-specific PostgreSQL data path | Cove's PostgreSQL database |
+| `${COVE_DATA_DIR}/config` | `/config` | `cove-config.json`, installed extensions, and logs |
+| `${COVE_DATA_DIR}/generated` | `/generated` | Covers, thumbnails, previews, and other derived assets |
+| `${COVE_DATA_DIR}/backups` | `/backups` | Database and configuration backups |
+| The media path you add | `/media` in the example | Source media |
+
+The named cache volume is disposable. Do not remove the database, config, generated, or backup mounts when customizing the Compose file.
+
+## Open and verify Cove
+
+On the Docker host, open `http://localhost:5073`. From another computer on the trusted network, replace `localhost` with the Docker host's address. The first-run setup wizard should appear.
+
+If a service exits or repeatedly restarts, rerun the matching `ps` command and inspect its logs:
+
+```bash
+docker compose --file docker-compose.allinone.yml logs --tail 100 cove
+```
+
+Use `docker-compose.yml` in that command if you chose the separate app-and-database deployment. See [startup troubleshooting](../../troubleshooting/#startup-or-browser-problems) if Cove still does not remain available.
+
+Once the setup wizard appears, continue with [Complete first-run setup](../first-run-setup/).

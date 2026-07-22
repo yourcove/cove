@@ -38,8 +38,8 @@ import { withBase } from '../lib/paths';
 
       <div class="panel">
         <h3>Docker image</h3>
-        <p>One image with everything included. A good fit for a home server or NAS like UnRAID or Synology, where you want a single container to start and keep running.</p>
-        <div class="code-block"><pre><code>docker compose -f docker-compose.allinone.yml up -d</code></pre></div>
+        <p>One image with everything included. A good fit for any system that can run Linux containers, including Docker Desktop on Windows or macOS.</p>
+        <div class="code-block"><pre><code>docker compose --file docker-compose.allinone.yml up --detach</code></pre></div>
         <ul class="check-list">
           <li>Everything Cove needs in one container.</li>
           <li>Point it at a folder of media and a place to keep your library.</li>
@@ -50,7 +50,7 @@ import { withBase } from '../lib/paths';
       <div class="panel">
         <h3>Docker Compose</h3>
         <p>Run the app and its database as separate containers, so you can upgrade and back up each one on its own. The right choice if you like more control over your setup.</p>
-        <div class="code-block"><pre><code>docker compose up -d</code></pre></div>
+        <div class="code-block"><pre><code>docker compose up --detach</code></pre></div>
         <ul class="check-list">
           <li>App and database run side by side.</li>
           <li>Mount your media folder and add it as a library path in Cove.</li>
@@ -93,7 +93,7 @@ import { withBase } from '../lib/paths';
       </article>
       <article class="info-card">
         <h3>What to read next</h3>
-        <p>The <a href={withBase('docs/user/getting-started/install/')}>install guide</a> walks through each path step by step. The Tutorial covers your first scan, while the Guide covers importing an existing library and sharing.</p>
+        <p><a href={withBase('docs/get-started/')}>Get Started</a> helps you choose the right installation, complete first-run setup, scan your first library, and learn the essentials.</p>
       </article>
     </div>
   </section>

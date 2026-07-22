@@ -1,0 +1,38 @@
+---
+title: Install Cove on Windows
+description: Install the supported Windows x64 native release and open Cove's first-run setup.
+prev:
+  link: /docs/user/getting-started/install/
+  label: Choose an installation
+next:
+  link: /docs/user/getting-started/first-run-setup/
+  label: Complete first-run setup
+---
+
+The Windows native release is for 64-bit x86 (`x64`) systems. It contains Cove and Cove Instance Manager as self-contained executables, so you do not need to install .NET separately.
+
+## Download and extract Cove
+
+1. Open the [latest Cove release](https://github.com/yourcove/cove/releases/latest).
+2. Download `cove-win-x64.zip`. You can also download its `.sha256` file if you want to verify the archive against the published checksum.
+3. Extract the archive to a directory that will remain in place. Keep `Cove.exe` and `Cove.InstanceManager.exe` together; the manager uses the Cove executable beside it.
+4. Run `Cove.InstanceManager.exe` from the extracted directory.
+
+On the first start, Cove may download managed PostgreSQL and FFmpeg components. Keep the computer online and allow additional startup time.
+
+If Windows shows a security prompt, confirm that the archive came from Cove's official GitHub release before allowing it to run. Do not continue with a file from an unknown mirror.
+
+## Start an instance
+
+1. Use the provided **Default** instance unless you need multiple isolated Cove libraries.
+2. Select **Start**.
+3. Wait for its status to change from **Starting** to **Running**.
+4. Select **Open**. The Cove setup wizard opens in your browser.
+
+The manager gives every instance its own home directory, database, configuration, generated assets, backups, and logs. It displays the home path for each instance. Use the manager to start and stop the instance instead of launching `Cove.exe` separately.
+
+## Verify the native installation
+
+Keep Cove Instance Manager open and confirm that **Default** remains **Running**. If the instance stops during first startup, open its logs from the manager and follow [startup troubleshooting](../../troubleshooting/#startup-or-browser-problems).
+
+Once the setup wizard appears, continue with [Complete first-run setup](../first-run-setup/).

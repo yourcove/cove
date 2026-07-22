@@ -4,23 +4,24 @@ description: Structure and write Cove documentation using clear reader needs and
 next: false
 ---
 
-Cove documentation is organized around what a reader needs to do or understand, using the [Diátaxis framework](https://diataxis.fr/) to keep different kinds of writing focused.
+Cove documentation is organized first around the reader's role and journey. Within those sections, the [Diátaxis framework](https://diataxis.fr/) keeps different kinds of writing focused.
 
 ## Place the page in the documentation structure
 
-The primary navigation follows three reader destinations:
+The primary navigation follows four reader destinations:
 
 | Section | Reader intent | Content |
 | --- | --- | --- |
-| Tutorial | Learn by completing a guided experience | Tutorials only |
-| Guide | Accomplish a task or understand a design | How-to guides and explanations |
+| Get Started | Install Cove and complete a first useful experience | Installation how-to guides and introductory tutorials |
+| User Guide | Use and administer a running Cove library | User-facing how-to guides and explanations |
+| Developer | Work on Cove or build extensions | Developer tutorials, how-to guides, explanations, and API guidance |
 | Reference | Look up exact behavior | Reference pages and terminology |
 
-Organize by purpose before audience. User and developer material can both belong in Tutorial or Guide, while shared contracts and product concepts belong in Reference. Existing page URLs do not need to mirror the navigation hierarchy.
+Choose the reader section before the page type. A tutorial for a new Cove user belongs in **Get Started**, while an extension tutorial belongs in **Developer**. Shared contracts and durable product concepts belong in **Reference**. Existing page URLs do not need to mirror the navigation hierarchy.
 
 Reserve **Ecosystem** for a future collection of integrations, extensions, and community resources. Do not add an empty section or use it as a substitute for extension guides and reference contracts.
 
-## Choose the page type first
+## Choose the page type within the section
 
 Every documentation page should have one primary purpose.
 
@@ -33,7 +34,7 @@ Every documentation page should have one primary purpose.
 
 Do not make one page serve all four needs. Link between page types when a reader needs background, instructions, or exact details that would distract from the page's main purpose.
 
-Audience is secondary to purpose. Some material is relevant only to contributors or extension developers, but concepts shared across Cove should not be hidden in a developer-only hierarchy merely because developers also need them.
+Page type controls how the page is written; it is not a primary navigation label. Concepts shared across Cove should not be hidden in a developer-only hierarchy merely because developers also need them.
 
 ## Structure each page for its purpose
 

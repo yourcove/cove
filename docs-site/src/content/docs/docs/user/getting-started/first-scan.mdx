@@ -1,6 +1,9 @@
 ---
-title: First scan
+title: Scan your first library
 description: Add a library path, run a focused first scan, monitor the job, and verify the result.
+prev:
+  link: /docs/user/getting-started/first-run-setup/
+  label: Complete first-run setup
 ---
 
 import DocsScreenshot from '../../../../../components/DocsScreenshot.astro';
@@ -11,7 +14,7 @@ A scan inventories files that Cove can reach. Start with one small, representati
 
 - Make sure the Cove process can read the source media.
 - Make sure Cove can write to its configured generated-assets directory.
-- For Docker, confirm the media volume is mounted and use its container path, such as `/media`, in Cove. A host path such as `/srv/media` is not visible inside the container unless it is mounted.
+- For Docker, confirm the media volume is mounted and use its container path, such as `/media`, in Cove. A Windows, macOS, or Linux host path is not visible inside the container unless it is mounted.
 - Keep a copy of important metadata or a current backup before pointing Cove at an established library.
 
 ## Add or check the library path
@@ -64,4 +67,4 @@ The scan records file paths, media types, file details, and processing state. It
 - **A moved or unchanged file was skipped:** select only its folder and retry with **Force rescan (ignore mtime)**. Do not force-rescan the whole library unless it is necessary.
 - **The job is still running:** do not queue repeated full scans. Use **Settings → Operations → Jobs** to monitor or cancel the existing job first.
 
-Once the representative folder is correct, repeat the scan with additional folders or leave **Selective scan** empty to process the whole library.
+Once the representative folder is correct, repeat the scan with additional folders or leave **Selective scan** empty to process the whole library. Then continue to [Explore your library](../../../tutorial/explore-your-library/) to turn those scanned records into a familiar, usable library.

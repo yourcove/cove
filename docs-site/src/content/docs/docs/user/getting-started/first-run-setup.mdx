@@ -1,0 +1,64 @@
+---
+title: Complete first-run setup
+description: Start a new Cove library, import from Stash, or restore a Cove backup in the shared setup wizard.
+prev:
+  link: /docs/user/getting-started/install/
+  label: Choose an installation
+next:
+  link: /docs/user/getting-started/first-scan/
+  label: Scan your first library
+---
+
+Every supported installation opens the same setup wizard. Complete one content path, create the owner when Cove asks, and choose an optional theme. The wizard is for a new instance; it does not reopen after that instance has been configured.
+
+If Cove is not running yet, first [choose an installation](../install/).
+
+## Choose how to start
+
+Select **Get Started**. At **How would you like to start?**, choose the route that matches the library you have now:
+
+| Choice | Use it when | Detailed instructions |
+| --- | --- | --- |
+| **Start Fresh** | Cove should scan media paths and build a new library | Continue on this page |
+| **Import from Stash** | You have an existing Stash database and want to migrate its supported records and relationships | [Import from Stash](../import-existing-library/#import-from-stash-during-first-run-setup) |
+| **Restore Cove Backup** | You are recovering or moving an existing Cove installation from a database backup | [Restore an existing installation](../../admin/backups-migrations-upgrades/#restore-an-existing-installation) |
+
+An import does not replace a source backup, and a Cove database backup does not contain source media. Keep the original library available until you have verified the result.
+
+## Start fresh
+
+1. Select **Start Fresh**.
+2. Enter one or more directories the Cove process can read.
+3. Use the exclusion controls only when a path should omit a listed media type.
+4. Select **Next**, review the server-visible paths, and select **Save & Continue**.
+
+For a native installation, enter paths on that computer. For Docker, enter mounted container paths such as `/media`, not Windows, macOS, or Linux host paths. A host path is unavailable to Cove unless it is mounted into the container.
+
+Begin with one representative media directory when practical. You can add more paths later after a small scan proves that access, exclusions, and generated assets work as expected.
+
+## Import from Stash
+
+The importer needs a server-visible path to `stash-go.sqlite`, access to the source media, and path mappings when the locations recorded by Stash differ from the locations Cove can read. Preview the import before running it.
+
+Follow [Import from Stash during first-run setup](../import-existing-library/#import-from-stash-during-first-run-setup) for the preparation, Docker mounts, preview, optional generated-content migration, and verification steps. Return to the wizard after the import completes.
+
+## Restore a Cove backup
+
+The first-run restore requires a Cove database backup path and accepts an optional configuration backup. Restoring replaces the new instance's current database. Put the files where the Cove process can read them before selecting this choice.
+
+Follow [Restore an existing installation](../../admin/backups-migrations-upgrades/#restore-an-existing-installation) for backup compatibility, Docker paths, and the parts that must be restored separately. Return to the wizard after **Restore & Continue** completes.
+
+## Create the owner and finish
+
+1. If **Set the owner password** appears, enter an owner username and a strong password, confirm it, and select **Save owner password**. A restored installation that already contains an owner skips this step.
+2. Choose an optional theme. You can change it later under **Settings → Extensions**.
+3. Continue until the wizard reports **You're all set!**
+
+Do not leave a new network-accessible Docker deployment without an owner. Owner creation is the step that closes the unauthenticated bootstrap path.
+
+## Verify setup
+
+Open **Videos** or **Settings** from the final screen and confirm that Cove's main navigation appears. Then restart the same native instance or Docker deployment without changing its home path, Compose file, or `COVE_DATA_DIR`. Cove should reopen without repeating the setup wizard, and its owner and configured library paths should remain available.
+
+- If you started fresh, continue with [Scan your first library](../first-scan/).
+- If you imported from Stash or restored a populated library, continue with [Explore your library](../../../tutorial/explore-your-library/).

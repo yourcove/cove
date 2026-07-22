@@ -1,0 +1,49 @@
+---
+title: Install Cove on macOS
+description: Install the supported Apple silicon native release and open Cove's first-run setup.
+prev:
+  link: /docs/user/getting-started/install/
+  label: Choose an installation
+next:
+  link: /docs/user/getting-started/first-run-setup/
+  label: Complete first-run setup
+---
+
+The macOS native release is for Apple silicon (`arm64`). Cove does not currently publish a native Intel (`x64`) macOS archive. Use [Docker](../install-docker/) on a supported container host if the native package does not match your Mac.
+
+## Download and extract Cove
+
+1. Open the [latest Cove release](https://github.com/yourcove/cove/releases/latest).
+2. Download `cove-osx-arm64.tar.gz`. You can also download its `.sha256` file if you want to verify the archive against the published checksum.
+3. In Terminal, change to the directory containing the download and extract it:
+
+   ```bash
+   tar --extract --gzip --file cove-osx-arm64.tar.gz
+   chmod u+x Cove Cove.InstanceManager
+   ```
+
+4. Keep `Cove` and `Cove.InstanceManager` together in a directory that will remain in place.
+5. Start the manager from that directory:
+
+   ```bash
+   ./Cove.InstanceManager
+   ```
+
+On the first start, Cove may download managed PostgreSQL and FFmpeg components. Keep the Mac online and allow additional startup time.
+
+If macOS prevents the downloaded executable from opening, first confirm that the archive came from Cove's official GitHub release. Then use macOS **Privacy & Security** settings to review and allow that specific app. Do not broadly disable macOS security controls.
+
+## Start an instance
+
+1. Use the provided **Default** instance unless you need multiple isolated Cove libraries.
+2. Select **Start**.
+3. Wait for its status to change from **Starting** to **Running**.
+4. Select **Open**. The Cove setup wizard opens in your browser.
+
+The manager gives every instance its own home directory, database, configuration, generated assets, backups, and logs. It displays the home path for each instance. Use the manager to start and stop the instance instead of launching `Cove` separately.
+
+## Verify the native installation
+
+Keep Cove Instance Manager open and confirm that **Default** remains **Running**. If the instance stops during first startup, open its logs from the manager and follow [startup troubleshooting](../../troubleshooting/#startup-or-browser-problems).
+
+Once the setup wizard appears, continue with [Complete first-run setup](../first-run-setup/).
