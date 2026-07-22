@@ -1,0 +1,80 @@
+---
+title: Terminology
+description: Concise definitions of the concepts and names used throughout Cove.
+---
+
+Use this reference when a Cove term is unfamiliar or when two related concepts need to be distinguished; each entry intentionally contains a single-sentence definition and links to deeper documentation where available.
+
+## Library and media
+
+| Term | Description |
+| --- | --- |
+| Library | A library is the collection of media and related records managed by one Cove instance. |
+| Library path | A library path is a configured filesystem location that Cove scans for media. |
+| Media | Media is content managed by Cove as a video, image, gallery, audio, or text record. |
+| Video | A video is a primary media record for moving-image content and its associated metadata. |
+| Image | An image is a primary media record for a single still-image file. |
+| Gallery | A gallery is a primary media record that groups related images into one browsable item. |
+| Audio | Audio is a primary media record for sound content without a required video component. |
+| Text | Text is a primary media record for written content stored or indexed by Cove. |
+| Generated media | Generated media is derivative content Cove creates from source media, such as previews, thumbnails, or analysis output. |
+
+See [Media types](./user/library/media-types/) for a fuller explanation of the records Cove manages.
+
+## Organization
+
+| Term | Description |
+| --- | --- |
+| Tag | A tag is reusable metadata applied to records to describe, classify, or filter them. |
+| Performer | A performer is a person or identity associated with media in the library. |
+| Studio | A studio is an organization, publisher, or source associated with media in the library. |
+| Group | A group is an ordered collection of supported library entities or media ranges whose membership is curated or resolved dynamically. |
+| Segment | A segment is a meaningful range within a video, image, or audio record. |
+| Sub-video | A sub-video is a child video record that presents a defined time range of its parent video. |
+| Compilation | A compilation is a group configured to play ordered videos or video ranges back to back. |
+| Dynamic group | A dynamic group is a collection whose membership updates from rules, activity, or saved intent. |
+| Saved filter | A saved filter is a reusable set of search and filter criteria for returning to the same library view. |
+
+See [Organizing your library](./user/library/organizing/) and [Segments and compilations](./user/library/segments-and-compilations/) for the relationships between these concepts.
+
+## Intake and metadata
+
+| Term | Description |
+| --- | --- |
+| Scan | A scan is the process that examines configured library paths and reconciles supported files with Cove records. |
+| Intake | Intake is the workflow that brings new media and its available metadata into the library for review or storage. |
+| Metadata | Metadata is descriptive or organizational information associated with a media or connected record. |
+| Metadata provider | A metadata provider is an integration that supplies metadata to Cove from an external or extension-defined source. |
+| Scraper | A scraper is a provider that searches for or extracts metadata about an existing library item. |
+| Downloader | A downloader is a provider that retrieves new media from a supported source into Cove's intake workflow. |
+| Metadata server | A metadata server is an external catalog service that Cove queries for structured metadata and artwork. |
+| Provenance | Provenance is Cove's record of where a metadata value came from and how it entered the library. |
+
+See [Providers, scrapers, and downloaders](./user/metadata/providers-scrapers-downloaders/) and [Metadata provenance](./user/metadata/provenance/) for workflow details.
+
+## Extensions
+
+| Term | Description |
+| --- | --- |
+| Extension | An extension is an installable package that adds one or more capabilities to Cove through supported contracts. |
+| Extension point | An extension point is a host-defined contract or location where an extension can contribute behavior or content. |
+| Contribution | A contribution is one specific capability, UI element, service, or declaration supplied by an extension. |
+| Manifest | A manifest is the `extension.json` metadata that identifies an extension and declares its compatibility, assets, settings, dependencies, and permissions. |
+| UI extension | A UI extension is a compiled extension capability that declares pages, slots, tabs, settings, actions, appearance, or other frontend contributions. |
+| Manifest-only extension | A manifest-only extension is an installable bundle or scraper pack whose contributions do not require a compiled extension assembly. |
+
+See [Extension architecture](./developer/extensions/overview/) and [Extension points](./developer/extensions/extension-points/) for the host model and complete capability catalog.
+
+## Access and operation
+
+| Term | Description |
+| --- | --- |
+| Instance | An instance is one independently configured Cove installation with its own library, database, settings, and users. |
+| Owner | The owner is the initial administrative account with authority to configure an instance and delegate access. |
+| Role | A role is a reusable collection of permissions assigned to users. |
+| Permission | A permission is a named authorization to perform a particular operation or access a protected capability. |
+| Content rule | A content rule limits which records a user can discover or access independently of their operation permissions. |
+| Personal access token | A personal access token is a revocable credential that lets a client use Cove's API within an explicitly granted scope. |
+| Share link | A share link is a limited URL that grants access to selected content without exposing the full library. |
+
+See [Users, roles, and permissions](./user/security/users-roles-permissions/) for the access model.

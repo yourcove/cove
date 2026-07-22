@@ -1,21 +1,117 @@
 ---
-title: Website Contribution Notes
-description: Practical guidance for contributing to this docs and marketing site.
+title: Documentation style guide
+description: Structure and write Cove documentation using clear reader needs and the Diátaxis framework.
 ---
 
-# Website contribution notes
+Cove documentation is organized around what a reader needs to do or understand, using the [Diátaxis framework](https://diataxis.fr/) to keep different kinds of writing focused.
 
-This website uses Astro for marketing pages and Starlight for documentation.
+## Choose the page type first
 
-## Structure
+Every documentation page should have one primary purpose.
+
+| Type | Reader need | The page should |
+| --- | --- | --- |
+| Tutorial | Learn through a guided experience | Lead a new reader through a complete, reliable learning path. |
+| How-to guide | Accomplish a specific goal | Give an experienced-enough reader a direct sequence of actions. |
+| Explanation | Understand a concept or design | Build a mental model, connect ideas, and discuss reasons or tradeoffs. |
+| Reference | Look up precise information | Describe facts, contracts, options, or terminology consistently and completely. |
+
+Do not make one page serve all four needs. Link between page types when a reader needs background, instructions, or exact details that would distract from the page's main purpose.
+
+Audience is secondary to purpose. Some material is relevant only to contributors or extension developers, but concepts shared across Cove should not be hidden in a developer-only hierarchy merely because developers also need them.
+
+## Structure each page for its purpose
+
+### Tutorials
+
+- State what the reader will build or experience.
+- List only prerequisites that must be satisfied before starting.
+- Use a tested sequence with meaningful intermediate results.
+- Explain enough for learning without branching into optional variations.
+- End with a visible result and a small set of next steps.
+
+### How-to guides
+
+- Name a concrete goal in the title.
+- State the starting conditions before the procedure.
+- Put required actions in order and keep alternatives clearly separated.
+- Include commands, locations, and expected results where they remove ambiguity.
+- End with a verification step and relevant troubleshooting links.
+
+### Explanations
+
+- Open with the idea the page helps the reader understand.
+- Define important terms or link to the terminology reference.
+- Show relationships, lifecycle, boundaries, and tradeoffs rather than listing features.
+- Use examples to clarify the model without turning the page into a procedure.
+- Link to tutorials, how-to guides, and reference material for application details.
+
+### Reference pages
+
+- State the scope and compatibility boundary.
+- Organize information for scanning and lookup rather than narrative reading.
+- Use consistent tables, names, units, defaults, and value formats.
+- Separate supported behavior from reserved, deprecated, or unsupported behavior.
+- Link to the source contract or relevant how-to guide when useful.
+
+## Write with enough depth
+
+A heading followed only by a list is usually an outline, not finished documentation. Add the context a reader needs to understand why the section matters, how its parts relate, and what changes when they make a choice.
+
+Prefer a concrete example when a definition alone would leave the reader guessing. Prefer a table when several entries share the same attributes. Prefer prose when order, causality, or tradeoffs matter.
+
+Do not repeat the page title as a Markdown level-one heading. Starlight renders the frontmatter `title` as the page's single level-one heading, so body sections begin at level two.
+
+## Use Cove terminology consistently
+
+The [Terminology reference](../../../terminology/) is the canonical short definition of Cove-specific concepts.
+
+Each terminology entry must:
+
+- describe exactly one concept in exactly one sentence
+- use the term as Cove uses it, not a broader industry definition
+- distinguish the concept from a commonly confused term when necessary
+- link its first useful mention to deeper documentation instead of expanding into a second sentence
+
+When a concept needs more than one sentence to teach, keep its terminology entry concise and create an explanation page for the fuller mental model.
+
+## Style and voice
+
+- Address the reader as “you” when describing an action.
+- Use direct, active language and present tense.
+- Prefer Cove's visible UI labels and public contract names over internal implementation names.
+- Introduce abbreviations and specialized terms before relying on them.
+- Keep warnings proportional and explain the consequence, not merely that something is dangerous.
+- Avoid promotional language, filler introductions, and claims such as “easy” or “simple.”
+
+Use sentence case for page titles and headings. Use backticks for commands, file names, configuration keys, code identifiers, and literal values; use bold text for visible UI labels.
+
+## Links and examples
+
+Use descriptive link text that makes sense without its surrounding sentence. Prefer links to the most specific relevant page rather than a section landing page.
+
+Examples must be generic, reproducible, and free of private environment domains, credentials, explicit entity identifiers, or names from a real media library. Commands should use readable long-form arguments when the utility provides them.
+
+## Page review checklist
+
+Before publishing a page, confirm that:
+
+- its primary Diátaxis type and reader need are clear
+- its title and description accurately describe its scope
+- it uses Cove terminology consistently
+- it provides enough context to stand on its own
+- instructions state prerequisites, expected results, and verification
+- reference material distinguishes current support from limitations
+- headings describe meaningful sections rather than divide short bullet lists
+- links are specific and all examples are safe to publish
+- the production documentation build passes
+
+## Repository structure and checks
 
 - Marketing pages live in `docs-site/src/pages/`.
 - Shared marketing styles live in `docs-site/src/styles/global.css`.
-- Docs content lives under `docs-site/src/content/docs/docs/`.
-- User Docs stay under `docs-site/src/content/docs/docs/user/`.
-- Developer Docs stay under `docs-site/src/content/docs/docs/developer/`.
-
-## Local checks
+- Documentation lives under `docs-site/src/content/docs/docs/`.
+- Existing URLs should remain stable during information-architecture changes unless redirects are provided.
 
 Run the production build before publishing changes:
 
