@@ -1,12 +1,6 @@
 ---
 title: Extension packaging
 description: Archive layout, manifest fields, dependencies, validation, and release workflow for Cove extensions.
-compatibility:
-  sdk: true
-  sources:
-    - src/Cove.Plugins/IExtension.cs
-    - src/Cove.Api/Controllers/ExtensionsController.cs
-    - src/Cove.Sdk/buildTransitive/Cove.Sdk.targets
 ---
 
 Cove installs extensions from ZIP archives. A package can contain a compiled .NET extension, a manifest-only bundle, or a scraper pack, but every package uses `extension.json` as its identity and compatibility contract.

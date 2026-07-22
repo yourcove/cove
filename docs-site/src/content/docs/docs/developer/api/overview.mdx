@@ -1,12 +1,6 @@
 ---
 title: API surface
 description: Authentication, OpenAPI discovery, routes, pagination, filtering, errors, and extension endpoints.
-compatibility:
-  api: true
-  sources:
-    - src/Cove.Api/Program.cs
-    - src/Cove.Api/Middleware/PermissionAuthorizationFilter.cs
-    - src/Cove.Api/Controllers/ApiTokensController.cs
 ---
 
 Cove exposes a JSON HTTP API for its own frontend, external automation, and runtime-loaded extension endpoints. Use it instead of reading or writing Cove's database directly so permissions, content rules, provenance, jobs, and host behavior remain in effect.

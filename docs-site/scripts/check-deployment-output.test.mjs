@@ -74,7 +74,6 @@ async function buildSite(environment) {
         env: {
           ...buildEnvironment,
           ASTRO_TELEMETRY_DISABLED: '1',
-          COVE_DOCS_REQUIRE_GIT_PROVENANCE: 'false',
           ...environment,
         },
       },

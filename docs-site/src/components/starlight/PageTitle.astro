@@ -1,9 +1,0 @@
----
-import DefaultPageTitle from '@astrojs/starlight/components/PageTitle.astro';
-import CompatibilityScope from '../CompatibilityScope.astro';
-
-const compatibility = Astro.locals.starlightRoute.entry.data.compatibility;
----
-
-<DefaultPageTitle />
-{compatibility && <CompatibilityScope {...compatibility} />}

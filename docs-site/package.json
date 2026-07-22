@@ -8,11 +8,10 @@
     "build": "astro check && npm run test:technical && npm run test:links && astro build && npm run check:documentation-images-output && npm run check:navigation-output && npm run test:navigation-output && npm run test:deployment-output && npm run check:links",
     "preview": "astro preview",
     "check": "astro check",
-    "check:compatibility": "node scripts/check-compatibility-provenance.mjs",
     "check:documentation-images-output": "node scripts/check-documentation-images-output.mjs",
     "check:links": "node scripts/check-internal-links.mjs",
     "check:navigation-output": "node scripts/check-generated-navigation.mjs",
-    "test:technical": "npm run check:compatibility && node --test scripts/check-code-samples.test.mjs scripts/check-compatibility-scope.test.mjs",
+    "test:technical": "node --test scripts/check-code-samples.test.mjs",
     "test:links": "node --test scripts/check-internal-links.test.mjs",
     "test:deployment-output": "node --test scripts/check-deployment-output.test.mjs",
     "test:navigation-output": "node --test scripts/check-generated-navigation.test.mjs"

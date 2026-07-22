@@ -1,13 +1,6 @@
 ---
 title: Extension points
 description: A catalog of the backend, frontend, metadata, and manifest extension points available in Cove.
-compatibility:
-  sdk: true
-  sources:
-    - src/Cove.Plugins/IExtension.cs
-    - src/Cove.Sdk/CoveExtensionBase.cs
-    - src/Cove.Sdk/FullExtensionBase.cs
-    - src/Cove.Sdk/UIManifestBuilder.cs
 ---
 
 Cove extensions start with `IExtension` and opt into one or more capability interfaces. An extension can combine capabilities—for example, a scraper can also expose settings, an API, and a background worker.

@@ -51,7 +51,6 @@ jobs:
         env:
           COVE_DOCS_DEPLOYMENT: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
           SITE_URL: ${{ steps.pages.outputs.base_url || 'https://yourcove.net' }}
-          COVE_DOCS_REQUIRE_GIT_PROVENANCE: 'true'
 
       - name: Upload artifact
         if: github.event_name != 'pull_request'

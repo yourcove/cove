@@ -30,7 +30,6 @@ export default defineConfig({
       components: {
         Banner: './src/components/starlight/Banner.astro',
         Head: './src/components/starlight/Head.astro',
-        PageTitle: './src/components/starlight/PageTitle.astro',
         SiteTitle: './src/components/starlight/SiteTitle.astro',
       },
       customCss: ['./src/styles/global.css'],
