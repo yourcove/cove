@@ -1,53 +1,218 @@
 ---
 title: Create an Extension
-description: The practical starting point for building a Cove extension.
+description: Build, package, install, and verify a minimal Cove extension.
 ---
 
-Use this guide when you want to add general host-aware behavior to Cove, not only one metadata source.
+This tutorial builds a small backend extension named **Hello Cove**. When you finish, Cove will load it from a ZIP package and show it in the installed extensions list. The example deliberately has no frontend bundle; seeing the enabled extension proves that the manifest, compiled assembly, package layout, and install flow all work before you add a UI or another capability.
 
-## What an extension is for
+## Prerequisites
 
-A Cove extension can contribute more than one narrow hook. Depending on the design, it can add:
+You need:
 
-- UI pages or panels
-- backend APIs
-- settings
-- background jobs
-- themes
-- installable tools such as downloaders or scrapers
+- the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- Git and Python 3
+- a running Cove 1.0.0 or later instance where you can manage extensions
+- an HTTP URL that the **Cove server** can reach; the server, not your browser, downloads the ZIP
 
-## Build approach
+Run these checks in a terminal:
 
-Think about the extension in two parts:
+```bash
+dotnet --version
+git --version
+python3 --version
+```
 
-- **frontend contribution** when users need a page, panel, settings surface, or visual integration
-- **backend contribution** when you need APIs, jobs, events, storage, or other server-side behavior
+The `dotnet` result should start with `10.`.
 
-Not every extension needs both, but many serious ones do.
+## Start from the official template
 
-## Recommended implementation flow
+For a real project, open the [single-extension repository template](https://github.com/yourcove/single-extension-repo-template), select **Use this template**, and clone the repository it creates. To work through the tutorial without first creating a GitHub repository, clone the template directly:
 
-1. Define the user-facing behavior first.
-2. Decide which parts belong in the UI and which belong in the backend.
-3. Keep permissions narrow and explicit.
-4. Build and test locally against a running Cove dev environment.
-5. Package the extension in the layout Cove expects before testing install flow.
+```bash
+git clone https://github.com/yourcove/single-extension-repo-template.git hello-cove
+cd hello-cove
+```
 
-## Packaging expectations
+The template starts with this layout:
 
-The host expects pre-built extension artifacts. That means:
+```text
+.
+├── .github/workflows/build.yml
+├── Directory.Build.props
+├── SingleExtensionTemplate.slnx
+└── src/ExampleExtension
+    ├── ExampleExtension.cs
+    ├── ExampleExtension.csproj
+    └── extension.json
+```
 
-- backend pieces should already be compiled
-- frontend pieces should already be bundled
-- install should not depend on runtime package restores
+The release workflow publishes the project, places `extension.json` at the package root, and creates a release ZIP from a `v*` Git tag. This tutorial uses the same project layout but creates a local development ZIP.
 
-See [Packaging](../packaging/) for the detailed constraints.
+## Choose the extension base class
 
-## Good first checks
+The template's minimal example implements the low-level `IExtension` contract from `Cove.Plugins`. That remains supported, but it repeats the extension id, name, and version in C# and in `extension.json`.
 
-Before calling an extension ready:
+Use `Cove.Sdk` for new host-aware extensions:
 
-- confirm it loads into a normal local Cove run
-- confirm permission failures are understandable
-- confirm any UI additions feel native to Cove instead of visually detached
-- confirm any user-visible metadata changes preserve provenance
+- Extend `CoveExtensionBase` for the common lifecycle, dependency injection, and optional UI contributions. It reads identity and other metadata from `extension.json`, so the manifest is the single source of truth.
+- Extend `FullExtensionBase` only when one extension needs several of its API, data, event, job, state, and scan capabilities. Its extra interfaces are unnecessary for this first extension.
+- Implement a narrow contract directly only when you intentionally do not need the SDK helpers.
+
+## Switch the template to Cove.Sdk
+
+Replace `src/ExampleExtension/ExampleExtension.csproj` with this project. `Cove.Sdk` 1.0.0 supplies the host contracts and automatically keeps host-provided assemblies out of the published extension.
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="extension.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cove.Sdk" Version="1.0.0" />
+  </ItemGroup>
+</Project>
+```
+
+Keep the template's `Directory.Build.props`; it selects .NET 10, enables nullable reference types, and configures dynamic loading.
+
+## Add the minimal backend
+
+Replace `src/ExampleExtension/ExampleExtension.cs` with:
+
+```csharp
+using Cove.Sdk;
+
+namespace ExampleExtension;
+
+public sealed class HelloCoveExtension : CoveExtensionBase
+{
+}
+```
+
+The class is intentionally empty. `CoveExtensionBase` supplies safe lifecycle defaults, while Cove applies the manifest before it reads the extension metadata. Add services later by overriding `ConfigureServices`, or follow the [extension points](../extension-points/) guide when you are ready to add a capability.
+
+## Create the manifest
+
+Replace `src/ExampleExtension/extension.json` with the complete manifest below. Change the example author and URL before publishing your own extension.
+
+```json
+{
+  "id": "com.example.hello-cove",
+  "name": "Hello Cove",
+  "version": "0.1.0",
+  "description": "A minimal extension that verifies the Cove extension toolchain.",
+  "author": "Your name",
+  "url": "https://github.com/your-name/hello-cove",
+  "kind": "extension",
+  "categories": ["tools"],
+  "minCoveVersion": "1.0.0",
+  "entryDll": "ExampleExtension.dll",
+  "dependencies": {},
+  "externalDependencies": [],
+  "settings": [],
+  "tutorialTopics": [],
+  "sharedAssemblies": [],
+  "permissions": {
+    "network": [],
+    "scraperRuntime": [],
+    "downloaderRuntime": []
+  }
+}
+```
+
+The id must remain stable across releases. The `entryDll` value is case-sensitive on Linux and must match the project assembly name. Empty permission lists make it explicit that this example does not request network, scraper-runtime, or downloader-runtime access.
+
+## Build and package the extension
+
+From the repository root, restore and publish the project:
+
+```bash
+dotnet restore src/ExampleExtension/ExampleExtension.csproj
+dotnet publish src/ExampleExtension/ExampleExtension.csproj \
+  --configuration Release \
+  --output artifacts/extension
+```
+
+The publish directory should contain both `ExampleExtension.dll` and `extension.json`. Create a development archive from *inside* that directory so `extension.json` is at the ZIP root:
+
+```bash
+(
+  cd artifacts/extension
+  python3 -m zipfile \
+    --create ../com.example.hello-cove-dev.zip \
+    .
+)
+python3 -m zipfile \
+  --list artifacts/com.example.hello-cove-dev.zip
+```
+
+The listing must show `extension.json` and `ExampleExtension.dll` without an enclosing `artifacts/extension` directory. Cove accepts the manifest at the archive root or inside one top-level extension directory; a root manifest makes the package easiest to inspect.
+
+## Serve the development ZIP
+
+In a second terminal, from the repository root, start a temporary HTTP server:
+
+```bash
+python3 -m http.server 4174 \
+  --bind 0.0.0.0 \
+  --directory artifacts
+```
+
+If Cove runs on the same machine outside a container, the package URL is:
+
+```text
+http://127.0.0.1:4174/com.example.hello-cove-dev.zip
+```
+
+For a containerized or remote Cove server, replace `127.0.0.1` with a host name or address that is reachable from that server. Confirm reachability from the Cove host environment; opening the URL only in your desktop browser does not test the path Cove uses.
+
+## Install from the URL
+
+1. In Cove, open **Settings → Extensions → Discover**.
+2. Select **More extension actions** (the three-dot button).
+3. Select **Install from URL...**.
+4. Enter the package URL and select **Install**.
+5. Read the **Install Unverified Extension** warning. If you trust this package you just built, select **Install** to confirm.
+6. Open **Settings → Extensions → Installed Extensions**.
+
+The list should contain **Hello Cove**, version `0.1.0`, with **Unverified** and an **Enabled** control. URL-installed development packages are unverified because they do not come from Cove's registry. That is the expected observable result for this backend-only example.
+
+## Make a change and reload
+
+To reload the extension during development, rebuild the package and install the same URL again:
+
+1. Change the C# code or manifest. Increase `version` when the package represents a new release.
+2. Run the publish and archive commands again.
+3. Install the same development URL again. Cove replaces the installed package and reloads that extension.
+4. Refresh **Installed Extensions** and verify the displayed metadata and enabled state.
+
+Keep the archive URL stable for this local loop. For a release, update `.github/workflows/build.yml` with your extension id and project path, then push a tag whose name matches the manifest version, such as `v0.1.0`.
+
+## Troubleshooting
+
+### Cove says the manifest is missing
+
+Run the archive listing command again. `extension.json` must be at the root or in one top-level directory, not below a path such as `artifacts/extension/extension.json` inside the ZIP.
+
+### The package URL works in a browser but Cove cannot install it
+
+The Cove server downloads the package. Use a URL reachable from the server or its container, check the temporary HTTP server output for Cove's request, and avoid `127.0.0.1` when it would point back to a different container or machine.
+
+### Installation succeeds but Hello Cove is absent
+
+Check that `entryDll` exactly matches `ExampleExtension.dll` and that the archive contains that file. Then open **Settings → System Info → Logs** and look for an extension load error naming the manifest id or DLL.
+
+### The extension fails after adding a dependency
+
+Run `dotnet publish` again instead of copying only your extension DLL. Private dependencies belong in the archive; host-provided assemblies such as `Cove.Sdk`, `Cove.Plugins`, and `Cove.Core` do not. The SDK packaging targets remove the host-provided assemblies automatically.
+
+### Cove rejects the compatibility requirement
+
+The host compares the running Cove instance version with `minCoveVersion` and refuses to load the extension when the running Cove version is lower. Upgrade Cove or lower the requirement only if you have built and tested against that older host contract.
+
+Once this minimal package works, add a frontend contribution only when the feature needs one. See [UI extension points](../ui-extension-points/) for bundle and component registration.
