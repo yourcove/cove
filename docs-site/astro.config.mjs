@@ -72,7 +72,10 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Docs Home',
-          items: [{ link: '/docs/', label: 'Overview' }],
+          items: [
+            { link: '/docs/', label: 'Overview' },
+            { link: '/docs/terminology/', label: 'Terminology' },
+          ],
         },
         {
           label: 'User Docs',
@@ -129,8 +132,15 @@ export default defineConfig({
                 { link: '/docs/developer/extensions/create-downloader/', label: 'Create a Downloader' },
               ],
             },
+            {
+              label: 'Extension Points',
+              items: [
+                { link: '/docs/developer/extensions/extension-points/', label: 'Overview' },
+                { link: '/docs/developer/extensions/ui-extension-points/', label: 'UI Extension Points' },
+              ],
+            },
             { link: '/docs/developer/api/overview/', label: 'API Surface' },
-            { link: '/docs/developer/contributing/website/', label: 'Website Contributions' },
+            { link: '/docs/developer/contributing/website/', label: 'Documentation Style Guide' },
           ],
         },
       ],
