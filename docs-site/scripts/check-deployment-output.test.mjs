@@ -117,6 +117,21 @@ function assertSitemapLink(document, expectedHref) {
   }
 }
 
+function assertPreviewNotice(document, expected) {
+  const notices = findElements(document, 'aside', { 'data-preview-notice': '' });
+  assert.equal(
+    notices.length,
+    expected ? 1 : 0,
+    `Page must ${expected ? '' : 'not '}render the preview notice`,
+  );
+  if (expected) {
+    assert.ok(
+      getAttribute(notices[0], 'aria-label')?.trim(),
+      'Preview notice must have an accessible label',
+    );
+  }
+}
+
 test('invalid deployment modes fail instead of changing crawler behavior silently', async () => {
   await assert.rejects(
     buildSite({ COVE_DOCS_DEPLOYMENT: 'prod' }),
@@ -135,12 +150,11 @@ test('the default preview output is visibly non-production and blocks indexing',
 
   try {
     for (const route of ['/', '/docs/']) {
-      const { document, html } = await readPage(outputDirectory, route);
+      const { document } = await readPage(outputDirectory, route);
       assertRobotsMeta(document, 'noindex, nofollow, noarchive');
       assertCanonical(document, `${productionOrigin}${route}`);
       assertSitemapLink(document, null);
-      assert.match(html, /data-preview-notice/);
-      assert.match(html, /documentation preview/i);
+      assertPreviewNotice(document, true);
     }
 
     const robots = await readFile(path.join(outputDirectory, 'robots.txt'), 'utf8');
@@ -175,14 +189,14 @@ test('production output remains indexable with canonical and sitemap metadata', 
 
   try {
     for (const route of ['/', '/docs/']) {
-      const { document, html } = await readPage(outputDirectory, route);
+      const { document } = await readPage(outputDirectory, route);
       assertRobotsMeta(
         document,
         'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
       );
       assertCanonical(document, `${siteUrl}${route}`);
       assertSitemapLink(document, `${siteUrl}/sitemap-index.xml`);
-      assert.doesNotMatch(html, /data-preview-notice/);
+      assertPreviewNotice(document, false);
     }
 
     const robots = await readFile(path.join(outputDirectory, 'robots.txt'), 'utf8');
@@ -206,14 +220,14 @@ test('production crawler URLs preserve a GitHub Pages repository base', async ()
 
   try {
     for (const route of ['/', '/docs/']) {
-      const { document, html } = await readPage(outputDirectory, route);
+      const { document } = await readPage(outputDirectory, route);
       assertRobotsMeta(
         document,
         'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
       );
       assertCanonical(document, `${siteUrl}${route}`);
       assertSitemapLink(document, `${siteUrl}/sitemap-index.xml`);
-      assert.doesNotMatch(html, /data-preview-notice/);
+      assertPreviewNotice(document, false);
     }
 
     const robots = await readFile(path.join(outputDirectory, 'robots.txt'), 'utf8');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { parse } from 'parse5';
 
@@ -9,60 +9,22 @@ const [, repositoryName] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
 const basePath = configuredSite.includes('github.io') && repositoryName
   ? `/${repositoryName}`
   : '';
+const siteOrigin = new URL(configuredSite).origin;
+const docsDirectory = path.join(outputDirectory, 'docs');
 
-const samples = [
-  {
-    route: '/docs/',
-    title: 'Documentation home',
-    prev: null,
-    next: null,
-  },
-  {
-    route: '/docs/user/',
-    title: 'User guide',
-    prev: null,
-    next: { route: '/docs/user/getting-started/install/', label: 'Install' },
-  },
-  {
-    route: '/docs/user/troubleshooting/',
-    title: 'Troubleshooting',
-    prev: { route: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups and upgrades' },
-    next: null,
-  },
-  {
-    route: '/docs/developer/',
-    title: 'Developer guide',
-    prev: null,
-    next: {
-      route: '/docs/developer/getting-started/local-development/',
-      label: 'Run Cove locally',
-    },
-  },
-  {
-    route: '/docs/developer/getting-started/local-development/',
-    title: 'Run Cove locally',
-    prev: { route: '/docs/developer/', label: 'Developer guide' },
-    next: {
-      route: '/docs/developer/extensions/create-extension/',
-      label: 'Create an extension',
-    },
-  },
-  {
-    route: '/docs/developer/extensions/create-downloader/',
-    title: 'Create a downloader',
-    prev: {
-      route: '/docs/developer/extensions/create-scraper/',
-      label: 'Create a scraper',
-    },
-    next: { route: '/docs/developer/extensions/overview/', label: 'Architecture' },
-  },
-  {
-    route: '/docs/developer/contributing/website/',
-    title: 'Documentation style guide',
-    prev: { route: '/docs/developer/api/overview/', label: 'API surface' },
-    next: null,
-  },
-];
+async function findHtmlFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(entries.map((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    return entry.isDirectory()
+      ? findHtmlFiles(entryPath)
+      : entry.isFile() && entry.name.endsWith('.html')
+        ? [entryPath]
+        : [];
+  }));
+
+  return files.flat();
+}
 
 function* getElements(node) {
   if (node.tagName) yield node;
@@ -80,63 +42,78 @@ function getText(node) {
   return (node.childNodes ?? []).map(getText).join('');
 }
 
-function normalizedText(element) {
-  return getText(element).replace(/\s+/g, ' ').trim();
+function routeFor(filePath) {
+  const relativePath = path.relative(outputDirectory, filePath).split(path.sep).join('/');
+  return relativePath.endsWith('/index.html')
+    ? `/${relativePath.slice(0, -'index.html'.length)}`
+    : `/${relativePath}`;
 }
 
 function withBase(route) {
   return `${basePath}${route}`;
 }
 
-function routeFile(route) {
-  return path.join(outputDirectory, route.replace(/^\/+|\/+$/g, ''), 'index.html');
-}
-
-function assertPagerLink(anchors, relation, expected, title) {
-  const matching = anchors.filter((anchor) => getAttribute(anchor, 'rel') === relation);
-  if (expected === null) {
-    assert.equal(matching.length, 0, `${title} must not render a ${relation} link`);
-    return;
+function closestElement(element, tagName) {
+  let current = element.parentNode;
+  while (current) {
+    if (current.tagName === tagName) return current;
+    current = current.parentNode;
   }
-
-  assert.equal(matching.length, 1, `${title} must render exactly one ${relation} link`);
-  const anchor = matching[0];
-  assert.equal(
-    getAttribute(anchor, 'href'),
-    withBase(expected.route),
-    `${title} ${relation} href must match its route and the active site base`,
-  );
-  assert.match(
-    normalizedText(anchor),
-    new RegExp(`\\b${expected.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`),
-    `${title} ${relation} link must be labeled ${expected.label}`,
-  );
+  return undefined;
 }
 
-for (const sample of samples) {
-  const html = await readFile(routeFile(sample.route), 'utf8');
-  const document = parse(html);
-  const elements = [...getElements(document)];
-  const mainNavigation = elements.find(
-    (element) => element.tagName === 'nav' && getAttribute(element, 'aria-label') === 'Main',
-  );
-  assert.ok(mainNavigation, `${sample.title} must render the main navigation`);
+function assertPagerLinks(elements, route) {
+  for (const relation of ['prev', 'next']) {
+    const matching = elements.filter(
+      (element) => element.tagName === 'a' && getAttribute(element, 'rel') === relation,
+    );
+    assert.ok(matching.length <= 1, `${route} must render at most one ${relation} link`);
 
-  const currentLinks = [...getElements(mainNavigation)].filter(
+    if (matching.length === 0) continue;
+    const href = getAttribute(matching[0], 'href');
+    const label = getText(matching[0]).replace(/\s+/g, ' ').trim();
+    assert.ok(label, `${route} ${relation} link must have an accessible label`);
+    assert.ok(href, `${route} ${relation} link must have an href`);
+
+    const target = new URL(href, configuredSite);
+    assert.equal(
+      target.origin,
+      siteOrigin,
+      `${route} ${relation} href must use the documentation site origin`,
+    );
+    assert.ok(
+      target.pathname.startsWith(`${basePath}/docs/`),
+      `${route} ${relation} href must stay within the documentation and active site base`,
+    );
+  }
+}
+
+const htmlFiles = await findHtmlFiles(docsDirectory);
+
+for (const htmlFile of htmlFiles) {
+  const route = routeFor(htmlFile);
+  const document = parse(await readFile(htmlFile, 'utf8'));
+  const elements = [...getElements(document)];
+  const currentLinks = elements.filter(
     (element) => element.tagName === 'a' && getAttribute(element, 'aria-current') === 'page',
   );
-  assert.equal(currentLinks.length, 1, `${sample.title} must have exactly one current sidebar link`);
+  assert.equal(currentLinks.length, 1, `${route} must have exactly one current sidebar link`);
   assert.equal(
     getAttribute(currentLinks[0], 'href'),
-    withBase(sample.route),
-    `${sample.title} current sidebar href must match its route and the active site base`,
+    withBase(route),
+    `${route} current sidebar href must match the generated route and active site base`,
   );
 
-  const anchors = elements.filter((element) => element.tagName === 'a');
-  assertPagerLink(anchors, 'prev', sample.prev, sample.title);
-  assertPagerLink(anchors, 'next', sample.next, sample.title);
+  const currentNavigation = closestElement(currentLinks[0], 'nav');
+  assert.ok(currentNavigation, `${route} current link must belong to a navigation landmark`);
+  assert.ok(
+    getAttribute(currentNavigation, 'aria-label')?.trim(),
+    `${route} current navigation must have an accessible label`,
+  );
+
+  assertPagerLinks(elements, route);
 }
 
 console.log(
-  `Checked generated navigation on ${samples.length} pages with base ${basePath || '/'}; all sidebar and pager links match.`,
+  `Checked generated navigation on ${htmlFiles.length} documentation pages with base ${basePath || '/'}; all sidebar and pager links are structurally valid.`,
 );

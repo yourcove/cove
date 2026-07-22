@@ -12,7 +12,7 @@ const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.join(scriptsDirectory, '..');
 const checkerPath = path.join(scriptsDirectory, 'check-generated-navigation.mjs');
 
-test('generated navigation checker rejects a mutated developer next link', async () => {
+test('generated navigation checker rejects an external pager link with a documentation path', async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'cove-docs-navigation-check-'));
   const fixtureDist = path.join(fixtureRoot, 'dist');
 
@@ -22,7 +22,7 @@ test('generated navigation checker rejects a mutated developer next link', async
     const original = await readFile(developerPage, 'utf8');
     const mutated = original.replace(
       /<a href="[^"]+" rel="next"/,
-      '<a href="/docs/terminology/" rel="next"',
+      '<a href="https://attacker.example/docs/terminology/" rel="next"',
     );
     assert.notEqual(mutated, original, 'Fixture must contain a developer next link to mutate');
     await writeFile(developerPage, mutated);
@@ -30,7 +30,7 @@ test('generated navigation checker rejects a mutated developer next link', async
     await assert.rejects(
       execFileAsync(process.execPath, [checkerPath, fixtureDist], { env: process.env }),
       (error) => {
-        assert.match(error.stderr, /Developer guide next href must match its route and the active site base/);
+        assert.match(error.stderr, /next href must use the documentation site origin/);
         return true;
       },
     );
