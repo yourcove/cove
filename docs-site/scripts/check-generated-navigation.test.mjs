@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -34,6 +34,33 @@ test('generated navigation checker rejects an external pager link with a documen
         return true;
       },
     );
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test('generated navigation checker resolves relative pagers within a repository base', async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'cove-docs-navigation-base-check-'));
+  const fixtureDist = path.join(fixtureRoot, 'dist');
+  const pageDirectory = path.join(fixtureDist, 'docs', 'page');
+
+  try {
+    await mkdir(pageDirectory, { recursive: true });
+    await writeFile(path.join(pageDirectory, 'index.html'), `
+      <nav aria-label="Documentation">
+        <a href="/cove/docs/page/" aria-current="page">Page</a>
+      </nav>
+      <a href="../other/" rel="prev">Previous Other page</a>
+    `);
+
+    const { stdout } = await execFileAsync(process.execPath, [checkerPath, fixtureDist], {
+      env: {
+        ...process.env,
+        SITE_URL: 'https://example.github.io/cove',
+        GITHUB_REPOSITORY: 'example/cove',
+      },
+    });
+    assert.match(stdout, /with base \/cove/);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

@@ -75,7 +75,8 @@ function assertPagerLinks(elements, route) {
     assert.ok(label, `${route} ${relation} link must have an accessible label`);
     assert.ok(href, `${route} ${relation} link must have an href`);
 
-    const target = new URL(href, configuredSite);
+    const pageUrl = new URL(withBase(route), `${siteOrigin}/`);
+    const target = new URL(href, pageUrl);
     assert.equal(
       target.origin,
       siteOrigin,
