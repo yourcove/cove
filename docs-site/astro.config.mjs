@@ -30,6 +30,7 @@ export default defineConfig({
       components: {
         Banner: './src/components/starlight/Banner.astro',
         Head: './src/components/starlight/Head.astro',
+        Sidebar: './src/components/starlight/Sidebar.astro',
         SiteTitle: './src/components/starlight/SiteTitle.astro',
       },
       customCss: ['./src/styles/global.css'],
@@ -88,43 +89,71 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: 'Docs home',
+          label: 'Tutorial',
           items: [
-            { link: '/docs/', label: 'Documentation home' },
-          ],
-        },
-        {
-          label: 'User docs',
-          items: [
-            { link: '/docs/user/', label: 'User guide' },
+            { link: '/docs/tutorial/', label: 'Tutorial overview' },
             {
-              label: 'Getting started',
+              label: 'Use Cove',
               items: [
-                { link: '/docs/user/getting-started/install/', label: 'Install' },
-                { link: '/docs/user/getting-started/first-scan/', label: 'First scan' },
-                { link: '/docs/user/getting-started/import-existing-library/', label: 'Import existing library' },
+                { link: '/docs/user/getting-started/first-scan/', label: 'Scan your first library' },
               ],
             },
             {
-              label: 'Library',
+              label: 'Build extensions',
+              items: [
+                { link: '/docs/developer/extensions/create-extension/', label: 'Create an extension' },
+                { link: '/docs/developer/extensions/create-scraper/', label: 'Create a scraper' },
+                { link: '/docs/developer/extensions/create-downloader/', label: 'Create a downloader' },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Guide',
+          items: [
+            { link: '/docs/guides/', label: 'Guide overview' },
+            {
+              label: 'Get Cove running',
+              items: [
+                { link: '/docs/user/', label: 'Using Cove' },
+                { link: '/docs/user/getting-started/install/', label: 'Install Cove' },
+                { link: '/docs/user/getting-started/import-existing-library/', label: 'Import an existing library' },
+                { link: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups, migrations, and upgrades' },
+                { link: '/docs/user/troubleshooting/', label: 'Troubleshooting' },
+              ],
+            },
+            {
+              label: 'Use your library',
               items: [
                 { link: '/docs/user/library/media-types/', label: 'Media types' },
-                { link: '/docs/user/library/organizing/', label: 'Organizing your library' },
+                { link: '/docs/user/library/organizing/', label: 'Organize your library' },
                 { link: '/docs/user/library/search-and-filters/', label: 'Search and filters' },
                 { link: '/docs/user/library/dynamic-groups/', label: 'Dynamic groups' },
                 { link: '/docs/user/library/segments-and-compilations/', label: 'Segments and compilations' },
               ],
             },
             {
-              label: 'Metadata',
+              label: 'Manage metadata and access',
               items: [
                 { link: '/docs/user/metadata/provenance/', label: 'Metadata provenance' },
                 { link: '/docs/user/metadata/providers-scrapers-downloaders/', label: 'Providers, scrapers, and downloaders' },
+                { link: '/docs/user/security/users-roles-permissions/', label: 'Users, roles, and permissions' },
               ],
             },
-            { link: '/docs/user/security/users-roles-permissions/', label: 'Users and permissions' },
-            { link: '/docs/user/admin/backups-migrations-upgrades/', label: 'Backups and upgrades' },
-            { link: '/docs/user/troubleshooting/', label: 'Troubleshooting' },
+            {
+              label: 'Develop Cove and extensions',
+              items: [
+                { link: '/docs/developer/', label: 'Developing Cove' },
+                { link: '/docs/developer/getting-started/local-development/', label: 'Run Cove locally' },
+                { link: '/docs/developer/extensions/overview/', label: 'Extension architecture' },
+                { link: '/docs/developer/extensions/packaging/', label: 'Package an extension' },
+                { link: '/docs/developer/extensions/permissions/', label: 'Extension permissions' },
+                { link: '/docs/developer/extensions/extension-points/', label: 'Extension point catalog' },
+                { link: '/docs/developer/extensions/ui-extension-points/', label: 'UI extension points' },
+                { link: '/docs/developer/api/overview/', label: 'API surface' },
+              ],
+            },
+            { link: '/docs/developer/contributing/website/', label: 'Documentation style guide' },
           ],
         },
         {
@@ -199,33 +228,6 @@ export default defineConfig({
                 { link: '/docs/reference/share-links/', label: 'Share links' },
               ],
             },
-          ],
-        },
-        {
-          label: 'Developer docs',
-          items: [
-            { link: '/docs/developer/', label: 'Developer guide' },
-            {
-              label: 'Local development',
-              items: [
-                { link: '/docs/developer/getting-started/local-development/', label: 'Run Cove locally' },
-              ],
-            },
-            {
-              label: 'Extensions',
-              items: [
-                { link: '/docs/developer/extensions/create-extension/', label: 'Create an extension' },
-                { link: '/docs/developer/extensions/create-scraper/', label: 'Create a scraper' },
-                { link: '/docs/developer/extensions/create-downloader/', label: 'Create a downloader' },
-                { link: '/docs/developer/extensions/overview/', label: 'Architecture' },
-                { link: '/docs/developer/extensions/packaging/', label: 'Packaging' },
-                { link: '/docs/developer/extensions/permissions/', label: 'Permissions' },
-                { link: '/docs/developer/extensions/extension-points/', label: 'Extension point catalog' },
-                { link: '/docs/developer/extensions/ui-extension-points/', label: 'UI extension points' },
-              ],
-            },
-            { link: '/docs/developer/api/overview/', label: 'API surface' },
-            { link: '/docs/developer/contributing/website/', label: 'Documentation style guide' },
           ],
         },
       ],

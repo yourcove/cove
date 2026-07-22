@@ -1,0 +1,242 @@
+---
+import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
+import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
+import MobileMenuFooter from '@astrojs/starlight/components/MobileMenuFooter.astro';
+import type { StarlightRouteData } from '@astrojs/starlight/route-data';
+
+const { sidebar } = Astro.locals.starlightRoute;
+
+type SidebarEntry = StarlightRouteData['sidebar'][number];
+type SidebarGroup = Extract<SidebarEntry, { type: 'group' }>;
+
+function assertGroups(entries: SidebarEntry[]): asserts entries is SidebarGroup[] {
+  for (const entry of entries) {
+    if (entry.type !== 'group') {
+      throw new Error('Every top-level Cove documentation sidebar entry must be a section group.');
+    }
+  }
+}
+
+function containsCurrent(entries: SidebarEntry[]): boolean {
+  return entries.some((entry) => entry.type === 'link'
+    ? entry.isCurrent
+    : containsCurrent(entry.entries));
+}
+
+function panelId(label: string): string {
+  return `docs-section-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`;
+}
+
+assertGroups(sidebar);
+
+const activeSection = sidebar.findIndex((section) => containsCurrent(section.entries));
+const initialSection = activeSection === -1 ? 1 : activeSection;
+const isDocsHome = /\/docs\/?$/.test(Astro.url.pathname);
+const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
+---
+
+<SidebarPersister>
+  <docs-sidebar-tabs>
+    <ul class="section-tabs" aria-label="Documentation section">
+      {
+        sidebar.map((section, index) => {
+          const id = panelId(section.label);
+          const landingPage = section.entries.find((entry) => entry.type === 'link');
+
+          if (!landingPage || landingPage.type !== 'link') {
+            throw new Error(`The ${section.label} documentation section needs a landing-page link.`);
+          }
+
+          return (
+            <li>
+              <a
+                href={landingPage.href}
+                data-section-index={index}
+                data-panel-id={id}
+                data-initial={index === initialSection ? 'true' : undefined}
+              >
+                {section.label}
+              </a>
+            </li>
+          );
+        })
+      }
+    </ul>
+
+    <a class="docs-home" href={docsHomeHref} aria-current={isDocsHome ? 'page' : undefined}>Docs home</a>
+
+    <div class="section-panels">
+      {
+        sidebar.map((section, index) => {
+          const id = panelId(section.label);
+          return (
+            <div
+              class="section-panel"
+              id={id}
+              data-initial={index === initialSection ? 'true' : undefined}
+            >
+              <SidebarSublist sublist={section.entries} />
+            </div>
+          );
+        })
+      }
+    </div>
+  </docs-sidebar-tabs>
+</SidebarPersister>
+
+<div class="md:sl-hidden">
+  <MobileMenuFooter />
+</div>
+
+<script>
+  class DocsSidebarTabs extends HTMLElement {
+    connectedCallback() {
+      const tabList = this.querySelector<HTMLElement>('.section-tabs');
+      const tabs = [...this.querySelectorAll<HTMLAnchorElement>('[data-section-index]')];
+      const panels = [...this.querySelectorAll<HTMLElement>('.section-panel')];
+      const initialIndex = Math.max(0, tabs.findIndex((tab) => tab.dataset.initial === 'true'));
+
+      tabList?.setAttribute('role', 'tablist');
+      tabs.forEach((tab, index) => {
+        tab.id = `${tab.dataset.panelId}-tab`;
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-controls', tab.dataset.panelId ?? '');
+        tab.parentElement?.setAttribute('role', 'presentation');
+        tab.tabIndex = index === initialIndex ? 0 : -1;
+        tab.setAttribute('aria-selected', String(index === initialIndex));
+      });
+      panels.forEach((panel, index) => {
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', tabs[index]?.id ?? '');
+        panel.tabIndex = -1;
+        panel.hidden = index !== initialIndex;
+      });
+
+      const select = (index: number, focus = false) => {
+        tabs.forEach((tab, tabIndex) => {
+          const selected = tabIndex === index;
+          tab.setAttribute('aria-selected', String(selected));
+          tab.tabIndex = selected ? 0 : -1;
+          if (selected && focus) tab.focus();
+        });
+
+        panels.forEach((panel, panelIndex) => {
+          panel.hidden = panelIndex !== index;
+        });
+      };
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', (event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          select(index);
+        });
+
+        tab.addEventListener('keydown', (event) => {
+          let nextIndex;
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = index - 1;
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = index + 1;
+          if (event.key === 'Home') nextIndex = 0;
+          if (event.key === 'End') nextIndex = tabs.length - 1;
+          if (nextIndex === undefined) return;
+
+          event.preventDefault();
+          select((nextIndex + tabs.length) % tabs.length, true);
+        });
+      });
+    }
+  }
+
+  if (!customElements.get('docs-sidebar-tabs')) {
+    customElements.define('docs-sidebar-tabs', DocsSidebarTabs);
+  }
+</script>
+
+<style>
+  docs-sidebar-tabs {
+    display: block;
+  }
+
+  .section-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.25rem;
+    margin: 0 0 1rem;
+    padding: 0.25rem;
+    list-style: none;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 0.65rem;
+    background: var(--sl-color-bg-nav);
+  }
+
+  .section-tabs a {
+    display: block;
+    padding: 0.5rem 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 0.45rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+  }
+
+  .section-tabs a:hover {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-6);
+  }
+
+  .section-tabs a[aria-selected='true'] {
+    border-color: var(--sl-color-hairline-light);
+    color: var(--sl-color-text-accent);
+    background: var(--sl-color-bg);
+  }
+
+  .section-tabs a:focus-visible {
+    outline: 2px solid var(--sl-color-text-accent);
+    outline-offset: 2px;
+  }
+
+  .section-panel {
+    animation: section-panel-appear 10s steps(2, jump-none) 1;
+  }
+
+  .section-panel[data-initial],
+  .section-panel[role='tabpanel'] {
+    animation: none;
+  }
+
+  @keyframes section-panel-appear {
+    from {
+      display: none;
+      content-visibility: hidden;
+    }
+  }
+
+  .docs-home {
+    display: block;
+    margin-bottom: 0.75rem;
+    padding: 0.3em 0.5rem;
+    border-radius: 0.25rem;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-lg);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .docs-home:hover,
+  .docs-home[aria-current='page'] {
+    color: var(--sl-color-white);
+  }
+
+  .docs-home[aria-current='page'] {
+    background-color: var(--sl-color-text-accent);
+  }
+
+  @media (forced-colors: active) {
+    .section-tabs a[aria-selected='true'] {
+      border-color: CanvasText;
+    }
+  }
+</style>
