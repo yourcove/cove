@@ -7,7 +7,7 @@ Cove provides two Docker images to suit different deployment needs. Both use Pos
 A single container with PostgreSQL, pgvector, FFmpeg, and Cove. Best for UnRAID, Synology, and users who want minimal configuration.
 
 ```bash
-docker compose -f docker-compose.allinone.yml up -d
+docker compose --file docker-compose.allinone.yml up --detach
 ```
 
 Then open http://localhost:5073.
@@ -17,30 +17,31 @@ Then open http://localhost:5073.
 | Volume | Purpose |
 |--------|---------|
 | `/var/lib/postgresql/cove-data` | PostgreSQL database |
-| `/data` | Your media library mount point |
+| `/data` | Reserved for managed PostgreSQL data; unused by the provided Docker configurations |
 | `/config` | Cove configuration files |
 | `/generated` | Thumbnails, previews, sprites |
 | `/cache` | Temporary cache |
 | `/backups` | Database backups |
+| `/media` | User-added source media, mounted read-write by default |
 
 ## Option 2: App + PostgreSQL (recommended for docker-compose users)
 
 Separate containers for the app and database. Easier to manage, upgrade, and back up independently. The provided compose file uses the official `pgvector/pgvector` PostgreSQL 18 image.
 
 ```bash
-docker compose up -d
+docker compose up --detach
 ```
 
-### Mounting your media
+## Mounting your media
 
-Uncomment and edit the media volume in the compose file:
+Both Compose files include the same commented media-volume example. Uncomment and edit it:
 
 ```yaml
 volumes:
-  - /path/to/your/media:/media:ro
+  - /path/to/your/media:/media
 ```
 
-Then add `/media` as a library path in Cove's settings.
+Then add `/media` as a library path in Cove's settings. The read-write mount allows source-file deletion in Cove and rename operations provided by installed extensions. Append `:ro` only when you intentionally want to prevent source-file changes; scanning still works, but deletion and extension-provided rename workflows do not.
 
 ## GPU Acceleration
 
@@ -124,8 +125,8 @@ From the repository root:
 
 ```bash
 # All-in-one
-docker build -f docker/Dockerfile -t cove:local .
+docker build --file docker/Dockerfile --tag cove:local .
 
 # App-only
-docker build -f docker/Dockerfile.app -t yourcove:local .
+docker build --file docker/Dockerfile.app --tag yourcove:local .
 ```

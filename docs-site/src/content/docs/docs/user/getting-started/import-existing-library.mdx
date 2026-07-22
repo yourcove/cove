@@ -21,15 +21,15 @@ The Stash importer only appears before setup is complete. Once an instance is co
 1. Back up Stash.
 2. Make the directory containing `stash-go.sqlite` available to the Cove process. The importer usually also reads Stash's `config.yml` from beside the database.
 3. Make every source-media path available to Cove. The importer does not copy the source media; it imports records and relationships that point to those files.
-4. For Docker, add read-only mounts before starting Cove. For example:
+4. For Docker, mount the Stash configuration read-only and mount source media read-write by default. For example:
 
    ```yaml
    volumes:
      - /srv/stash/config:/stash:ro
-     - /srv/media:/media:ro
+     - /srv/media:/media
    ```
 
-   You would then enter `/stash/stash-go.sqlite`, not the host path, in the wizard.
+   You would then enter `/stash/stash-go.sqlite`, not the host path, in the wizard. Append `:ro` to the media mount only when you intentionally want to prevent source-file deletion and extension-provided rename operations.
 
 ### Preview and run the import
 

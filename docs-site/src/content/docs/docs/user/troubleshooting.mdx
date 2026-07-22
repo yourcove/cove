@@ -48,6 +48,7 @@ docker compose --file docker-compose.allinone.yml ps
 docker compose --file docker-compose.allinone.yml exec cove id
 docker compose --file docker-compose.allinone.yml exec cove ls --long --numeric-uid-gid --directory /config /generated /backups /media
 docker compose --file docker-compose.allinone.yml exec cove test -r /media
+docker compose --file docker-compose.allinone.yml exec cove test -w /media
 docker compose --file docker-compose.allinone.yml exec cove test -x /media
 docker compose --file docker-compose.allinone.yml exec cove test -w /config
 docker compose --file docker-compose.allinone.yml exec cove test -x /config
@@ -57,7 +58,7 @@ docker compose --file docker-compose.allinone.yml exec cove test -w /backups
 docker compose --file docker-compose.allinone.yml exec cove test -x /backups
 ```
 
-The `ls` command reports mode and numeric ownership, but mode and ownership do not by themselves prove effective access. Each `test` command safely checks access as the user running Cove without creating or deleting a file. The `-r` check covers reading `/media`, and `-w` covers writing Cove's data directories. The `-x` checks cover permission to search and traverse those directories, which Cove also needs to reach files inside them. Each command produces no output and exits with status 0 when the requested access is available; a nonzero status identifies the failed path. Do not apply a recursive ownership command blindly. Compare the Cove user, mount mode, and affected host directory first, then correct only that directory.
+The `ls` command reports mode and numeric ownership, but mode and ownership do not by themselves prove effective access. Each `test` command safely checks access as the user running Cove without creating or deleting a file. The `-r` check covers reading `/media`, `-w` covers writing `/media` and Cove's data directories, and `-x` covers permission to search and traverse those directories. Each command produces no output and exits with status 0 when the requested access is available; a nonzero status identifies the failed path. A deliberately read-only media mount is expected to fail `test -w /media`. Do not apply a recursive ownership command blindly. Compare the Cove user, mount mode, and affected host directory first, then correct only that directory.
 
 ## Startup or browser problems
 
@@ -70,7 +71,7 @@ The `ls` command reports mode and numeric ownership, but mode and ownership do n
 ## Scan and media problems
 
 - **No files found:** enter the container path from the media mount, not the host path. Then check **Settings → Library → Paths & Storage**, media-type exclusions, file extensions, and exclude patterns.
-- **Permission denied:** verify the Cove process can read source media and write the generated directory. A read-only `/media` mount is expected; `/generated` must be writable.
+- **Permission denied:** verify the Cove process can read source media and write the generated directory. The provided `/media` example is read-write to support source-file deletion and extension-provided rename operations; an intentional `:ro` mount still supports scanning but disables those modifying workflows. `/generated` must be writable.
 - **Some files are skipped:** run a selective scan on one folder and inspect the job and logs. Use **Force rescan (ignore mtime)** only for files that should be reconsidered.
 - **Covers or previews fail:** open **Settings → Library → Scanning & Assets**, confirm the generated path and FFmpeg settings, then inspect FFmpeg errors in the logs.
 - **A job appears stuck:** open **Settings → Operations → Jobs** before queueing another job. Record its name, progress text, and last update.

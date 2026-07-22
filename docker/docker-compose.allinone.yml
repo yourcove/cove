@@ -2,14 +2,14 @@
 #
 # Data is stored in a single configurable directory on the host
 # (defaults to ./cove-data/ relative to this file). Override with:
-#   COVE_DATA_DIR=/path/to/data docker compose -f docker-compose.allinone.yml up -d
+#   COVE_DATA_DIR=/path/to/data docker compose --file docker-compose.allinone.yml up --detach
 #
 # Only the cache uses a named volume (it is safe to lose;
 # it will be recreated automatically). All persistent data
-# uses bind mounts and survives docker compose down -v.
+# uses bind mounts and survives docker compose down --volumes.
 #
 # Usage:
-#   docker compose -f docker-compose.allinone.yml up -d
+#   docker compose --file docker-compose.allinone.yml up --detach
 #
 # GPU acceleration (optional):
 #   For NVIDIA GPUs, uncomment the deploy section below and ensure
@@ -31,9 +31,10 @@ services:
       - ${COVE_DATA_DIR:-./cove-data}/backups:/backups
       - cove-cache:/cache
       # Mount your media library (adjust path):
-      # - /path/to/your/media:/media:ro
+      # - /path/to/your/media:/media
       # Example network share mount using the commented volume below:
-      # - yourcontent:/media:ro
+      # - yourcontent:/media
+      # Append :ro to prevent source deletion and extension-provided rename operations.
 
     # ── GPU acceleration (uncomment ONE section) ──────────────────
     # NVIDIA GPU (requires nvidia-container-toolkit):

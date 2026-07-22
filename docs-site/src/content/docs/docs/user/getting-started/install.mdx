@@ -1,5 +1,5 @@
 ---
-title: Install
+title: Install Cove
 description: Install Cove as a native app or with Docker, preserve its data, and complete first-run setup.
 ---
 
@@ -7,12 +7,21 @@ Cove runs on your own machine. Choose the native app for a managed local install
 
 Downloads and release notes are on the [latest release page](https://github.com/yourcove/cove/releases/latest).
 
+## Before you install
+
+- Choose the machine that will run Cove and make sure it can read the media you plan to add.
+- Reserve writable storage for Cove's database, configuration, generated assets, backups, and logs. The native app keeps these under an instance home directory; the provided Docker files keep them under `COVE_DATA_DIR`.
+- Keep source media backed up. The provided Docker examples mount media read-write to support source-file deletion in Cove and rename operations provided by installed extensions.
+- For a Docker installation, install Docker Engine with the Compose plugin before continuing.
+
+Do not expose a new Docker deployment to the internet before completing first-run setup. The provided compose files publish port `5073` on all host interfaces, and owner creation is intentionally open until the first owner exists. Restrict access to the Docker host or a trusted network with your firewall or reverse proxy until you have created the owner account.
+
 ## Native app
 
-1. Download the package for Windows, macOS, or Linux from the [latest release](https://github.com/yourcove/cove/releases/latest).
-2. Install and start Cove. The app prepares its database and opens Cove in your browser.
-3. In the first-run setup wizard, choose **Start Fresh**, **Import from Stash**, or **Restore Cove Backup**.
-4. Create the owner account when prompted.
+1. Download the archive for your supported platform from the [latest release](https://github.com/yourcove/cove/releases/latest): Windows x64 (`win-x64`), Linux x64 (`linux-x64`), or macOS ARM64 (`osx-arm64`). Extract the archive.
+2. Launch `Cove.InstanceManager.exe` on Windows or `Cove.InstanceManager` on Linux or macOS.
+3. To use the provided **Default** instance, select **Start**. To create another instance, enter its **Name** and optional **Home path**, select **Create**, and then select **Start** on the new instance.
+4. Wait for the instance status to change from **Starting** to **Running**, then select **Open**. Cove opens the first-run setup wizard in your browser.
 
 The native app includes Cove Instance Manager. Each instance has its own home directory, database, configuration, generated assets, backups, and logs. Use the manager to create, start, stop, or switch instances rather than sharing one data directory between them.
 
@@ -20,25 +29,25 @@ The native app includes Cove Instance Manager. Each instance has its own home di
 
 The all-in-one image runs Cove, PostgreSQL, pgvector, and FFmpeg in one container, so you operate one application container instead of separate Cove and database containers.
 
-1. Install Docker Engine with the Compose plugin.
-2. Download [`docker-compose.allinone.yml`](https://github.com/yourcove/cove/blob/main/docker/docker-compose.allinone.yml) from Cove's `docker/` directory and work from the directory containing that file.
-3. Choose a host directory for Cove's persistent data. The compose file uses `./cove-data` by default; set `COVE_DATA_DIR` to keep it elsewhere.
-4. Edit the media-volume example in the compose file so the host path points to your library:
+1. Download [`docker-compose.allinone.yml`](https://github.com/yourcove/cove/blob/main/docker/docker-compose.allinone.yml) from Cove's `docker/` directory and work from the directory containing that file.
+2. Choose a host directory for Cove's persistent data. The compose file uses `./cove-data` by default; set `COVE_DATA_DIR` to keep it elsewhere.
+3. Edit the media-volume example in the compose file so the host path points to your library:
 
    ```yaml
    volumes:
-     - /srv/media:/media:ro
+     - /srv/media:/media
    ```
 
-   `/srv/media` is an example host path. `/media` is the path Cove can see and is the path you will enter during setup. Keep source media read-only unless another workflow specifically requires write access.
-5. Start Cove:
+   `/srv/media` is an example host path. `/media` is the path Cove can see and is the path you will enter during setup. This mount is read-write. Append `:ro` only when you intentionally want to prevent source-file changes; scanning still works, but deletion and extension-provided rename workflows do not.
+4. Start Cove:
 
    ```bash
    COVE_DATA_DIR=/srv/cove docker compose --file docker-compose.allinone.yml up --detach
    COVE_DATA_DIR=/srv/cove docker compose --file docker-compose.allinone.yml ps
    ```
 
-6. On the Docker host, open `http://localhost:5073`. From another machine on the same network, replace `localhost` with the Docker host's address.
+   The `ps` output should list the `cove` service with a running status. If it exits or repeatedly restarts, check [startup troubleshooting](../../troubleshooting/#startup-or-browser-problems) before continuing.
+5. On the Docker host, open `http://localhost:5073`. From another machine on the same network, replace `localhost` with the Docker host's address. The first-run setup wizard should appear.
 
 The provided compose file persists these paths:
 
@@ -48,7 +57,7 @@ The provided compose file persists these paths:
 | `/config` | `${COVE_DATA_DIR}/config` | `cove-config.json`, installed extensions, and logs |
 | `/generated` | `${COVE_DATA_DIR}/generated` | Covers, thumbnails, previews, and other derived assets |
 | `/backups` | `${COVE_DATA_DIR}/backups` | Database and config backups |
-| `/media` | The host path you add | Source media, mounted read-only in the example |
+| `/media` | The host path you add | Source media, mounted read-write in the example |
 
 Do not remove the database, config, generated, or backups mounts when customizing the compose file. The named cache volume is disposable and can be regenerated.
 
@@ -63,16 +72,36 @@ COVE_DATA_DIR=/srv/cove docker compose --file docker-compose.yml ps
 
 The app is still available at `http://localhost:5073`. The compose file provides the internal database connection and persists PostgreSQL under `${COVE_DATA_DIR}/pgdata`. If you change the database credentials, update both the PostgreSQL service and Cove's connection string so they continue to match.
 
+The `ps` output should show both `cove` and `db` running, with `db` marked healthy. If either service stops, inspect both services as described in [Troubleshooting](../../troubleshooting/). Once they are running, open Cove and confirm that the first-run setup wizard appears.
+
 ## Complete first-run setup
 
-For a new library, choose **Start Fresh**, enter one or more paths that Cove can see, review them, and select **Save & Continue**. In Docker, use container paths such as `/media`, not host paths such as `/srv/media`.
+1. Select **Get Started**, then choose **Start Fresh**, **Import from Stash**, or **Restore Cove Backup**.
+2. For a new library, enter one or more paths that Cove can read, review them, and select **Save & Continue**. In Docker, use container paths such as `/media`, not host paths such as `/srv/media`.
+3. If **Set the owner password** appears, enter an owner username and password, then select **Save owner password**. Cove creates the owner account and signs you in. A restored installation that already contains an owner skips this step.
+4. Choose an optional theme and continue until the wizard reports **You're all set!**
 
-After setup, follow [First scan](../first-scan/) to run, monitor, and verify the initial scan. The owner can later change library paths, create users and roles, create API tokens, and configure providers, downloaders, and extensions.
+The Stash and backup choices have additional inputs. Follow [Import an existing library](../import-existing-library/) for a Stash migration or [restore an existing installation](../../admin/backups-migrations-upgrades/#restore-an-existing-installation) for backup details.
 
-## Run from source
+## Verify the installation
 
-If you want to inspect or modify Cove itself, see [Run Cove locally](../../../developer/getting-started/local-development/). A source checkout is a development workflow, not the recommended production installation.
+1. Select **Go to Videos** or **Open Settings** from the final setup screen and confirm that the main Cove navigation appears. If Cove asks you to sign in after restoring an existing owner, use that owner's credentials; otherwise confirm that you remain signed in as the owner you just created.
+2. Verify the runtime again:
 
-## Expose Cove outside your network
+   - For the native app, Cove Instance Manager should show the instance as **Running** and display its home path.
+   - For all-in-one Docker, rerun the matching `ps` command above with the same `COVE_DATA_DIR` value. It should show `cove` running.
+   - For separate Docker, rerun its matching `ps` command with the same `COVE_DATA_DIR` value. It should show `cove` running and `db` healthy.
 
-Cove includes users, roles, permissions, share links, API tokens, audit history, and content rules. If you make it reachable from the internet, put it behind a reverse proxy, enable TLS, keep Cove current, and treat it like any other self-hosted service that can reach private media.
+3. Confirm the persistent location you selected is still in use. For a native installation, stop and start the same instance in Cove Instance Manager. For Docker, restart the deployment with the same compose file and `COVE_DATA_DIR` value. Cove should reopen without repeating first-run setup, and the owner account and configured library paths should remain available.
+
+If a service does not stay running, the browser cannot connect, or setup returns after a restart, follow [Troubleshooting](../../troubleshooting/) and inspect the deployment's logs and persistent paths.
+
+## Related deployment guidance
+
+A source checkout is a development workflow, not the recommended production installation. If you want to inspect or modify Cove itself, follow [Run Cove locally](../../../developer/getting-started/local-development/).
+
+If you expose Cove outside your network, put it behind a reverse proxy, enable TLS, keep Cove current, and review [users, roles, and permissions](../../security/users-roles-permissions/). Treat it like any other self-hosted service that can reach private media.
+
+## Next steps
+
+Follow [First scan](../first-scan/) to run, monitor, and verify a focused initial scan. After that, the owner can change library paths, create users and roles, create API tokens, and configure providers, downloaders, and extensions.
