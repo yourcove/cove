@@ -5,13 +5,13 @@ description: Understand how metadata servers, scrapers, and downloaders fit into
 
 import DocsScreenshot from '../../../../../components/DocsScreenshot.astro';
 
-Cove separates “bring in new media” from “identify existing media” and from “apply metadata to media you already have.” That split makes the system easier to reason about and easier to trust.
+Cove separates “bring in new media” from “identify existing media” and from “apply metadata to media you already have.” The canonical contracts are documented under [metadata providers](../../../reference/metadata-providers/); this page helps you choose and introduce them safely.
 
 ## The three main roles
 
 ### Downloaders
 
-Downloaders bring new media into your library from supported sources. They are about acquisition and intake.
+Use a [downloader](../../../reference/downloaders/) for acquisition and intake from a supported source.
 
 Use downloaders when you want Cove to:
 
@@ -21,7 +21,7 @@ Use downloaders when you want Cove to:
 
 ### Scrapers
 
-Scrapers pull metadata for specific items from a source and present the result for review. They are best when you want item-level control.
+Use a [scraper](../../../reference/scrapers/) to search for or extract metadata for an existing item when you want item-level review.
 
 Use scrapers when you want to:
 
@@ -31,7 +31,7 @@ Use scrapers when you want to:
 
 ### Metadata servers
 
-Metadata servers match and enrich items at broader scale. They are usually the better fit once you already trust a provider and want higher-throughput identification or enrichment.
+Use a [metadata server](../../../reference/metadata-servers/) as a configured structured catalog after you trust its matches and want repeatable identification or enrichment.
 
 Use metadata servers when you want to:
 
@@ -49,7 +49,7 @@ Use metadata servers when you want to:
 
 ## Provenance matters here
 
-Large libraries often combine manual edits, import data, scrapers, metadata servers, downloaders, and extensions. Provenance is how you keep that understandable instead of turning the result into a pile of unexplained values.
+Large libraries often combine manual edits, import data, scrapers, metadata servers, downloaders, and extensions. Review [provenance](../../../reference/provenance/) so a successful-looking result does not hide an incorrect source or match.
 
 ## Common metadata servers
 
@@ -79,6 +79,6 @@ Each server needs a free account on that server and an API key, which you paste 
 
 ## Downloaders and the extension model
 
-In Cove, downloaders are not a separate bolt-on subsystem. They fit into the broader extension story. That means installation, discovery, and future expansion can live inside the same host-aware model as other add-ons.
+Downloaders participate in Cove's [extension](../../../reference/extensions/) model, so installation, discovery, and future expansion use the same package boundary as other add-ons.
 
 If you are configuring the system as a user, treat downloaders like installable capabilities. If you are building one, use the developer docs for the implementation side.

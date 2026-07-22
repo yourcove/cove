@@ -11,13 +11,23 @@ The group stores a query source and serialized query definition. Resolution prod
 
 Allowed host types constrain which kinds of resolved items can belong to the group. Display and playback features may impose narrower requirements, such as video or video-range items for compilation playback.
 
+## System-managed groups
+
+Cove creates three protected dynamic-group records. Each resolves its membership for the current user:
+
+| Group | Membership |
+| --- | --- |
+| **Save for Later** | Records the current user has bookmarked, with the most recently saved first. |
+| **Watch History** | Records the current user has consumed, with the most recently consumed first. |
+| **Continue Watching** | Videos, audio, and segments where the current user has a resume position and has not completed the item. |
+
 ## Difference from saved filters
 
 A saved filter preserves a reusable library view for a user or workflow. A dynamic group is a library entity: it can have metadata, imagery, relationships, nested membership, and references from other records. Converting search intent into a group therefore creates a collection identity rather than only preserving interface state.
 
 ## Change behavior
 
-Membership can change when matching records, activity, query semantics, or extension-provided resolvers change. Do not treat a resolved result as a permanent historical snapshot unless a workflow explicitly materializes one.
+Membership can change when matching records, activity, or query semantics change. Do not treat a resolved result as a permanent historical snapshot unless a workflow explicitly materializes one.
 
 ## Related reference
 

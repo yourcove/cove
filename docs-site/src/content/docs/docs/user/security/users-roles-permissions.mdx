@@ -9,14 +9,7 @@ Cove is built to support more than one person using the same library. That means
 
 ## The access model
 
-- **Users** are the people or service identities signing in.
-- **Role assignments** connect users to roles.
-- **Roles** bundle reusable action permissions.
-- **Content rules** can grant scoped read access and restrict read, write, or delete access for matching records.
-- **Share links** let you expose selected content within your network without creating a full account.
-- **API tokens** let scripts or integrations authenticate without reusing a password.
-
-These pieces are strongest when used together, not in isolation.
+Start with a separate [user](../../../reference/users/) for each person or integration identity. [Role assignments](../../../reference/role-assignments/) connect those users to reusable [roles](../../../reference/roles/), while [content rules](../../../reference/content-rules/) narrow or grant record-level read access. Use [share links](../../../reference/share-links/) and [API tokens](../../../reference/api-tokens/) for their narrower access patterns rather than as substitutes for account design.
 
 ## A practical setup order
 
@@ -35,17 +28,11 @@ These pieces are strongest when used together, not in isolation.
 
 ## Roles versus content rules
 
-This distinction is important:
-
-- **roles** grant general action permissions to an account
-- **read-scoped allow rules** can grant access to matching records even without the corresponding role read permission
-- **write and delete content rules** require the corresponding role permission and can only narrow the records on which those actions are allowed
-
-A read-scoped allow rule can expose a specific slice of the library to a role that lacks general read permission for that entity kind. For edits or deletion, the role must already have the relevant permission; a content rule can limit where it applies but cannot grant it. An explicit entity deny wins over everything; otherwise, an explicit entity allow wins; among matching content rules, any allow wins over matching denies.
+Roles grant reusable action permissions. Content rules make access depend on the record: read rules can grant a matching slice, while write and delete rules can only narrow authority already supplied by a role. See [Content rules](../../../reference/content-rules/) for the complete decision order before designing overlapping rules.
 
 ## Share links
 
-Share links are useful when you want to expose specific content within your network without turning a temporary need into a full new account. They are a better fit when:
+[Share links](../../../reference/share-links/) are useful when you want to expose specific content without turning a temporary need into a full new account. They are a better fit when:
 
 - the access is narrow
 - the access is time-limited

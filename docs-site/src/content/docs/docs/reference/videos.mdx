@@ -44,7 +44,7 @@ Imported or automated values can include provenance. Hover information in the in
 
 Ratings, likes, favorites, play counts, playback sessions, watched duration, and resume position are engagement data. Cove keeps them separately from the shared descriptive fields so the visible values can follow the current signed-in user.
 
-## Files and generated media
+## Files and derivatives
 
 The **File Info** tab lists every file attached to the record. A sub-video with no directly attached files resolves the parent video's files for playback.
 
@@ -61,7 +61,7 @@ The **File Info** tab lists every file attached to the record. A sub-video with 
 
 Discovered VTT or SRT sidecar caption tracks are associated with individual files and used by the player, but the **File Info** tab does not list them.
 
-Source files are distinct from generated covers, thumbnails, previews, sprites, and other derived assets. Deleting from the detail page can remove only the video record or also request source-file deletion. Bulk deletion additionally offers a separate generated-files choice. Deleting a parent video also deletes its sub-video records, while deleting a sub-video does not delete the parent's source files. Cove also retains a source path when another video record not included in the deletion still references it. Source-file deletion requires a writable media path; it fails on an intentional read-only mount. Keep source media backed up before enabling destructive workflows.
+[Generated media](../generated-media/) is stored and managed separately from source files. Deleting from the detail page can remove only the video record or also request source-file deletion; bulk deletion additionally offers a generated-files choice. Deleting a parent also deletes its sub-video records, while deleting a sub-video does not delete the parent's source files. Cove retains a source path when a video outside the deletion still references it. Source-file deletion requires a writable [library path](../library-paths/).
 
 ## Videos page
 
@@ -157,4 +157,5 @@ The exact list depends on video access, job and scan permissions, configured pro
 - [Media types](../../user/library/media-types/) explains how videos compare with images, galleries, audio, and text.
 - [Organizing your library](../../user/library/organizing/) explains when to use tags, performers, studios, and groups.
 - [Segments and compilations](../../user/library/segments-and-compilations/) explains timeline ranges, sub-videos, and compilation playback.
-- [Terminology](../../terminology/) provides concise definitions of video, generated media, segment, sub-video, and compilation.
+- [Generated media](../generated-media/) covers derivative assets and their lifecycle.
+- [Terminology](../../terminology/) provides concise definitions of video, segment, sub-video, and compilation.

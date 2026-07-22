@@ -3,26 +3,18 @@ title: Segments and compilations
 description: Work with segments, sub-videos, and compilations in Cove.
 ---
 
-Segments are one of the main reasons Cove can organize a library in more detail than a simple whole-file model allows. Cove keeps the stored source records separate from the results you browse: raw segments preserve the original marks, while derived segments are resolved from those records for display, search, and playback.
+Timeline structure lets Cove organize part of a source without exporting a new media file for every use. Choose the representation based on whether you need source evidence, a derived view, a reusable video identity, or an ordered playback collection.
 
-## What a raw segment is
+## Choose the right representation
 
-A raw segment is a stored point or time range attached to a video, image, or audio record. Depending on the workflow, a raw segment can represent:
+| Use | Choose | Why |
+| --- | --- | --- |
+| Preserve a point or range exactly as a user, provider, or analyzer supplied it | [Raw segment](../../../reference/raw-segments/) | It retains source, confidence, payload, and original boundaries. |
+| Present a cleaned-up range composed from stored inputs | [Segment](../../../reference/segments/) | A display profile can select, merge, hide, or restyle raw segments without rewriting them. |
+| Give a parent-video range its own reusable media record and metadata | [Sub-video](../../../reference/sub-videos/) | It behaves as a child video while reusing the parent source. |
+| Play whole videos or ranges in a chosen order | [Compilation](../../../reference/compilations/) | The group owns the sequence while member media keeps its identity. |
 
-- a chapter or part of a video
-- a highlight
-- a manually selected point or range
-- a detected interval
-- a performer or face occurrence
-- a tag or metadata event tied to time
-
-## What a segment is
-
-For videos, Cove resolves one or more raw segments into a segment for display, search, or playback. A display profile or query determines which raw segments contribute, whether nearby intervals merge, and how short intervals are handled. These derived segments are computed results rather than separate stored records.
-
-The default **Segments** view shows derived segments. Select **Raw segments** when you need to inspect the stored records from which they are produced.
-
-## Why segments matter
+## What this enables
 
 Raw and derived segments make the rest of the library more expressive:
 
@@ -31,22 +23,7 @@ Raw and derived segments make the rest of the library more expressive:
 - you can build compilations without duplicating media
 - you can turn internal structure into something the rest of the app can search and reuse
 
-## Raw and derived structure
-
-In practice, the important distinction is:
-
-- **raw segments** preserve where the timing and meaning came from
-- **derived segments** provide the intervals Cove uses to browse, play, filter, and compile the result
-
-That difference is most useful when you want both explainability and a cleaner day-to-day browsing surface.
-
-## Sub-videos
-
-Sub-videos are useful when one source file really contains multiple meaningful parts that you want to revisit independently. Treat them as reusable internal organization instead of creating duplicate exports for every use case.
-
-## Compilations
-
-Compilations let Cove play grouped content back to back. They become much more powerful when the grouped content can include meaningful segments rather than only full videos.
+The stored-versus-derived split is most useful when you want both explainability and a cleaner browsing surface. Sub-videos and compilations then reuse those meaningful ranges without duplicating source media.
 
 Use compilations when:
 
@@ -54,7 +31,7 @@ Use compilations when:
 - you want to reuse existing media rather than duplicate files
 - a group already expresses the collection you want to play
 
-## When to adopt segments
+## When to adopt timeline structure
 
 You do not need segments on every item. They pay off most when:
 

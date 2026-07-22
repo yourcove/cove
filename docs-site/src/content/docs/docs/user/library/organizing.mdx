@@ -7,11 +7,14 @@ Cove is built for libraries that become more structured over time. The right goa
 
 ## The main building blocks
 
-- **Videos, images, galleries, audio, and text** are the primary records you browse.
-- **Performers and studios** provide stable identities across many items.
-- **Tags** describe what something is, what it contains, or how you want to use it later.
-- **Tag groups** keep larger tag vocabularies from becoming flat and hard to reason about.
-- **Groups** collect items intentionally, while **dynamic groups** update from rules or activity.
+Start with the record that owns the content, then add only the relationships that improve retrieval:
+
+- [performers](../../../reference/performers/) and [studios](../../../reference/studios/) for identities reused across items
+- [tags](../../../reference/tags/) for overlapping classification
+- tag groups for keeping a larger tag vocabulary divided into understandable categories
+- [groups](../../../reference/groups/) for a collection with its own identity or order
+- [saved filters](../../../reference/saved-filters/) for a view you want to revisit
+- [dynamic groups](../../../reference/dynamic-groups/) when a library collection should resolve from a query
 
 ## A practical organization loop
 
@@ -41,6 +44,8 @@ Use dynamic groups when:
 
 - the collection should update itself
 - the result comes from a rule, filter, or activity pattern
+
+See [Groups](../../../reference/groups/), [dynamic groups](../../../reference/dynamic-groups/), and [saved filters](../../../reference/saved-filters/) for their record and lifecycle boundaries.
 
 ## When to go deeper
 

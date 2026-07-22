@@ -3,17 +3,17 @@ title: Metadata provenance
 description: Understand where metadata came from and how Cove records changes.
 ---
 
-Provenance is Cove's record of where metadata came from and how it changed.
+Use [provenance](../../../reference/provenance/) when the origin of a value affects whether you trust, keep, or replace it. It is especially useful after automated or provider-driven changes.
 
 ## Why it matters
 
-Large libraries often combine manual edits, file scans, scrapers, downloaders, AI workflows, and extensions. Provenance keeps those changes understandable instead of turning the library into a pile of unexplained values.
+Large libraries often combine manual edits, file scans, scrapers, downloaders, analysis workflows, and extensions. Reviewing origin lets you distinguish an upstream mismatch from a local edit and decide whether to correct one field or the workflow that supplied it.
 
 ## What to review
 
-- Which source created or changed a field.
-- Whether a value came from a scan, provider, extension, or manual edit.
-- When important metadata changed.
-- Which generated artifacts or extension outputs influenced the current view.
+- Check which source supplied the field you are questioning.
+- Compare that source with the record's provider identity and surrounding values.
+- Decide whether the correction belongs on this record, in provider configuration, or in an extension workflow.
+- Re-run automation on a small sample before applying the same correction broadly.
 
-Use provenance when you need to trust a value, undo a mistake, or understand why an item appears in a search or group.
+See [Metadata](../../../reference/metadata/) for the boundary between descriptive values, file properties, and engagement data.

@@ -3,7 +3,7 @@ title: Extension overview
 description: High-level extension architecture and host boundaries in Cove.
 ---
 
-Cove’s extension system is meant to be broad enough for real product extensions, not just narrow one-off hooks.
+Cove's [extension](../../../reference/extensions/) system is meant to support product capabilities, not only narrow hooks. This page explains the version and design boundaries; use the reference pages for package terminology.
 
 ## Version and compatibility boundaries
 
@@ -17,17 +17,11 @@ Build against the Cove.Sdk version matching the Cove release you test. Set `minC
 
 ## What extensions can contribute
 
-Extensions can add:
-
-- UI pages, tabs, slots, settings, themes, and actions
-- backend APIs and services
-- background jobs
-- installable tools such as downloaders and scrapers
-- extension-owned storage and related data surfaces
+An extension can combine several [contributions](../../../reference/contributions/) across backend and frontend [extension points](../../../reference/extension-points/). Use the [Extension-point catalog](../extension-points/) for current interfaces and the [UI extension reference](../../../reference/ui-extensions/) for the frontend boundary.
 
 ## Why that matters
 
-The extension model exists so Cove can stay local and opinionated without being closed off. Users can add capabilities, and developers can build them in a way that still feels like part of the host.
+The model lets users add capabilities while Cove retains control of lifecycle, composition, authorization, and a consistent application shell.
 
 ## The main boundaries
 
