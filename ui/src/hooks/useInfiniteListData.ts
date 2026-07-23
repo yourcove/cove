@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { FindFilter, PaginatedResponse } from "../api/types";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { getLoadError } from "../utils/queryLoadState";
@@ -31,6 +31,7 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     queryKey: [...queryKey, "page", filter],
     queryFn: () => queryPage(filter),
     enabled: enabled && !infinitePageSize,
+    placeholderData: keepPreviousData,
   });
 
   const infiniteQuery = usePaginatedInfiniteQuery<TItem>({
