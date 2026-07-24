@@ -120,38 +120,19 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
 }
 public sealed class ExtensionEndpointAuthorizationMiddlewareTests
 {
-    [Fact]
-    public async Task Strict_default_deny_rejects_and_audits_extension_endpoint_without_policy()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Extension_endpoint_without_policy_preserves_anonymous_access(bool enforceDefaultDeny)
     {
-        var harness = CreateHarness(Principal([]));
+        var harness = CreateHarness(principal: null);
+        harness.Configuration.Auth.EnforceDefaultDeny = enforceDefaultDeny;
 
         await harness.InvokeAsync();
 
-        Assert.False(harness.NextCalled);
-        Assert.Equal(StatusCodes.Status403Forbidden, harness.Context.Response.StatusCode);
-        var body = await ReadBodyAsync(harness.Context);
-        Assert.Equal("Forbidden", body.GetProperty("title").GetString());
-        Assert.Equal("This endpoint has no permission policy declared.", body.GetProperty("detail").GetString());
-        var audit = Assert.Single(harness.Audit.Events);
-        Assert.Equal("no_policy", JsonSerializer.SerializeToElement(audit.Detail).GetProperty("reason").GetString());
-        Assert.False(audit.CancellationToken.CanBeCanceled);
-    }
-
-    [Fact]
-    public async Task Legacy_migration_mode_still_requires_authentication_but_allows_authenticated_callers()
-    {
-        var anonymous = CreateHarness(principal: null);
-        anonymous.Configuration.Auth.EnforceDefaultDeny = false;
-
-        await anonymous.InvokeAsync();
-        Assert.False(anonymous.NextCalled);
-        Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.Context.Response.StatusCode);
-
-        var authenticated = CreateHarness(Principal([]));
-        authenticated.Configuration.Auth.EnforceDefaultDeny = false;
-
-        await authenticated.InvokeAsync();
-        Assert.True(authenticated.NextCalled);
+        Assert.True(harness.NextCalled);
+        Assert.Equal(StatusCodes.Status200OK, harness.Context.Response.StatusCode);
+        Assert.Empty(harness.Audit.Events);
     }
 
     [Fact]
@@ -216,17 +197,18 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
     }
 
     [Fact]
-    public async Task AspNet_anonymous_metadata_alone_does_not_bypass_Cove_default_deny()
+    public async Task AspNet_anonymous_metadata_does_not_bypass_declared_Cove_permission()
     {
         var harness = CreateHarness(
             principal: null,
-            new Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute());
+            new Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute(),
+            new CovePermissionRequirementMetadata([Permissions.TagsRead], PermissionMode.All));
 
         await harness.InvokeAsync();
 
         Assert.False(harness.NextCalled);
-        Assert.Equal(StatusCodes.Status403Forbidden, harness.Context.Response.StatusCode);
-        Assert.Single(harness.Audit.Events);
+        Assert.Equal(StatusCodes.Status401Unauthorized, harness.Context.Response.StatusCode);
+        Assert.Empty(harness.Audit.Events);
     }
 
     [Fact]
@@ -461,7 +443,7 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
     }
 
     [Fact]
-    public async Task Routed_pipeline_sees_extension_metadata_before_endpoint_execution()
+    public async Task Routed_pipeline_allows_anonymous_extension_endpoint_without_policy()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.WebHost.UseTestServer();
@@ -469,7 +451,7 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
         {
             Auth = new AuthConfig { Enabled = true, EnforceDefaultDeny = true },
         });
-        builder.Services.AddSingleton<ICurrentPrincipalAccessor>(new TestPrincipalAccessor(Principal([])));
+        builder.Services.AddSingleton<ICurrentPrincipalAccessor>(new TestPrincipalAccessor(current: null));
         builder.Services.AddSingleton<IAuthorizationService, RecordingAuthorizationService>();
         var audit = new RecordingAuditService();
         builder.Services.AddSingleton<IAuditService>(audit);
@@ -482,8 +464,8 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
 
         var response = await app.GetTestClient().GetAsync("/extension-test");
 
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Single(audit.Events);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(audit.Events);
     }
 
     [Fact]

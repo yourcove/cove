@@ -5,7 +5,16 @@ using Microsoft.AspNetCore.Builder;
 
 namespace Cove.Sdk;
 
-/// <summary>Authorization conventions for endpoints registered by <see cref="IApiExtension"/>.</summary>
+/// <summary>
+/// Authorization conventions for endpoints registered by <see cref="IApiExtension"/>.
+/// </summary>
+/// <remarks>
+/// For backward compatibility, an extension endpoint with none of these Cove authorization
+/// conventions allows anonymous access. New endpoints should explicitly declare their intended
+/// access with <see cref="RequireCovePermission{TBuilder}(TBuilder, string[])"/>,
+/// <see cref="AllowWithoutCovePermission{TBuilder}(TBuilder)"/>, or
+/// <see cref="AllowCoveAnonymous{TBuilder}(TBuilder)"/>.
+/// </remarks>
 public static class EndpointAuthorizationExtensions
 {
     /// <summary>
@@ -25,8 +34,9 @@ public static class EndpointAuthorizationExtensions
     }
 
     /// <summary>
-    /// Explicitly allow anonymous Cove access. This also adds ASP.NET Core's anonymous marker so
-    /// framework authorization cannot reject the request before Cove evaluates its endpoint policy.
+    /// Explicitly document that an endpoint allows anonymous Cove access. This also adds ASP.NET
+    /// Core's anonymous marker so framework authorization cannot reject the request before Cove
+    /// evaluates its endpoint policy.
     /// </summary>
     /// <remarks>
     /// Escape conventions are exclusive and must not be combined with each other or with a Cove

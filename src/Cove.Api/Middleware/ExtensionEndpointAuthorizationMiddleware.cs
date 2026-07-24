@@ -8,6 +8,8 @@ namespace Cove.Api.Middleware;
 
 /// <summary>
 /// Enforces Cove permission and route-bound entity metadata on extension-owned minimal API endpoints.
+/// For backward compatibility, an extension endpoint with no Cove authorization metadata retains
+/// anonymous access.
 /// This runs after Cove resolves the current principal and before the extension request scope is active,
 /// so all security decisions and denial audits use host-owned services.
 /// </summary>
@@ -34,7 +36,7 @@ public sealed class ExtensionEndpointAuthorizationMiddleware(RequestDelegate nex
             principalAccessor.Current,
             authorization,
             audit);
-        if (!await authorizationEvaluator.AuthorizeAsync(configuration.Auth.EnforceDefaultDeny))
+        if (!await authorizationEvaluator.AuthorizeAsync())
             return;
 
         await next(context);
@@ -84,7 +86,7 @@ public sealed class ExtensionEndpointAuthorizationMiddleware(RequestDelegate nex
             ? _allowsWithoutPermission || HasRequirements
             : _allowsWithoutPermission && HasRequirements;
 
-        public async Task<bool> AuthorizeAsync(bool enforceDefaultDeny)
+        public async Task<bool> AuthorizeAsync()
         {
             if (HasConflictingEscapePolicy)
                 return await DenyConflictingEscapePolicyAsync();
@@ -96,7 +98,7 @@ public sealed class ExtensionEndpointAuthorizationMiddleware(RequestDelegate nex
                 return await RequireAuthenticatedPrincipalAsync();
 
             if (!HasRequirements)
-                return await AuthorizePolicylessEndpointAsync(enforceDefaultDeny);
+                return true;
 
             if (!await RequireAuthenticatedPrincipalAsync())
                 return false;
@@ -118,25 +120,6 @@ public sealed class ExtensionEndpointAuthorizationMiddleware(RequestDelegate nex
                 message = "Authentication required.",
             });
             return false;
-        }
-
-        private async Task<bool> AuthorizePolicylessEndpointAsync(bool enforceDefaultDeny)
-        {
-            if (!enforceDefaultDeny)
-                return await RequireAuthenticatedPrincipalAsync();
-
-            return await DenyEndpointAsync(
-                new
-                {
-                    reason = "no_policy",
-                    path = _context.Request.Path.ToString(),
-                },
-                new
-                {
-                    status = StatusCodes.Status403Forbidden,
-                    title = "Forbidden",
-                    detail = "This endpoint has no permission policy declared.",
-                });
         }
 
         private async Task<bool> AuthorizePermissionRequirementsAsync()
