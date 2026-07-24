@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json.Serialization;
+using Cove.Core.Auth;
 
 namespace Cove.Plugins;
 
@@ -566,7 +567,13 @@ public record UIPageDefinition(
     string? ComponentName = null,
     /// <summary>The extension ID owning this page.</summary>
     string? ExtensionId = null
-);
+)
+{
+    /// <summary>Permissions evaluated together to show and render this page.</summary>
+    public string[]? RequiredPermissions { get; init; }
+    /// <summary>How <see cref="RequiredPermissions"/> are evaluated. Defaults to requiring all.</summary>
+    public PermissionMode RequiredPermissionMode { get; init; } = PermissionMode.All;
+}
 
 /// <summary>Inject content into a named slot on any page.</summary>
 public record UISlotContribution(
@@ -593,7 +600,15 @@ public record UITabContribution(
     string? Icon = null,
     /// <summary>Manual contexts to publish while this tab is active.</summary>
     string[]? ManualContexts = null
-);
+)
+{
+    /// <summary>Permission required to show and render this tab.</summary>
+    public string? RequiredPermission { get; init; }
+    /// <summary>Permissions evaluated together to show and render this tab.</summary>
+    public string[]? RequiredPermissions { get; init; }
+    /// <summary>How <see cref="RequiredPermissions"/> are evaluated. Defaults to requiring all.</summary>
+    public PermissionMode RequiredPermissionMode { get; init; } = PermissionMode.All;
+}
 
 /// <summary>Add a panel/pane region contribution to a page layout.</summary>
 public record UIPaneContribution(
@@ -848,4 +863,3 @@ public class UIRegistry
         ListSorts = [.. _listSorts],
     };
 }
-

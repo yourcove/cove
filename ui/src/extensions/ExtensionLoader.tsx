@@ -17,6 +17,7 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { extensions } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { supportsServerBackedUiPreferences, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
+import { canAccessExtensionContribution } from "./extension-permissions";
 import { Music, Puzzle, type LucideIcon } from "lucide-react";
 import type {
   ExtensionManifest,
@@ -422,7 +423,7 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
 
         // Register extension pages as routes
         for (const page of m.pages) {
-          if (page.showInNav) {
+          if (page.showInNav && canAccessExtensionContribution(page, hasPermission)) {
             register({
               page: page.route,
               navItem: {
@@ -512,7 +513,7 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
       registeredSlots.forEach(unregisterSlot);
       document.getElementById("cove-extension-css-bundle")?.remove();
     };
-  }, [register, registerSlot, troubleshootingMode, unregister, unregisterSlot]);
+  }, [register, registerSlot, troubleshootingMode, unregister, unregisterSlot, user]);
 
   // Apply active theme CSS variables and bundled component style
   useEffect(() => {
@@ -669,8 +670,8 @@ export function ExtensionLoaderProvider({ children }: { children: ReactNode }) {
   // Derived lookups
   const getTabsForPage = useCallback(
     (pageType: string) =>
-      manifest?.tabs.filter((t) => t.pageType === pageType) ?? [],
-    [manifest]
+      manifest?.tabs.filter((t) => t.pageType === pageType && canAccessExtensionContribution(t, hasPermission)) ?? [],
+    [manifest, user]
   );
 
   const getPageOverride = useCallback(

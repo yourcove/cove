@@ -3157,6 +3157,8 @@ export interface ExtensionPageDef {
   showInNav: boolean;
   navOrder: number;
   requiredPermission?: string;
+  requiredPermissions?: string[];
+  requiredPermissionMode?: "all" | "any";
   componentName?: string;
   extensionId?: string;
 }
@@ -3181,6 +3183,9 @@ export interface ExtensionTabContribution {
   countEndpoint?: string;
   icon?: string;
   manualContexts?: string[];
+  requiredPermission?: string;
+  requiredPermissions?: string[];
+  requiredPermissionMode?: "all" | "any";
 }
 
 export interface ExtensionFeatureDef {
