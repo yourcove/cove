@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text.Json;
 using Cove.Api.Controllers;
 using Cove.Api.Services;
@@ -10,7 +11,9 @@ using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Cove.Tests;
 
@@ -115,15 +118,91 @@ public class DynamicGroupsAndBookmarksTests
         await context.SaveChangesAsync();
         context.UserEntityAffinities.AddRange(
             new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = unfinished.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 42, TotalConsumedSec = 42 },
-            new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = complete.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 98, TotalConsumedSec = 96 });
+            new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = complete.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 98, TotalConsumedSec = 96 },
+            new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = 999_999, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 20, TotalConsumedSec = 20 });
         await context.SaveChangesAsync();
 
         var resolver = CreateResolver(context, principalAccessor);
-        var items = await resolver.ResolveDtosAsync(group.Id, forceRefresh: true, CancellationToken.None);
+        var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
 
-        var item = Assert.Single(items);
+        var item = Assert.Single(page.Items);
         Assert.Equal("Unfinished", item.Title);
         Assert.Equal(unfinished.Id, item.VideoId);
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Fact]
+    public async Task ContinueWatchingDynamicGroup_AppliesRequestedPageInDatabase()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(CreatePrincipal(7));
+        var commands = new CommandRecorderInterceptor();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .AddInterceptors(commands)
+            .Options;
+        await using var context = new DynamicGroupTestContext(options, principalAccessor);
+        await context.Database.EnsureCreatedAsync();
+
+        var now = DateTime.UtcNow;
+        var videos = Enumerable.Range(1, 20)
+            .Select(index => new Video { Title = $"Video {index}", MaxDuration = 100 })
+            .ToList();
+        var audio = new Audio { Title = "Audio item" };
+        var group = new Group { Name = "Continue Watching", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.ContinueWatchingSourceKey };
+        context.AddRange(videos);
+        context.Add(audio);
+        context.Add(group);
+        await context.SaveChangesAsync();
+        context.UserEntityAffinities.AddRange(videos.Select((video, index) => new UserEntityAffinity
+        {
+            UserId = 7,
+            HostType = AffinityHostType.Video,
+            HostId = video.Id,
+            LastConsumedAt = now.AddMinutes(-index),
+            LastPositionSec = 25,
+            TotalConsumedSec = 25,
+            CompleteCount = index == 0 ? 1 : 0,
+        }));
+        context.UserEntityAffinities.AddRange(
+            new UserEntityAffinity
+            {
+                UserId = 7,
+                HostType = AffinityHostType.Audio,
+                HostId = audio.Id,
+                LastConsumedAt = now.AddMinutes(2),
+                LastPositionSec = 25,
+                TotalConsumedSec = 25,
+            },
+            new UserEntityAffinity
+            {
+                UserId = 7,
+                HostType = AffinityHostType.Video,
+                HostId = 999_999,
+                LastConsumedAt = now.AddMinutes(3),
+                LastPositionSec = 25,
+                TotalConsumedSec = 25,
+            });
+        await context.SaveChangesAsync();
+        commands.Clear();
+
+        var source = new ContinueWatchingDynamicGroupSource(context);
+        var result = await source.ResolveAsync(group, new DynamicGroupResolveContext(7, Offset: 4, Limit: 3), CancellationToken.None);
+
+        Assert.Equal(20, result.TotalCount);
+        Assert.Equal(3, result.Items.Count);
+        Assert.Equal(["Video 5", "Video 6", "Video 7"], result.Items.Select(item => item.Title ?? string.Empty).ToArray());
+        var affinityPageCommand = Assert.Single(commands.Commands, command =>
+            command.Contains("FROM \"user_entity_affinities\"", StringComparison.OrdinalIgnoreCase)
+            && !command.Contains("COUNT(", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("LIMIT", affinityPageCommand, StringComparison.OrdinalIgnoreCase);
+
+        var resolver = CreateResolver(context, principalAccessor);
+        var allItems = await resolver.ResolveDtosAsync(group.Id, forceRefresh: true, CancellationToken.None);
+        Assert.Equal(20, allItems.Count);
+        Assert.Equal("audio", allItems[0].HostType);
     }
 
     [Fact]
@@ -898,6 +977,23 @@ public class DynamicGroupsAndBookmarksTests
     }
 
     private sealed class DynamicGroupTestContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor);
+
+    private sealed class CommandRecorderInterceptor : DbCommandInterceptor
+    {
+        public List<string> Commands { get; } = [];
+
+        public void Clear() => Commands.Clear();
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Commands.Add(command.CommandText);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
 
     private sealed class TestContextScope(CoveContext context, CurrentPrincipalAccessor principalAccessor) : IAsyncDisposable
     {

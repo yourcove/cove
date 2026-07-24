@@ -6,7 +6,10 @@ import { HomePage } from "../pages/HomePage";
 const MAX_RANDOM_SORT_SEED = 2147483647;
 
 const { mockHomePageContent, mocks } = vi.hoisted(() => {
-  const emptyPage = { items: [] as Record<string, unknown>[], totalCount: 0 };
+  const emptyPage: { items: Record<string, unknown>[]; totalCount: number; page?: number; perPage?: number } = {
+    items: [],
+    totalCount: 0,
+  };
   return {
     mockHomePageContent: {
       value: JSON.stringify([
@@ -27,6 +30,7 @@ const { mockHomePageContent, mocks } = vi.hoisted(() => {
       groupsFind: vi.fn(async () => emptyPage),
       groupsFindFiltered: vi.fn(async () => emptyPage),
       groupItemsList: vi.fn(async () => []),
+      groupItemsPage: vi.fn(async () => ({ ...emptyPage, page: 1, perPage: 12 })),
       savedFiltersGet: vi.fn(),
     },
   };
@@ -45,7 +49,7 @@ vi.mock("../api/client", () => ({
   groups: {
     find: mocks.groupsFind,
     findFiltered: mocks.groupsFindFiltered,
-    items: { list: mocks.groupItemsList },
+    items: { list: mocks.groupItemsList, page: mocks.groupItemsPage },
   },
   savedFilters: { get: mocks.savedFiltersGet },
 }));
@@ -105,6 +109,30 @@ describe("HomePage random rows", () => {
         seed: expectedSeed,
       }));
     });
+  });
+
+  it("requests only the Continue Watching items shown on the home page", async () => {
+    mockHomePageContent.value = JSON.stringify([{ type: "continueWatching" }]);
+    mocks.groupsFind.mockResolvedValueOnce({
+      items: [{ id: 3, querySourceKey: "continue-watching" }],
+      totalCount: 1,
+      page: 1,
+      perPage: 100,
+    });
+    mocks.groupItemsPage.mockResolvedValueOnce({
+      items: [{ id: 1, groupId: 3, hostType: "video", hostId: 10, videoId: 10, title: "Resume item" }],
+      totalCount: 30,
+      page: 1,
+      perPage: 12,
+    });
+
+    renderHomePage();
+
+    await waitFor(() => {
+      expect(mocks.groupItemsPage).toHaveBeenCalledWith(3, { page: 1, perPage: 12 });
+    });
+    expect(mocks.groupItemsList).not.toHaveBeenCalled();
+    expect(await screen.findByText("Resume item")).toBeInTheDocument();
   });
 
   it("generates a new custom row seed for each front-page mount", async () => {

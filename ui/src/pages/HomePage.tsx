@@ -176,12 +176,12 @@ function ContinueWatchingRow({ onNavigate }: { onNavigate: (r: any) => void }) {
     queryFn: () => groups.find({ page: 1, perPage: 100, sort: "name", direction: "asc" }),
   });
   const continueGroup = groupData?.items.find((group) => group.querySourceKey === "continue-watching");
-  const { data: items = [], isLoading } = useQuery({
+  const { data: itemPage, isLoading } = useQuery({
     queryKey: ["front-page-continue-watching", continueGroup?.id],
-    queryFn: () => groups.items.list(continueGroup!.id),
+    queryFn: () => groups.items.page(continueGroup!.id, { page: 1, perPage: 12 }),
     enabled: !!continueGroup,
   });
-  const playableItems = items.filter((item) => item.hostType === "video" || item.hostType === "audio" || item.hostType === "segment").slice(0, 12);
+  const playableItems = itemPage?.items ?? [];
   if (!isLoading && playableItems.length === 0) return null;
 
   return (
