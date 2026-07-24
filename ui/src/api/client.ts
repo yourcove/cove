@@ -145,7 +145,7 @@ async function tryRefresh(): Promise<boolean> {
   finally { refreshInFlight = null; }
 }
 
-async function authedFetch(input: string, init?: RequestInit): Promise<Response> {
+export async function authedFetch(input: string, init?: RequestInit): Promise<Response> {
   const token = authStore.getAccessToken();
   const shareToken = authStore.getShareToken();
   const sharePassword = authStore.getSharePassword();

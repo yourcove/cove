@@ -1,3 +1,12 @@
+interface ExtensionRuntimeModuleDefinition {
+  id: string;
+  source: string | null;
+  specifier: string;
+  sourceFileName: string;
+  outputFileName: string;
+  legacySpecifiers: string[];
+}
+
 export const extensionRuntimeVersion = "v1";
 
 export const extensionRuntimeModules = [
@@ -60,10 +69,18 @@ export const extensionRuntimeModules = [
   },
   {
     id: "components",
-    source: null as any, // local barrel – not auto-generated
+    source: null, // local barrel – not auto-generated
     specifier: "@cove/runtime/components",
     sourceFileName: "components.ts",
     outputFileName: "components.js",
     legacySpecifiers: [],
   },
-];
+  {
+    id: "api",
+    source: null, // local authenticated API surface – not auto-generated
+    specifier: "@cove/runtime/api",
+    sourceFileName: "api.ts",
+    outputFileName: "api.js",
+    legacySpecifiers: [],
+  },
+] satisfies ExtensionRuntimeModuleDefinition[];

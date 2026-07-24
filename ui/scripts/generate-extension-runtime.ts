@@ -63,7 +63,12 @@ function buildTypeSource(source: string, defaultExport: DefaultExport) {
 }
 
 async function generateRuntimeModule(definition: (typeof extensionRuntimeModules)[number]) {
-  const moduleNamespace = await import(definition.source);
+  const source = definition.source;
+  if (!source) {
+    throw new Error(`Runtime module ${definition.id} does not declare a package source.`);
+  }
+
+  const moduleNamespace = await import(source);
   const exportNames = Object.keys(moduleNamespace)
     .filter((name) => name !== "default" && name !== "__esModule" && identifierPattern.test(name))
     .sort();
@@ -81,6 +86,27 @@ async function generateRuntimeModule(definition: (typeof extensionRuntimeModules
     buildTypeSource(definition.source, defaultExport),
     "utf8"
   );
+}
+
+async function writeLocalRuntimeModule(
+  fileStem: string,
+  description: string,
+  exportStatement: string,
+) {
+  const runtimeSource = [
+    "// AUTO-GENERATED FILE. DO NOT EDIT.",
+    `// ${description}`,
+    exportStatement,
+    "",
+  ].join("\n");
+  const typeSource = [
+    "// AUTO-GENERATED FILE. DO NOT EDIT.",
+    exportStatement,
+    "",
+  ].join("\n");
+
+  await fs.writeFile(path.join(runtimeDir, `${fileStem}.ts`), runtimeSource, "utf8");
+  await fs.writeFile(path.join(runtimeDir, `${fileStem}.d.ts`), typeSource, "utf8");
 }
 
 async function generateContractModule() {
@@ -116,20 +142,16 @@ async function main() {
     }
   }
 
-  // Write the components barrel (source is null – it re-exports a local barrel)
-  const componentsBarrel = [
-    "// AUTO-GENERATED FILE. DO NOT EDIT.",
-    '// Re-exports the shared component barrel for extensions.',
+  await writeLocalRuntimeModule(
+    "components",
+    "Re-exports the shared component barrel for extensions.",
     'export * from "../../../../components/extension-shared";',
-    "",
-  ].join("\n");
-  const componentsType = [
-    "// AUTO-GENERATED FILE. DO NOT EDIT.",
-    'export * from "../../../../components/extension-shared";',
-    "",
-  ].join("\n");
-  await fs.writeFile(path.join(runtimeDir, "components.ts"), componentsBarrel, "utf8");
-  await fs.writeFile(path.join(runtimeDir, "components.d.ts"), componentsType, "utf8");
+  );
+  await writeLocalRuntimeModule(
+    "api",
+    "Re-exports Cove's authenticated fetch helper for extensions.",
+    'export { extensionFetch } from "../../../../extensions/extension-api";',
+  );
 
   await generateContractModule();
   console.log(`Generated Cove extension runtime modules in ${runtimeDir}`);
