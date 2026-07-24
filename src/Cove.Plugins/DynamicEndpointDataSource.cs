@@ -38,10 +38,13 @@ public class ExtensionEndpointDataSource : EndpointDataSource, IEndpointRouteBui
         if (_extensionId == null || endpoint is not RouteEndpoint routeEndpoint)
             return endpoint;
 
-        if (endpoint.Metadata.GetMetadata<ExtensionEndpointMetadata>() != null)
-            return endpoint;
-
-        var metadata = new List<object>(routeEndpoint.Metadata) { new ExtensionEndpointMetadata(_extensionId) };
+        // Ownership is host-assigned. ExtensionEndpointMetadata is public because the request
+        // pipeline consumes it, so an extension may have attached its own marker while building
+        // the route. Remove every supplied marker before stamping the data source's real owner.
+        var metadata = routeEndpoint.Metadata
+            .Where(item => item is not ExtensionEndpointMetadata)
+            .Append<object>(new ExtensionEndpointMetadata(_extensionId))
+            .ToList();
         return new RouteEndpoint(
             routeEndpoint.RequestDelegate!,
             routeEndpoint.RoutePattern,

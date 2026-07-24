@@ -565,33 +565,12 @@ try
     // (When auth is disabled the filter short-circuits and treats requests as anonymous-allowed.)
     app.UseMiddleware<Cove.Api.Middleware.CurrentPrincipalMiddleware>();
 
-    // Extension request scope: endpoints contributed by runtime-loaded extensions are stamped with
-    // ExtensionEndpointMetadata. For those requests, swap RequestServices to an overlay scope so the
-    // extension's services (registered after the host was built) resolve. Host singletons are shared
-    // and host scoped services (e.g. the pooled DbContext) are overlay-owned and disposed exactly
-    // once with the scope. Non-extension requests are untouched.
-    app.Use(async (context, next) =>
-    {
-        var marker = context.GetEndpoint()?.Metadata.GetMetadata<Cove.Plugins.ExtensionEndpointMetadata>();
-        if (marker == null)
-        {
-            await next(context);
-            return;
-        }
-
-        var scope = extensionManager.CreateExtensionScope(marker.ExtensionId);
-        var originalServices = context.RequestServices;
-        context.RequestServices = scope.ServiceProvider;
-        try
-        {
-            await next(context);
-        }
-        finally
-        {
-            context.RequestServices = originalServices;
-            scope.Dispose();
-        }
-    });
+    // Authorize extension endpoints with the host request scope before exposing extension-owned
+    // registrations to endpoint execution. This prevents an extension from replacing Cove's
+    // principal, authorization, or audit services for its own authorization decision.
+    Cove.Api.Middleware.ExtensionEndpointPipeline.Configure(
+        app,
+        extensionManager.CreateExtensionScope);
 
     app.MapGet("/health", async (CoveContext db, CancellationToken ct) =>
     {
@@ -856,4 +835,3 @@ finally
 public partial class Program
 {
 }
-
