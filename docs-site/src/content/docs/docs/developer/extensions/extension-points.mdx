@@ -142,7 +142,7 @@ Implement only the interfaces your extension needs.
 
 | Contract | Extension point |
 | --- | --- |
-| `IApiExtension` | Map minimal-API endpoints with `MapEndpoints`. Cove adds and removes the routes with the extension at runtime. |
+| `IApiExtension` | Map minimal-API endpoints with `MapEndpoints`. Cove adds and removes the routes at runtime and enforces any attached Cove authorization conventions before endpoint execution. |
 | `IMiddlewareExtension` | Inspect, transform, or short-circuit every HTTP request and response. Call `next` to continue the pipeline. |
 | `IJobExtension` | Declare named jobs and run them with parameters, cancellation, and progress reporting. `ShowInTaskList` can expose a job in Cove's task UI. |
 | `IBackgroundExtension` | Run a host-managed long-lived worker until its cancellation token is signaled. |
@@ -212,6 +212,8 @@ See [UI extension points](../ui-extension-points/) for the fields, supported tar
 | `UIFeatureDefinition` | Named feature metadata and string options that the host UI can inspect. |
 
 Slots, tabs, and page overrides only render where Cove publishes the corresponding stable slot, page type, or page key. Use the host-defined identifiers rather than inventing a target name.
+
+Pages and tabs can declare one permission or an `All`/`Any` permission set. Use the record-accepting `UIManifestBuilder` overloads for those richer immutable definitions; the builder stamps the real extension owner. These frontend checks do not replace endpoint authorization.
 
 ### Appearance
 

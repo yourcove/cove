@@ -17,7 +17,7 @@ The backend manifest declares frontend assets and UI metadata. Cove loads eligib
 
 ## Security and access
 
-UI code runs in the authenticated application context. It must still use authorized host APIs; hiding a control is not an authorization boundary. Server-side permissions remain authoritative.
+UI code runs in the authenticated application context. Contributed pages, tabs, and actions can declare required permissions so Cove omits unavailable navigation and controls, and direct navigation to a denied extension page shows the access-denied surface. Hiding a control is not an authorization boundary; server-side permissions remain authoritative.
 
 ## Related reference
 

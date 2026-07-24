@@ -65,21 +65,8 @@ public sealed class ReportsExtension : CoveExtensionBase,
     {
         endpoints.MapGet(
             "/api/ext/com.example.reports/summary",
-            (ICurrentPrincipalAccessor principals) =>
-            {
-                var principal = principals.Current;
-                if (principal is null || principal.Kind == PrincipalKind.Anonymous)
-                    return Results.Unauthorized();
-
-                if (!principal.Has(ViewReports))
-                {
-                    return Results.Json(
-                        new { code = "FORBIDDEN", missing = new[] { ViewReports } },
-                        statusCode: StatusCodes.Status403Forbidden);
-                }
-
-                return Results.Ok(new { status = "ready" });
-            });
+            () => Results.Ok(new { status = "ready" }))
+            .RequireCovePermission(ViewReports);
     }
 }
 ```
@@ -100,16 +87,45 @@ The registry rejects `*` and every key outside the contributor's `<extension-id>
 
 Permission contributors are collected after extensions initialize during Cove startup. Installing a new contributor at runtime does not refresh that collection in the current host; restart Cove before expecting its keys in the role editor.
 
-## Enforce contributed permissions
+## Protect extension API endpoints
 
 `IPermissionContributor` registers metadata. It does not guard an endpoint, job, event handler, background worker, or service call.
 
-- An extension minimal-API endpoint should read `ICurrentPrincipalAccessor.Current` or call Cove's `IAuthorizationService`, return `401` for an anonymous caller, and return `403` with the missing key for an authenticated caller without access.
+Cove evaluates authorization metadata on extension minimal APIs before it switches the request into the extension's service container. Use the conventions from `Cove.Sdk`:
+
+| Convention | Behavior |
+| --- | --- |
+| `RequireCovePermission(permission...)` | Requires an authenticated principal with every listed permission. |
+| `RequireCovePermission(PermissionMode.Any, permission...)` | Requires at least one listed permission. `PermissionMode.All` is the explicit form of the default. |
+| `RequireCoveEntityAccess(entityKind, routeValueName, permission)` | Authorizes the declared permission against the positive integer entity id in the named route value. |
+| `RequireCoveEntityAccess(entityKind, routeValueName)` | Infers the entity permission only when the endpoint declares exactly one distinct Cove permission. |
+| `AllowWithoutCovePermission()` | Requires an authenticated Cove principal but no specific permission. |
+| `AllowCoveAnonymous()` | Explicitly allows a request without a Cove principal. |
+
+Permission and entity requirements compose: every attached requirement must pass. Do not combine either explicit allow convention with another allow convention or with a permission or entity requirement; Cove treats conflicting metadata as an invalid policy and denies the request.
+
+For backward compatibility, an extension endpoint with none of these Cove conventions remains anonymously accessible. Cove writes one warning each time it registers an affected extension, including the total endpoint count and at most ten route templates. Treat that warning as a migration task: new endpoints should always declare their intended access. ASP.NET Core's `AllowAnonymous` attribute alone is not a Cove authorization declaration; use `AllowCoveAnonymous()` when anonymous access is intentional.
+
+Route-bound entity authorization is for ids present in the route. If an entity id comes from a request body, validate the body and call Cove's `IAuthorizationService` before performing the operation.
+
 - A job or other non-HTTP entry point must receive or resolve the calling principal where its host contract provides one and make the same authorization decision before work begins.
-- Frontend checks are presentation only. `ExtensionAction.RequiredPermission` hides an action in supported UI locations, but the endpoint still needs server-side enforcement. `UIPageDefinition.RequiredPermission` is not currently consumed by the frontend.
+- A service method reachable through several entry points should enforce any invariant that cannot safely depend on every caller attaching equivalent endpoint metadata.
 - Do not use raw role names as authorization. Roles collect permissions; the permission key is the stable capability boundary.
 
 API token scope is an additional restriction. Cove intersects an API token's scope with the token owner's current role permissions, so a scoped token cannot expand the permission contributed by the extension.
+
+## Gate extension UI contributions
+
+Permission metadata keeps unavailable extension navigation and controls out of the interface, but it is presentation logic rather than a server-side boundary.
+
+- `UIPageDefinition.RequiredPermission` requires one permission. A non-empty `RequiredPermissions` array takes precedence and uses `RequiredPermissionMode`, which defaults to `All` and also supports `Any`.
+- Unauthorized contributed pages are omitted from navigation. Direct navigation renders Cove's access-denied page instead of the extension component.
+- `UITabContribution` supports the same singular permission, array, and mode fields. Unauthorized entity tabs are not returned to detail pages.
+- `ExtensionAction.RequiredPermission` hides the action in supported toolbar and bulk-action locations.
+
+Use the `UIManifestBuilder` overloads that accept a complete `UIPageDefinition` or `UITabContribution` when setting the array and mode fields. The builder replaces any supplied `ExtensionId` with the owning extension id.
+
+Always attach matching server-side authorization to the API used by a page, tab, or action. A user can issue an HTTP request without rendering the contributed UI.
 
 ## Contribute content policies
 
@@ -129,6 +145,6 @@ Before release:
 
 1. Keep each contributed key inside the extension namespace and separate read, write, run, and destructive capabilities where administrators need that control.
 2. Mark destructive or external side-effect permissions as `Dangerous`.
-3. Check every server-side entry point rather than relying on a hidden button or manifest declaration.
+3. Declare a Cove access convention on every extension endpoint, including endpoints intentionally limited only to authentication or explicitly anonymous.
 4. Test an owner, a role with only the new permission, an authenticated role without it, an API token with a narrower scope, and an anonymous request.
 5. Describe any requested runtime host or capability in the manifest while still honoring the per-request provider permissions.

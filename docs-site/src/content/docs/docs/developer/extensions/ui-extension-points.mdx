@@ -32,8 +32,12 @@ Extension components render inside an error boundary. They should still handle m
 | `ShowInNav` | Adds the page to the main navigation when `true`. Pages remain directly routable when it is `false`. |
 | `NavOrder` | Positions the navigation item. |
 | `Icon` | Optional navigation icon. The currently recognized values are `music` and `puzzle`; other values render no icon. |
+| `RequiredPermission` | Requires one permission before Cove shows or renders the page. |
+| `RequiredPermissions`, `RequiredPermissionMode` | Requires all listed permissions by default, or at least one when the mode is `Any`. A non-empty array takes precedence over `RequiredPermission`. |
 
-`DetailRoute` and `RequiredPermission` exist in the contract but the frontend does not currently consume them. Do not rely on them for a second route or access control. Enforce authorization in the extension's API, and expose a page only to audiences that may navigate to it.
+Unauthorized pages are omitted from extension navigation. Direct navigation renders Cove's access-denied page instead of mounting the extension component. `DetailRoute` remains reserved and does not create a second route.
+
+Page permission checks only control presentation. Protect every API used by the page with the matching server-side convention described in [Extension permissions](../permissions/).
 
 ## Named slots
 
@@ -81,6 +85,8 @@ Use only a slot key Cove publishes. An arbitrary name remains in the manifest bu
 | `CountEndpoint` | On performer, studio, tag, gallery, and group pages, an optional endpoint template using `{entityId}`; return JSON containing `count`. |
 | `Icon` | Optional icon name used by extension count-summary cards on performer, studio, and tag pages. |
 | `ManualContexts` | Manual contexts active while the tab is selected. |
+| `RequiredPermission` | Requires one permission before Cove returns the tab to a detail page. |
+| `RequiredPermissions`, `RequiredPermissionMode` | Requires all listed permissions by default, or at least one when the mode is `Any`. A non-empty array takes precedence over `RequiredPermission`. |
 
 Video renders contributed tabs after its built-in history tab and ignores `Order`, `CountEndpoint`, and `Icon`. The contract also names `image` and `settings`, but those page types do not currently mount contributed detail tabs. Use settings contributions for settings UI.
 
@@ -162,7 +168,6 @@ The public manifest also contains these declarations, but Cove does not currentl
 - `UISelectorOverride`
 - `UIDialogOverride`
 - `UIPageDefinition.DetailRoute`
-- `UIPageDefinition.RequiredPermission`
 - `UIPageOverride` with target `*`
 - `ExtensionAction` with action type `context-menu`
 

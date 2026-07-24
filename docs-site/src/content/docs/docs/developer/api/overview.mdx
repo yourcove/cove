@@ -125,7 +125,7 @@ Authorization failures have stable top-level codes:
 | --- | --- |
 | `400 Bad Request` | Invalid input. ASP.NET validation commonly returns problem details with an `errors` map; some operations return a specific message. |
 | `401 Unauthorized` | `{ "code": "UNAUTHORIZED", "message": "Authentication required." }` when no valid principal is present. |
-| `403 Forbidden` | `{ "code": "FORBIDDEN", "missing": ["permission.key"] }` when an authenticated principal lacks a declared permission. A strict default-deny endpoint without a policy returns problem details instead. |
+| `403 Forbidden` | `{ "code": "FORBIDDEN", "missing": ["permission.key"] }` when an authenticated principal lacks a declared permission. A strict default-deny controller action without a policy returns problem details instead. |
 | `404 Not Found` | The requested visible resource or route was not found. Content filtering can make an inaccessible entity indistinguishable from a missing one. |
 | `409 Conflict` | The operation conflicts with current state, such as an extension directory that cannot be replaced. The body is operation-specific. |
 | `429 Too Many Requests` | A rate-limit policy rejected the request. Back off rather than retrying immediately. |
@@ -143,7 +143,9 @@ Cove does not automatically prefix or version an extension route. Use a collisio
 /api/ext/<extension-id>/...
 ```
 
-The global MVC permission filter does not wrap extension minimal-API delegates. The extension must enforce authentication and its contributed permissions in each server-side operation. See [Extension permissions](../../extensions/permissions/) for an endpoint example.
+The global MVC permission filter does not wrap extension minimal-API delegates. Instead, Cove evaluates the endpoint conventions supplied by `Cove.Sdk` before invoking an extension route. Use `RequireCovePermission` and, when applicable, `RequireCoveEntityAccess`; use `AllowWithoutCovePermission` or `AllowCoveAnonymous` only when that access is intentional.
+
+For compatibility with extensions built before these conventions existed, an endpoint without Cove authorization metadata remains anonymous and produces a registration warning. Do not rely on that fallback for new endpoints. See [Extension permissions](../../extensions/permissions/) for the full policy behavior and examples.
 
 An extension can add OpenAPI metadata to its minimal routes with the normal ASP.NET Core endpoint conventions. Verify how those routes appear in `/openapi/v1.json`; a route without request, response, and error metadata may be callable but still produce an incomplete generated client contract.
 
