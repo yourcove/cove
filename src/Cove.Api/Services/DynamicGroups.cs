@@ -1744,22 +1744,29 @@ public sealed class ContinueWatchingDynamicGroupSource(CoveContext db) : UserSco
                 && affinity.LastConsumedAt != null
                 && affinity.LastPositionSec > 0
                 && affinity.CompleteCount == 0)
-            .OrderByDescending(affinity => affinity.LastConsumedAt);
+            .Where(affinity =>
+                affinity.HostType == AffinityHostType.Video
+                    && Db.Videos.Any(video => video.Id == affinity.HostId
+                        && (video.MaxDuration <= 0 || affinity.LastPositionSec < video.MaxDuration * 0.95))
+                || affinity.HostType == AffinityHostType.Audio
+                    && Db.Audios.Any(audio => audio.Id == affinity.HostId)
+                || affinity.HostType == AffinityHostType.Segment
+                    && Db.VisibleSegments().Any(segment => segment.Id == affinity.HostId));
+        var totalCount = await query.CountAsync(ct);
+        if (context.Limit <= 0)
+            return new DynamicGroupResolveResult([], totalCount);
+
         var rows = await query
+            .OrderByDescending(affinity => affinity.LastConsumedAt)
+            .ThenBy(affinity => affinity.HostType)
+            .ThenBy(affinity => affinity.HostId)
+            .Skip(Math.Max(0, context.Offset))
+            .Take(context.Limit)
             .Select(affinity => new { affinity.HostType, affinity.HostId, affinity.LastConsumedAt, affinity.LastPositionSec })
             .ToListAsync(ct);
-        var videoIds = rows.Where(row => row.HostType == AffinityHostType.Video).Select(row => row.HostId).Distinct().ToArray();
-        var videoDurations = await Db.Videos.AsNoTracking()
-            .Where(video => videoIds.Contains(video.Id))
-            .Select(video => new { video.Id, video.MaxDuration })
-            .ToDictionaryAsync(video => video.Id, video => video.MaxDuration, ct);
-        var filteredRows = rows
-            .Where(row => row.HostType != AffinityHostType.Video
-                || !videoDurations.TryGetValue(row.HostId, out var maxDuration)
-                || maxDuration <= 0
-                || row.LastPositionSec < maxDuration * 0.95)
-            .Select(row => (row.HostType, row.HostId, (double)row.LastConsumedAt!.Value.Ticks))
-            .ToList();
-        return await HydratePageAsync(filteredRows, context, ct);
+        var hydrated = await HydrateAsync(
+            rows.Select(row => (row.HostType, row.HostId, (double)row.LastConsumedAt!.Value.Ticks)).ToList(),
+            ct);
+        return new DynamicGroupResolveResult(hydrated, totalCount);
     }
 }
