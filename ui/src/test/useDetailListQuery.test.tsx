@@ -11,6 +11,35 @@ function createWrapper(queryClient: QueryClient) {
 }
 
 describe("useDetailListQuery", () => {
+  it("keeps the current page visible while a changed filter loads", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveSearch!: (value: { items: { id: number }[]; totalCount: number; page: number; perPage: number }) => void;
+    const searchResult = new Promise<{ items: { id: number }[]; totalCount: number; page: number; perPage: number }>((resolve) => {
+      resolveSearch = resolve;
+    });
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ items: [{ id: 1 }], totalCount: 1, page: 1, perPage: 24 })
+      .mockReturnValueOnce(searchResult);
+    const { result, rerender } = renderHook(({ q }) => useDetailListQuery({
+      queryKey: ["related-items-search"],
+      filter: { page: 1, perPage: 24, q },
+      queryFn,
+    }), {
+      initialProps: { q: "" },
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.data.items).toEqual([{ id: 1 }]));
+
+    rerender({ q: "friend" });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data.items).toEqual([{ id: 1 }]);
+
+    resolveSearch({ items: [{ id: 2 }], totalCount: 1, page: 1, perPage: 24 });
+    await waitFor(() => expect(result.current.data.items).toEqual([{ id: 2 }]));
+  });
+
   it("exposes an initial load failure and can retry it", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const queryFn = vi.fn()
