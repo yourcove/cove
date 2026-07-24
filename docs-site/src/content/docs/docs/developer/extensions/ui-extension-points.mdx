@@ -20,6 +20,8 @@ Most contribution records contain:
 
 Extension components render inside an error boundary. They should still handle missing data, failed requests, and permission errors locally.
 
+See [Frontend runtime API](../frontend-runtime/) for supported module imports, authenticated requests, and Cove's public shared component barrel.
+
 ## Pages
 
 `UIPageDefinition` adds a top-level route.
@@ -188,4 +190,4 @@ Treat them as reserved contract surface, not working extension points. Shipping 
 | Advertise a host-known capability | `UIFeatureDefinition` |
 | Replace a built-in page | `UIPageOverride`, only when additive points cannot work |
 
-After choosing the contribution, see [Packaging](../packaging/) for the asset layout and [Permissions](../permissions/) for access design.
+After choosing the contribution, see [Frontend runtime API](../frontend-runtime/) for supported imports, [Packaging](../packaging/) for the asset layout, and [Permissions](../permissions/) for access design.

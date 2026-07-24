@@ -194,7 +194,7 @@ These are shared service contracts rather than standalone extension lifecycles; 
 
 Implement `IUIExtension.GetUIManifest` to declare frontend contributions. Ship an ESM bundle when a contribution references a React component or frontend handler, and a CSS asset when the extension needs custom styles. A single `UIManifest` can contain any combination of the following contributions.
 
-See [UI extension points](../ui-extension-points/) for the fields, supported targets, runtime behavior, and limitations of each contribution.
+See [UI extension points](../ui-extension-points/) for the fields, supported targets, runtime behavior, and limitations of each contribution. Use the [frontend runtime API](../frontend-runtime/) for supported module imports, authenticated requests, and shared UI primitives.
 
 ### Additive UI
 
