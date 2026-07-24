@@ -10,8 +10,10 @@ namespace Cove.Sdk;
 /// </summary>
 /// <remarks>
 /// For backward compatibility, an extension endpoint with none of these Cove authorization
-/// conventions allows anonymous access. New endpoints should explicitly declare their intended
-/// access with <see cref="RequireCovePermission{TBuilder}(TBuilder, string[])"/>,
+/// conventions allows anonymous access and Cove logs a warning when it registers the endpoint.
+/// New endpoints should explicitly declare their intended access with
+/// <see cref="RequireCovePermission{TBuilder}(TBuilder, string[])"/>,
+/// <see cref="RequireCoveEntityAccess{TBuilder}(TBuilder, string, string, string)"/>,
 /// <see cref="AllowWithoutCovePermission{TBuilder}(TBuilder)"/>, or
 /// <see cref="AllowCoveAnonymous{TBuilder}(TBuilder)"/>.
 /// </remarks>

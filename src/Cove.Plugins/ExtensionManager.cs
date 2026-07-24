@@ -16,6 +16,7 @@ namespace Cove.Plugins;
 /// </summary>
 public class ExtensionManager
 {
+    private const int MaxPolicylessRoutesInWarning = 10;
     private readonly List<IExtension> _extensions = [];
     private readonly Dictionary<string, IExtension> _extensionMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly ExtensionContext _context;
@@ -592,7 +593,47 @@ public class ExtensionManager
         // fires the change token the matcher observes — making the routes live immediately.
         var source = new ExtensionEndpointDataSource(_routeBuilder, id, EndpointBuildServices(id));
         apiExt.MapEndpoints(source);
+        WarnAboutPolicylessEndpoints(id, source.Endpoints);
         _endpointRegistry.SetExtension(id, source);
+    }
+
+    private void WarnAboutPolicylessEndpoints(string extensionId, IReadOnlyList<Endpoint> endpoints)
+    {
+        var policylessRoutes = endpoints
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => !HasCoveAuthorizationMetadata(endpoint))
+            .Select(DescribeRoute)
+            .ToArray();
+        if (policylessRoutes.Length == 0)
+            return;
+
+        var displayedRoutes = string.Join(", ", policylessRoutes.Take(MaxPolicylessRoutesInWarning));
+        var remainingRouteCount = policylessRoutes.Length - MaxPolicylessRoutesInWarning;
+        var routeSummary = remainingRouteCount > 0
+            ? $"{displayedRoutes}, and {remainingRouteCount} more"
+            : displayedRoutes;
+        _logger?.LogWarning(
+            "Extension {ExtensionId} registered {EndpointCount} endpoint(s) without a Cove authorization "
+            + "policy. They allow anonymous access for backward compatibility: {Endpoints}. Declare "
+            + "intent with RequireCovePermission, RequireCoveEntityAccess, "
+            + "AllowWithoutCovePermission, or AllowCoveAnonymous.",
+            extensionId,
+            policylessRoutes.Length,
+            routeSummary);
+    }
+
+    private static bool HasCoveAuthorizationMetadata(Endpoint endpoint)
+        => endpoint.Metadata.GetMetadata<CovePermissionRequirementMetadata>() is not null
+            || endpoint.Metadata.GetMetadata<CoveRouteEntityAccessRequirementMetadata>() is not null
+            || endpoint.Metadata.GetMetadata<CoveAllowWithoutPermissionMetadata>() is not null
+            || endpoint.Metadata.GetMetadata<CoveAllowAnonymousMetadata>() is not null;
+
+    private static string DescribeRoute(RouteEndpoint endpoint)
+    {
+        var methods = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods;
+        var methodLabel = methods is { Count: > 0 } ? string.Join("|", methods) : "ANY";
+        var route = endpoint.RoutePattern.RawText ?? endpoint.DisplayName ?? "<unknown>";
+        return $"{methodLabel} {route}";
     }
 
     /// <summary>

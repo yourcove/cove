@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using IAllowAnonymous = Microsoft.AspNetCore.Authorization.IAllowAnonymous;
 
 namespace Cove.Tests;
@@ -103,6 +104,89 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
         Assert.Equal("actual.extension", owner.ExtensionId);
     }
 
+    [Fact]
+    public async Task Endpoint_registration_warns_once_with_only_policyless_route_templates()
+    {
+        var logger = new RecordingLogger<ExtensionManager>();
+        var appBuilder = WebApplication.CreateBuilder();
+        appBuilder.Services.AddSingleton<ILogger<ExtensionManager>>(logger);
+        await using var app = appBuilder.Build();
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = appBuilder.Configuration,
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "test",
+        });
+        manager.Register(new TestApiExtension(endpoints =>
+        {
+            endpoints.MapGet("/legacy-one", () => Results.Ok());
+            endpoints.MapPost("/legacy-two/{id}", (string id) => Results.Ok(id));
+            endpoints.MapGet("/asp-anonymous", () => Results.Ok())
+                .WithMetadata(new Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute());
+            for (var index = 0; index < 9; index++)
+                endpoints.MapGet($"/extra-{index}", () => Results.Ok());
+            endpoints.MapGet("/permission", () => Results.Ok())
+                .RequireCovePermission(Permissions.TagsRead);
+            endpoints.MapGet("/entity/{tagId}", () => Results.Ok())
+                .RequireCoveEntityAccess(EntityKinds.Tag, "tagId", Permissions.TagsRead);
+            endpoints.MapGet("/authenticated", () => Results.Ok())
+                .AllowWithoutCovePermission();
+            endpoints.MapGet("/anonymous", () => Results.Ok())
+                .AllowCoveAnonymous();
+        }));
+        manager.SetRouteBuilder(app);
+        manager.PrepareRuntimeServices(app.Services);
+
+        manager.SetupDynamicEndpoints();
+
+        var warning = Assert.Single(logger.Messages, entry => entry.Level == LogLevel.Warning);
+        Assert.Contains("test.api", warning.Message);
+        Assert.Contains("12 endpoint(s)", warning.Message);
+        Assert.Contains("GET /legacy-one", warning.Message);
+        Assert.Contains("POST /legacy-two/{id}", warning.Message);
+        Assert.Contains("GET /asp-anonymous", warning.Message);
+        Assert.Contains("GET /extra-6", warning.Message);
+        Assert.DoesNotContain("GET /extra-7", warning.Message);
+        Assert.DoesNotContain("GET /extra-8", warning.Message);
+        Assert.Contains("and 2 more", warning.Message);
+        Assert.DoesNotContain("/permission", warning.Message);
+        Assert.DoesNotContain("/entity/", warning.Message);
+        Assert.DoesNotContain("/authenticated", warning.Message);
+        Assert.DoesNotContain("/anonymous", warning.Message);
+    }
+
+    [Fact]
+    public async Task Endpoint_registration_does_not_warn_when_every_endpoint_declares_Cove_access()
+    {
+        var logger = new RecordingLogger<ExtensionManager>();
+        var appBuilder = WebApplication.CreateBuilder();
+        appBuilder.Services.AddSingleton<ILogger<ExtensionManager>>(logger);
+        await using var app = appBuilder.Build();
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = appBuilder.Configuration,
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "test",
+        });
+        manager.Register(new TestApiExtension(endpoints =>
+        {
+            endpoints.MapGet("/permission", () => Results.Ok())
+                .RequireCovePermission(Permissions.TagsRead);
+            endpoints.MapGet("/entity/{tagId}", () => Results.Ok())
+                .RequireCoveEntityAccess(EntityKinds.Tag, "tagId", Permissions.TagsRead);
+            endpoints.MapGet("/authenticated", () => Results.Ok())
+                .AllowWithoutCovePermission();
+            endpoints.MapGet("/anonymous", () => Results.Ok())
+                .AllowCoveAnonymous();
+        }));
+        manager.SetRouteBuilder(app);
+        manager.PrepareRuntimeServices(app.Services);
+
+        manager.SetupDynamicEndpoints();
+
+        Assert.DoesNotContain(logger.Messages, entry => entry.Level == LogLevel.Warning);
+    }
+
     private sealed class TestConventionBuilder : IEndpointConventionBuilder
     {
         private readonly List<Action<EndpointBuilder>> _conventions = [];
@@ -116,6 +200,36 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
                 convention(builder);
             return builder.Build();
         }
+    }
+
+    private sealed class TestApiExtension(Action<IEndpointRouteBuilder> mapEndpoints) : IApiExtension
+    {
+        public string Id => "test.api";
+        public string Name => "Test API";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context) { }
+        public void MapEndpoints(IEndpointRouteBuilder endpoints) => mapEndpoints(endpoints);
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Messages.Add((logLevel, formatter(state, exception)));
     }
 }
 public sealed class ExtensionEndpointAuthorizationMiddlewareTests
