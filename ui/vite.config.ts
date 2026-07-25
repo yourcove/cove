@@ -119,10 +119,16 @@ export default defineConfig(({ command }) => {
         },
         output: {
           entryFileNames: (chunkInfo) => extensionRuntimeFileNames.get(chunkInfo.name) ?? "assets/[name]-[hash].js",
-          manualChunks: {
-            vendor: ["react", "react-dom", "@tanstack/react-query"],
-            icons: ["lucide-react"],
-            signalr: ["@microsoft/signalr"],
+          manualChunks(id) {
+            if (id.includes("/node_modules/lucide-react/")) return "icons";
+            if (id.includes("/node_modules/@microsoft/signalr/")) return "signalr";
+            if (
+              id.includes("/node_modules/react/") ||
+              id.includes("/node_modules/react-dom/") ||
+              id.includes("/node_modules/@tanstack/react-query/")
+            ) {
+              return "vendor";
+            }
           },
         },
       },
