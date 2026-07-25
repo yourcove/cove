@@ -70,7 +70,7 @@ jobs:
       POSTGRES_MAJOR: ${{ needs.metadata.outputs.postgres_major }}
       POSTGRES_VERSION: ${{ needs.metadata.outputs.postgres_version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download pgvector source
         shell: pwsh
@@ -183,7 +183,7 @@ jobs:
       POSTGRES_MAJOR: ${{ needs.metadata.outputs.postgres_major }}
       RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v8
         with:
