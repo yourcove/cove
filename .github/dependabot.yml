@@ -36,13 +36,14 @@ updates:
           - "minor"
           - "patch"
 
-  # npm — two standalone packages, each with its own lockfile: the SPA (ui/) and the published
-  # extension frontend SDK (sdk/frontend/). They are not npm workspaces, so each directory is
-  # listed explicitly.
+  # npm — three standalone packages, each with its own lockfile: the SPA (ui/), the published
+  # extension frontend SDK (sdk/frontend/), and the documentation site (docs-site/). They are not
+  # npm workspaces, so each directory is listed explicitly.
   - package-ecosystem: "npm"
     directories:
       - "/ui"
       - "/sdk/frontend"
+      - "/docs-site"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
