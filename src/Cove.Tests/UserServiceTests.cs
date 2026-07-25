@@ -3,8 +3,11 @@ using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
+using System.Data.Common;
 using System.IdentityModel.Tokens.Jwt;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
@@ -245,6 +248,50 @@ public class UserServiceTests
         Assert.Null(principal);
     }
 
+    [Fact]
+    public async Task ResolveAsync_waits_for_api_token_last_used_update()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var interceptor = new BlockingApiTokenUpdateInterceptor();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var db = new TestCoveContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await SeedOwnerAsync(db);
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var issued = await tokens.CreateApiTokenAsync(1, "test token", null, null, null);
+        interceptor.BlockUpdates = true;
+
+        var resolveTask = tokens.ResolveAsync($"Bearer {issued.PlaintextToken}", "127.0.0.1", "test");
+        await interceptor.UpdateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        bool resolvedBeforeUpdateCompleted;
+        try
+        {
+            resolvedBeforeUpdateCompleted = await Task.WhenAny(
+                resolveTask,
+                Task.Delay(TimeSpan.FromSeconds(1))) == resolveTask;
+        }
+        finally
+        {
+            interceptor.AllowUpdate.TrySetResult();
+        }
+
+        var principal = await resolveTask;
+        var lastUsedAt = await db.ApiTokens.AsNoTracking()
+            .Where(token => token.Id == issued.Id)
+            .Select(token => token.LastUsedAt)
+            .SingleAsync();
+
+        Assert.False(resolvedBeforeUpdateCompleted);
+        Assert.NotNull(principal);
+        Assert.NotNull(lastUsedAt);
+    }
+
     private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
     {
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -253,11 +300,41 @@ public class UserServiceTests
         }
     }
 
+    private sealed class BlockingApiTokenUpdateInterceptor : DbCommandInterceptor
+    {
+        public bool BlockUpdates { get; set; }
+        public TaskCompletionSource UpdateStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllowUpdate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (BlockUpdates
+                && command.CommandText.Contains("UPDATE", StringComparison.OrdinalIgnoreCase)
+                && command.CommandText.Contains("LastUsedAt", StringComparison.OrdinalIgnoreCase))
+            {
+                UpdateStarted.TrySetResult();
+                await AllowUpdate.Task.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
+    }
+
     private static async Task SeedOwnerAsync(CoveContext db)
     {
         var now = DateTime.UtcNow;
         if (!await db.Roles.AnyAsync(r => r.Id == 1))
         {
+            db.Permissions.Add(new Permission
+            {
+                Key = Permissions.All,
+                Category = "test",
+                Description = "Test permission",
+            });
             db.Roles.Add(new Role
             {
                 Id = 1,

@@ -304,20 +304,22 @@ public sealed class TokenService : ITokenService
             }
         }
 
-        // best-effort last-used update (don't await)
-        _ = Task.Run(async () =>
+        // Best-effort last-used update. This must complete before the request pipeline
+        // can use the same scoped CoveContext for endpoint work.
+        try
         {
-            try
-            {
-                await _db.ApiTokens
-                    .Where(t => t.Id == tokenId)
-                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.LastUsedAt, DateTime.UtcNow));
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "Failed to update LastUsedAt for API token {TokenId}", tokenId);
-            }
-        }, CancellationToken.None);
+            await _db.ApiTokens
+                .Where(t => t.Id == tokenId)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.LastUsedAt, DateTime.UtcNow), ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to update LastUsedAt for API token {TokenId}", tokenId);
+        }
 
         return new CovePrincipal
         {
