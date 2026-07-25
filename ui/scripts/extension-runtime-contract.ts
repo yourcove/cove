@@ -56,6 +56,7 @@ export const extensionRuntimeModules = [
     sourceFileName: "lucide-react.ts",
     outputFileName: "lucide-react.js",
     legacySpecifiers: ["lucide-react"],
+    defaultExport: "namespace",
   },
   {
     id: "components",

@@ -7,7 +7,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const runtimeDir = path.resolve(__dirname, `../src/generated/extensions/runtime/${extensionRuntimeVersion}`);
 const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-function buildRuntimeSource(source: string, exportNames: string[], hasDefault: boolean) {
+type DefaultExport = "none" | "source" | "namespace";
+
+function buildRuntimeSource(source: string, exportNames: string[], defaultExport: DefaultExport) {
   const lines = [
     "// AUTO-GENERATED FILE. DO NOT EDIT.",
     "// @ts-nocheck",
@@ -16,7 +18,7 @@ function buildRuntimeSource(source: string, exportNames: string[], hasDefault: b
     "",
   ];
 
-  if (hasDefault) {
+  if (defaultExport === "source") {
     lines.push(
       'const runtimeDefault = Object.prototype.hasOwnProperty.call(runtimeModule, "default")',
       "  ? runtimeModule.default",
@@ -25,13 +27,15 @@ function buildRuntimeSource(source: string, exportNames: string[], hasDefault: b
       "export default runtimeDefault;",
       ""
     );
+  } else if (defaultExport === "namespace") {
+    lines.push("export default runtimeModule;", "");
   }
 
   for (const exportName of exportNames) {
     lines.push(`export const ${exportName} = runtimeModule.${exportName};`);
   }
 
-  if (exportNames.length === 0 && !hasDefault) {
+  if (exportNames.length === 0 && defaultExport === "none") {
     lines.push("export {};");
   }
 
@@ -39,14 +43,19 @@ function buildRuntimeSource(source: string, exportNames: string[], hasDefault: b
   return lines.join("\n");
 }
 
-function buildTypeSource(source: string, hasDefault: boolean) {
+function buildTypeSource(source: string, defaultExport: DefaultExport) {
   const lines = [
     "// AUTO-GENERATED FILE. DO NOT EDIT.",
     `export * from ${JSON.stringify(source)};`,
   ];
 
-  if (hasDefault) {
+  if (defaultExport === "source") {
     lines.push(`export { default } from ${JSON.stringify(source)};`);
+  } else if (defaultExport === "namespace") {
+    lines.push(
+      `declare const runtimeDefault: typeof import(${JSON.stringify(source)});`,
+      "export default runtimeDefault;"
+    );
   }
 
   lines.push("");
@@ -58,16 +67,18 @@ async function generateRuntimeModule(definition: (typeof extensionRuntimeModules
   const exportNames = Object.keys(moduleNamespace)
     .filter((name) => name !== "default" && name !== "__esModule" && identifierPattern.test(name))
     .sort();
-  const hasDefault = Object.prototype.hasOwnProperty.call(moduleNamespace, "default");
+  const detectedDefaultExport = Object.prototype.hasOwnProperty.call(moduleNamespace, "default") ? "source" : "none";
+  const defaultExport =
+    "defaultExport" in definition ? definition.defaultExport as DefaultExport : detectedDefaultExport;
 
   await fs.writeFile(
     path.join(runtimeDir, definition.sourceFileName),
-    buildRuntimeSource(definition.source, exportNames, hasDefault),
+    buildRuntimeSource(definition.source, exportNames, defaultExport),
     "utf8"
   );
   await fs.writeFile(
     path.join(runtimeDir, definition.sourceFileName.replace(/\.ts$/, ".d.ts")),
-    buildTypeSource(definition.source, hasDefault),
+    buildTypeSource(definition.source, defaultExport),
     "utf8"
   );
 }
