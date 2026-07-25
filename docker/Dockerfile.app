@@ -1,5 +1,5 @@
 # ── Stage 1: Build frontend ────────────────────────────────────────
-FROM node:22-slim AS ui-build
+FROM node:26-slim AS ui-build
 WORKDIR /build/ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --ignore-scripts
