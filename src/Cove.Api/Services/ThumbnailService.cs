@@ -1079,7 +1079,9 @@ public class ThumbnailService(
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
-                var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
+                var segmentFilter = FfmpegHwAccel.BridgeGpuFramesForSoftwareFilters(
+                    decodeArgs, $"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos");
+                var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"{segmentFilter}\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
                 await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
 
                 if (File.Exists(tempPath))
@@ -1142,6 +1144,8 @@ public class ThumbnailService(
                 return;
 
             var decodeArgs = GetFfmpegDecodeArgs();
+            var previewFilter = FfmpegHwAccel.BridgeGpuFramesForSoftwareFilters(
+                decodeArgs, $"scale={PreviewWidth}:-2");
 
             // If video is too short for all segments, use a single full-video preview
             if (usableDuration < segmentDuration * segmentCount)
@@ -1150,7 +1154,7 @@ public class ThumbnailService(
                 var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{previewPath}\"",
+                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewFilter}\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{previewPath}\"",
                     previewPath,
                     TimeSpan.FromMinutes(5),
                     preset,
@@ -1173,7 +1177,7 @@ public class ThumbnailService(
 
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y -ss {seekTime.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
+                    $"{decodeArgs} -v error -y -ss {seekTime.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {segmentDuration.ToString("F2", CultureInfo.InvariantCulture)} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"{previewFilter}\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{chunkPath}\"",
                     chunkPath,
                     TimeSpan.FromSeconds(60),
                     preset,
@@ -1474,7 +1478,8 @@ public class ThumbnailService(
             var fps = frameCount / Math.Max(duration, 0.001d);
             var fpsText = fps.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture);
             var decodeArgs = GetFfmpegDecodeArgs();
-            var filter = $"fps={fpsText},scale={SpriteFrameSize}:-2,tile={cols}x{rows}:margin=0:padding=0";
+            var filter = FfmpegHwAccel.BridgeGpuFramesForSoftwareFilters(
+                decodeArgs, $"fps={fpsText},scale={SpriteFrameSize}:-2,tile={cols}x{rows}:margin=0:padding=0");
             // -pix_fmt yuvj420p forces full-range JPEG output so the mjpeg encoder doesn't reject
             // limited-range YUV sources ("Non full-range YUV is non-standard", ffmpeg exit 234).
             var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -i \"{filePath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p -f image2 \"{tempPath}\"";
