@@ -1,3 +1,4 @@
+using Cove.Api.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
@@ -77,10 +78,10 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (gallery == null) return NotFound();
 
         if (gallery.ImageBlobId != null)
-            return Redirect(WithQuery($"/api/galleries/{id}/image", max, v));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/galleries/{id}/image", max, v)));
 
         if (gallery.CoverImageId.HasValue)
-            return Redirect(WithQuery($"/api/stream/image/{gallery.CoverImageId.Value}/thumbnail", max, v));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{gallery.CoverImageId.Value}/thumbnail", max, v)));
 
         var firstImageId = await db.Set<ImageGallery>()
             .Where(ig => ig.GalleryId == id)
@@ -89,7 +90,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             .FirstOrDefaultAsync(ct);
 
         if (firstImageId.HasValue)
-            return Redirect(WithQuery($"/api/stream/image/{firstImageId.Value}/thumbnail", max, v));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{firstImageId.Value}/thumbnail", max, v)));
 
         var firstVideoId = await db.Set<VideoGallery>()
             .Where(sg => sg.GalleryId == id)
@@ -98,7 +99,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             .FirstOrDefaultAsync(ct);
 
         return firstVideoId.HasValue
-            ? Redirect(WithQuery($"/api/stream/video/{firstVideoId.Value}/screenshot", null, v))
+            ? Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/video/{firstVideoId.Value}/screenshot", null, v)))
             : NotFound();
     }
 
