@@ -114,8 +114,15 @@ export function SavedFilterMenu({
       if (target && menuRef.current?.contains(target)) return;
       setOpen(false);
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [open]);
 
   const createMut = useMutation({
@@ -131,6 +138,19 @@ export function SavedFilterMenu({
       queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
       setSaveName("");
       setShowSave(false);
+    },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: (id: number) =>
+      savedFilters.update(id, {
+        findFilter: JSON.stringify(stripRandomSeed(currentFilter)),
+        objectFilter: JSON.stringify(currentObjectFilter ?? {}),
+        uiOptions: JSON.stringify(currentUIOptions ?? {}),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
+      setOpen(false);
     },
   });
 
@@ -169,11 +189,16 @@ export function SavedFilterMenu({
 
     setOpen(false);
   };
+  const normalizedSaveName = saveName.trim().toLocaleLowerCase();
+  const hasDuplicateName = !!normalizedSaveName
+    && !!filters?.some((filter) => filter.name.trim().toLocaleLowerCase() === normalizedSaveName);
 
   return (
     <div ref={menuRef} className="relative">
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
         className="flex items-center gap-1 rounded-lg border border-border bg-card/70 px-2 py-1 text-xs text-secondary hover:border-accent hover:text-foreground"
         title="Saved filters"
       >
@@ -182,7 +207,7 @@ export function SavedFilterMenu({
       </button>
 
       {open && (
-        <div className="styled-dropdown-panel absolute top-full right-0 z-50 mt-1 w-56 rounded-lg border border-border shadow-lg">
+        <div role="dialog" aria-label="Saved filters" className="styled-dropdown-panel absolute top-full right-0 z-50 mt-1 w-56 rounded-lg border border-border shadow-lg">
           <div className="p-2 border-b border-border">
             <p className="text-[10px] text-muted uppercase tracking-wider font-medium">
               Saved Filters
@@ -208,14 +233,36 @@ export function SavedFilterMenu({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    updateMut.reset();
+                    updateMut.mutate(f.id);
+                  }}
+                  disabled={updateMut.isPending}
+                  aria-label={`Update saved filter "${f.name}"`}
+                  title="Update with current filter"
+                  className="p-1 text-muted hover:text-accent transition-colors disabled:opacity-50"
+                >
+                  {updateMut.isPending && updateMut.variables === f.id
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : <Save className="w-3 h-3" />}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     deleteMut.mutate(f.id);
                   }}
-                  className="p-0.5 text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={`Delete saved filter "${f.name}"`}
+                  title="Delete saved filter"
+                  className="p-1 text-muted hover:text-red-400 transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
             ))}
+            {updateMut.isError && (
+              <p role="alert" className="px-3 py-1.5 text-[10px] text-red-400">
+                Could not update this saved filter.
+              </p>
+            )}
           </div>
 
           {/* Save current */}
@@ -239,23 +286,34 @@ export function SavedFilterMenu({
               </button>
             )}
             {showSave ? (
-              <div className="flex gap-1">
-                <input
-                  type="text"
-                  value={saveName}
-                  onChange={(e) => setSaveName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveName && createMut.mutate()}
-                  placeholder="Filter name..."
-                  className="flex-1 rounded border border-border bg-card/70 px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-                  autoFocus
-                />
-                <button
-                  onClick={() => saveName && createMut.mutate()}
-                  disabled={!saveName || createMut.isPending}
-                  className="px-2 py-1 rounded text-xs bg-accent text-white hover:bg-accent-hover disabled:opacity-60"
-                >
-                  {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                </button>
+              <div>
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    value={saveName}
+                    onChange={(e) => { setSaveName(e.target.value); createMut.reset(); }}
+                    onKeyDown={(e) => e.key === "Enter" && normalizedSaveName && !hasDuplicateName && createMut.mutate()}
+                    placeholder="Filter name..."
+                    className="flex-1 rounded border border-border bg-card/70 px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => normalizedSaveName && !hasDuplicateName && createMut.mutate()}
+                    disabled={!normalizedSaveName || hasDuplicateName || createMut.isPending}
+                    aria-label="Create saved filter"
+                    className="px-2 py-1 rounded text-xs bg-accent text-white hover:bg-accent-hover disabled:opacity-60"
+                  >
+                    {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                  </button>
+                </div>
+                {hasDuplicateName && (
+                  <p className="mt-1 text-[10px] text-red-400">A saved filter with this name already exists.</p>
+                )}
+                {createMut.isError && (
+                  <p role="alert" className="mt-1 text-[10px] text-red-400">
+                    Could not save this filter. Its name may already be in use.
+                  </p>
+                )}
               </div>
             ) : (
               <button
