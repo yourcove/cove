@@ -27,7 +27,11 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         else
             filters = await filterRepo.GetAllForUserAsync(CurrentUserId, ct);
 
-        return Ok(filters.Where(IsVisibleToCurrentUser).Select(MapToDto).ToList());
+        return Ok(filters
+            .Where(IsVisibleToCurrentUser)
+            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(MapToDto)
+            .ToList());
     }
 
     [HttpGet("{id:int}")]
@@ -45,9 +49,15 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         if (!Enum.TryParse<FilterMode>(dto.Mode, true, out var filterMode))
             return BadRequest(new { message = $"Invalid filter mode: {dto.Mode}" });
 
+        var name = dto.Name?.Trim() ?? string.Empty;
+        if (name.Length == 0)
+            return BadRequest(new { message = "A saved filter name is required." });
+        if (await HasDuplicateName(filterMode, name, null, ct))
+            return Conflict(new { message = "A saved filter with this name already exists." });
+
         var filter = new SavedFilter
         {
-            Name = dto.Name, Mode = filterMode, UserId = CurrentUserId,
+            Name = name, Mode = filterMode, UserId = CurrentUserId,
             FindFilter = StripRandomSeed(dto.FindFilter), ObjectFilter = dto.ObjectFilter, UIOptions = dto.UIOptions
         };
 
@@ -62,8 +72,18 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         var filter = await filterRepo.GetByIdAsync(id, ct);
         if (filter == null || !IsVisibleToCurrentUser(filter)) return NotFound();
 
-        if (dto.Name != null) filter.Name = dto.Name;
-        if (dto.Mode != null && Enum.TryParse<FilterMode>(dto.Mode, true, out var mode)) filter.Mode = mode;
+        var mode = filter.Mode;
+        if (dto.Mode != null && !Enum.TryParse(dto.Mode, true, out mode))
+            return BadRequest(new { message = $"Invalid filter mode: {dto.Mode}" });
+
+        var name = (dto.Name ?? filter.Name).Trim();
+        if (name.Length == 0)
+            return BadRequest(new { message = "A saved filter name is required." });
+        if (await HasDuplicateName(mode, name, id, ct))
+            return Conflict(new { message = "A saved filter with this name already exists." });
+
+        filter.Name = name;
+        filter.Mode = mode;
         if (dto.FindFilter != null) filter.FindFilter = StripRandomSeed(dto.FindFilter);
         if (dto.ObjectFilter != null) filter.ObjectFilter = dto.ObjectFilter;
         if (dto.UIOptions != null) filter.UIOptions = dto.UIOptions;
@@ -85,6 +105,15 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
     // Defense-in-depth: the repository already scopes by user, but guard cross-user access on by-id
     // lookups too. A null-owned (legacy/unowned) row is only visible when the caller is also unowned.
     private bool IsVisibleToCurrentUser(SavedFilter filter) => filter.UserId == CurrentUserId;
+
+    private async Task<bool> HasDuplicateName(FilterMode mode, string name, int? excludedId, CancellationToken ct)
+    {
+        var filters = await filterRepo.GetByModeForUserAsync(mode, CurrentUserId, ct);
+        return filters.Any(filter =>
+            filter.Id != excludedId
+            && IsVisibleToCurrentUser(filter)
+            && string.Equals(filter.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
+    }
 
     // When a filter using random sort is persisted, drop the random seed so the saved/default
     // filter re-shuffles on every load instead of reproducing the same "random" order forever.

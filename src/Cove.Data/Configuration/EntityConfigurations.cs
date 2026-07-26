@@ -1120,7 +1120,3 @@ public class ExtensionDataConfiguration : IEntityTypeConfiguration<ExtensionData
         builder.HasIndex(e => e.ExtensionId);
     }
 }
-
-
-
-
