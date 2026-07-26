@@ -4,10 +4,13 @@ using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
+using Cove.Data;
 using Cove.Plugins;
 using Cove.Sdk;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,6 +19,35 @@ namespace Cove.Tests;
 
 public class ExtensionBundleSupportTests
 {
+    [Fact]
+    public async Task Extension_migrations_execute_literal_braces_without_composite_formatting()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var services = new ServiceCollection();
+        services.AddDbContext<CoveContext>(options => options.UseSqlite(connection));
+        services.AddScoped<DbContext>(provider => provider.GetRequiredService<CoveContext>());
+        await using var provider = services.BuildServiceProvider();
+
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new LiteralBraceMigrationExtension());
+
+        Assert.True(await manager.InitializeExtensionAsync(
+            LiteralBraceMigrationExtension.ExtensionId,
+            provider));
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT sql FROM sqlite_master WHERE name = 'brace_migration'";
+        var schema = Assert.IsType<string>(await command.ExecuteScalarAsync());
+        Assert.Contains("DEFAULT '{}'", schema);
+    }
+
     [Fact]
     public void Manifest_builder_owner_stamps_permission_gated_pages_and_tabs()
     {
@@ -521,6 +553,32 @@ public class ExtensionBundleSupportTests
         public void ConfigureServices(IServiceCollection services, ExtensionContext context)
         {
         }
+    }
+
+    private sealed class LiteralBraceMigrationExtension : IExtension, IDataExtension
+    {
+        public const string ExtensionId = "com.example.literal-brace-migration";
+
+        public string Id => ExtensionId;
+        public string Name => "Literal Brace Migration";
+        public string Version => "1.0.0";
+        public string? Description => null;
+        public string? Author => null;
+        public string? Url => null;
+        public string? IconUrl => null;
+
+        public void ConfigureServices(IServiceCollection services, ExtensionContext context)
+        {
+        }
+
+        public void ConfigureModel(ModelBuilder modelBuilder)
+        {
+        }
+
+        public IReadOnlyList<ExtensionMigration> GetMigrations() =>
+        [
+            new("001_literal_braces", "CREATE TABLE brace_migration (payload TEXT NOT NULL DEFAULT '{}')")
+        ];
     }
 
     private sealed class SettingsTabContributionExtension : CoveExtensionBase
