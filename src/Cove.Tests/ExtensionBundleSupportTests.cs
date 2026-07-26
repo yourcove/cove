@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Cove.Api.Controllers;
 using Cove.Api.Services;
+using Cove.Core.Auth;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Cove.Sdk;
@@ -14,6 +16,53 @@ namespace Cove.Tests;
 
 public class ExtensionBundleSupportTests
 {
+    [Fact]
+    public void Manifest_builder_owner_stamps_permission_gated_pages_and_tabs()
+    {
+        var manifest = new UIManifestBuilder("catalog.extension")
+            .AddPage(new UIPageDefinition(
+                "missing-scenes", "Missing Scenes",
+                ComponentName: "MissingScenesPage",
+                ExtensionId: "spoofed.extension")
+            {
+                RequiredPermissions = ["extensions.configure", "videos.read"],
+                RequiredPermissionMode = PermissionMode.All,
+            })
+            .AddTab(new UITabContribution(
+                "missing-scenes", "Missing Scenes", "performer",
+                "spoofed.extension", "MissingScenesTab")
+            {
+                RequiredPermissions = ["extensions.configure", "videos.read", "performers.read"],
+                RequiredPermissionMode = PermissionMode.All,
+            })
+            .Build();
+
+        var page = Assert.Single(manifest.Pages);
+        Assert.Equal("catalog.extension", page.ExtensionId);
+        Assert.Equal(["extensions.configure", "videos.read"], Assert.IsType<string[]>(page.RequiredPermissions));
+        Assert.Equal(PermissionMode.All, page.RequiredPermissionMode);
+        var tab = Assert.Single(manifest.Tabs);
+        Assert.Equal("catalog.extension", tab.ExtensionId);
+        Assert.Equal(["extensions.configure", "videos.read", "performers.read"], Assert.IsType<string[]>(tab.RequiredPermissions));
+        Assert.Equal(PermissionMode.All, tab.RequiredPermissionMode);
+    }
+
+    [Fact]
+    public void Permission_mode_serializes_with_the_browser_contract_value()
+    {
+        var page = new UIPageDefinition("catalog", "Catalog")
+        {
+            RequiredPermissions = ["catalog.read", "catalog.configure"],
+            RequiredPermissionMode = PermissionMode.Any,
+        };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+
+        var json = JsonSerializer.SerializeToElement(page, options);
+
+        Assert.Equal("any", json.GetProperty("requiredPermissionMode").GetString());
+    }
+
     [Fact]
     public void CoveExtensionBase_CanContributeSettingsTabs()
     {
@@ -589,4 +638,3 @@ public class ExtensionBundleSupportTests
         public HttpClient CreateClient(string name) => new();
     }
 }
-

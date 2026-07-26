@@ -68,7 +68,13 @@ export { Lightbox } from "./Lightbox";
 export type { LightboxImage } from "./Lightbox";
 
 // ─── Detail Page Building Blocks ──────────────────────────────────────────
-export { DetailListToolbar } from "./DetailListToolbar";
+export { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
+export type {
+  MediaDetailLayoutProps,
+  MediaDetailTab,
+  MediaDetailSectionProps,
+} from "./MediaDetailLayout/types";
+export { DetailListPagination, DetailListToolbar } from "./DetailListToolbar";
 export { ListPage } from "./ListPage";
 export type { DisplayMode } from "./ListPage";
 // Cove's canonical multi-mode results renderer (grid / list / wall / feed / vertical) for a given entity type —
@@ -91,4 +97,3 @@ export { useAppConfig } from "../state/AppConfigContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 export type { FindFilter } from "../api/types";
-

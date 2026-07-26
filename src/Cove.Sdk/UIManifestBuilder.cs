@@ -54,6 +54,14 @@ public class UIManifestBuilder
         return this;
     }
 
+    /// <summary>Add a page definition while binding ownership to this extension.</summary>
+    public UIManifestBuilder AddPage(UIPageDefinition page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        _manifest.Pages.Add(page with { ExtensionId = _extensionId });
+        return this;
+    }
+
     /// <summary>Inject a component or HTML into a named slot.</summary>
     public UIManifestBuilder AddSlot(
         string slot,
@@ -83,6 +91,14 @@ public class UIManifestBuilder
         string[]? manualContexts = null)
     {
         _manifest.Tabs.Add(new UITabContribution(key, label, pageType, _extensionId, componentName, order, countEndpoint, icon, manualContexts));
+        return this;
+    }
+
+    /// <summary>Add a tab definition while binding ownership to this extension.</summary>
+    public UIManifestBuilder AddTab(UITabContribution tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        _manifest.Tabs.Add(tab with { ExtensionId = _extensionId });
         return this;
     }
 

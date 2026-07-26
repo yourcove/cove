@@ -7,6 +7,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RouteRegistryProvider, useRouteRegistry } from "./router/RouteRegistry";
 import { AppConfigProvider, useAppConfig } from "./state/AppConfigContext";
 import { ExtensionLoaderProvider, useExtensions } from "./extensions/ExtensionLoader";
+import { canAccessExtensionContribution } from "./extensions/extension-permissions";
 import { VideoQueueProvider } from "./state/VideoQueueContext";
 import { SetupWizardPage } from "./pages/SetupWizardPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -490,7 +491,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   );
 }
 
-function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
+export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
   const { routes } = useRouteRegistry();
   const { getPageOverride, resolveComponent, manifest } = useExtensions();
   const { hasPermission } = useAuth();
@@ -512,6 +513,9 @@ function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => 
   // 2. Check extension-contributed pages (new pages via UIPageDefinition)
   const extPage = manifest?.pages.find((p) => p.route === route.page);
   if (extPage?.componentName) {
+    if (!canAccessExtensionContribution(extPage, hasPermission)) {
+      return <AccessDeniedPage navigate={navigate} />;
+    }
     const Component = resolveComponent(extPage.componentName);
     if (Component) {
       // Pass id if this is a detail page route

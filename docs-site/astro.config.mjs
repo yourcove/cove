@@ -193,6 +193,7 @@ export default defineConfig({
                 { link: '/docs/developer/extensions/permissions/', label: 'Extension permissions' },
                 { link: '/docs/developer/extensions/extension-points/', label: 'Extension point catalog' },
                 { link: '/docs/developer/extensions/ui-extension-points/', label: 'UI extension points' },
+                { link: '/docs/developer/extensions/frontend-runtime/', label: 'Frontend runtime API' },
               ],
             },
             {

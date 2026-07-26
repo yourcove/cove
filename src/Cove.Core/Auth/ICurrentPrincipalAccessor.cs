@@ -89,7 +89,11 @@ public sealed class CovePrincipal
             && ReadGrantedEntityKinds.Contains(entityKind);
     }
 
-    private static bool TryGetReadGrantEntityKind(string permission, out string entityKind)
+    /// <summary>
+    /// Resolves the entity kind whose scoped read grants may satisfy the supplied read permission.
+    /// Callers must still authorize the concrete entity before treating the grant as allowed.
+    /// </summary>
+    public static bool TryGetReadGrantEntityKind(string permission, out string entityKind)
     {
         switch (permission)
         {
@@ -141,4 +145,3 @@ public enum PrincipalKind
     ShareLink,
     System,
 }
-
