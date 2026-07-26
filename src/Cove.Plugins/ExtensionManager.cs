@@ -1514,7 +1514,15 @@ public class ExtensionManager
                 try
                 {
                     _logger?.LogInformation("Applying extension migration {ExtId}/{Name}", ext.Id, migration.Name);
-                    await db.Database.ExecuteSqlRawAsync(migration.UpSql, ct);
+                    // Extension migrations are complete SQL scripts, not composite format strings.
+                    // EF's ExecuteSqlRaw APIs still interpret literal braces (for example a
+                    // PostgreSQL JSON default of '{}'), so execute the script directly.
+                    var connection = db.Database.GetDbConnection();
+                    if (connection.State != System.Data.ConnectionState.Open)
+                        await connection.OpenAsync(ct);
+                    await using var migrationCommand = connection.CreateCommand();
+                    migrationCommand.CommandText = migration.UpSql;
+                    await migrationCommand.ExecuteNonQueryAsync(ct);
 
                     // Record the migration
                     await db.Database.ExecuteSqlRawAsync(
