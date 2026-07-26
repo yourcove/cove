@@ -96,6 +96,7 @@ export function SavedFilterMenu({
   const [open, setOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [showSave, setShowSave] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   // Named saved filters are keyed by `mode` (server-side, enum-validated); the auto-applied default
   // is keyed separately so views sharing a `mode` can still keep independent defaults.
   const defaultKey = defaultFilterKey ?? mode;
@@ -105,6 +106,17 @@ export function SavedFilterMenu({
     queryKey: ["saved-filters", mode],
     queryFn: () => savedFilters.list(mode),
   });
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -159,7 +171,7 @@ export function SavedFilterMenu({
   };
 
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded-lg border border-border bg-card/70 px-2 py-1 text-xs text-secondary hover:border-accent hover:text-foreground"
