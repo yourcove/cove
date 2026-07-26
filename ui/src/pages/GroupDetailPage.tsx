@@ -11,7 +11,7 @@ import { AudioTile, EntityTileFrame, GroupTile, ImageTile, VideoCard, SegmentTil
 import { CompilationPlayer } from "../components/CompilationPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { QuickViewDialog } from "../components/QuickViewDialog";
-import { DetailListPagination, DetailListToolbar, type DetailListDisplayMode } from "../components/DetailListToolbar";
+import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
@@ -38,6 +38,8 @@ import { ContextualVideoListView } from "../components/ContextualMediaListViews"
 import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { getLoadError } from "../utils/queryLoadState";
+import { sortSeededRandom } from "../utils/seededRandomSort";
+import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 interface Props {
   id: number;
@@ -49,6 +51,7 @@ type TabKey = "items" | "subGroups" | (string & {});
 const GROUP_ITEM_SORT_OPTIONS = [
   { value: "order", label: "Item #" },
   { value: "added_at", label: "Added to Group" },
+  { value: "random", label: "Random" },
   { value: "title", label: "Title" },
   { value: "code", label: "Code" },
   { value: "date", label: "Date" },
@@ -72,6 +75,8 @@ const GROUP_ITEM_SORT_OPTIONS = [
   { value: "created_at", label: "Created At" },
   { value: "updated_at", label: "Updated At" },
 ];
+const GROUP_ITEM_BUILT_IN_FILTER: FindFilter = { page: 1, perPage: 40, sort: "order", direction: "asc" };
+const GROUP_ITEM_DISPLAY_MODES = ["grid", "list"] as const;
 
 const GROUP_ITEM_CRITERIA: CriterionDefinition[] = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
@@ -123,6 +128,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [addSubGroupRequestId, setAddSubGroupRequestId] = useState(0);
   const opsMenuRef = useRef<HTMLDivElement | null>(null);
+  const getCompilationItemOrderRef = useRef<() => Promise<string[]>>(async () => []);
   const [activeTab, setActiveTab] = useState<TabKey>("items");
   const { allTabs: groupTabs, renderExtensionTab } = useExtensionTabs("group", [
     { key: "items", label: "Items" },
@@ -221,6 +227,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
 
   const itemsContent = (
     <GroupItemsPanel
+      key={group.id}
       group={group}
       filter={videoFilter}
       setFilter={setVideoFilter}
@@ -233,6 +240,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       canReadGroups={canReadGroups}
       canWriteGroup={canWriteGroup}
       addSubGroupRequestId={addSubGroupRequestId}
+      getCompilationItemOrderRef={getCompilationItemOrderRef}
     />
   );
 
@@ -346,7 +354,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
             {hasPlaybackItems ? (
               <button
                 type="button"
-                onClick={() => onNavigate({ page: "compilation", id })}
+                onClick={async () => onNavigate({ page: "compilation", id, compilationItemOrder: await getCompilationItemOrderRef.current() })}
                 className={`${HERO_ACTION_BUTTON_CLASS} text-secondary`}
                 title={hasCompilationItems ? "Standalone Compilation" : "Standalone Player"}
               >
@@ -485,7 +493,7 @@ type MixedGroupItem =
   | { source: "item"; id: string; item: GroupItem; orderIndex: number; kind: GroupItemKind }
   | { source: "subgroup"; id: string; group: Group; orderIndex: number; kind: "group" };
 
-function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, groupItemsLoading, groupItemsLoadError, retryGroupItems, canReadVideos, canReadGroups, canWriteGroup, addSubGroupRequestId }: {
+function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, groupItemsLoading, groupItemsLoadError, retryGroupItems, canReadVideos, canReadGroups, canWriteGroup, addSubGroupRequestId, getCompilationItemOrderRef }: {
   group: Group;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
@@ -498,15 +506,26 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   canReadGroups: boolean;
   canWriteGroup?: boolean;
   addSubGroupRequestId?: number;
+  getCompilationItemOrderRef: React.MutableRefObject<() => Promise<string[]>>;
 }) {
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-    const setGroupViewMode = useCallback((mode: DetailListDisplayMode) => {
-      if (mode === "grid" || mode === "list") setViewMode(mode);
-    }, []);
-  const [mixedFilter, setMixedFilter] = useState<FindFilter>(() => ({ page: 1, perPage: 40, sort: "order", direction: "asc" }));
+  const {
+    filter: mixedFilter,
+    setFilter: setMixedFilter,
+    objectFilter: itemObjectFilter,
+    setObjectFilter: setItemObjectFilter,
+    displayMode: viewMode,
+    setDisplayMode: setGroupViewMode,
+  } = useDetailListUrlState({
+    stateKey: `group-items-${group.id}`,
+    resetKey: `group-items-${group.id}`,
+    builtInFilter: GROUP_ITEM_BUILT_IN_FILTER,
+    defaultFilterKey: `groupitems-${group.id}`,
+    defaultDisplayMode: "grid" as const,
+    allowedDisplayModes: GROUP_ITEM_DISPLAY_MODES,
+    allowInfinitePageSize: true,
+  });
   const [zoomLevel, setZoomLevel] = useState(0);
-  const [itemObjectFilter, setItemObjectFilter] = useState<Record<string, unknown>>({});
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmSelectionAction, setConfirmSelectionAction] = useState<"remove" | "delete" | null>(null);
@@ -583,6 +602,17 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     enabled: canReadGroups && (isDynamic || (!groupItemsLoading && !subGroupsLoading)),
   });
   const displayedMixedItems = mixedData?.items ?? [];
+  const getCompilationItemOrder = useCallback(async () => {
+    const allItemsPage = await queryMixedItemsPage({ ...mixedFilter, page: 1, perPage: 0 });
+    return allItemsPage.items
+      .filter((item): item is Extract<MixedGroupItem, { source: "item" }> => item.source === "item")
+      .map((item) => isDynamic
+        ? `${(item.item.hostType || item.item.kind).toLowerCase()}:${getMixedItemHostIdValue(item)}`
+        : `item:${item.item.id}`);
+  }, [isDynamic, mixedFilter, queryMixedItemsPage]);
+  useEffect(() => {
+    getCompilationItemOrderRef.current = getCompilationItemOrder;
+  }, [getCompilationItemOrder, getCompilationItemOrderRef]);
   const totalItemCount = mixedData?.totalCount ?? 0;
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items: displayedMixedItems, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [itemObjectFilter, group.id] });
   const selectedCount = selectedIds.size;
@@ -611,7 +641,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     const currentPage = mixedFilter.page ?? 1;
     if (currentPage <= totalPages) return;
 
-    setMixedFilter((current) => ({ ...current, page: totalPages }));
+    setMixedFilter({ ...mixedFilter, page: totalPages });
   }, [infinitePageSize, mixedFilter.page, mixedFilter.perPage, totalItemCount]);
 
   const getSelectedItemsByIds = useCallback(async (ids: Set<string>) => {
@@ -772,11 +802,16 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
       displayMode={viewMode}
-      onDisplayModeChange={setGroupViewMode}
+      onDisplayModeChange={(mode) => {
+        if (mode === "grid" || mode === "list") setGroupViewMode(mode);
+      }}
       availableDisplayModes={["grid", "list"]}
       criteriaDefinitions={GROUP_ITEM_CRITERIA}
       objectFilter={itemObjectFilter}
       onObjectFilterChange={setItemObjectFilter}
+      filterMode="groupitems"
+      filterDefaultKey={`groupitems-${group.id}`}
+      defaultFilterResolved
       allowInfinitePageSize
       selectionActions={(
         <>
@@ -948,7 +983,7 @@ function pageMixedGroupItems(items: MixedGroupItem[], filter: FindFilter, object
       })
     : items;
   const filteredItems = searchedItems.filter((item) => matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData));
-  const sortedItems = sortMixedGroupItems(filteredItems, filter.sort, filter.direction, hostData, engagementData);
+  const sortedItems = sortMixedGroupItems(filteredItems, filter.sort, filter.direction, filter.seed, hostData, engagementData);
   const page = Math.max(1, filter.page ?? 1);
   const infinitePageSize = (filter.perPage ?? 40) <= 0;
   const perPage = infinitePageSize ? Math.max(sortedItems.length, 1) : Math.max(1, filter.perPage ?? 40);
@@ -1335,7 +1370,11 @@ function groupItemHost(item: MixedGroupItem) {
   return { title, subtitle, kind: groupItem.kind, route };
 }
 
-function sortMixedGroupItems(items: MixedGroupItem[], sort?: string, direction?: FindFilter["direction"], hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+function sortMixedGroupItems(items: MixedGroupItem[], sort?: string, direction?: FindFilter["direction"], seed?: number, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+  if (sort === "random") {
+    return sortSeededRandom(items, (item) => item.id, seed, direction === "desc");
+  }
+
   const sorted = [...items];
   sorted.sort((left, right) => {
     const leftMeta = getMixedItemMetadata(left, hostData, engagementData);

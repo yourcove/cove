@@ -22,6 +22,7 @@ import { AudioPlayer } from "./AudioPlayer";
 import { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
 import { TextViewer } from "./TextViewer";
 import { VideoPlayer } from "./VideoPlayer";
+import { useAppConfig } from "../state/AppConfigContext";
 
 interface Props {
   groupId: number;
@@ -49,10 +50,18 @@ export function CompilationPlayer({
   backLabel,
   onGoBack,
 }: Props) {
+  const { config, configLoading } = useAppConfig();
+  const automaticPlayback = config?.ui.autostartVideo ?? false;
+  const playbackIntentSetRef = useRef(false);
+  const playbackActiveRef = useRef(automaticPlayback);
+  const transitionPosterStateRef = useRef({ groupId, suppressed: false });
+  if (transitionPosterStateRef.current.groupId !== groupId) {
+    transitionPosterStateRef.current = { groupId, suppressed: false };
+  }
   const seekRef = useRef<((time: number) => void) | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [loopCompilation, setLoopCompilation] = useState(false);
-  const [autostart, setAutostart] = useState(false);
+  const [autostart, setAutostart] = useState(automaticPlayback);
   const [autostartToken, setAutostartToken] = useState(0);
   const [activeTab, setActiveTab] = useState<CompilationTab>("playlist");
   const [enabledTypes, setEnabledTypes] = useState<Record<TypeFilterKey, boolean>>({
@@ -64,6 +73,12 @@ export function CompilationPlayer({
   });
   const [imageDisplayDurationSec, setImageDisplayDurationSec] = useState(DEFAULT_IMAGE_DISPLAY_DURATION_SEC);
   const [textDisplayDurationSec, setTextDisplayDurationSec] = useState(DEFAULT_TEXT_DISPLAY_DURATION_SEC);
+
+  useEffect(() => {
+    if (configLoading || playbackIntentSetRef.current) return;
+    setAutostart(automaticPlayback);
+    playbackActiveRef.current = automaticPlayback;
+  }, [automaticPlayback, configLoading]);
 
   const visibleItems = useMemo(
     () => items.filter((manifestItem) => enabledTypes[getTypeFilterKey(manifestItem)]),
@@ -173,14 +188,19 @@ export function CompilationPlayer({
     }
 
     const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
+    if (boundedIndex === currentItemIndex) return;
+    transitionPosterStateRef.current.suppressed = shouldAutoPlay;
+    if (!shouldAutoPlay) playbackIntentSetRef.current = true;
     if (shouldAutoPlay) {
+      playbackActiveRef.current = true;
       setAutostart(true);
       setAutostartToken((value) => value + 1);
     } else {
+      playbackActiveRef.current = false;
       setAutostart(false);
     }
     setCurrentItemIndex(boundedIndex);
-  }, [visibleItems.length]);
+  }, [currentItemIndex, visibleItems.length]);
 
   const advanceToNextItem = useCallback(() => {
     if (currentItemIndex + 1 < visibleItems.length) {
@@ -194,13 +214,13 @@ export function CompilationPlayer({
   }, [currentItemIndex, loopCompilation, moveToItem, visibleItems.length]);
 
   useEffect(() => {
-    if (!item || itemLoading || (!itemIsImage && !itemIsText) || displayDurationSec <= 0) {
+    if (!autostart || !item || itemLoading || (!itemIsImage && !itemIsText) || displayDurationSec <= 0) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => advanceToNextItem(), displayDurationSec * 1000);
     return () => window.clearTimeout(timeoutId);
-  }, [advanceToNextItem, displayDurationSec, item, itemIsImage, itemIsText, itemLoading]);
+  }, [advanceToNextItem, autostart, displayDurationSec, item, itemIsImage, itemIsText, itemLoading]);
 
   const restartItem = useCallback(() => {
     if (!item) {
@@ -286,7 +306,7 @@ export function CompilationPlayer({
         <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
           <VideoPlayer
             streamUrl={videos.streamUrl(currentVideoId)}
-            posterUrl={item.posterPath ?? videos.screenshotUrl(currentVideoId)}
+            posterUrl={transitionPosterStateRef.current.suppressed ? undefined : item.posterPath ?? videos.screenshotUrl(currentVideoId)}
             format={currentFile.format}
             audioCodec={currentFile.audioCodec}
             duration={currentFile.duration}
@@ -294,7 +314,10 @@ export function CompilationPlayer({
             videoId={currentVideoId}
             detections={[]}
             captions={currentFile.captions}
-            onPlay={() => setAutostart(false)}
+            onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}
+            onPlaybackStateChange={(playing) => {
+              if (playing || !autostart) playbackActiveRef.current = playing;
+            }}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
               if (autostart && item && !itemLoading && currentPlayable) {
@@ -318,7 +341,10 @@ export function CompilationPlayer({
             subtitle={[currentAudio?.performers?.map((performer) => performer.name).filter(Boolean).join(", "), currentAudio?.studioName].filter(Boolean).join(" • ") || undefined}
             hasVideoTrack={currentAudioFile?.hasVideoTrack ?? item.hasVideoTrack}
             resumeTime={item.startSec}
-            onPlay={() => setAutostart(false)}
+            onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}
+            onPlaybackStateChange={(playing) => {
+              if (playing || !autostart) playbackActiveRef.current = playing;
+            }}
             onSeekRegister={(fn) => {
               seekRef.current = fn;
               if (autostart && item && !itemLoading && currentPlayable) {
@@ -401,7 +427,7 @@ export function CompilationPlayer({
               <button
                 key={manifestItem.groupItemId}
                 type="button"
-                onClick={() => moveToItem(index)}
+                onClick={() => moveToItem(index, playbackActiveRef.current)}
                 className={`flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-card/60 text-secondary hover:border-accent hover:text-foreground"}`}
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-current/20 bg-background/70">

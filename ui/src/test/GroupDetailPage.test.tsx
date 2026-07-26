@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { GroupDetailPage } from "../pages/GroupDetailPage";
+import { sortSeededRandom } from "../utils/seededRandomSort";
 
 const { mockGroups, mockVideos, mockGoBack } = vi.hoisted(() => ({
   mockGroups: {
@@ -77,8 +79,23 @@ vi.mock("../components/QuickViewDialog", () => ({
 }));
 
 vi.mock("../components/DetailListToolbar", () => ({
-  DetailListToolbar: () => null,
+  DetailListToolbar: ({ sortOptions, filterMode, filterDefaultKey, filter, onFilterChange }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string; filter: Record<string, unknown>; onFilterChange: (filter: Record<string, unknown>) => void }) => (
+    <MockDetailListToolbar sortOptions={sortOptions} filterMode={filterMode} filterDefaultKey={filterDefaultKey} filter={filter} onFilterChange={onFilterChange} />
+  ),
+  DetailListPagination: () => null,
 }));
+
+function MockDetailListToolbar({ sortOptions, filterMode, filterDefaultKey, filter, onFilterChange }: { sortOptions: Array<{ value: string; label: string }>; filterMode?: string; filterDefaultKey?: string; filter: Record<string, unknown>; onFilterChange: (filter: Record<string, unknown>) => void }) {
+  const [mountedDefaultKey] = useState(filterDefaultKey);
+  return (
+    <div data-testid="group-item-sort-options" data-filter-mode={filterMode} data-filter-default-key={filterDefaultKey} data-mounted-default-key={mountedDefaultKey} data-sort={filter.sort} data-seed={filter.seed}>
+      {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
+      {sortOptions.some((option) => option.value === "order") ? (
+        <button type="button" onClick={() => onFilterChange({ ...filter, sort: "random", seed: 2468 })}>Use random group sort</button>
+      ) : null}
+    </div>
+  );
+}
 
 vi.mock("../components/AspectRatingsPanel", () => ({
   AspectRatingsPanel: () => <div>Aspect ratings</div>,
@@ -156,7 +173,7 @@ function buildGroup(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderPage() {
+function renderPage(id = 4) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -165,18 +182,27 @@ function renderPage() {
   });
   const onNavigate = vi.fn();
 
-  render(
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <GroupDetailPage id={4} onNavigate={onNavigate} />
+      <GroupDetailPage id={id} onNavigate={onNavigate} />
     </QueryClientProvider>,
   );
 
-  return { onNavigate };
+  return {
+    onNavigate,
+    unmountPage: rendered.unmount,
+    rerenderPage: (nextId: number) => rendered.rerender(
+      <QueryClientProvider client={queryClient}>
+        <GroupDetailPage id={nextId} onNavigate={onNavigate} />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("GroupDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders the shared hero layout with metadata above the tabs", async () => {
@@ -208,6 +234,150 @@ describe("GroupDetailPage", () => {
     expect(screen.getByText("example.com")).toBeInTheDocument();
     expect(screen.getByText("Kind")).toBeInTheDocument();
     expect(screen.getByText("Static")).toBeInTheDocument();
+  });
+
+  it("offers random sorting for group items", async () => {
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [{ id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 }],
+      totalCount: 1,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    renderPage();
+
+    await waitFor(() => {
+      const sortOptionLists = screen.getAllByTestId("group-item-sort-options");
+      expect(sortOptionLists.some((options) => options.textContent?.includes("Item #") && options.textContent.includes("Random"))).toBe(true);
+    });
+  });
+
+  it("offers saved filters for group items", async () => {
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [{ id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 }],
+      totalCount: 1,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    renderPage();
+
+    await waitFor(() => {
+      const toolbars = screen.getAllByTestId("group-item-sort-options");
+      expect(toolbars.some((toolbar) => toolbar.textContent?.includes("Item #")
+        && toolbar.dataset.filterMode === "groupitems"
+        && toolbar.dataset.filterDefaultKey === "groupitems-4")).toBe(true);
+    });
+  });
+
+  it("remounts group item filters so each group can apply its own default", async () => {
+    mockGroups.get.mockImplementation(async (id: number) => buildGroup({ id }));
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [{ id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 }],
+      totalCount: 1,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    const { rerenderPage } = renderPage(4);
+    await waitFor(() => expect(screen.getAllByTestId("group-item-sort-options").some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-4")).toBe(true));
+
+    rerenderPage(5);
+
+    await waitFor(() => expect(screen.getAllByTestId("group-item-sort-options").some((toolbar) => toolbar.dataset.mountedDefaultKey === "groupitems-5")).toBe(true));
+  });
+
+  it("keeps random group-item sorting stable for a seed and reshuffles for a new seed", () => {
+    const ids = [1, 2, 3, 4, 5].map((id) => `item-${id}`);
+    const orderForSeed = (seed: number) => sortSeededRandom(ids, (id) => id, seed);
+    const firstOrder = orderForSeed(1);
+    const repeatedOrder = orderForSeed(1);
+    const reshuffledOrder = orderForSeed(2);
+
+    expect(repeatedOrder).toEqual(firstOrder);
+    expect(reshuffledOrder).not.toEqual(firstOrder);
+  });
+
+  it("opens standalone compilation in the full group-item list order", async () => {
+    const items = [
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+      { id: 22, orderIndex: 1, videoId: 11, title: "Clip Two", kind: "videoRange", startSec: 1, endSec: 5 },
+      { id: 23, orderIndex: 2, videoId: 12, title: "Clip Three", kind: "videoRange", startSec: 1, endSec: 5 },
+    ];
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue(items);
+    mockGroups.items.page.mockResolvedValue({ items, totalCount: items.length, page: 1, perPage: 40 });
+    mockGroups.items.playbackManifest.mockResolvedValue({
+      items: items.map((item) => ({ groupItemId: item.id, videoId: item.videoId, title: item.title, startSec: 1, endSec: 5, durationSec: 4 })),
+    });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    const { onNavigate } = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Use random group sort" }));
+    fireEvent.click(screen.getByTitle("Standalone Compilation"));
+
+    const expectedOrder = sortSeededRandom(items, (item) => `item-${item.id}`, 2468).map((item) => `item:${item.id}`);
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({
+      page: "compilation",
+      id: 4,
+      compilationItemOrder: expectedOrder,
+    }));
+  });
+
+  it("persists the group item random sort and seed in the URL", async () => {
+    window.history.replaceState(null, "", "/group/4");
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 40 });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    const { unmountPage } = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Use random group sort" }));
+
+    await waitFor(() => {
+      expect(window.location.search).toContain("sort=random");
+      expect(window.location.search).toContain("seed=2468");
+    });
+
+    unmountPage();
+    renderPage();
+
+    await waitFor(() => {
+      const toolbars = screen.getAllByTestId("group-item-sort-options");
+      expect(toolbars.some((toolbar) => toolbar.textContent?.includes("Item #")
+        && toolbar.dataset.sort === "random"
+        && toolbar.dataset.seed === "2468")).toBe(true);
+    });
   });
 
   it("opens the group editor from the hero action", async () => {
@@ -256,4 +426,3 @@ describe("GroupDetailPage", () => {
     await waitFor(() => expect(mockGroups.addSubGroup).toHaveBeenCalledWith(4, 8));
   });
 });
-

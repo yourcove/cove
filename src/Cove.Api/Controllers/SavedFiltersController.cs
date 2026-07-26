@@ -22,8 +22,13 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
     public async Task<ActionResult<IReadOnlyList<SavedFilterDto>>> GetAll([FromQuery] string? mode, CancellationToken ct)
     {
         IReadOnlyList<SavedFilter> filters;
-        if (mode != null && Enum.TryParse<FilterMode>(mode, true, out var filterMode))
+        if (mode != null)
+        {
+            if (!Enum.TryParse<FilterMode>(mode, true, out var filterMode))
+                return BadRequest(new { message = $"Invalid filter mode: {mode}" });
+
             filters = await filterRepo.GetByModeForUserAsync(filterMode, CurrentUserId, ct);
+        }
         else
             filters = await filterRepo.GetAllForUserAsync(CurrentUserId, ct);
 

@@ -565,7 +565,7 @@ function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Route) => 
       {route.page === "gallery" && route.id !== undefined && <DetailListStateCacheProvider key={`gallery-${route.id}`}><GalleryDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
       {route.page === "groups" && <GroupsPage onNavigate={navigate} />}
       {route.page === "group" && route.id !== undefined && <GroupDetailPage id={route.id} onNavigate={navigate} />}
-      {route.page === "compilation" && route.id !== undefined && <CompilationPlayerPage id={route.id} onNavigate={navigate} />}
+      {route.page === "compilation" && route.id !== undefined && <CompilationPlayerPage id={route.id} itemOrder={route.compilationItemOrder} onNavigate={navigate} />}
       {route.page === "images" && <ImagesPage onNavigate={navigate} />}
       {route.page === "image" && route.id !== undefined && <ImageDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "settings" && <SettingsPage />}

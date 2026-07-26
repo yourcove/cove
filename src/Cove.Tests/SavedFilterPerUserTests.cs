@@ -31,7 +31,8 @@ public class SavedFilterPerUserTests
     [Theory]
     [InlineData("segments", FilterMode.Segments)]
     [InlineData("rawsegments", FilterMode.RawSegments)]
-    public async Task Create_accepts_distinct_segment_modes(string mode, FilterMode expected)
+    [InlineData("groupitems", FilterMode.GroupItems)]
+    public async Task Create_accepts_distinct_filter_modes(string mode, FilterMode expected)
     {
         var repo = new FakeSavedFilterRepo();
 
@@ -67,6 +68,17 @@ public class SavedFilterPerUserTests
             Assert.IsType<OkObjectResult>((await ControllerFor(1, repo).GetAll("videos", default)).Result).Value);
 
         Assert.Equal(new[] { "alpha", "Bravo", "Zulu" }, list.Select(f => f.Name));
+    }
+
+    [Fact]
+    public async Task GetAll_rejects_an_explicit_unknown_mode_instead_of_returning_every_filter()
+    {
+        var repo = new FakeSavedFilterRepo();
+        await ControllerFor(1, repo).Create(CreateDto("private filter"), default);
+
+        var result = await ControllerFor(1, repo).GetAll("unknown-mode", default);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
     [Fact]
