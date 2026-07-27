@@ -51,7 +51,8 @@ public record VideoUpdateDto(
     string? Captions,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? Groups, List<VideoRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields,
-    double? ClipStartSec = null, double? ClipEndSec = null, bool? IsVr = null);
+    double? ClipStartSec = null, double? ClipEndSec = null, bool? IsVr = null,
+    List<string>? ClearFields = null);
 
 // ===== PERFORMER DTOs =====
 public record PerformerDto(
@@ -89,7 +90,8 @@ public record PerformerUpdateDto(
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
     string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
     bool? Favorite, int? Rating, string? Details,
-    List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<PerformerRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields);
+    List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<PerformerRemoteIdDto>? RemoteIds,
+    Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
 
 // ===== TAG DTOs =====
 public record TagProvenanceDto(
@@ -275,7 +277,8 @@ public record TagUpdateDto(
     double? MinOccurrenceSec = null,
     double? MinOccurrencePercent = null,
     List<TagRemoteIdDto>? RemoteIds = null,
-    bool? Organized = null);
+    bool? Organized = null,
+    List<string>? ClearFields = null);
 
 // ===== STUDIO DTOs =====
 public record StudioDto(int Id, string Name, int? ParentId, string? ParentName, bool Favorite, string? Details, bool Organized,
@@ -290,7 +293,8 @@ public record StudioCreateDto(string Name, int? ParentId, int? Rating, bool Favo
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<StudioRemoteIdDto>? RemoteIds = null, Dictionary<string, object>? CustomFields = null);
 
 public record StudioUpdateDto(string? Name, int? ParentId, int? Rating, bool? Favorite, string? Details, bool? Organized,
-    List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<StudioRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields);
+    List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<StudioRemoteIdDto>? RemoteIds,
+    Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
 
 // ===== GALLERY DTOs =====
 public record GalleryDto(int Id, string? Title, string? Code, string? Date, string? Details, string? Photographer,
@@ -312,7 +316,8 @@ public record GalleryCreateDto(string? Title, string? Code, string? Date, string
     int? Rating, bool Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? VideoIds, Dictionary<string, object>? CustomFields = null);
 
 public record GalleryUpdateDto(string? Title, string? Code, string? Date, string? Details, string? Photographer,
-    int? Rating, bool? Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? VideoIds, Dictionary<string, object>? CustomFields);
+    int? Rating, bool? Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
+    List<int>? VideoIds, Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
 
 // ===== IMAGE DTOs =====
 public record ImageDto(int Id, string? Title, string? Code, string? Details, string? Photographer,
@@ -330,7 +335,8 @@ public record ImageCreateDto(string? Title, string? Code, string? Details, strin
 
 public record ImageUpdateDto(string? Title, string? Code, string? Details, string? Photographer,
     int? Rating, bool? Organized, int? StudioId, string? Date,
-    List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds, List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields);
+    List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
+    List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
 
 // ===== AUDIO DTOs =====
 public record AudioDto(
@@ -358,7 +364,8 @@ public record AudioCreateDto(
 public record AudioUpdateDto(
     string? Title, string? Code, string? Details, bool? Organized, int? StudioId,
     string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
-    List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields);
+    List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields,
+    List<string>? ClearFields = null);
 
 // ===== TEXT DTOs =====
 public record TextDocumentDto(
@@ -385,7 +392,8 @@ public record TextDocumentCreateDto(
 public record TextDocumentUpdateDto(
     string? Title, string? Code, string? Details, bool? Organized, int? StudioId,
     string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
-    List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields);
+    List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields,
+    List<string>? ClearFields = null);
 
 // ===== GROUP DTOs =====
 public record GroupDto(int Id, string Name, string? Aliases, string? Date,
@@ -515,7 +523,8 @@ public record GroupUpdateDto(string? Name, string? Aliases, string? Date,
     string? QueryJson = null,
     bool? ShowInVideoLists = null,
     List<string>? AllowedHostTypes = null,
-    int? SortOrder = null);
+    int? SortOrder = null,
+    List<string>? ClearFields = null);
 
 public record GroupQueryUpdateDto(string QuerySourceKey, string? QueryJson = null, int? CacheTtlSec = null);
 

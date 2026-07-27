@@ -103,6 +103,63 @@ describe("PerformerEditModal", () => {
     expect(mocks.performersUpdate.mock.calls[0][1]).not.toHaveProperty("favorite");
   });
 
+  it("explicitly clears blanked birthdate and height fields", async () => {
+    const user = userEvent.setup();
+    const performer: Performer = {
+      id: 1,
+      name: "Sample Performer",
+      birthdate: "2000-01-01",
+      heightCm: 170,
+      favorite: false,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      groupCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    };
+
+    const { container } = renderModal(performer);
+    const birthdateInput = container.querySelector('input[value="2000-01-01"]');
+    const heightInput = container.querySelector('input[type="number"][value="170"]');
+    expect(birthdateInput).not.toBeNull();
+    expect(heightInput).not.toBeNull();
+
+    await user.clear(birthdateInput!);
+    await user.clear(heightInput!);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({
+      clearFields: [
+        "disambiguation",
+        "gender",
+        "birthdate",
+        "deathDate",
+        "ethnicity",
+        "country",
+        "eyeColor",
+        "hairColor",
+        "heightCm",
+        "weight",
+        "measurements",
+        "fakeTits",
+        "penisLength",
+        "circumcised",
+        "careerStart",
+        "careerEnd",
+        "tattoos",
+        "piercings",
+        "details",
+      ],
+    })));
+  });
+
   it("searches tags remotely and adds selected tags to the payload", async () => {
     const user = userEvent.setup();
     const performer: Performer = {

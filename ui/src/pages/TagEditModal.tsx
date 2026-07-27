@@ -77,6 +77,10 @@ export function TagEditModal({ tag, open, onClose }: Props) {
 
   const handleSave = () => {
     const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
+    const clearFields = [
+      !sortName && "sortName",
+      !description && "description",
+    ].filter((field): field is string => Boolean(field));
     mutation.mutate({
       name,
       sortName: sortName || undefined,
@@ -93,6 +97,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
       childIds: selectedChildIds,
       remoteIds: normalizeRemoteIds(remoteIds),
       customFields,
+      clearFields,
     });
   };
 

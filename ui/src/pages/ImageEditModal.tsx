@@ -147,7 +147,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
     secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
   }));
 
-  const buildPayload = (): ImageCreate => {
+  const buildPayload = (): ImageCreate & { clearFields?: string[] } => {
     const urlList = form.urls.map((url) => url.trim()).filter(Boolean);
     // On edit, send raw (trimmed) strings including "" so cleared fields persist.
     // On create, omit empties to avoid sending empty noise.
@@ -156,6 +156,12 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       const trimmed = value.trim();
       return isEdit ? trimmed : trimmed || undefined;
     };
+    const clearFields = isEdit
+      ? [
+          !form.date && "date",
+          form.studioId === undefined && "studioId",
+        ].filter((field): field is string => Boolean(field))
+      : undefined;
     return {
       title: text(form.title),
       code: text(form.code),
@@ -170,6 +176,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       galleryIds: form.selectedGalleryIds,
       groupIds: form.selectedGroups,
       customFields: image ? form.customFields : Object.keys(form.customFields).length > 0 ? form.customFields : undefined,
+      clearFields,
     };
   };
 

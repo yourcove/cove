@@ -101,9 +101,17 @@ export function GroupEditModal({ group, open, onClose }: Props) {
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
+    const joinedAliases = joinAliases(aliases);
+    const clearFields = [
+      !joinedAliases && "aliases",
+      !director && "director",
+      !date && "date",
+      studioId === undefined && "studioId",
+      !description && "description",
+    ].filter((field): field is string => Boolean(field));
     mutation.mutate({
       name,
-      aliases: joinAliases(aliases) || undefined,
+      aliases: joinedAliases || undefined,
       director: director || undefined,
       date: date || undefined,
       studioId,
@@ -115,6 +123,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
       querySourceKey: kind === "dynamic" ? querySourceKey : undefined,
       queryJson: kind === "dynamic" && querySourceKey === FILTER_DYNAMIC_SOURCE_KEY ? queryJson : undefined,
       showInVideoLists,
+      clearFields,
     });
   };
 

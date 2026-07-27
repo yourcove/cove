@@ -109,6 +109,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     {
         var group = await groupRepo.GetByIdWithRelationsAsync(id, ct);
         if (group == null) return NotFound();
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Name != null) group.Name = dto.Name;
         if (dto.Aliases != null) group.Aliases = dto.Aliases;
@@ -116,6 +117,11 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         if (dto.StudioId.HasValue) group.StudioId = dto.StudioId;
         if (dto.Director != null) group.Director = dto.Director;
         if (dto.Description != null) group.Synopsis = dto.Description;
+        if (clearFields.Contains("aliases")) group.Aliases = null;
+        if (clearFields.Contains("date")) group.Date = null;
+        if (clearFields.Contains("studioId")) group.StudioId = null;
+        if (clearFields.Contains("director")) group.Director = null;
+        if (clearFields.Contains("description")) group.Synopsis = null;
         if (dto.Kind.HasValue)
         {
             group.Kind = dto.Kind.Value;
@@ -689,4 +695,3 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         int SegmentCount = 0,
         int ItemCount = 0);
 }
-

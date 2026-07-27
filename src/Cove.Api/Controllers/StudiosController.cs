@@ -96,12 +96,15 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     {
         var studio = await studioRepo.GetByIdWithRelationsAsync(id, ct);
         if (studio == null) return NotFound();
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Name != null) studio.Name = dto.Name;
         if (dto.ParentId.HasValue) studio.ParentId = dto.ParentId;
         if (dto.Favorite.HasValue) studio.Favorite = dto.Favorite.Value;
         if (dto.Details != null) studio.Details = dto.Details;
         if (dto.Organized.HasValue) studio.Organized = dto.Organized.Value;
+        if (clearFields.Contains("parentId")) studio.ParentId = null;
+        if (clearFields.Contains("details")) studio.Details = null;
 
         if (dto.Urls != null)
         {

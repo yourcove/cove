@@ -341,6 +341,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         if (video == null) return NotFound();
         var previousTagIds = dto.TagIds != null ? video.VideoTags.Select(videoTag => videoTag.TagId).ToArray() : [];
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Title != null) video.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
         if (dto.Code != null) video.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
@@ -351,6 +352,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
         if (dto.Captions != null) video.Captions = string.IsNullOrWhiteSpace(dto.Captions) ? null : dto.Captions;
+        if (clearFields.Contains("date")) video.Date = null;
+        if (clearFields.Contains("studioId")) video.StudioId = null;
         if (video.ParentVideoId.HasValue && (dto.ClipStartSec.HasValue || dto.ClipEndSec.HasValue))
         {
             var parentResolution = await ResolveSubVideoParentAsync(video.ParentVideoId.Value, dto.ClipStartSec ?? video.ClipStartSec, dto.ClipEndSec ?? video.ClipEndSec, ct);
@@ -1521,4 +1524,3 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 }
 
 public record GenerateScreenshotDto(double? AtSeconds = null);
-

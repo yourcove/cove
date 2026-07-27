@@ -14,7 +14,12 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/StudioSelector", () => ({
-  StudioSelector: () => <div>Studio Selector</div>,
+  StudioSelector: ({ onChange }: { onChange: (value: number | undefined) => void }) => (
+    <div>
+      Studio Selector
+      <button onClick={() => onChange(undefined)}>Clear studio</button>
+    </div>
+  ),
 }));
 
 vi.mock("../components/EntityReferenceSelector", () => ({
@@ -140,5 +145,20 @@ describe("GalleryEditModal", () => {
     await waitFor(() => expect(mockGalleries.update).toHaveBeenCalledTimes(1));
 
     expect(mockGalleries.update.mock.calls[0][1]).toHaveProperty("videoIds", []);
+  });
+
+  it("marks a cleared date and studio for removal", async () => {
+    mockGalleries.update.mockResolvedValue({});
+
+    renderModal();
+
+    fireEvent.change(screen.getByDisplayValue("2026-05-01"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear studio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockGalleries.update).toHaveBeenCalledTimes(1));
+    expect(mockGalleries.update.mock.calls[0][1]).toEqual(expect.objectContaining({
+      clearFields: ["date", "studioId"],
+    }));
   });
 });

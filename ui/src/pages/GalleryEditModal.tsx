@@ -50,6 +50,10 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
   });
 
   const save = () => {
+    const clearFields = [
+      !form.date && "date",
+      form.studioId === undefined && "studioId",
+    ].filter((field): field is string => Boolean(field));
     mutation.mutate({
       title: form.title,
       code: form.code,
@@ -62,6 +66,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
       performerIds: form.performerIds,
       videoIds: form.videoIds,
       customFields,
+      clearFields,
     });
   };
 

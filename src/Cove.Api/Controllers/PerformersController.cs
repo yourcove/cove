@@ -276,6 +276,31 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             p.RemoteIds.Clear();
             p.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new PerformerRemoteId { PerformerId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
         }
+        foreach (var field in dto.ClearFields?.Distinct(StringComparer.OrdinalIgnoreCase) ?? [])
+        {
+            switch (field.ToLowerInvariant())
+            {
+                case "disambiguation": p.Disambiguation = null; break;
+                case "gender": p.Gender = null; break;
+                case "birthdate": p.Birthdate = null; break;
+                case "deathdate": p.DeathDate = null; break;
+                case "ethnicity": p.Ethnicity = null; break;
+                case "country": p.Country = null; break;
+                case "eyecolor": p.EyeColor = null; break;
+                case "haircolor": p.HairColor = null; break;
+                case "heightcm": p.HeightCm = null; break;
+                case "weight": p.Weight = null; break;
+                case "measurements": p.Measurements = null; break;
+                case "faketits": p.FakeTits = null; break;
+                case "penislength": p.PenisLength = null; break;
+                case "circumcised": p.Circumcised = null; break;
+                case "careerstart": p.CareerStart = null; break;
+                case "careerend": p.CareerEnd = null; break;
+                case "tattoos": p.Tattoos = null; break;
+                case "piercings": p.Piercings = null; break;
+                case "details": p.Details = null; break;
+            }
+        }
         await performerRepo.UpdateAsync(p, ct);
         if (dto.CustomFields != null)
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct);
