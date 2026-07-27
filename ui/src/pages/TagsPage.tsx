@@ -204,7 +204,10 @@ export function TagsPage({ onNavigate }: Props) {
           } : undefined}
         />
       ) : displayMode === "grid" ? (
-        <VirtualizedEntityGrid
+        // Stable scope for entity.media extensions that adapt top-level card geometry.
+        // Nested tag grids deliberately remain outside this hook.
+        <div className="top-level-tags-grid">
+          <VirtualizedEntityGrid
           items={items}
           getItemKey={(tag) => tag.id}
           minCardWidth="var(--card-min-width, 200px)"
@@ -226,7 +229,8 @@ export function TagsPage({ onNavigate }: Props) {
               <ExtensionSlot slot="tag-card-footer" context={{ tag, onNavigate }} />
             </TagTile>
           )}
-        />
+          />
+        </div>
       ) : (
         <RelatedEntityListView entityType="tags" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
       )}

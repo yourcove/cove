@@ -116,7 +116,7 @@ export function ExtensionSelectionActions({ entityType, selectedIds }: Props) {
       const payload = buildActionPayload(action, normalizedEntityType, selectedIdList);
 
       if (action.handlerName) {
-        const handler = resolveActionHandler(action.handlerName);
+        const handler = resolveActionHandler(action.extensionId, action.handlerName);
         if (handler) {
           return await handler(action, payload);
         }

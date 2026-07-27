@@ -9,6 +9,25 @@ namespace Cove.Sdk;
 /// </summary>
 public class UIManifestBuilder
 {
+    private static readonly IReadOnlyDictionary<string, string> CanonicalCriterionModifiers =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["equals"] = "EQUALS",
+            ["notequals"] = "NOT_EQUALS",
+            ["greaterthan"] = "GREATER_THAN",
+            ["lessthan"] = "LESS_THAN",
+            ["includes"] = "INCLUDES",
+            ["excludes"] = "EXCLUDES",
+            ["includesall"] = "INCLUDES_ALL",
+            ["excludesall"] = "EXCLUDES_ALL",
+            ["isnull"] = "IS_NULL",
+            ["notnull"] = "NOT_NULL",
+            ["between"] = "BETWEEN",
+            ["notbetween"] = "NOT_BETWEEN",
+            ["matchesregex"] = "MATCHES_REGEX",
+            ["notmatchesregex"] = "NOT_MATCHES_REGEX",
+        };
+
     private readonly UIManifest _manifest = new();
     private readonly string _extensionId;
 
@@ -342,6 +361,58 @@ public class UIManifestBuilder
             Options: options?.ToList(),
             Order: order));
         return this;
+    }
+
+    /// <summary>
+    /// Add a first-class advanced filter resolved by this extension's backend provider.
+    /// </summary>
+    public UIManifestBuilder AddExtensionListFilter(
+        string entityType,
+        string id,
+        string label,
+        string criterionType,
+        string filterId,
+        int order = 100,
+        IEnumerable<string>? modifiers = null,
+        IEnumerable<UIListFilterOption>? options = null)
+    {
+        if (string.IsNullOrWhiteSpace(entityType))
+            throw new ArgumentException("Executable extension filter entity type is required.", nameof(entityType));
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException("Executable extension filter ID is required.", nameof(id));
+        if (string.IsNullOrWhiteSpace(label))
+            throw new ArgumentException("Executable extension filter label is required.", nameof(label));
+        if (string.IsNullOrWhiteSpace(criterionType))
+            throw new ArgumentException("Executable extension filter criterion type is required.", nameof(criterionType));
+        if (string.IsNullOrWhiteSpace(filterId))
+            throw new ArgumentException("Executable extension backend filter ID is required.", nameof(filterId));
+
+        var normalizedModifiers = modifiers?
+            .Select(modifier => modifier?.Trim())
+            .Where(modifier => !string.IsNullOrWhiteSpace(modifier))
+            .Select(modifier => NormalizeCriterionModifier(modifier!))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _manifest.ListFilters.Add(new UIListFilterContribution(
+            id.Trim(),
+            entityType.Trim().ToLowerInvariant(),
+            label.Trim(),
+            criterionType.Trim().ToLowerInvariant(),
+            _extensionId,
+            Modifiers: normalizedModifiers,
+            Options: options?.ToList(),
+            Order: order)
+        {
+            FilterId = filterId.Trim(),
+        });
+        return this;
+    }
+
+    private static string NormalizeCriterionModifier(string modifier)
+    {
+        var compact = string.Concat(modifier.Where(char.IsLetterOrDigit));
+        return CanonicalCriterionModifiers.GetValueOrDefault(compact, modifier);
     }
 
     /// <summary>Add a first-class sort option backed by an existing backend sort key.</summary>

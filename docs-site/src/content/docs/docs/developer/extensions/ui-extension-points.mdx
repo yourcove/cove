@@ -3,7 +3,7 @@ title: UI extension points
 description: Detailed reference for Cove pages, slots, tabs, settings, actions, themes, list contributions, and UI overrides.
 ---
 
-A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports that bundle, registers functions from its default export's `components` map, and combines the manifest with contributions from other enabled extensions.
+A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports each enabled extension's bundle independently, registers its exports under the owning extension id, and combines the manifest contributions from every enabled extension.
 
 This page describes the UI contributions Cove currently renders. The [general extension-point catalog](../extension-points/) covers backend and provider capabilities.
 
@@ -11,9 +11,13 @@ This page describes the UI contributions Cove currently renders. The [general ex
 
 Set `JsBundle` in `extension.json` when a contribution references a React component or frontend handler, and set `CssBundle` when custom styles are needed. Put the React components named by page, tab, slot, settings, and override contributions in the default export's `components` map. Contribution ids and keys should be stable across releases because Cove uses them for registration, routing, preferences, and ordering.
 
+Component and action-handler names are local to one extension. Different extensions can export the same name without replacing each other because Cove keys every lookup by the authoritative extension owner. Bundle URLs are versioned, and Cove can replace or unload one owner's JavaScript, CSS, routes, slots, and handlers without disturbing another extension.
+
+The default export can also provide `actionHandlers` and asynchronous `onLoad` and `onUnload` hooks. The legacy `handlers` field remains an alias for `actionHandlers`. Cove waits for lifecycle hooks, rolls back the previous owner registration when replacement fails, and does not apply the replacement manifest until activation succeeds. Keep `onUnload` idempotent within one load cycle.
+
 Most contribution records contain:
 
-- `ExtensionId`, which must identify the owning extension
+- `ExtensionId`, which Cove stamps with the authoritative owning extension id
 - an exported `ComponentName` when the contribution renders React
 - `Order`, where lower values render earlier
 - a stable contribution-specific id or key
@@ -58,6 +62,29 @@ The host passes a context object appropriate to the location. Detail slots recei
 | Gallery | `gallery-detail-actions`, `gallery-detail-main-bottom`, `gallery-detail-bottom` |
 | Image | `image-detail-actions`, `image-detail-sidebar-bottom`, `image-detail-main-bottom` |
 | Group | `group-detail-actions`, `group-detail-sidebar-bottom`, `group-detail-main-bottom`, `group-detail-bottom` |
+
+### Published media-player slots
+
+| Slot key | Location |
+| --- | --- |
+| `media-player-actions` | Beside Cove's native playback controls. |
+| `media-player-overlay` | Over the displayed video content, above the media and below native controls. |
+
+Both slots render on detail, quick-view, and compilation player surfaces. The frontend SDK exports `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT`, and `MediaPlayerExtensionContext`.
+
+The context contains the host video id, surface, current time, duration, playing state, playback rate, intrinsic media dimensions, and a container-relative `contentRect` after letterboxing. It also provides bounded `play`, `pause`, `seek`, and `setPlaybackRate` controls.
+
+Interactive tools can call `acquireInteractionMode(options)` to request hidden native controls, paused watch tracking, or a one-time playback pause. Keep the returned release function and call it when the interaction ends. Cove also releases the owner-bound lease if the contribution is replaced, fails, leaves fullscreen, changes media identity, or unmounts. Releasing a lease restores native controls and tracking but does not resume playback automatically.
+
+### Published cover-editor slot
+
+| Slot key | Location |
+| --- | --- |
+| `entity-cover-editor` | Inside Cove's native cover dialog, below the native image control and before page-specific extra actions. |
+
+The slot is published for audio, gallery, group, image, performer, segment, studio, tag, text, and video cover dialogs. The frontend SDK exports `ENTITY_COVER_EDITOR_SLOT` and `EntityCoverEditorContext`.
+
+The context contains `entityType`, `entityId`, `coverKey` (`primary`, `front`, or `back`), `currentImageUrl`, and `canEdit`. The `canEdit` value reports whether the host surface has a native cover mutation available; it does not grant an extension permission or authorize a separate API. Protect extension mutations on the server and refresh their local state after a successful change.
 
 ### Published list and card slots
 
@@ -132,10 +159,26 @@ Toolbar rendering is currently available for video and image entity actions. Bul
 
 - Use `FilterKey` to target a filter key understood by that list's backend request contract.
 - For extension-owned custom fields, set `CustomFieldKey` and `CustomFieldType`; Cove creates an extension-scoped filter key.
+- For an extension-owned predicate, set `FilterId` through `UIManifestBuilder.AddExtensionListFilter` and implement the matching `IExtensionEntityFilterProvider`.
 - `CriterionType` controls the editor, with `Modifiers`, `Options`, and `EntityReferenceType` refining supported operations.
 - `Order` positions the filter among other extension contributions.
 
 `UIListSortContribution` adds a sort choice for the matching entity type. Set either a backend-supported `SortKey` or a `CustomFieldKey` with its `CustomFieldType`. A visible sort option does not implement backend sorting by itself; the corresponding server-side list contract must understand the generated key.
+
+### Extension-owned tag predicates
+
+Executable `FilterId` contributions currently support the tag list and tag graph. Cove namespaces the saved-filter key with the authoritative extension id and filter id. If the owning declaration or provider is unavailable, the saved criterion remains visible as unsupported instead of being discarded or silently ignored.
+
+Register an `IExtensionEntityFilterProvider` in `ConfigureServices`. Its `Filters` collection declares the stable filter ids and entity types it implements, and `ResolveAsync` receives:
+
+- the authoritative extension id, normalized entity type, and filter id
+- the validated modifier and JSON value
+- a bounded batch of candidate ids already filtered by the caller's tag-read authorization
+- a principal snapshot containing the current user identity, roles, and permissions
+
+Return only matching ids from the supplied batch plus a non-empty `Revision`. The revision must remain identical across every batch in one query so Cove does not combine memberships from changing provider state. Cove retains ownership of authorization, core-filter composition, stable sorting, counts, and pagination.
+
+Executable declarations currently accept `bool`/`boolean`, `integer`, `number`, `string`, and `enum` values together with the modifiers declared in the manifest. The host accepts at most 16 extension criteria, rejects a query whose core tag filter produces more than 5,000 candidates, invokes providers in batches of 256, and applies one two-second provider deadline across the query. A provider must honor cancellation, must not return ids outside its batch, and must not perform a second authorization policy that expands the host-supplied candidate set.
 
 ## Themes and appearance layers
 
@@ -155,6 +198,16 @@ Each `UITutorialSlide` can contain a title, caption, bullet points, Markdown bod
 
 `UIFeatureDefinition` publishes a case-insensitive feature key and string options. Host UI code must explicitly look up that key; declaring one does not create visible UI on its own. Use a feature declaration when Cove already defines the integration key, and pair custom behavior with another visible contribution.
 
+## Entity media overrides
+
+`UIComponentOverride` currently supports the stable target `entity.media`. Use `UIManifestBuilder.OverrideComponent("entity.media", componentName, priority)` and export that component from the owning extension's frontend bundle. The frontend SDK exports `ENTITY_MEDIA_TARGET` for code that needs the same target string.
+
+The component receives `EntityMediaRenderProps`: the entity type and id, surface, native image URL, alt text, fit, loading hint, class name, and `renderDefault`. Surfaces currently include `card`, `hero`, `list`, `picker`, `recommendation`, `dialog`, and `hover`. Call `renderDefault()` when the extension does not handle the entity or surface. That delegates to the next lower-priority override and eventually Cove's native media.
+
+Cove orders overrides by descending priority and isolates every layer in an error boundary. A failed contribution falls through without hiding lower-priority contributions or native media. Navigation, selection, cover controls, card overlays, and preview playback remain outside the replacement boundary.
+
+Hover previews use a `4:3` frame by default. When contributed hover media has another intrinsic shape, put `data-entity-media-aspect-ratio="width:height"` on an element rendered by the override. Cove validates positive numeric values and uses the declaration to size its host-owned hover frame.
+
 ## Page overrides
 
 `UIPageOverride` replaces the component for an exact built-in page key. Cove chooses the highest `Priority` when multiple extensions target the same page, then renders the named component with `onNavigate`.
@@ -166,7 +219,7 @@ Prefer additive pages, tabs, and slots when possible. An override owns the whole
 The public manifest also contains these declarations, but Cove does not currently render them:
 
 - `UIPaneContribution`
-- `UIComponentOverride`
+- `UIComponentOverride` targets other than `entity.media`
 - `UISelectorOverride`
 - `UIDialogOverride`
 - `UIPageDefinition.DetailRoute`
@@ -188,6 +241,7 @@ Treat them as reserved contract surface, not working extension points. Shipping 
 | Add visual presets | `UIThemeDefinition`, `UIComponentStyleDef`, or `UILayoutStyleDef` |
 | Add in-app help | `UITutorialTopic` |
 | Advertise a host-known capability | `UIFeatureDefinition` |
+| Replace primary entity media | `UIComponentOverride` targeting `entity.media` |
 | Replace a built-in page | `UIPageOverride`, only when additive points cannot work |
 
 After choosing the contribution, see [Frontend runtime API](../frontend-runtime/) for supported imports, [Packaging](../packaging/) for the asset layout, and [Permissions](../permissions/) for access design.

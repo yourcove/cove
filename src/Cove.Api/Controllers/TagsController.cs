@@ -16,8 +16,18 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TagsRead)]
-public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomFieldService customFields, IUserEngagementService engagementService, SegmentSpanResolver? spanResolver = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class TagsController(
+    ITagRepository tagRepo,
+    Data.CoveContext db,
+    CustomFieldService customFields,
+    IUserEngagementService engagementService,
+    SegmentSpanResolver? spanResolver = null,
+    IFieldProvenanceService? fieldProvenanceService = null,
+    ExtensionEntityFilterService? extensionFilters = null,
+    ICurrentPrincipalAccessor? principalAccessor = null) : ControllerBase
 {
+    private const int ExtensionFilterCandidateLimit = 5_000;
+
     private sealed record TagUsageCounts(
         int VideoCount,
         int SegmentCount,
@@ -87,11 +97,76 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
     {
         var findFilter = req.FindFilter ?? new FindFilter();
         var filter = req.ObjectFilter ?? new TagFilter();
-        var (items, totalCount) = await tagRepo.FindAsync(filter, findFilter, ct);
+        var extensionCriteria = filter.ExtensionCriteria ?? [];
+        IReadOnlyList<Tag> items;
+        int totalCount;
+        if (extensionCriteria.Count == 0)
+        {
+            (items, totalCount) = await tagRepo.FindAsync(filter, findFilter, ct);
+        }
+        else
+        {
+            if (extensionFilters is null || principalAccessor?.Current is null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable." });
+
+            try
+            {
+                var candidateFindFilter = CopyFindFilter(findFilter, page: 1, perPage: ExtensionFilterCandidateLimit + 1);
+                var (candidateItems, coreCount) = await tagRepo.FindAsync(filter, candidateFindFilter, ct);
+                if (coreCount > ExtensionFilterCandidateLimit)
+                    throw new ExtensionEntityFilterLimitException($"Extension filtering supports at most {ExtensionFilterCandidateLimit} core candidates per query.");
+
+                var candidateIds = candidateItems.Select(tag => tag.Id).ToArray();
+                var authorizedQuery = await ReadScopeListOptimization.ApplyAsync<Tag>(db, EntityKinds.Tag, Permissions.TagsRead, ct);
+                var authorizedIds = await authorizedQuery
+                    .AsNoTracking()
+                    .Where(tag => candidateIds.Contains(tag.Id))
+                    .Select(tag => tag.Id)
+                    .ToHashSetAsync(ct);
+                candidateItems = candidateItems.Where(tag => authorizedIds.Contains(tag.Id)).ToArray();
+
+                var matchingIds = await extensionFilters.ApplyAsync(
+                    "tags",
+                    extensionCriteria,
+                    candidateItems.Select(tag => tag.Id).ToArray(),
+                    principalAccessor.Current,
+                    ct);
+                totalCount = matchingIds.Count;
+                var page = Math.Max(1, findFilter.Page);
+                var perPage = Math.Max(0, findFilter.PerPage);
+                var pagedIds = perPage == 0
+                    ? []
+                    : matchingIds.Skip((page - 1) * perPage).Take(perPage).ToArray();
+                var itemById = candidateItems.ToDictionary(tag => tag.Id);
+                items = pagedIds.Select(id => itemById[id]).ToArray();
+            }
+            catch (ExtensionEntityFilterValidationException ex)
+            {
+                return UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message });
+            }
+            catch (ExtensionEntityFilterLimitException ex)
+            {
+                return UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message });
+            }
+            catch (ExtensionEntityFilterProviderException ex)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message });
+            }
+        }
         var usageCountsByTagId = await LoadTagUsageCountsAsync(items.Select(tag => tag.Id), ct);
         var dtos = MapTagListDtos(items, usageCountsByTagId);
         return Ok(new PaginatedResponse<TagListDto>(dtos, totalCount, findFilter.Page, findFilter.PerPage));
     }
+
+    private static FindFilter CopyFindFilter(FindFilter source, int page, int perPage) => new()
+    {
+        Q = source.Q,
+        Page = page,
+        PerPage = perPage,
+        Sort = source.Sort,
+        Direction = source.Direction,
+        Seed = source.Seed,
+    };
 
     [HttpPost("graph")]
     public async Task<ActionResult<TagGraphResponseDto>> Graph([FromBody] FilteredQueryRequest<TagFilter> req, CancellationToken ct)
@@ -99,6 +174,7 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
         const int graphNodeLimit = 5000;
 
         var requestFindFilter = req.FindFilter ?? new FindFilter();
+        var graphResultLimit = Math.Clamp(requestFindFilter.PerPage > 0 ? requestFindFilter.PerPage : graphNodeLimit, 1, graphNodeLimit);
         var graphFindFilter = new FindFilter
         {
             Q = requestFindFilter.Q,
@@ -106,11 +182,61 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             Direction = requestFindFilter.Direction,
             Seed = requestFindFilter.Seed,
             Page = 1,
-            PerPage = Math.Clamp(requestFindFilter.PerPage > 0 ? requestFindFilter.PerPage : graphNodeLimit, 1, graphNodeLimit),
+            PerPage = graphResultLimit,
         };
 
         var filter = req.ObjectFilter ?? new TagFilter();
-        var (items, totalCount) = await tagRepo.FindAsync(filter, graphFindFilter, ct);
+        var extensionCriteria = filter.ExtensionCriteria ?? [];
+        IReadOnlyList<Tag> items;
+        int totalCount;
+        if (extensionCriteria.Count == 0)
+        {
+            (items, totalCount) = await tagRepo.FindAsync(filter, graphFindFilter, ct);
+        }
+        else
+        {
+            var candidateFindFilter = CopyFindFilter(
+                graphFindFilter,
+                page: 1,
+                perPage: ExtensionFilterCandidateLimit + 1);
+            (items, totalCount) = await tagRepo.FindAsync(filter, candidateFindFilter, ct);
+        }
+
+        if (extensionCriteria.Count > 0)
+        {
+            if (extensionFilters is null || principalAccessor?.Current is null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filtering is unavailable." });
+            try
+            {
+                if (totalCount > ExtensionFilterCandidateLimit)
+                    throw new ExtensionEntityFilterLimitException($"Extension filtering supports at most {ExtensionFilterCandidateLimit} core candidates per query.");
+                var candidateIds = items.Select(tag => tag.Id).ToArray();
+                var authorizedQuery = await ReadScopeListOptimization.ApplyAsync<Tag>(db, EntityKinds.Tag, Permissions.TagsRead, ct);
+                var authorizedIds = await authorizedQuery
+                    .AsNoTracking()
+                    .Where(tag => candidateIds.Contains(tag.Id))
+                    .Select(tag => tag.Id)
+                    .ToHashSetAsync(ct);
+                items = items.Where(tag => authorizedIds.Contains(tag.Id)).ToArray();
+                var matchingIds = (await extensionFilters.ApplyAsync(
+                    "tags", extensionCriteria, items.Select(tag => tag.Id).ToArray(), principalAccessor.Current, ct)).ToHashSet();
+                items = items.Where(tag => matchingIds.Contains(tag.Id)).ToArray();
+                totalCount = items.Count;
+                items = items.Take(graphResultLimit).ToArray();
+            }
+            catch (ExtensionEntityFilterValidationException ex)
+            {
+                return UnprocessableEntity(new ProblemDetails { Title = "Invalid extension filter.", Detail = ex.Message });
+            }
+            catch (ExtensionEntityFilterLimitException ex)
+            {
+                return UnprocessableEntity(new ProblemDetails { Title = "Extension filter limit exceeded.", Detail = ex.Message });
+            }
+            catch (ExtensionEntityFilterProviderException ex)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "Extension filter provider unavailable.", Detail = ex.Message });
+            }
+        }
         if (items.Count == 0)
             return Ok(new TagGraphResponseDto([], [], totalCount));
 
@@ -709,7 +835,8 @@ public class TagsController(ITagRepository tagRepo, Data.CoveContext db, CustomF
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
-            Organized: tag.Organized);
+            Organized: tag.Organized,
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

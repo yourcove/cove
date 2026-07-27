@@ -1,5 +1,6 @@
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Heart, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { EntityMedia, type EntityMediaRenderProps } from "./EntityMedia";
 
 // Cove standard EntityHero action button styles. Use these for favorite/organized/edit/overflow
 // so corner rounding, size, and border treatment stay consistent across all EntityHero pages.
@@ -16,6 +17,8 @@ export interface EntityHeroCount {
 }
 
 export interface EntityHeroLayoutProps {
+  entityType: EntityMediaRenderProps["entityType"];
+  entityId: number;
   backLabel: string;
   onGoBack: () => void;
   backgroundImageUrl?: string | null;
@@ -30,6 +33,7 @@ export interface EntityHeroLayoutProps {
   alternateImageLabel?: string;
   imageContainerClassName?: string;
   imageClassName?: string;
+  imageFit?: EntityMediaRenderProps["fit"];
   imageFallbackClassName?: string;
   imageFallback?: ReactNode;
   onImageClick?: (imageSlot?: "primary" | "alternate") => void;
@@ -62,6 +66,8 @@ export interface EntityHeroLayoutProps {
 // Galleries, Faces). Mirrors the existing Tag/Studio/Performer detail page header
 // (cover image left, title + counts top, scrollable content area below).
 export function EntityHeroLayout({
+  entityType,
+  entityId,
   backLabel,
   onGoBack,
   backgroundImageUrl,
@@ -76,6 +82,7 @@ export function EntityHeroLayout({
   alternateImageLabel = "back cover",
   imageContainerClassName,
   imageClassName,
+  imageFit = "cover",
   imageFallbackClassName,
   imageFallback,
   onImageClick,
@@ -172,29 +179,44 @@ export function EntityHeroLayout({
   const hasHeaderActions = Boolean(organizedAction || favoriteAction || actions);
   const imageContent = (
     <>
-      {displayedImageUrl ? (
-        <img
-          src={displayedImageUrl}
-          alt={displayedImageAlt ?? ""}
-          className={resolvedImageClassName}
-          onLoad={(event) => {
-            event.currentTarget.style.display = "";
-          }}
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = "none";
-            const fallback = (e.target as HTMLImageElement).nextElementSibling as HTMLElement | null;
-            if (fallback) fallback.style.display = "flex";
-          }}
-        />
-      ) : null}
-      <div
-        className={[
-          resolvedFallbackClassName,
-          displayedImageUrl ? "hidden" : "flex",
-        ].join(" ")}
-      >
-        {imageFallback}
-      </div>
+      <EntityMedia
+        entityType={entityType}
+        entityId={entityId}
+        surface="hero"
+        imageUrl={displayedImageUrl}
+        alt={displayedImageAlt ?? ""}
+        fit={imageFit}
+        loading="eager"
+        className={resolvedImageClassName}
+        renderDefault={() => (
+          <>
+            {displayedImageUrl ? (
+              <img
+                src={displayedImageUrl}
+                alt={displayedImageAlt ?? ""}
+                className={resolvedImageClassName}
+                loading="eager"
+                onLoad={(event) => {
+                  event.currentTarget.style.display = "";
+                }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                  const fallback = (e.target as HTMLImageElement).nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = "flex";
+                }}
+              />
+            ) : null}
+            <div
+              className={[
+                resolvedFallbackClassName,
+                displayedImageUrl ? "hidden" : "flex",
+              ].join(" ")}
+            >
+              {imageFallback}
+            </div>
+          </>
+        )}
+      />
       {hasCarousel ? (
         <>
           <button

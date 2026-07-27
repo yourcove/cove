@@ -781,6 +781,8 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Segment Cover"
+        entityType="segment"
+        entityId={segment.id}
         currentImageUrl={entityImages.segmentCoverUrl(segment.id, segment.updatedAt)}
         onUpload={(file) => entityImages.uploadSegmentCoverImage(segment.id, file)}
         onDelete={() => entityImages.deleteSegmentCoverImage(segment.id)}

@@ -362,6 +362,9 @@ try
     extensionManager.DataExtensionsChanged = () =>
         CoveContext.SetDataExtensions(extensionManager.Extensions.OfType<IDataExtension>());
     builder.Services.AddSingleton(extensionManager);
+    builder.Services.AddSingleton<IExtensionContributionRuntime>(extensionManager);
+    builder.Services.AddSingleton<IExtensionEntityFilterRuntime, ExtensionEntityFilterRuntime>();
+    builder.Services.AddScoped<ExtensionEntityFilterService>();
     // The cross-extension capability/service exchange: extensions publish shared-contract services
     // here and consume siblings' contributions, since each extension lives in its own container.
     builder.Services.AddSingleton<IExtensionServiceExchange, ExtensionServiceExchange>();

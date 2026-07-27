@@ -44,6 +44,7 @@ const {
     deleteTextImage: vi.fn(),
     studioImageUrl: vi.fn((id: number) => `/studio-${id}.jpg`),
     groupFrontImageUrl: vi.fn((id: number) => `/group-${id}.jpg`),
+    tagImageUrl: vi.fn((id: number) => `/tag-${id}.jpg`),
   },
   mockPlayback: {
     recordIntervals: vi.fn(() => Promise.resolve()),

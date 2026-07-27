@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json;
@@ -14,31 +15,43 @@ namespace Cove.Plugins;
 /// Manages extension discovery, loading, dependency resolution, lifecycle,
 /// migrations, and capability wiring. This is the heart of the Cove extension system.
 /// </summary>
-public class ExtensionManager
+public class ExtensionManager : IExtensionContributionRuntime
 {
     private const int MaxPolicylessRoutesInWarning = 10;
-    private readonly List<IExtension> _extensions = [];
-    private readonly Dictionary<string, IExtension> _extensionMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _extensionRegistryGate = new();
+    private readonly object _extensionSetMutationGate = new();
+    private ExtensionRegistrySnapshot _extensionRegistry = ExtensionRegistrySnapshot.Empty;
     private readonly ExtensionContext _context;
-    private readonly Dictionary<string, AssemblyLoadContext> _loadContexts = [];
-    private readonly Dictionary<string, string> _loadCacheSlots = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _extensionDirectories = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ExtensionManifestFile> _manifestFiles = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ExtensionInstallation> _installations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, AssemblyLoadContext> _loadContexts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _overlayExtensionIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _overlayExtensionIdsGate = new();
+    private readonly ConcurrentDictionary<string, string> _loadCacheSlots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _extensionDirectories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ExtensionManifestFile> _manifestFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ExtensionInstallation> _installations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _installationStateGate = new();
     private readonly HashSet<string> _initializedExtensions = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _startupDisabledExtensions = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _extensionFailureReasons = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _initializedExtensionsGate = new();
+    private readonly object _extensionLifecycleGatesGate = new();
+    private readonly Dictionary<string, SemaphoreSlim> _extensionLifecycleGates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _extensionMigrationGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, byte> _startupDisabledExtensions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _extensionFailureReasons = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _unloadOperations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly AsyncLocal<IReadOnlySet<string>?> _activeUnloadOperations = new();
     private IServiceScopeFactory? _scopeFactory;
     private IServiceProvider? _rootServices;
     private ILogger<ExtensionManager>? _logger;
-    private List<IExtension>? _initOrder;
     private IEndpointRouteBuilder? _routeBuilder;
     private ExtensionEndpointRegistry? _endpointRegistry;
     private IReadOnlyList<ServiceDescriptor>? _hostDescriptors;
     private ExtensionServiceOverlay? _overlay;
 
-    public IReadOnlyList<IExtension> Extensions => _extensions;
+    public IReadOnlyList<IExtension> Extensions => GetExtensionRegistry().PublicExtensions;
     public ExtensionContext Context => _context;
+
+    public IExtension? GetExtension(string id)
+        => GetExtensionRegistry().Map.TryGetValue(id, out var extension) ? extension : null;
 
     /// <summary>
     /// Invoked when the set of loaded <see cref="IDataExtension"/>s changes at runtime (install or
@@ -60,26 +73,117 @@ public class ExtensionManager
                 assemblyName);
     }
 
+    private ExtensionRegistrySnapshot GetExtensionRegistry() => Volatile.Read(ref _extensionRegistry);
+
+    private void AddOrReplaceExtension(IExtension extension)
+    {
+        lock (_extensionRegistryGate)
+        {
+            var current = _extensionRegistry;
+            var extensions = current.Extensions.ToList();
+            var existingIndex = extensions.FindIndex(candidate =>
+                string.Equals(candidate.Id, extension.Id, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+                extensions[existingIndex] = extension;
+            else
+                extensions.Add(extension);
+
+            var map = current.Map.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                StringComparer.OrdinalIgnoreCase);
+            map[extension.Id] = extension;
+            Volatile.Write(ref _extensionRegistry, new ExtensionRegistrySnapshot(extensions.ToArray(), map));
+        }
+    }
+
+    private IExtension? RemoveExtension(string id)
+    {
+        lock (_extensionRegistryGate)
+        {
+            var current = _extensionRegistry;
+            if (!current.Map.TryGetValue(id, out var existing))
+                return null;
+
+            var extensions = current.Extensions
+                .Where(candidate => !string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var map = current.Map.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                StringComparer.OrdinalIgnoreCase);
+            map.Remove(id);
+            Volatile.Write(ref _extensionRegistry, new ExtensionRegistrySnapshot(extensions, map));
+            return existing;
+        }
+    }
+
+    private sealed class ExtensionRegistrySnapshot(
+        IExtension[] extensions,
+        Dictionary<string, IExtension> map)
+    {
+        public static ExtensionRegistrySnapshot Empty { get; } = new(
+            [],
+            new Dictionary<string, IExtension>(StringComparer.OrdinalIgnoreCase));
+
+        public IExtension[] Extensions { get; } = extensions;
+        public IReadOnlyList<IExtension> PublicExtensions { get; } = Array.AsReadOnly(extensions);
+        public IReadOnlyDictionary<string, IExtension> Map { get; } = map;
+    }
+
     // ========================================================================
     // REGISTRATION
     // ========================================================================
 
-    /// <summary>Register an extension instance (built-in or discovered).</summary>
+    /// <summary>
+    /// Register an extension instance (built-in or discovered). Once runtime services are available,
+    /// a loaded id must be unloaded before a different instance can be registered.
+    /// </summary>
     public void Register(IExtension extension, string source = "builtin")
     {
-        _extensions.Add(extension);
-        _extensionMap[extension.Id] = extension;
-        // Create an in-memory installation record for built-in extensions
-        if (!_installations.ContainsKey(extension.Id))
+        if (_unloadOperations.ContainsKey(extension.Id))
+            throw new InvalidOperationException($"Extension '{extension.Id}' is currently being unloaded.");
+
+        var lifecycleGate = GetExtensionLifecycleGate(extension.Id);
+        lifecycleGate.Wait();
+        try
         {
-            _installations[extension.Id] = new ExtensionInstallation
+            lock (_extensionSetMutationGate)
             {
-                ExtensionId = extension.Id,
-                Version = extension.Version,
-                Enabled = true,
-                Source = source,
-                Categories = extension.Categories.Count > 0 ? string.Join(",", extension.Categories) : null,
-            };
+                if (_unloadOperations.ContainsKey(extension.Id))
+                    throw new InvalidOperationException($"Extension '{extension.Id}' is currently being unloaded.");
+
+                var existingExtension = GetExtension(extension.Id);
+                if (existingExtension != null
+                    && !ReferenceEquals(existingExtension, extension)
+                    && _rootServices != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Extension '{extension.Id}' is already loaded. Unload it before registering a replacement.");
+                }
+
+                AddOrReplaceExtension(extension);
+                var dependenciesEnabled = extension.Dependencies.Keys.All(IsEnabled);
+                // Create an in-memory installation record for built-in extensions.
+                if (!_installations.TryAdd(extension.Id, new ExtensionInstallation
+                {
+                    ExtensionId = extension.Id,
+                    Version = extension.Version,
+                    Enabled = dependenciesEnabled,
+                    Source = source,
+                    Categories = extension.Categories.Count > 0 ? string.Join(",", extension.Categories) : null,
+                }) && !dependenciesEnabled)
+                {
+                    TryUpdateInstallation(extension.Id, install => install.Enabled = false);
+                }
+
+                if (!dependenciesEnabled)
+                    DisableDependentInstallationStates(extension.Id);
+            }
+        }
+        finally
+        {
+            lifecycleGate.Release();
         }
     }
 
@@ -101,7 +205,7 @@ public class ExtensionManager
         _logger ??= rootServices.GetService<ILogger<ExtensionManager>>();
         foreach (var ext in GetInitializationOrder())
             if (IsOverlayExtension(ext.Id) && IsEnabled(ext.Id))
-                BuildExtensionProvider(ext.Id);
+                BuildExtensionProviderForStartup(ext.Id);
     }
 
     /// <summary>
@@ -133,24 +237,69 @@ public class ExtensionManager
 
                     if (manifestFile != null)
                     {
-                        _manifestFiles[manifestFile.Id] = manifestFile;
-                        _extensionDirectories[manifestFile.Id] = dir;
+                        var publicationGate = TryAcquireExtensionPublicationGate(manifestFile.Id);
+                        if (publicationGate == null)
+                        {
+                            _logger?.LogWarning("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
+                            continue;
+                        }
+
+                        try
+                        {
+                            lock (_extensionSetMutationGate)
+                            {
+                                if (_unloadOperations.ContainsKey(manifestFile.Id))
+                                {
+                                    _logger?.LogWarning("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
+                                    continue;
+                                }
+
+                                _manifestFiles[manifestFile.Id] = manifestFile;
+                                _extensionDirectories[manifestFile.Id] = dir;
+                            }
+                        }
+                        finally
+                        {
+                            publicationGate.Release();
+                        }
 
                         if (IsManifestOnlyKind(manifestFile.Kind))
                         {
-                            var source = manifestFile.RegistryUrl != null ? "registry" : "local";
-                            var existingInstall = _installations.GetValueOrDefault(manifestFile.Id);
-                            _installations[manifestFile.Id] = new ExtensionInstallation
+                            var lifecycleGate = TryAcquireExtensionPublicationGate(manifestFile.Id);
+                            if (lifecycleGate == null)
+                                continue;
+                            try
                             {
-                                ExtensionId = manifestFile.Id,
-                                Version = manifestFile.Version,
-                                Enabled = existingInstall?.Enabled ?? true,
-                                Source = source,
-                                InstalledAt = existingInstall?.InstalledAt ?? DateTime.UtcNow,
-                                UpdatedAt = DateTime.UtcNow,
-                                ManifestJson = json,
-                                Categories = manifestFile.Categories.Count > 0 ? string.Join(",", manifestFile.Categories) : null,
-                            };
+                                lock (_extensionSetMutationGate)
+                                {
+                                    if (_unloadOperations.ContainsKey(manifestFile.Id))
+                                    {
+                                        _logger?.LogWarning("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
+                                        continue;
+                                    }
+
+                                    _manifestFiles[manifestFile.Id] = manifestFile;
+                                    _extensionDirectories[manifestFile.Id] = dir;
+                                    var source = manifestFile.RegistryUrl != null ? "registry" : "local";
+                                    var existingInstall = GetInstallation(manifestFile.Id);
+                                    var dependenciesEnabled = manifestFile.Dependencies.Keys.All(IsEnabled);
+                                    _installations[manifestFile.Id] = new ExtensionInstallation
+                                    {
+                                        ExtensionId = manifestFile.Id,
+                                        Version = manifestFile.Version,
+                                        Enabled = (existingInstall?.Enabled ?? true) && dependenciesEnabled,
+                                        Source = source,
+                                        InstalledAt = existingInstall?.InstalledAt ?? DateTime.UtcNow,
+                                        UpdatedAt = DateTime.UtcNow,
+                                        ManifestJson = json,
+                                        Categories = manifestFile.Categories.Count > 0 ? string.Join(",", manifestFile.Categories) : null,
+                                    };
+                                }
+                            }
+                            finally
+                            {
+                                lifecycleGate.Release();
+                            }
                             continue;
                         }
                     }
@@ -163,7 +312,7 @@ public class ExtensionManager
                 // ones — producing "entity type X is of type X but the generic type provided is of type X"
                 // splits that only a restart clears. An extension being installed or updated is always
                 // unloaded by the caller before re-discovery, so anything still loaded here is current.
-                if (manifestFile?.Id is string alreadyLoadedId && _extensionMap.ContainsKey(alreadyLoadedId))
+                if (manifestFile?.Id is string alreadyLoadedId && GetExtension(alreadyLoadedId) != null)
                     continue;
 
                 // Determine which DLL to load
@@ -196,42 +345,66 @@ public class ExtensionManager
                                 if (manifestFile != null && ext is IManifestAware manifestAware)
                                     manifestAware.ApplyManifest(manifestFile);
 
-                                if (_extensionMap.TryGetValue(ext.Id, out var existing))
+                                var lifecycleGate = TryAcquireExtensionPublicationGate(ext.Id);
+                                if (lifecycleGate == null)
+                                    continue;
+                                try
                                 {
-                                    var existingSource = _installations.GetValueOrDefault(existing.Id)?.Source;
-                                    // Preserve built-ins when IDs collide; skip discovered duplicate.
-                                    if (string.Equals(existingSource, "builtin", StringComparison.OrdinalIgnoreCase))
-                                        continue;
+                                    lock (_extensionSetMutationGate)
+                                    {
+                                        if (_unloadOperations.ContainsKey(ext.Id))
+                                        {
+                                            _logger?.LogWarning("Skipping extension {Id} while it is being unloaded", ext.Id);
+                                            continue;
+                                        }
 
-                                    RemoveExtensionFromMemory(existing.Id);
+                                        if (GetExtension(ext.Id) is { } existing)
+                                        {
+                                            var existingSource = GetInstallation(existing.Id)?.Source;
+                                            _logger?.LogWarning(
+                                                "Skipping duplicate extension {Id}; the loaded {Source} instance must be unloaded before replacement",
+                                                ext.Id,
+                                                existingSource ?? "unknown");
+                                            continue;
+                                        }
+
+                                        AddOrReplaceExtension(ext);
+                                        _loadContexts[ext.Id] = loadContext;
+                                        lock (_overlayExtensionIdsGate)
+                                            _overlayExtensionIds.Add(ext.Id);
+                                        _loadCacheSlots[binaryCache.CacheKey] = binaryCache.Slot;
+                                        _loadCacheSlots[ext.Id] = binaryCache.Slot;
+                                        _extensionDirectories[ext.Id] = dir;
+                                        _extensionFailureReasons.TryRemove(ext.Id, out _);
+
+                                        var existingInstall = GetInstallation(ext.Id);
+                                        var source = manifestFile?.RegistryUrl != null ? "registry" : existingInstall?.Source ?? "local";
+                                        var dependenciesEnabled = ext.Dependencies.Keys
+                                            .Concat(manifestFile?.Dependencies.Keys.AsEnumerable() ?? Enumerable.Empty<string>())
+                                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                                            .All(IsEnabled);
+                                        _installations[ext.Id] = new ExtensionInstallation
+                                        {
+                                            ExtensionId = ext.Id,
+                                            Version = ResolveInstalledVersion(ext.Version, manifestFile, existingInstall, source),
+                                            Enabled = (existingInstall?.Enabled ?? true) && dependenciesEnabled,
+                                            Source = source,
+                                            InstalledAt = existingInstall?.InstalledAt ?? DateTime.UtcNow,
+                                            UpdatedAt = DateTime.UtcNow,
+                                            ManifestJson = manifestFile != null ? File.ReadAllText(manifestPath) : null,
+                                            Categories = SerializeCategories(ext.Categories, manifestFile),
+                                        };
+
+                                        if (manifestFile != null)
+                                            _manifestFiles[ext.Id] = manifestFile;
+
+                                        if (!dependenciesEnabled)
+                                            DisableDependentInstallationStates(ext.Id);
+                                    }
                                 }
-
-                                _extensions.Add(ext);
-                                _extensionMap[ext.Id] = ext;
-                                _loadContexts[ext.Id] = loadContext;
-                                _loadCacheSlots[binaryCache.CacheKey] = binaryCache.Slot;
-                                _loadCacheSlots[ext.Id] = binaryCache.Slot;
-                                _extensionDirectories[ext.Id] = dir;
-                                _extensionFailureReasons.Remove(ext.Id);
-                                _initOrder = null;
-
-                                var existingInstall = _installations.GetValueOrDefault(ext.Id);
-                                var source = manifestFile?.RegistryUrl != null ? "registry" : existingInstall?.Source ?? "local";
-                                _installations[ext.Id] = new ExtensionInstallation
+                                finally
                                 {
-                                    ExtensionId = ext.Id,
-                                    Version = ResolveInstalledVersion(ext.Version, manifestFile, existingInstall, source),
-                                    Enabled = existingInstall?.Enabled ?? true,
-                                    Source = source,
-                                    InstalledAt = existingInstall?.InstalledAt ?? DateTime.UtcNow,
-                                    UpdatedAt = DateTime.UtcNow,
-                                    ManifestJson = manifestFile != null ? File.ReadAllText(manifestPath) : null,
-                                    Categories = SerializeCategories(ext.Categories, manifestFile),
-                                };
-
-                                if (manifestFile != null)
-                                {
-                                    _manifestFiles[ext.Id] = manifestFile;
+                                    lifecycleGate.Release();
                                 }
                             }
                         }
@@ -267,7 +440,8 @@ public class ExtensionManager
     public List<DependencyProblem> ValidateDependencies()
     {
         var problems = new List<DependencyProblem>();
-        foreach (var ext in _extensions)
+        var registry = GetExtensionRegistry();
+        foreach (var ext in registry.Extensions)
         {
             // Check core version requirement
             if (ext.MinCoveVersion != null && !SemverSatisfies(_context.CoveVersion, $">={ext.MinCoveVersion}"))
@@ -278,7 +452,7 @@ public class ExtensionManager
             // Check extension dependencies
             foreach (var (depId, versionRange) in ext.Dependencies)
             {
-                if (!_extensionMap.TryGetValue(depId, out var dep))
+                if (!registry.Map.TryGetValue(depId, out var dep))
                 {
                     problems.Add(new DependencyProblem(ext.Id, depId, $"Missing required extension '{depId}' ({versionRange})"));
                 }
@@ -297,23 +471,26 @@ public class ExtensionManager
     /// </summary>
     public List<IExtension> GetInitializationOrder()
     {
-        if (_initOrder != null) return _initOrder;
-
+        var registry = GetExtensionRegistry();
         var sorted = new List<IExtension>();
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var ext in _extensions)
+        foreach (var ext in registry.Extensions)
         {
             if (!visited.Contains(ext.Id))
-                TopologicalVisit(ext, visited, visiting, sorted);
+                TopologicalVisit(ext, registry.Map, visited, visiting, sorted);
         }
 
-        _initOrder = sorted;
         return sorted;
     }
 
-    private void TopologicalVisit(IExtension ext, HashSet<string> visited, HashSet<string> visiting, List<IExtension> sorted)
+    private void TopologicalVisit(
+        IExtension ext,
+        IReadOnlyDictionary<string, IExtension> extensionMap,
+        HashSet<string> visited,
+        HashSet<string> visiting,
+        List<IExtension> sorted)
     {
         if (visited.Contains(ext.Id)) return;
         if (visiting.Contains(ext.Id))
@@ -325,8 +502,8 @@ public class ExtensionManager
         visiting.Add(ext.Id);
         foreach (var (depId, _) in ext.Dependencies)
         {
-            if (_extensionMap.TryGetValue(depId, out var dep))
-                TopologicalVisit(dep, visited, visiting, sorted);
+            if (extensionMap.TryGetValue(depId, out var dep))
+                TopologicalVisit(dep, extensionMap, visited, visiting, sorted);
         }
         visiting.Remove(ext.Id);
         visited.Add(ext.Id);
@@ -339,25 +516,30 @@ public class ExtensionManager
     /// </summary>
     public List<string> GetMissingDependencies(string extensionId)
     {
-        if (!_extensionMap.TryGetValue(extensionId, out var ext)) return [];
+        var registry = GetExtensionRegistry();
+        if (!registry.Map.TryGetValue(extensionId, out var ext)) return [];
         var missing = new List<string>();
-        CollectMissingDeps(ext, missing, []);
+        CollectMissingDeps(ext, registry.Map, missing, []);
         return missing;
     }
 
-    private void CollectMissingDeps(IExtension ext, List<string> missing, HashSet<string> seen)
+    private void CollectMissingDeps(
+        IExtension ext,
+        IReadOnlyDictionary<string, IExtension> extensionMap,
+        List<string> missing,
+        HashSet<string> seen)
     {
         foreach (var (depId, _) in ext.Dependencies)
         {
             if (seen.Contains(depId)) continue;
             seen.Add(depId);
-            if (!_extensionMap.ContainsKey(depId))
+            if (!extensionMap.ContainsKey(depId))
             {
                 missing.Add(depId);
             }
             else
             {
-                CollectMissingDeps(_extensionMap[depId], missing, seen);
+                CollectMissingDeps(extensionMap[depId], extensionMap, missing, seen);
             }
         }
     }
@@ -454,6 +636,20 @@ public class ExtensionManager
         return result;
     }
 
+    /// <summary>
+    /// Publish a disabled state for an extension and its currently enabled dependent closure.
+    /// The caller must hold <see cref="_extensionSetMutationGate"/>.
+    /// </summary>
+    private void DisableDependentInstallationStates(string extensionId)
+    {
+        foreach (var id in GetDependentExtensionIds(extensionId, enabledOnly: true)
+                     .Append(extensionId)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            TryUpdateInstallation(id, install => install.Enabled = false);
+        }
+    }
+
     // ========================================================================
     // LIFECYCLE
     // ========================================================================
@@ -464,12 +660,16 @@ public class ExtensionManager
     /// immutable root container, so they work identically whether present at boot or installed
     /// later. Built-in extensions compiled into the host go straight into the root container.
     /// </summary>
-    private bool IsOverlayExtension(string id) => _loadContexts.ContainsKey(id);
+    private bool IsOverlayExtension(string id)
+    {
+        lock (_overlayExtensionIdsGate)
+            return _overlayExtensionIds.Contains(id);
+    }
 
     /// <summary>
     /// Call ConfigureServices for built-in (host-compiled) extensions, registering them into the
     /// root container. Runtime DLL extensions are intentionally skipped here — their services are
-    /// contributed to their own per-extension container instead (see <see cref="BuildExtensionProvider"/>).
+    /// contributed to their own per-extension container instead (see <see cref="ExtensionServiceOverlay.TryBuildProvider"/>).
     /// </summary>
     public void ConfigureServices(IServiceCollection services)
     {
@@ -483,7 +683,12 @@ public class ExtensionManager
 
             try
             {
+                var contributionStartIndex = services.Count;
                 ext.ConfigureServices(services, _context);
+                ExtensionContributionServiceRegistration.KeyProvidersAddedSince(
+                    services,
+                    contributionStartIndex,
+                    ext.Id);
             }
             catch (Exception ex)
             {
@@ -503,54 +708,219 @@ public class ExtensionManager
     }
 
     /// <summary>
-    /// Build (or rebuild) the isolated service container for one runtime DLL extension. Only that
-    /// extension's container is (re)built; every other extension's container — and its state — is
-    /// untouched, so installing or removing one extension never disturbs another. Safe to call
-    /// repeatedly for the same id.
+    /// Build the initial isolated service container for one runtime DLL extension before lifecycle
+    /// initialization. Runtime transitions use the gated initialize/shutdown paths instead.
     /// </summary>
-    public void BuildExtensionProvider(string id)
+    private void BuildExtensionProviderForStartup(string id)
+    {
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        lifecycleGate.Wait();
+        try
+        {
+            if (!BuildExtensionProviderCore(id))
+            {
+                _endpointRegistry?.RemoveExtension(id);
+                _overlay?.Remove(id);
+            }
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
+    }
+
+    private bool BuildExtensionProviderCore(string id)
     {
         if (_rootServices == null || _hostDescriptors == null)
-            return;
+            return false;
         if (!IsOverlayExtension(id) || !IsEnabled(id))
-            return;
-        if (!_extensionMap.TryGetValue(id, out var ext))
-            return;
+            return false;
+        if (GetExtension(id) is not { } ext)
+            return false;
 
         // The container is being (re)built: stop any running worker and clear stale contributions so the
         // extension re-publishes against the new container on init.
-        StopBackgroundWorker(id);
-        WithdrawFromExchange(id);
+        StopBackgroundWorker(ext.Id);
+        WithdrawFromExchange(ext.Id);
 
         _overlay ??= new ExtensionServiceOverlay(_rootServices, _hostDescriptors, _logger);
-        _overlay.BuildProvider(
-            id,
+        return _overlay.TryBuildProvider(
+            ext.Id,
             ext,
             _context,
-            (failedId, e) => DisableExtensionForStartupFailure(failedId, e, "ConfigureServices (overlay)"));
+            (failedId, e) => DisableExtensionForStartupFailure(failedId, e, "provider build"));
     }
 
     /// <summary>
-    /// The service provider an extension should use to resolve its services. Runtime DLL extensions
-    /// resolve from their own isolated container; built-in extensions resolve from the root container.
-    /// </summary>
-    private IServiceProvider ServicesFor(string id, IServiceProvider fallback)
-        => IsOverlayExtension(id) ? (_overlay?.ProviderFor(id) ?? fallback) : fallback;
-
-    /// <summary>
     /// Create a scope for running the given extension's code (HTTP request, job, scan pass).
-    /// Returns the extension's own container scope when built; otherwise a plain root scope. Callers
-    /// own the returned scope and must dispose it.
+    /// Returns the extension's own tracked container scope for a runtime DLL extension, or a root
+    /// scope for a built-in extension. A runtime extension whose provider has been retired fails
+    /// cleanly instead of executing against host DI. Callers own and must dispose the returned scope.
     /// </summary>
     public IServiceScope CreateExtensionScope(string extensionId)
     {
-        if (_overlay?.Has(extensionId) == true)
-            return _overlay.CreateScope(extensionId);
+        if (GetExtension(extensionId) is { } extension)
+            return CreateExtensionScope(extension);
+
+        if (IsOverlayExtension(extensionId))
+            throw new InvalidOperationException($"No current instance is available for runtime extension '{extensionId}'.");
 
         var factory = _scopeFactory ?? _rootServices?.GetService<IServiceScopeFactory>();
         if (factory == null)
             throw new InvalidOperationException("Extension service scope requested before the host service provider was available.");
         return factory.CreateScope();
+    }
+
+    /// <summary>Create a scope for the exact endpoint generation selected by routing.</summary>
+    public IServiceScope CreateExtensionScope(ExtensionEndpointMetadata endpoint)
+        => endpoint.Execution != null
+            ? CreateExtensionScope(endpoint.Execution)
+            : CreateExtensionScope(endpoint.ExtensionId);
+
+    /// <summary>Create a scope bound to the expected extension/provider generation.</summary>
+    internal IServiceScope CreateExtensionScope(IExtension extension)
+        => CreateExtensionScope(CaptureExtensionExecution(extension));
+
+    /// <summary>Create a scope bound to an already captured extension/provider generation.</summary>
+    internal IServiceScope CreateExtensionScope(ExtensionExecutionHandle execution)
+    {
+        var extension = execution.Extension;
+        if (IsOverlayExtension(extension.Id))
+        {
+            var overlay = _overlay;
+            if (execution.Generation != null
+                && overlay != null
+                && overlay.TryCreateScope(extension.Id, extension, execution.Generation, out var extensionScope))
+                return extensionScope;
+
+            throw new InvalidOperationException($"No matching service-container generation is available for runtime extension '{extension.Id}'.");
+        }
+
+        var factory = _scopeFactory ?? _rootServices?.GetService<IServiceScopeFactory>();
+        if (factory == null)
+            throw new InvalidOperationException("Extension service scope requested before the host service provider was available.");
+        return factory.CreateScope();
+    }
+
+    internal ExtensionExecutionHandle CaptureExtensionExecution(IExtension extension)
+    {
+        if (IsOverlayExtension(extension.Id))
+        {
+            var overlay = _overlay;
+            if (overlay != null && overlay.TryGetGeneration(extension.Id, extension, out var generation))
+                return new ExtensionExecutionHandle(extension, generation, allowUnleasedMetadata: false);
+
+            throw new InvalidOperationException($"No matching service-container generation is available for runtime extension '{extension.Id}'.");
+        }
+
+        return new ExtensionExecutionHandle(extension, generation: null, allowUnleasedMetadata: false);
+    }
+
+    private ExtensionExecutionHandle CaptureExtensionMetadata(IExtension extension)
+    {
+        if (!IsOverlayExtension(extension.Id))
+            return new ExtensionExecutionHandle(extension, generation: null, allowUnleasedMetadata: true);
+
+        var overlay = _overlay;
+        if (overlay != null && overlay.TryGetGeneration(extension.Id, extension, out var generation))
+            return new ExtensionExecutionHandle(extension, generation, allowUnleasedMetadata: false);
+
+        if (GetExtension(extension.Id) is { } current
+            && ReferenceEquals(current, extension))
+            return new ExtensionExecutionHandle(extension, generation: null, allowUnleasedMetadata: true);
+
+        throw new InvalidOperationException($"No safe metadata generation is available for runtime extension '{extension.Id}'.");
+    }
+
+    private ExtensionExecutionLease CreateExtensionExecutionLease(ExtensionExecutionHandle execution)
+    {
+        var extension = execution.Extension;
+        if (IsOverlayExtension(extension.Id))
+        {
+            if (execution.Generation == null)
+            {
+                if (execution.AllowUnleasedMetadata)
+                    return new ExtensionExecutionLease(EmptyServiceProvider.Instance, innerLease: null);
+
+                throw new InvalidOperationException($"No provider generation was captured for runtime extension '{extension.Id}'.");
+            }
+
+            var overlay = _overlay;
+            if (overlay != null
+                && overlay.TryCreateLease(extension.Id, extension, execution.Generation, out var providerLease))
+                return new ExtensionExecutionLease(providerLease.Services, providerLease);
+
+            throw new InvalidOperationException($"The captured service-container generation is no longer available for runtime extension '{extension.Id}'.");
+        }
+
+        var services = _rootServices ?? EmptyServiceProvider.Instance;
+        return new ExtensionExecutionLease(services, innerLease: null);
+    }
+
+    /// <summary>Execute extension code while pinning its current service-provider generation.</summary>
+    internal TResult ExecuteExtension<TResult>(IExtension extension, Func<TResult> operation)
+        => ExecuteExtension(CaptureExtensionExecution(extension), operation);
+
+    internal TResult ExecuteExtension<TResult>(ExtensionExecutionHandle execution, Func<TResult> operation)
+    {
+        using var lease = CreateExtensionExecutionLease(execution);
+        return operation();
+    }
+
+    internal TResult ExecuteExtensionMetadata<TResult>(IExtension extension, Func<TResult> operation)
+    {
+        using var lease = CreateExtensionExecutionLease(CaptureExtensionMetadata(extension));
+        return operation();
+    }
+
+    /// <summary>Execute extension code while pinning its current service-provider generation.</summary>
+    internal async Task<TResult> ExecuteExtensionAsync<TResult>(IExtension extension, Func<Task<TResult>> operation)
+        => await ExecuteExtensionAsync(CaptureExtensionExecution(extension), operation);
+
+    internal async Task<TResult> ExecuteExtensionAsync<TResult>(ExtensionExecutionHandle execution, Func<Task<TResult>> operation)
+    {
+        using var lease = CreateExtensionExecutionLease(execution);
+        return await operation();
+    }
+
+    /// <summary>Execute extension code while pinning its current service-provider generation.</summary>
+    internal async Task ExecuteExtensionAsync(IExtension extension, Func<Task> operation)
+        => await ExecuteExtensionAsync(CaptureExtensionExecution(extension), operation);
+
+    internal async Task ExecuteExtensionAsync(ExtensionExecutionHandle execution, Func<Task> operation)
+    {
+        using var lease = CreateExtensionExecutionLease(execution);
+        await operation();
+    }
+
+    public sealed class ExtensionExecutionHandle
+    {
+        internal ExtensionExecutionHandle(
+            IExtension extension,
+            object? generation,
+            bool allowUnleasedMetadata)
+        {
+            Extension = extension;
+            Generation = generation;
+            AllowUnleasedMetadata = allowUnleasedMetadata;
+        }
+
+        public IExtension Extension { get; }
+        internal object? Generation { get; }
+        internal bool AllowUnleasedMetadata { get; }
+    }
+
+    private sealed class ExtensionExecutionLease(IServiceProvider services, IDisposable? innerLease) : IDisposable
+    {
+        public IServiceProvider Services { get; } = services;
+
+        public void Dispose() => innerLease?.Dispose();
+    }
+
+    private sealed class EmptyServiceProvider : IServiceProvider
+    {
+        public static EmptyServiceProvider Instance { get; } = new();
+        public object? GetService(Type serviceType) => null;
     }
 
     /// <summary>Withdraw an extension's published contributions from the cross-extension exchange.</summary>
@@ -570,29 +940,30 @@ public class ExtensionManager
         // a restart (adding NEW data sources after startup is not reliably observed by the matcher).
         _endpointRegistry = new ExtensionEndpointRegistry();
         _routeBuilder.DataSources.Add(_endpointRegistry);
-
-        foreach (var ext in GetInitializationOrder().OfType<IApiExtension>())
-        {
-            if (!IsEnabled(ext.Id)) continue;
-            RegisterExtensionEndpoints(ext.Id);
-        }
     }
 
-    /// <summary>
-    /// Register endpoints for a single extension at runtime and trigger an ASP.NET Core route table rebuild.
-    /// Call this after <see cref="InitializeExtensionAsync"/> succeeds for a newly installed extension.
-    /// </summary>
-    public void RegisterExtensionEndpoints(string id)
+    /// <summary>Publish one initialized extension's endpoints while its lifecycle gate is held.</summary>
+    private void PublishExtensionEndpoints(string id)
     {
         if (_routeBuilder == null || _endpointRegistry == null) return;
-        if (!_extensionMap.TryGetValue(id, out var ext) || ext is not IApiExtension apiExt) return;
+        if (GetExtension(id) is not IApiExtension apiExt) return;
         if (!IsEnabled(id)) return;
 
         // Build this extension's endpoints into a nested source (bound against its own provider for
         // correct minimal-API parameter classification), then publish it through the registry, which
         // fires the change token the matcher observes — making the routes live immediately.
-        var source = new ExtensionEndpointDataSource(_routeBuilder, id, EndpointBuildServices(id));
-        apiExt.MapEndpoints(source);
+        var execution = CaptureExtensionExecution(apiExt);
+        var source = new ExtensionEndpointDataSource(
+            _routeBuilder,
+            id,
+            EndpointBuildServices(execution),
+            execution);
+        _ = ExecuteExtension(execution, () =>
+        {
+            apiExt.MapEndpoints(source);
+            source.MaterializeEndpoints();
+            return true;
+        });
         WarnAboutPolicylessEndpoints(id, source.Endpoints);
         _endpointRegistry.SetExtension(id, source);
     }
@@ -641,8 +1012,14 @@ public class ExtensionManager
     /// overlay (so minimal-API parameter binding sees the extension's services as DI services);
     /// built-in extensions build against the root container.
     /// </summary>
-    private IServiceProvider? EndpointBuildServices(string id)
-        => IsOverlayExtension(id) ? _overlay?.GetProvider(id) : null;
+    private IServiceProvider? EndpointBuildServices(ExtensionExecutionHandle execution)
+    {
+        var extension = execution.Extension;
+        return IsOverlayExtension(extension.Id)
+            && execution.Generation != null
+            ? _overlay?.GetProviderForEndpointBuild(extension.Id, extension, execution.Generation)
+            : null;
+    }
 
     /// <summary>
     /// Invoke the chain of enabled middleware extensions for one request, then the host continuation.
@@ -654,6 +1031,7 @@ public class ExtensionManager
         var middleware = GetInitializationOrder()
             .OfType<IMiddlewareExtension>()
             .Where(ext => IsEnabled(ext.Id))
+            .Select(ext => (Extension: ext, Execution: CaptureExtensionExecution(ext)))
             .ToList();
 
         if (middleware.Count == 0)
@@ -664,7 +1042,9 @@ public class ExtensionManager
         {
             var current = middleware[i];
             var localNext = next;
-            next = ctx => current.InvokeAsync(ctx, localNext);
+            next = ctx => ExecuteExtensionAsync(
+                current.Execution,
+                () => current.Extension.InvokeAsync(ctx, localNext));
         }
         return next(context);
     }
@@ -672,7 +1052,7 @@ public class ExtensionManager
     // ========================================================================
     // BACKGROUND WORKERS (IBackgroundExtension)
     // ========================================================================
-    private readonly Dictionary<string, CancellationTokenSource> _backgroundWorkers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, BackgroundWorkerRegistration> _backgroundWorkers = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Start the extension's long-lived background worker if it implements <see cref="IBackgroundExtension"/>
@@ -682,48 +1062,115 @@ public class ExtensionManager
     public void StartBackgroundWorker(string id)
     {
         if (_rootServices == null) return;
-        if (!_extensionMap.TryGetValue(id, out var ext) || ext is not IBackgroundExtension worker) return;
+        if (GetExtension(id) is not IBackgroundExtension worker) return;
         if (!IsEnabled(id)) return;
 
-        CancellationTokenSource cts;
+        BackgroundWorkerRegistration registration;
         lock (_backgroundWorkers)
         {
             if (_backgroundWorkers.ContainsKey(id)) return;
-            cts = new CancellationTokenSource();
-            _backgroundWorkers[id] = cts;
-        }
 
-        var provider = ServicesFor(id, _rootServices);
-        _ = Task.Run(async () =>
-        {
+            // Acquire the provider-generation lease before publishing or scheduling the worker. A
+            // concurrent rebuild can then retire this provider, but cannot dispose or replace the
+            // services underneath this worker while it drains.
+            var lease = CreateExtensionExecutionLease(CaptureExtensionExecution(worker));
+            var cancellation = new CancellationTokenSource();
+            var token = cancellation.Token;
+            registration = new BackgroundWorkerRegistration(cancellation);
+            _backgroundWorkers[id] = registration;
+
             try
             {
-                await worker.RunAsync(provider, cts.Token);
+                registration.Task = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await worker.RunAsync(lease.Services, token);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        // expected on stop
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Background worker for extension {Id} faulted", id);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            lease.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogWarning(ex, "Error releasing the service lease for extension worker {Id}", id);
+                        }
+                        finally
+                        {
+                            lock (_backgroundWorkers)
+                            {
+                                if (_backgroundWorkers.TryGetValue(id, out var current)
+                                    && ReferenceEquals(current, registration))
+                                    _backgroundWorkers.Remove(id);
+                            }
+                            cancellation.Dispose();
+                        }
+                    }
+                });
             }
-            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            catch
             {
-                // expected on stop
+                _backgroundWorkers.Remove(id);
+                lease.Dispose();
+                cancellation.Dispose();
+                throw;
             }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Background worker for extension {Id} faulted", id);
-            }
-        }, cts.Token);
+        }
         _logger?.LogInformation("Background worker started for extension {Id}", id);
     }
 
-    /// <summary>Cancel the extension's background worker if running.</summary>
+    /// <summary>Cancel the extension's background worker and wait for its provider lease to drain.</summary>
     public void StopBackgroundWorker(string id)
     {
-        CancellationTokenSource? cts;
+        BackgroundWorkerRegistration? registration;
         lock (_backgroundWorkers)
         {
-            if (!_backgroundWorkers.Remove(id, out cts))
+            if (!_backgroundWorkers.TryGetValue(id, out registration))
                 return;
+
         }
-        try { cts.Cancel(); } catch { /* best effort */ }
-        cts.Dispose();
+
+        try
+        {
+            registration.Cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The worker completed naturally between lookup and cancellation.
+        }
+        catch (Exception ex)
+        {
+            // Cancellation callbacks are extension code and may throw. The worker must still drain
+            // before lifecycle processing can rebuild or retire its provider.
+            _logger?.LogWarning(ex, "A cancellation callback for extension worker {Id} failed", id);
+        }
+        finally
+        {
+            registration.Task.GetAwaiter().GetResult();
+            lock (_backgroundWorkers)
+            {
+                if (_backgroundWorkers.TryGetValue(id, out var current)
+                    && ReferenceEquals(current, registration))
+                    _backgroundWorkers.Remove(id);
+            }
+        }
         _logger?.LogInformation("Background worker stopped for extension {Id}", id);
+    }
+
+    private sealed class BackgroundWorkerRegistration(CancellationTokenSource cancellation)
+    {
+        public CancellationTokenSource Cancellation { get; } = cancellation;
+        public Task Task { get; set; } = Task.CompletedTask;
     }
 
     /// <summary>
@@ -735,7 +1182,6 @@ public class ExtensionManager
         _rootServices = services;
         CaptureScopeFactory(services);
         _logger = services.GetService<ILogger<ExtensionManager>>();
-        _initializedExtensions.Clear();
 
         // Load installation state from DB
         await LoadInstallationStateAsync(services, ct);
@@ -746,37 +1192,74 @@ public class ExtensionManager
             .ToList();
         foreach (var staleId in staleIds)
         {
-            _installations.Remove(staleId);
-            await RemoveInstallationStateAsync(staleId, ct);
-            _logger?.LogInformation("Removed stale installation record for {Id}", staleId);
+            var lifecycleGate = GetExtensionLifecycleGate(staleId);
+            await lifecycleGate.WaitAsync(ct);
+            try
+            {
+                if (IsEffectivelyInstalled(staleId) || IsManifestOnlyExtension(staleId))
+                    continue;
+
+                _installations.TryRemove(staleId, out _);
+                await RemoveInstallationStateAsync(staleId, ct);
+                _logger?.LogInformation("Removed stale installation record for {Id}", staleId);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
         }
 
-        ApplyStartupDisables();
-        foreach (var extensionId in _startupDisabledExtensions)
-            await PersistInstallationStateAsync(extensionId, ct);
+        foreach (var extensionId in _startupDisabledExtensions.Keys.ToList())
+        {
+            var lifecycleGate = GetExtensionLifecycleGate(extensionId);
+            await lifecycleGate.WaitAsync(ct);
+            try
+            {
+                TryUpdateInstallation(extensionId, install => install.Enabled = false);
+                await PersistInstallationStateAsync(extensionId, ct);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
 
         // Validate dependencies
         var problems = ValidateDependencies();
         foreach (var p in problems)
             _logger?.LogWarning("Extension dependency issue: {Problem}", p.Message);
 
-        // Wire stateful extensions with their DB-backed stores
-        WireStatefulExtensions(services);
-
-        // Apply extension database migrations
-        await ApplyExtensionMigrationsAsync(services, ct);
-
         // Initialize all enabled extensions in dependency order. Each DLL extension gets its own
         // container, built here if PrepareRuntimeServices hasn't already (boot and runtime-install
         // share this exact path).
         foreach (var ext in GetInitializationOrder())
         {
-            if (!IsEnabled(ext.Id)) continue;
+            var lifecycleGate = GetExtensionLifecycleGate(ext.Id);
+            await lifecycleGate.WaitAsync(ct);
             try
             {
-                if (IsOverlayExtension(ext.Id) && _overlay?.Has(ext.Id) != true)
-                    BuildExtensionProvider(ext.Id);
-                var extServices = ServicesFor(ext.Id, services);
+                if (!IsEnabled(ext.Id)) continue;
+                if (IsExtensionInitialized(ext.Id)) continue;
+
+                if (ext is IStatefulExtension stateful)
+                {
+                    var factory = services.GetService<IExtensionStoreFactory>();
+                    if (factory != null)
+                        stateful.SetStore(factory.CreateStore(ext.Id));
+                }
+
+                if (IsOverlayExtension(ext.Id) && _overlay?.Has(ext.Id) != true
+                    && !BuildExtensionProviderCore(ext.Id))
+                {
+                    await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
+                    await PersistInstallationStateAsync(ext.Id, ct);
+                    continue;
+                }
+                using var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext));
+                var extServices = extensionLease.Services;
+
+                if (ext is IDataExtension)
+                    await ApplyExtensionMigrationsAsync(services, ext.Id, ct);
 
                 // Check if this is a new installation
                 var install = GetInstallation(ext.Id);
@@ -788,16 +1271,115 @@ public class ExtensionManager
                 }
 
                 await ext.InitializeAsync(extServices, ct);
-                _initializedExtensions.Add(ext.Id);
+                MarkExtensionInitialized(ext.Id);
                 StartBackgroundWorker(ext.Id);
+                PublishExtensionEndpoints(ext.Id);
                 _logger?.LogInformation("Extension {Id} ({Name} v{Version}) initialized", ext.Id, ext.Name, ext.Version);
             }
             catch (Exception ex)
             {
+                await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
                 DisableExtensionForStartupFailure(ext.Id, ex, "InitializeAsync");
                 await PersistInstallationStateAsync(ext.Id, ct);
             }
+            finally
+            {
+                lifecycleGate.Release();
+            }
         }
+    }
+
+    private SemaphoreSlim GetExtensionLifecycleGate(string id)
+    {
+        lock (_extensionLifecycleGatesGate)
+        {
+            if (!_extensionLifecycleGates.TryGetValue(id, out var gate))
+            {
+                gate = new SemaphoreSlim(1, 1);
+                _extensionLifecycleGates[id] = gate;
+            }
+
+            return gate;
+        }
+    }
+
+    private SemaphoreSlim? TryAcquireExtensionPublicationGate(string id)
+    {
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        while (!lifecycleGate.Wait(TimeSpan.FromMilliseconds(25)))
+        {
+            if (_unloadOperations.ContainsKey(id))
+                return null;
+        }
+
+        if (!_unloadOperations.ContainsKey(id))
+            return lifecycleGate;
+
+        lifecycleGate.Release();
+        return null;
+    }
+
+    private bool IsExtensionInitialized(string id)
+    {
+        lock (_initializedExtensionsGate)
+            return _initializedExtensions.Contains(id);
+    }
+
+    private void MarkExtensionInitialized(string id)
+    {
+        lock (_initializedExtensionsGate)
+            _initializedExtensions.Add(id);
+    }
+
+    private void MarkExtensionUninitialized(string id)
+    {
+        lock (_initializedExtensionsGate)
+            _initializedExtensions.Remove(id);
+    }
+
+    /// <summary>
+    /// Stop one initialized extension while its service provider is still available. The per-extension
+    /// async gate serializes the full transition, and clearing the marker before ShutdownAsync keeps
+    /// repeated disable/unload requests idempotent even when shutdown reports an error.
+    /// </summary>
+    private async Task ShutdownExtensionAsync(string id, CancellationToken ct, bool retireOverlay = false)
+    {
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        await lifecycleGate.WaitAsync(ct);
+        try
+        {
+            await ShutdownExtensionCoreAsync(id, ct, retireOverlay);
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
+    }
+
+    private async Task ShutdownExtensionCoreAsync(string id, CancellationToken ct, bool retireOverlay)
+    {
+        _endpointRegistry?.RemoveExtension(id);
+        WithdrawFromExchange(id);
+        StopBackgroundWorker(id);
+
+        bool wasInitialized;
+        lock (_initializedExtensionsGate)
+            wasInitialized = _initializedExtensions.Remove(id);
+
+        if (wasInitialized && GetExtension(id) is { } extension)
+        {
+            try
+            {
+                await ExecuteExtensionAsync(extension, () => extension.ShutdownAsync(ct));
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Shutdown failed for extension {Id}", id);
+            }
+        }
+
+        if (retireOverlay && IsOverlayExtension(id))
+            _overlay?.Remove(id);
     }
 
     /// <summary>Shut down all extensions gracefully (reverse dependency order).</summary>
@@ -806,18 +1388,12 @@ public class ExtensionManager
         var reversed = GetInitializationOrder().ToList();
         reversed.Reverse();
         foreach (var ext in reversed)
-        {
-            try
-            {
-                await ext.ShutdownAsync(ct);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error shutting down extension {Id}", ext.Id);
-            }
-        }
+            await ShutdownExtensionAsync(ext.Id, ct);
 
-        foreach (var id in _backgroundWorkers.Keys.ToList())
+        List<string> workerIds;
+        lock (_backgroundWorkers)
+            workerIds = _backgroundWorkers.Keys.ToList();
+        foreach (var id in workerIds)
             StopBackgroundWorker(id);
 
         _overlay?.Dispose();
@@ -834,14 +1410,28 @@ public class ExtensionManager
         var runtimeServices = _rootServices ?? services;
         _logger ??= runtimeServices.GetService<ILogger<ExtensionManager>>();
 
-        if (_initializedExtensions.Contains(id))
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        await lifecycleGate.WaitAsync(ct);
+        try
+        {
+            return await InitializeExtensionCoreAsync(id, runtimeServices, ct);
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
+    }
+
+    private async Task<bool> InitializeExtensionCoreAsync(string id, IServiceProvider runtimeServices, CancellationToken ct)
+    {
+        if (IsExtensionInitialized(id))
             return true;
 
-        if (!_extensionMap.TryGetValue(id, out var ext))
+        if (GetExtension(id) is not { } ext)
         {
-            if (_installations.TryGetValue(id, out var install) && IsManifestOnlyExtension(id))
+            if (_installations.ContainsKey(id) && IsManifestOnlyExtension(id))
             {
-                install.UpdatedAt = DateTime.UtcNow;
+                TryUpdateInstallation(id, install => install.UpdatedAt = DateTime.UtcNow);
                 await PersistInstallationStateAsync(id, ct);
                 return true;
             }
@@ -861,9 +1451,14 @@ public class ExtensionManager
 
         // Build this extension's own container BEFORE initializing, so its services (and endpoints)
         // resolve without a host restart. Other extensions' containers are untouched.
-        if (IsOverlayExtension(ext.Id))
-            BuildExtensionProvider(ext.Id);
-        var extServices = ServicesFor(ext.Id, runtimeServices);
+        if (IsOverlayExtension(ext.Id) && !BuildExtensionProviderCore(ext.Id))
+        {
+            await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
+            await PersistInstallationStateAsync(ext.Id, ct);
+            return false;
+        }
+        using var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext));
+        var extServices = extensionLease.Services;
 
         // A data extension installed at runtime contributes new tables and entity types. Create its
         // schema (migrations are raw SQL and model-independent) and refresh the host EF model BEFORE it
@@ -871,7 +1466,7 @@ public class ExtensionManager
         // without an app restart. The rebuilt model is a superset, so other extensions are unaffected.
         if (ext is IDataExtension)
         {
-            await ApplyExtensionMigrationsAsync(runtimeServices, ct);
+            await ApplyExtensionMigrationsAsync(runtimeServices, ext.Id, ct);
             DataExtensionsChanged?.Invoke();
         }
 
@@ -887,20 +1482,22 @@ public class ExtensionManager
         try
         {
             await ext.InitializeAsync(extServices, ct);
-            _initializedExtensions.Add(ext.Id);
+            MarkExtensionInitialized(ext.Id);
             StartBackgroundWorker(ext.Id);
-            _extensionFailureReasons.Remove(ext.Id);
+            _extensionFailureReasons.TryRemove(ext.Id, out _);
             var manifest = GetManifestFile(ext.Id);
-            if (_installations.TryGetValue(ext.Id, out var install))
+            TryUpdateInstallation(ext.Id, install =>
             {
                 install.Version = ResolveInstalledVersion(ext.Version, manifest, install, install.Source);
                 install.UpdatedAt = DateTime.UtcNow;
-            }
+            });
             await PersistInstallationStateAsync(ext.Id, ct);
+            PublishExtensionEndpoints(ext.Id);
             return true;
         }
         catch (Exception ex)
         {
+            await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
             DisableExtensionForStartupFailure(ext.Id, ex, "hot-initialize");
             await PersistInstallationStateAsync(ext.Id, ct);
             return false;
@@ -912,10 +1509,24 @@ public class ExtensionManager
     /// </summary>
     public async Task<bool> EnsureExtensionInitializedAsync(string id, CancellationToken ct = default)
     {
-        if (_initializedExtensions.Contains(id))
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        await lifecycleGate.WaitAsync(ct);
+        try
+        {
+            return await EnsureExtensionInitializedCoreAsync(id, ct);
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
+    }
+
+    private async Task<bool> EnsureExtensionInitializedCoreAsync(string id, CancellationToken ct)
+    {
+        if (IsExtensionInitialized(id))
             return true;
 
-        if (!_extensionMap.TryGetValue(id, out var ext))
+        if (GetExtension(id) is not { } ext)
             return false;
 
         if (!IsEnabled(id))
@@ -934,29 +1545,37 @@ public class ExtensionManager
                 stateful.SetStore(factory.CreateStore(ext.Id));
         }
 
-        if (IsOverlayExtension(ext.Id) && _overlay?.Has(ext.Id) != true)
-            BuildExtensionProvider(ext.Id);
-        var extServices = ServicesFor(ext.Id, services);
+        if (IsOverlayExtension(ext.Id) && _overlay?.Has(ext.Id) != true
+            && !BuildExtensionProviderCore(ext.Id))
+        {
+            await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
+            await PersistInstallationStateAsync(ext.Id, ct);
+            return false;
+        }
+        using var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext));
+        var extServices = extensionLease.Services;
 
         // Mirror the runtime-install path: ensure a data extension's schema exists and the host EF model
         // includes its entity types before it initializes. Both calls are idempotent (already-applied
         // migrations are skipped; the model only rebuilds when the data-extension set actually changed).
         if (ext is IDataExtension)
         {
-            await ApplyExtensionMigrationsAsync(services, ct);
+            await ApplyExtensionMigrationsAsync(services, ext.Id, ct);
             DataExtensionsChanged?.Invoke();
         }
 
         try
         {
             await ext.InitializeAsync(extServices, ct);
-            _initializedExtensions.Add(ext.Id);
+            MarkExtensionInitialized(ext.Id);
             StartBackgroundWorker(ext.Id);
+            PublishExtensionEndpoints(ext.Id);
             _logger?.LogInformation("Extension {Id} initialized on demand", ext.Id);
             return true;
         }
         catch (Exception ex)
         {
+            await ShutdownExtensionCoreAsync(ext.Id, ct, retireOverlay: true);
             DisableExtensionForStartupFailure(ext.Id, ex, "on-demand initialize");
             await PersistInstallationStateAsync(ext.Id, ct);
             return false;
@@ -970,59 +1589,134 @@ public class ExtensionManager
     {
         CaptureScopeFactory(services);
         _logger ??= services.GetService<ILogger<ExtensionManager>>();
+        ct.ThrowIfCancellationRequested();
+        if (_activeUnloadOperations.Value?.Contains(id) == true)
+            throw new InvalidOperationException($"Extension '{id}' cannot recursively unload itself.");
 
-        if (!_extensionMap.TryGetValue(id, out var ext))
+        var proposed = new Lazy<Task<bool>>(
+            () => UnloadExtensionTransactionAsync(id, services),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        var operation = _unloadOperations.GetOrAdd(id, proposed);
+        var task = operation.Value;
+        if (ReferenceEquals(operation, proposed))
+        {
+            _ = task.ContinueWith(
+                completed =>
+                {
+                    _ = completed.Exception;
+                    RemoveUnloadOperation(id, operation);
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        return await task.WaitAsync(ct);
+    }
+
+    private void RemoveUnloadOperation(string id, Lazy<Task<bool>> operation)
+    {
+        if (_unloadOperations.TryGetValue(id, out var current) && ReferenceEquals(current, operation))
+            _unloadOperations.TryRemove(id, out _);
+    }
+
+    private async Task<bool> UnloadExtensionTransactionAsync(string id, IServiceProvider services)
+    {
+        var previousOperations = _activeUnloadOperations.Value;
+        _activeUnloadOperations.Value = previousOperations == null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { id }
+            : previousOperations.Append(id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            return await UnloadExtensionTransactionCoreAsync(id, services);
+        }
+        finally
+        {
+            _activeUnloadOperations.Value = previousOperations;
+        }
+    }
+
+    private async Task<bool> UnloadExtensionTransactionCoreAsync(string id, IServiceProvider services)
+    {
+        List<string> dependentIds;
+        lock (_extensionSetMutationGate)
+        {
+            dependentIds = GetDependentExtensionIds(id, enabledOnly: true).ToList();
+            DisableDependentInstallationStates(id);
+        }
+
+        // Once the disabled closure is published, complete it without cancellation so no dependent
+        // keeps a live worker, endpoint, provider, or persisted enabled state against a removed dependency.
+        foreach (var dependentId in dependentIds)
+        {
+            var dependentGate = GetExtensionLifecycleGate(dependentId);
+            await dependentGate.WaitAsync(CancellationToken.None);
+            try
+            {
+                await PersistInstallationStateAsync(dependentId, CancellationToken.None);
+                await ShutdownExtensionCoreAsync(dependentId, CancellationToken.None, retireOverlay: true);
+            }
+            finally
+            {
+                dependentGate.Release();
+            }
+        }
+
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        await lifecycleGate.WaitAsync(CancellationToken.None);
+        try
+        {
+            return await UnloadExtensionCoreAsync(id, services, CancellationToken.None);
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
+    }
+
+    private async Task<bool> UnloadExtensionCoreAsync(string id, IServiceProvider services, CancellationToken ct)
+    {
+        if (GetExtension(id) is not { } ext)
         {
             if (_installations.ContainsKey(id) && IsManifestOnlyExtension(id))
             {
-                _manifestFiles.Remove(id);
-                _installations.Remove(id);
+                lock (_extensionSetMutationGate)
+                {
+                    _manifestFiles.TryRemove(id, out _);
+                    _installations.TryRemove(id, out _);
+                }
                 await RemoveInstallationStateAsync(id, ct);
                 return true;
             }
 
             // It may still exist as a stale installation record.
-            _installations.Remove(id);
+            lock (_extensionSetMutationGate)
+                _installations.TryRemove(id, out _);
             await RemoveInstallationStateAsync(id, ct);
             return false;
         }
 
-        if (_installations.TryGetValue(id, out var inst))
-            inst.Enabled = false;
-
         var wasDataExtension = ext is IDataExtension;
-        var uninstallServices = ServicesFor(id, services);
-
-        try
+        using (var extensionLease = CreateExtensionExecutionLease(CaptureExtensionExecution(ext)))
         {
-            await ext.OnUninstallAsync(uninstallServices, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogWarning(ex, "OnUninstall failed for extension {Id}", id);
-        }
-
-        try
-        {
-            await ext.ShutdownAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogWarning(ex, "Shutdown failed for extension {Id}", id);
+            try
+            {
+                await ext.OnUninstallAsync(extensionLease.Services, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "OnUninstall failed for extension {Id}", id);
+            }
         }
 
-        RemoveExtensionFromMemory(id);
-        _installations.Remove(id);
+        await ShutdownExtensionCoreAsync(id, ct, retireOverlay: true);
+
+        lock (_extensionSetMutationGate)
+        {
+            RemoveExtensionFromMemory(id);
+            _installations.TryRemove(id, out _);
+        }
         await RemoveInstallationStateAsync(id, ct);
-
-        // Remove runtime endpoints so the routing DFA no longer includes this extension.
-        _endpointRegistry?.RemoveExtension(id);
-
-        // Drop this extension's container and withdraw its published contributions, and stop its worker.
-        // Other extensions are untouched.
-        StopBackgroundWorker(id);
-        _overlay?.Remove(id);
-        WithdrawFromExchange(id);
 
         // A removed data extension's entity types should leave the EF model so the host stops mapping
         // tables that may be dropped. Refresh after the extension is gone from the loaded set.
@@ -1054,7 +1748,7 @@ public class ExtensionManager
                 if (string.IsNullOrWhiteSpace(topic.Id) || string.IsNullOrWhiteSpace(topic.Title))
                     continue;
 
-                var normalized = string.IsNullOrWhiteSpace(topic.ExtensionId) && !string.IsNullOrWhiteSpace(extensionId)
+                var normalized = !string.IsNullOrWhiteSpace(extensionId)
                     ? topic with { ExtensionId = extensionId }
                     : topic;
 
@@ -1068,25 +1762,29 @@ public class ExtensionManager
         foreach (var ext in GetInitializationOrder().OfType<IUIExtension>())
         {
             if (!IsEnabled(ext.Id)) continue;
-            var extManifest = ext.GetUIManifest();
-            manifest.Pages.AddRange(extManifest.Pages);
-            manifest.Slots.AddRange(extManifest.Slots);
-            manifest.Tabs.AddRange(extManifest.Tabs);
-            manifest.Panes.AddRange(extManifest.Panes);
-            manifest.Features.AddRange(extManifest.Features);
-            manifest.ComponentOverrides.AddRange(extManifest.ComponentOverrides);
-            manifest.SelectorOverrides.AddRange(extManifest.SelectorOverrides);
+            var extManifest = ExecuteExtensionMetadata(ext, ext.GetUIManifest);
+            manifest.Pages.AddRange(extManifest.Pages.Select(page => page with { ExtensionId = ext.Id }));
+            manifest.Slots.AddRange(extManifest.Slots.Select(slot => slot with { ExtensionId = ext.Id }));
+            manifest.Tabs.AddRange(extManifest.Tabs.Select(tab => tab with { ExtensionId = ext.Id }));
+            manifest.Panes.AddRange(extManifest.Panes.Select(pane => pane with { ExtensionId = ext.Id }));
+            manifest.Features.AddRange(extManifest.Features.Select(feature => feature with { ExtensionId = ext.Id }));
+            manifest.ComponentOverrides.AddRange(extManifest.ComponentOverrides.Select(componentOverride => componentOverride with { ExtensionId = ext.Id }));
+            manifest.SelectorOverrides.AddRange(extManifest.SelectorOverrides.Select(selectorOverride => selectorOverride with { ExtensionId = ext.Id }));
             manifest.Themes.AddRange(extManifest.Themes);
             manifest.ComponentStyles.AddRange(extManifest.ComponentStyles);
             manifest.LayoutStyles.AddRange(extManifest.LayoutStyles);
-            manifest.SettingsTabs.AddRange(extManifest.SettingsTabs);
-            manifest.SettingsPanels.AddRange(extManifest.SettingsPanels);
-            manifest.PageOverrides.AddRange(extManifest.PageOverrides);
-            manifest.DialogOverrides.AddRange(extManifest.DialogOverrides);
-            manifest.Actions.AddRange(extManifest.Actions);
+            manifest.SettingsTabs.AddRange(extManifest.SettingsTabs.Select(tab => tab with { ExtensionId = ext.Id }));
+            manifest.SettingsPanels.AddRange(extManifest.SettingsPanels.Select(panel => panel with { ExtensionId = ext.Id }));
+            manifest.PageOverrides.AddRange(extManifest.PageOverrides.Select(pageOverride => pageOverride with { ExtensionId = ext.Id }));
+            manifest.DialogOverrides.AddRange(extManifest.DialogOverrides.Select(dialogOverride => dialogOverride with { ExtensionId = ext.Id }));
+            manifest.Actions.AddRange(extManifest.Actions.Select(action => action with { ExtensionId = ext.Id }));
             AddTutorialTopics(extManifest.TutorialTopics, ext.Id);
-            manifest.ListFilters.AddRange(extManifest.ListFilters);
-            manifest.ListSorts.AddRange(extManifest.ListSorts);
+            manifest.ListFilters.AddRange(extManifest.ListFilters.Select(filter => filter with
+            {
+                ExtensionId = ext.Id,
+                FilterId = string.IsNullOrWhiteSpace(filter.FilterId) ? null : filter.FilterId.Trim(),
+            }));
+            manifest.ListSorts.AddRange(extManifest.ListSorts.Select(sort => sort with { ExtensionId = ext.Id }));
         }
 
         var manifestIds = _manifestFiles.Keys
@@ -1108,20 +1806,180 @@ public class ExtensionManager
         foreach (var ext in GetInitializationOrder().OfType<IActionExtension>())
         {
             if (!IsEnabled(ext.Id)) continue;
-            manifest.Actions.AddRange(ext.GetActions());
+            var actions = ExecuteExtensionMetadata(ext, () => ext.GetActions().ToList());
+            manifest.Actions.AddRange(actions.Select(action => action with { ExtensionId = ext.Id }));
         }
 
         manifest.Pages.Sort((a, b) => a.NavOrder.CompareTo(b.NavOrder));
         manifest.Slots.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Tabs.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Panes.Sort((a, b) => a.Order.CompareTo(b.Order));
-        manifest.ComponentOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+        manifest.ComponentOverrides.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+
+            var extensionId = string.Compare(a.ExtensionId, b.ExtensionId, StringComparison.Ordinal);
+            return extensionId != 0
+                ? extensionId
+                : string.Compare(a.ComponentName, b.ComponentName, StringComparison.Ordinal);
+        });
         manifest.SelectorOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.TutorialTopics.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListFilters.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListSorts.Sort((a, b) => a.Order.CompareTo(b.Order));
         return manifest;
+    }
+
+    /// <summary>
+    /// Resolve a namespaced contribution and atomically acquire its exact provider generation while
+    /// holding the owner's lifecycle gate. The gate is released before this method returns; the
+    /// returned execution alone pins the retired generation until its in-flight calls drain.
+    /// </summary>
+    async Task<IExtensionContributionExecution<TDeclaration, TRequest, TResult>?>
+        IExtensionContributionRuntime.OpenContributionAsync<TDeclaration, TRequest, TResult>(
+        string extensionId,
+        string contributionId,
+        Func<IExtension, IServiceProvider, string, ExtensionContributionBinding<TDeclaration, TRequest, TResult>?> bind,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(extensionId)
+            || string.IsNullOrWhiteSpace(contributionId))
+            return null;
+        ArgumentNullException.ThrowIfNull(bind);
+
+        var normalizedExtensionId = extensionId.Trim();
+        var normalizedContributionId = contributionId.Trim();
+        if (normalizedExtensionId.Length > 256 || normalizedContributionId.Length > 256)
+            return null;
+
+        var lifecycleGate = GetExtensionLifecycleGate(normalizedExtensionId);
+        await lifecycleGate.WaitAsync(ct);
+        IServiceScope? provisionalScope = null;
+        try
+        {
+            if (!IsEnabled(normalizedExtensionId)
+                || !IsExtensionInitialized(normalizedExtensionId)
+                || GetExtension(normalizedExtensionId) is not { } extension)
+                return null;
+
+            // Scope acquisition atomically checks the extension instance and provider generation.
+            // Runtime extensions fail closed here; they never fall back to the host provider.
+            provisionalScope = CreateExtensionScope(extension);
+            var binding = bind(
+                extension,
+                provisionalScope.ServiceProvider,
+                normalizedContributionId);
+            if (binding is null)
+                return null;
+
+            var ownedScope = provisionalScope;
+            provisionalScope = null;
+            return new ExtensionContributionExecution<TDeclaration, TRequest, TResult>(
+                new ExtensionContributionKey(extension.Id, normalizedContributionId),
+                binding.Declaration,
+                binding.ExecuteAsync,
+                ownedScope);
+        }
+        finally
+        {
+            try
+            {
+                provisionalScope?.Dispose();
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+    }
+
+    private sealed class ExtensionContributionExecution<TDeclaration, TRequest, TResult>(
+        ExtensionContributionKey key,
+        TDeclaration declaration,
+        Func<TRequest, CancellationToken, Task<TResult>> execute,
+        IServiceScope scope) : IExtensionContributionExecution<TDeclaration, TRequest, TResult>
+    {
+        private readonly object _gate = new();
+        private IServiceScope? _scope = scope;
+        private int _activeCalls;
+        private bool _disposeRequested;
+
+        public ExtensionContributionKey Key { get; } = key;
+        public TDeclaration Declaration { get; } = declaration;
+
+        public Task<TResult> ExecuteAsync(TRequest request, CancellationToken ct)
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposeRequested, this);
+                _activeCalls++;
+            }
+
+            Task<TResult> task;
+            try
+            {
+                task = execute(request, ct);
+            }
+            catch
+            {
+                ReleaseCall();
+                throw;
+            }
+
+            return AwaitAndReleaseAsync(task);
+        }
+
+        public void Dispose()
+        {
+            IServiceScope? dispose = null;
+            lock (_gate)
+            {
+                if (_disposeRequested)
+                    return;
+
+                _disposeRequested = true;
+                if (_activeCalls == 0)
+                {
+                    dispose = _scope;
+                    _scope = null;
+                }
+            }
+            ReleaseResources(dispose);
+        }
+
+        private async Task<TResult> AwaitAndReleaseAsync(Task<TResult> task)
+        {
+            try
+            {
+                return await task;
+            }
+            finally
+            {
+                ReleaseCall();
+            }
+        }
+
+        private void ReleaseCall()
+        {
+            IServiceScope? dispose = null;
+            lock (_gate)
+            {
+                _activeCalls--;
+                if (_activeCalls == 0 && _disposeRequested)
+                {
+                    dispose = _scope;
+                    _scope = null;
+                }
+            }
+            ReleaseResources(dispose);
+        }
+
+        private void ReleaseResources(IServiceScope? dispose)
+        {
+            dispose?.Dispose();
+        }
     }
 
     /// <summary>Get enabled extension UI JS bundle asset paths (extensionId + relative path).</summary>
@@ -1159,61 +2017,159 @@ public class ExtensionManager
     // ========================================================================
 
     /// <summary>Check if an extension is enabled.</summary>
-    public bool IsEnabled(string id) => _installations.TryGetValue(id, out var inst) ? inst.Enabled : true;
+    public bool IsEnabled(string id)
+    {
+        lock (_installationStateGate)
+            return _installations.TryGetValue(id, out var inst) ? inst.Enabled : true;
+    }
 
     /// <summary>Enable an extension and any installed extensions it depends on. Persists the state to DB.</summary>
     public async Task<IReadOnlyList<string>> EnableExtensionAsync(string id, CancellationToken ct = default)
     {
-        var enabledIds = new List<string>();
-        var idsToEnable = GetDependencyExtensionIds(id)
-            .Append(id)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var extensionId in idsToEnable)
+        while (true)
         {
-            var inst = EnsureInstallationRecord(extensionId);
-            if (inst == null)
-                continue;
+            ExtensionRegistrySnapshot registry;
+            List<string> idsToEnable;
+            lock (_extensionSetMutationGate)
+            {
+                registry = GetExtensionRegistry();
+                idsToEnable = GetDependencyExtensionIds(id)
+                    .Append(id)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (idsToEnable.Any(_unloadOperations.ContainsKey))
+                    return [];
+            }
 
-            inst.Enabled = true;
-            inst.UpdatedAt = DateTime.UtcNow;
-            await PersistInstallationStateAsync(extensionId, ct);
-            enabledIds.Add(extensionId);
+            var enabledIds = new List<string>();
+            var plannedIds = idsToEnable.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var restart = false;
+            var blockedByUnload = false;
+            foreach (var extensionId in idsToEnable)
+            {
+                var lifecycleGate = GetExtensionLifecycleGate(extensionId);
+                await lifecycleGate.WaitAsync(ct);
+                try
+                {
+                    var canEnable = false;
+                    lock (_extensionSetMutationGate)
+                    {
+                        registry.Map.TryGetValue(extensionId, out var expectedExtension);
+                        var currentExtension = GetExtension(extensionId);
+                        var declaredDependencies = GetDeclaredDependencies(extensionId).Keys.ToList();
+                        var knownDependencies = declaredDependencies
+                            .Where(dependencyId => GetExtension(dependencyId) != null
+                                || _installations.ContainsKey(dependencyId)
+                                || _manifestFiles.ContainsKey(dependencyId))
+                            .ToList();
+                        var dependencyGenerationChanged = declaredDependencies.Any(dependencyId =>
+                        {
+                            registry.Map.TryGetValue(dependencyId, out var expectedDependency);
+                            var currentDependency = GetExtension(dependencyId);
+                            return !ReferenceEquals(expectedDependency, currentDependency);
+                        });
+
+                        if (_unloadOperations.ContainsKey(extensionId)
+                            || declaredDependencies.Any(_unloadOperations.ContainsKey))
+                        {
+                            blockedByUnload = true;
+                        }
+                        else if (!ReferenceEquals(expectedExtension, currentExtension)
+                            || dependencyGenerationChanged
+                            || knownDependencies.Any(dependencyId => !plannedIds.Contains(dependencyId)))
+                        {
+                            restart = true;
+                        }
+                        else if (knownDependencies.Any(dependencyId => !IsEnabled(dependencyId)))
+                        {
+                            restart = true;
+                        }
+                        else if (knownDependencies.Count == declaredDependencies.Count
+                            && EnsureInstallationRecord(extensionId) != null)
+                        {
+                            TryUpdateInstallation(extensionId, install =>
+                            {
+                                install.Enabled = true;
+                                install.UpdatedAt = DateTime.UtcNow;
+                            });
+                            canEnable = true;
+                        }
+                    }
+
+                    if (restart || blockedByUnload || !canEnable)
+                        break;
+
+                    await PersistInstallationStateAsync(extensionId, ct);
+                    if (IsOverlayExtension(extensionId) && !IsExtensionInitialized(extensionId))
+                    {
+                        if (!BuildExtensionProviderCore(extensionId))
+                        {
+                            await ShutdownExtensionCoreAsync(extensionId, ct, retireOverlay: true);
+                            await PersistInstallationStateAsync(extensionId, ct);
+                            return enabledIds;
+                        }
+                    }
+
+                    enabledIds.Add(extensionId);
+                }
+                finally
+                {
+                    lifecycleGate.Release();
+                }
+            }
+
+            if (blockedByUnload || !restart)
+                return enabledIds;
         }
-
-        foreach (var enabledId in enabledIds)
-            if (IsOverlayExtension(enabledId))
-                BuildExtensionProvider(enabledId);
-
-        return enabledIds;
     }
 
     /// <summary>Disable an extension and any enabled extensions that depend on it. Persists the state to DB.</summary>
     public async Task<IReadOnlyList<string>> DisableExtensionAsync(string id, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
+        List<string> idsToDisable;
+        lock (_extensionSetMutationGate)
+        {
+            idsToDisable = GetDependentExtensionIds(id, enabledOnly: true)
+                .Append(id)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Publish the disabled state for the whole dependency closure before releasing the set
+            // mutation gate. A concurrently registered dependent will therefore inherit disabled.
+            foreach (var extensionId in idsToDisable)
+            {
+                if (EnsureInstallationRecord(extensionId) != null)
+                    TryUpdateInstallation(extensionId, install => install.Enabled = false);
+            }
+        }
+
         var disabledIds = new List<string>();
-        var idsToDisable = new[] { id }
-            .Concat(GetDependentExtensionIds(id, enabledOnly: true))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
 
         foreach (var extensionId in idsToDisable)
         {
-            var inst = EnsureInstallationRecord(extensionId);
-            if (inst == null)
-                continue;
+            var lifecycleGate = GetExtensionLifecycleGate(extensionId);
+            await lifecycleGate.WaitAsync(CancellationToken.None);
+            try
+            {
+                var inst = EnsureInstallationRecord(extensionId);
+                if (inst == null)
+                    continue;
 
-            inst.Enabled = false;
-            inst.UpdatedAt = DateTime.UtcNow;
-            await PersistInstallationStateAsync(extensionId, ct);
-            disabledIds.Add(extensionId);
-        }
-
-        foreach (var disabledId in disabledIds)
-        {
-            if (!IsOverlayExtension(disabledId)) continue;
-            StopBackgroundWorker(disabledId);
-            _overlay?.Remove(disabledId);
-            WithdrawFromExchange(disabledId);
+                TryUpdateInstallation(extensionId, install =>
+                {
+                    install.Enabled = false;
+                    install.UpdatedAt = DateTime.UtcNow;
+                });
+                await PersistInstallationStateAsync(extensionId, CancellationToken.None);
+                disabledIds.Add(extensionId);
+                await ShutdownExtensionCoreAsync(extensionId, CancellationToken.None, retireOverlay: true);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
         }
 
         return disabledIds;
@@ -1222,13 +2178,25 @@ public class ExtensionManager
     /// <summary>Update persisted install metadata for extensions installed after startup.</summary>
     public async Task SetInstallationMetadataAsync(string id, string source, string? version = null, CancellationToken ct = default)
     {
-        var inst = EnsureInstallationRecord(id);
-        if (inst == null) return;
-        inst.Source = source;
-        if (!string.IsNullOrWhiteSpace(version))
-            inst.Version = version.Trim();
-        inst.UpdatedAt = DateTime.UtcNow;
-        await PersistInstallationStateAsync(id, ct);
+        var lifecycleGate = GetExtensionLifecycleGate(id);
+        await lifecycleGate.WaitAsync(ct);
+        try
+        {
+            var inst = EnsureInstallationRecord(id);
+            if (inst == null) return;
+            TryUpdateInstallation(id, install =>
+            {
+                install.Source = source;
+                if (!string.IsNullOrWhiteSpace(version))
+                    install.Version = version.Trim();
+                install.UpdatedAt = DateTime.UtcNow;
+            });
+            await PersistInstallationStateAsync(id, ct);
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
     }
 
     /// <summary>Update only the persisted install source for an extension.</summary>
@@ -1236,8 +2204,11 @@ public class ExtensionManager
         SetInstallationMetadataAsync(id, source, null, ct);
 
     /// <summary>Get the installation record for an extension.</summary>
-    public ExtensionInstallation? GetInstallation(string id) =>
-        _installations.TryGetValue(id, out var inst) ? inst : null;
+    public ExtensionInstallation? GetInstallation(string id)
+    {
+        lock (_installationStateGate)
+            return _installations.TryGetValue(id, out var inst) ? CloneInstallation(inst) : null;
+    }
 
     /// <summary>Get the manifest metadata for an extension or bundle.</summary>
     public ExtensionManifestFile? GetManifestFile(string id)
@@ -1245,7 +2216,8 @@ public class ExtensionManager
         if (_manifestFiles.TryGetValue(id, out var manifest))
             return manifest;
 
-        if (_installations.TryGetValue(id, out var install) && !string.IsNullOrWhiteSpace(install.ManifestJson))
+        var install = GetInstallation(id);
+        if (!string.IsNullOrWhiteSpace(install?.ManifestJson))
         {
             try
             {
@@ -1286,7 +2258,43 @@ public class ExtensionManager
     }
 
     /// <summary>Get all installation records.</summary>
-    public IReadOnlyDictionary<string, ExtensionInstallation> Installations => _installations;
+    public IReadOnlyDictionary<string, ExtensionInstallation> Installations
+    {
+        get
+        {
+            lock (_installationStateGate)
+            {
+                return _installations.ToDictionary(
+                    pair => pair.Key,
+                    pair => CloneInstallation(pair.Value),
+                    StringComparer.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    private bool TryUpdateInstallation(string id, Action<ExtensionInstallation> update)
+    {
+        lock (_installationStateGate)
+        {
+            if (!_installations.TryGetValue(id, out var installation))
+                return false;
+
+            update(installation);
+            return true;
+        }
+    }
+
+    private static ExtensionInstallation CloneInstallation(ExtensionInstallation installation) => new()
+    {
+        ExtensionId = installation.ExtensionId,
+        Version = installation.Version,
+        Enabled = installation.Enabled,
+        InstalledAt = installation.InstalledAt,
+        UpdatedAt = installation.UpdatedAt,
+        ManifestJson = installation.ManifestJson,
+        Source = installation.Source,
+        Categories = installation.Categories,
+    };
 
     public string? GetExtensionDirectory(string id) => ResolveExtensionDirectory(id);
 
@@ -1295,7 +2303,7 @@ public class ExtensionManager
 
     public bool IsEffectivelyInstalled(string id)
     {
-        if (_extensionMap.ContainsKey(id)) return true;
+        if (GetExtension(id) != null) return true;
         var dir = ResolveExtensionDirectory(id);
         return dir != null;
     }
@@ -1359,7 +2367,8 @@ public class ExtensionManager
             if (!IsEnabled(ext.Id)) continue;
             try
             {
-                await ext.OnEventAsync(evt, ct);
+                var execution = CaptureExtensionExecution(ext);
+                await ExecuteExtensionAsync(execution, () => ext.OnEventAsync(evt, ct));
             }
             catch (Exception ex)
             {
@@ -1406,10 +2415,11 @@ public class ExtensionManager
     /// <summary>Get all job definitions across all enabled IJobExtension instances.</summary>
     public IEnumerable<(IJobExtension Extension, ExtensionJobDefinition Job)> GetAllJobs()
     {
-        foreach (var ext in _extensions.OfType<IJobExtension>())
+        foreach (var ext in GetExtensionRegistry().Extensions.OfType<IJobExtension>())
         {
             if (!IsEnabled(ext.Id)) continue;
-            foreach (var job in ext.Jobs)
+            var jobs = ExecuteExtensionMetadata(ext, () => ext.Jobs.ToList());
+            foreach (var job in jobs)
                 yield return (ext, job);
         }
     }
@@ -1421,10 +2431,10 @@ public class ExtensionManager
     /// <summary>Get all unique categories across all extensions.</summary>
     public IReadOnlyList<string> GetAllCategories()
     {
-        return _extensions
-            .SelectMany(e => e.Categories)
+        return GetExtensionRegistry().Extensions
+            .SelectMany(e => ExecuteExtensionMetadata(e, () => e.Categories.ToList()))
             .Concat(_manifestFiles.Values.SelectMany(manifest => manifest.Categories))
-            .Concat(_installations.Values
+            .Concat(Installations.Values
                 .Where(i => i.Categories != null)
                 .SelectMany(i => i.Categories!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
             .Where(category => !string.IsNullOrWhiteSpace(category))
@@ -1437,8 +2447,8 @@ public class ExtensionManager
     public IReadOnlyList<IExtension> GetExtensionsByCategory(params string[] categories)
     {
         var catSet = new HashSet<string>(categories, StringComparer.OrdinalIgnoreCase);
-        return _extensions
-            .Where(e => e.Categories.Any(catSet.Contains)
+        return GetExtensionRegistry().Extensions
+            .Where(e => ExecuteExtensionMetadata(e, () => e.Categories.Any(catSet.Contains))
                 || (_manifestFiles.TryGetValue(e.Id, out var manifest) && manifest.Categories.Any(catSet.Contains)))
             .ToList();
     }
@@ -1459,83 +2469,95 @@ public class ExtensionManager
     // EXTENSION MIGRATIONS
     // ========================================================================
 
-    private async Task ApplyExtensionMigrationsAsync(IServiceProvider services, CancellationToken ct)
+    private async Task ApplyExtensionMigrationsAsync(IServiceProvider services, string extensionId, CancellationToken ct)
     {
-        var dataExtensions = GetInitializationOrder().OfType<IDataExtension>().ToList();
+        var dataExtensions = GetInitializationOrder()
+            .OfType<IDataExtension>()
+            .Where(extension => string.Equals(extension.Id, extensionId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
         if (dataExtensions.Count == 0) return;
 
-        using var scope = services.CreateScope();
-        var db = scope.ServiceProvider.GetService<DbContext>();
-        if (db?.Database is null) return;
-
-        // Ensure extension_migrations table exists
-        await db.Database.ExecuteSqlRawAsync("""
-            CREATE TABLE IF NOT EXISTS extension_migrations (
-                extension_id VARCHAR(256) NOT NULL,
-                migration_name VARCHAR(512) NOT NULL,
-                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (extension_id, migration_name)
-            )
-            """, ct);
-
-        foreach (var ext in dataExtensions)
+        await _extensionMigrationGate.WaitAsync(ct);
+        try
         {
-            if (!IsEnabled(ext.Id)) continue;
-            var migrations = ext.GetMigrations();
-            if (migrations.Count == 0) continue;
+            using var scope = services.CreateScope();
+            var db = scope.ServiceProvider.GetService<DbContext>();
+            if (db?.Database is null) return;
 
-            // Get already-applied migrations for this extension
-            var applied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
+            // Extension migrations can execute arbitrary schema SQL, including changes to shared core
+            // tables, so serialize them globally even though lifecycle transitions are per extension.
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS extension_migrations (
+                    extension_id VARCHAR(256) NOT NULL,
+                    migration_name VARCHAR(512) NOT NULL,
+                    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (extension_id, migration_name)
+                )
+                """, ct);
+
+            foreach (var ext in dataExtensions)
             {
-                using var cmd = db.Database.GetDbConnection().CreateCommand();
-                cmd.CommandText = "SELECT migration_name FROM extension_migrations WHERE extension_id = @id";
-                var param = cmd.CreateParameter();
-                param.ParameterName = "@id";
-                param.Value = ext.Id;
-                cmd.Parameters.Add(param);
+                if (!IsEnabled(ext.Id)) continue;
+                var migrations = ext.GetMigrations();
+                if (migrations.Count == 0) continue;
 
-                if (cmd.Connection?.State != System.Data.ConnectionState.Open)
-                    await cmd.Connection!.OpenAsync(ct);
-
-                using var reader = await cmd.ExecuteReaderAsync(ct);
-                while (await reader.ReadAsync(ct))
-                    applied.Add(reader.GetString(0));
-            }
-            catch
-            {
-                // Table might not exist yet on first run
-            }
-
-            // Apply pending migrations
-            foreach (var migration in migrations)
-            {
-                if (applied.Contains(migration.Name)) continue;
+                // Get already-applied migrations for this extension
+                var applied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 try
                 {
-                    _logger?.LogInformation("Applying extension migration {ExtId}/{Name}", ext.Id, migration.Name);
-                    // Extension migrations are complete SQL scripts, not composite format strings.
-                    // EF's ExecuteSqlRaw APIs still interpret literal braces (for example a
-                    // PostgreSQL JSON default of '{}'), so execute the script directly.
-                    var connection = db.Database.GetDbConnection();
-                    if (connection.State != System.Data.ConnectionState.Open)
-                        await connection.OpenAsync(ct);
-                    await using var migrationCommand = connection.CreateCommand();
-                    migrationCommand.CommandText = migration.UpSql;
-                    await migrationCommand.ExecuteNonQueryAsync(ct);
+                    using var cmd = db.Database.GetDbConnection().CreateCommand();
+                    cmd.CommandText = "SELECT migration_name FROM extension_migrations WHERE extension_id = @id";
+                    var param = cmd.CreateParameter();
+                    param.ParameterName = "@id";
+                    param.Value = ext.Id;
+                    cmd.Parameters.Add(param);
 
-                    // Record the migration
-                    await db.Database.ExecuteSqlRawAsync(
-                        "INSERT INTO extension_migrations (extension_id, migration_name) VALUES ({0}, {1})",
-                        ext.Id, migration.Name);
-                    _logger?.LogInformation("Applied extension migration {ExtId}/{Name}", ext.Id, migration.Name);
+                    if (cmd.Connection?.State != System.Data.ConnectionState.Open)
+                        await cmd.Connection!.OpenAsync(ct);
+
+                    using var reader = await cmd.ExecuteReaderAsync(ct);
+                    while (await reader.ReadAsync(ct))
+                        applied.Add(reader.GetString(0));
                 }
-                catch (Exception ex)
+                catch
                 {
-                    _logger?.LogError(ex, "Failed to apply extension migration {ExtId}/{Name}", ext.Id, migration.Name);
-                    break; // Stop applying migrations for this extension on failure
+                    // Table might not exist yet on first run
+                }
+
+                // Apply pending migrations
+                foreach (var migration in migrations)
+                {
+                    if (applied.Contains(migration.Name)) continue;
+                    try
+                    {
+                        _logger?.LogInformation("Applying extension migration {ExtId}/{Name}", ext.Id, migration.Name);
+                        // Extension migrations are complete SQL scripts, not composite format strings.
+                        // EF's ExecuteSqlRaw APIs still interpret literal braces (for example a
+                        // PostgreSQL JSON default of '{}'), so execute the script directly.
+                        var connection = db.Database.GetDbConnection();
+                        if (connection.State != System.Data.ConnectionState.Open)
+                            await connection.OpenAsync(ct);
+                        await using var migrationCommand = connection.CreateCommand();
+                        migrationCommand.CommandText = migration.UpSql;
+                        await migrationCommand.ExecuteNonQueryAsync(ct);
+
+                        // Record the migration
+                        await db.Database.ExecuteSqlRawAsync(
+                            "INSERT INTO extension_migrations (extension_id, migration_name) VALUES ({0}, {1})",
+                            ext.Id, migration.Name);
+                        _logger?.LogInformation("Applied extension migration {ExtId}/{Name}", ext.Id, migration.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Failed to apply extension migration {ExtId}/{Name}", ext.Id, migration.Name);
+                        break; // Stop applying migrations for this extension on failure
+                    }
                 }
             }
+        }
+        finally
+        {
+            _extensionMigrationGate.Release();
         }
     }
 
@@ -1547,58 +2569,93 @@ public class ExtensionManager
     {
         try
         {
-            using var scope = services.CreateScope();
-            var db = scope.ServiceProvider.GetService<DbContext>();
-            if (db?.Database is null) return;
-
-            // Ensure extension_installations table exists
-            await db.Database.ExecuteSqlRawAsync("""
-                CREATE TABLE IF NOT EXISTS extension_installations (
-                    extension_id VARCHAR(256) PRIMARY KEY,
-                    version VARCHAR(64) NOT NULL,
-                    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                    installed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    manifest_json TEXT,
-                    source VARCHAR(64) NOT NULL DEFAULT 'local',
-                    categories TEXT
-                )
-                """, ct);
-
-            using var cmd = db.Database.GetDbConnection().CreateCommand();
-            cmd.CommandText = "SELECT extension_id, version, enabled, installed_at, updated_at, manifest_json, source, categories FROM extension_installations";
-
-            if (cmd.Connection?.State != System.Data.ConnectionState.Open)
-                await cmd.Connection!.OpenAsync(ct);
-
-            using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            var extensionIds = new List<string>();
+            using (var discoveryScope = services.CreateScope())
             {
-                var id = reader.GetString(0);
-                if (_installations.TryGetValue(id, out var existing))
+                var discoveryDb = discoveryScope.ServiceProvider.GetService<DbContext>();
+                if (discoveryDb?.Database is null) return;
+
+                await discoveryDb.Database.ExecuteSqlRawAsync("""
+                    CREATE TABLE IF NOT EXISTS extension_installations (
+                        extension_id VARCHAR(256) PRIMARY KEY,
+                        version VARCHAR(64) NOT NULL,
+                        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        installed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        manifest_json TEXT,
+                        source VARCHAR(64) NOT NULL DEFAULT 'local',
+                        categories TEXT
+                    )
+                    """, ct);
+
+                using var idsCommand = discoveryDb.Database.GetDbConnection().CreateCommand();
+                idsCommand.CommandText = "SELECT extension_id FROM extension_installations";
+                if (idsCommand.Connection?.State != System.Data.ConnectionState.Open)
+                    await idsCommand.Connection!.OpenAsync(ct);
+
+                using var idsReader = await idsCommand.ExecuteReaderAsync(ct);
+                while (await idsReader.ReadAsync(ct))
+                    extensionIds.Add(idsReader.GetString(0));
+            }
+
+            foreach (var id in extensionIds)
+            {
+                var lifecycleGate = GetExtensionLifecycleGate(id);
+                await lifecycleGate.WaitAsync(ct);
+                try
                 {
-                    // Merge DB state with in-memory (DB wins for enabled state)
-                    existing.Enabled = reader.GetBoolean(2);
-                    existing.InstalledAt = EnsureUtc(reader.GetDateTime(3));
-                    existing.UpdatedAt = EnsureUtc(reader.GetDateTime(4));
-                    existing.ManifestJson = reader.IsDBNull(5) ? null : reader.GetString(5);
-                    existing.Source = reader.GetString(6);
-                    if (!reader.IsDBNull(7)) existing.Categories = reader.GetString(7);
-                }
-                else
-                {
-                    // Extension in DB but not loaded (maybe removed from disk)
-                    _installations[id] = new ExtensionInstallation
+                    using var rowScope = services.CreateScope();
+                    var rowDb = rowScope.ServiceProvider.GetService<DbContext>();
+                    if (rowDb?.Database is null)
+                        continue;
+
+                    using var rowCommand = rowDb.Database.GetDbConnection().CreateCommand();
+                    rowCommand.CommandText = "SELECT extension_id, version, enabled, installed_at, updated_at, manifest_json, source, categories FROM extension_installations WHERE extension_id = @id";
+                    var idParameter = rowCommand.CreateParameter();
+                    idParameter.ParameterName = "@id";
+                    idParameter.Value = id;
+                    rowCommand.Parameters.Add(idParameter);
+
+                    if (rowCommand.Connection?.State != System.Data.ConnectionState.Open)
+                        await rowCommand.Connection!.OpenAsync(ct);
+
+                    using var reader = await rowCommand.ExecuteReaderAsync(ct);
+                    if (!await reader.ReadAsync(ct))
+                        continue;
+
+                    if (_installations.ContainsKey(id))
                     {
-                        ExtensionId = id,
-                        Version = reader.GetString(1),
-                        Enabled = reader.GetBoolean(2),
-                        InstalledAt = EnsureUtc(reader.GetDateTime(3)),
-                        UpdatedAt = EnsureUtc(reader.GetDateTime(4)),
-                        ManifestJson = reader.IsDBNull(5) ? null : reader.GetString(5),
-                        Source = reader.GetString(6),
-                        Categories = reader.IsDBNull(7) ? null : reader.GetString(7),
-                    };
+                        // The row is read while this extension's lifecycle gate is held, so DB state
+                        // cannot overwrite an in-flight enable/disable transition with a stale snapshot.
+                        TryUpdateInstallation(id, installation =>
+                        {
+                            installation.Enabled = reader.GetBoolean(2);
+                            installation.InstalledAt = EnsureUtc(reader.GetDateTime(3));
+                            installation.UpdatedAt = EnsureUtc(reader.GetDateTime(4));
+                            installation.ManifestJson = reader.IsDBNull(5) ? null : reader.GetString(5);
+                            installation.Source = reader.GetString(6);
+                            if (!reader.IsDBNull(7)) installation.Categories = reader.GetString(7);
+                        });
+                    }
+                    else
+                    {
+                        // Extension in DB but not loaded (maybe removed from disk)
+                        _installations[id] = new ExtensionInstallation
+                        {
+                            ExtensionId = id,
+                            Version = reader.GetString(1),
+                            Enabled = reader.GetBoolean(2),
+                            InstalledAt = EnsureUtc(reader.GetDateTime(3)),
+                            UpdatedAt = EnsureUtc(reader.GetDateTime(4)),
+                            ManifestJson = reader.IsDBNull(5) ? null : reader.GetString(5),
+                            Source = reader.GetString(6),
+                            Categories = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        };
+                    }
+                }
+                finally
+                {
+                    lifecycleGate.Release();
                 }
             }
         }
@@ -1616,7 +2673,7 @@ public class ExtensionManager
             var db = scope.ServiceProvider.GetService<DbContext>();
             if (db?.Database is null) return;
 
-            var install = _installations.GetValueOrDefault(extensionId);
+            var install = GetInstallation(extensionId);
             if (install == null) return;
 
             await db.Database.ExecuteSqlRawAsync("""
@@ -1647,39 +2704,31 @@ public class ExtensionManager
         await SaveInstallationAsync(scope.ServiceProvider, extensionId, ct);
     }
 
-    private void ApplyStartupDisables()
-    {
-        foreach (var extensionId in _startupDisabledExtensions)
-        {
-            if (_installations.TryGetValue(extensionId, out var install))
-            {
-                install.Enabled = false;
-            }
-        }
-    }
-
     private void DisableExtensionForStartupFailure(string extensionId, Exception ex, string phase)
     {
         if (string.IsNullOrWhiteSpace(extensionId))
             return;
 
-        if (_installations.TryGetValue(extensionId, out var install))
+        lock (_installationStateGate)
         {
-            install.Enabled = false;
-        }
-        else
-        {
-            _installations[extensionId] = new ExtensionInstallation
+            if (_installations.TryGetValue(extensionId, out var install))
             {
-                ExtensionId = extensionId,
-                Version = "0.0.0",
-                Enabled = false,
-                Source = "local",
-            };
+                install.Enabled = false;
+            }
+            else
+            {
+                _installations[extensionId] = new ExtensionInstallation
+                {
+                    ExtensionId = extensionId,
+                    Version = "0.0.0",
+                    Enabled = false,
+                    Source = "local",
+                };
+            }
         }
 
-        _startupDisabledExtensions.Add(extensionId);
-        _initializedExtensions.Remove(extensionId);
+        _startupDisabledExtensions[extensionId] = 0;
+        MarkExtensionUninitialized(extensionId);
         _extensionFailureReasons[extensionId] = $"{phase}: {ex.GetType().Name}: {ex.Message}";
         _logger?.LogError(ex, "Extension {Id} failed during {Phase} and was disabled", extensionId, phase);
     }
@@ -1718,30 +2767,33 @@ public class ExtensionManager
 
     private ExtensionInstallation? EnsureInstallationRecord(string id)
     {
-        if (_installations.TryGetValue(id, out var existing))
-            return existing;
-
-        if (!_extensionMap.TryGetValue(id, out var ext))
-            return null;
-
-        var manifest = GetManifestFile(id);
-        var install = new ExtensionInstallation
+        lock (_installationStateGate)
         {
-            ExtensionId = id,
-            Version = ResolveInstalledVersion(ext.Version, manifest, null, manifest?.RegistryUrl != null ? "registry" : "local"),
-            Enabled = true,
-            Source = manifest?.RegistryUrl != null ? "registry" : "local",
-            InstalledAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            ManifestJson = manifest != null ? JsonSerializer.Serialize(manifest, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }) : null,
-            Categories = ext.Categories.Count > 0 ? string.Join(",", ext.Categories) : null,
-        };
-        _installations[id] = install;
-        return install;
+            if (_installations.TryGetValue(id, out var existing))
+                return existing;
+
+            if (GetExtension(id) is not { } ext)
+                return null;
+
+            var manifest = GetManifestFile(id);
+            var install = new ExtensionInstallation
+            {
+                ExtensionId = id,
+                Version = ResolveInstalledVersion(ext.Version, manifest, null, manifest?.RegistryUrl != null ? "registry" : "local"),
+                Enabled = ext.Dependencies.Keys.All(IsEnabled),
+                Source = manifest?.RegistryUrl != null ? "registry" : "local",
+                InstalledAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                ManifestJson = manifest != null ? JsonSerializer.Serialize(manifest, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }) : null,
+                Categories = ext.Categories.Count > 0 ? string.Join(",", ext.Categories) : null,
+            };
+            _installations[id] = install;
+            return install;
+        }
     }
 
     private IReadOnlyList<string> GetKnownExtensionIds() => _installations.Keys
-        .Concat(_extensionMap.Keys)
+        .Concat(GetExtensionRegistry().Map.Keys)
         .Concat(_manifestFiles.Keys)
         .Where(id => !string.IsNullOrWhiteSpace(id))
         .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1758,7 +2810,7 @@ public class ExtensionManager
                 dependencies[dependency.Key] = dependency.Value;
         }
 
-        if (_extensionMap.TryGetValue(id, out var extension))
+        if (GetExtension(id) is { } extension)
         {
             foreach (var dependency in extension.Dependencies)
                 dependencies[dependency.Key] = dependency.Value;
@@ -1769,24 +2821,18 @@ public class ExtensionManager
 
     private void RemoveExtensionFromMemory(string id)
     {
-        _initializedExtensions.Remove(id);
+        MarkExtensionUninitialized(id);
 
-        if (_extensionMap.TryGetValue(id, out var existing))
-        {
-            _extensions.Remove(existing);
-            _extensionMap.Remove(id);
-        }
+        RemoveExtension(id);
 
-        _manifestFiles.Remove(id);
-        _extensionDirectories.Remove(id);
+        _manifestFiles.TryRemove(id, out _);
+        _extensionDirectories.TryRemove(id, out _);
         // Drop the active-slot record so the now-unreferenced shadow-copy slot is reaped on the
         // next discovery pass (it stays protected only while the extension is loaded).
-        _loadCacheSlots.Remove(id);
-        _initOrder = null;
+        _loadCacheSlots.TryRemove(id, out _);
 
-        if (_loadContexts.TryGetValue(id, out var context))
+        if (_loadContexts.TryRemove(id, out var context))
         {
-            _loadContexts.Remove(id);
             try
             {
                 context.Unload();
@@ -1801,23 +2847,6 @@ public class ExtensionManager
     // ========================================================================
     // INTERNALS
     // ========================================================================
-
-    private void WireStatefulExtensions(IServiceProvider services)
-    {
-        var factory = services.GetService<IExtensionStoreFactory>();
-        if (factory is null)
-        {
-            _logger?.LogWarning("No IExtensionStoreFactory registered; stateful extensions won't have stores");
-            return;
-        }
-
-        foreach (var ext in _extensions.OfType<IStatefulExtension>())
-        {
-            var store = factory.CreateStore(ext.Id);
-            ext.SetStore(store);
-            _logger?.LogDebug("Wired store for extension {Id}", ext.Id);
-        }
-    }
 
     /// <summary>
     /// Basic semver comparison. Supports: ">=X.Y.Z", "<=X.Y.Z", ">X.Y.Z", "&lt;X.Y.Z", "=X.Y.Z", "X.Y.Z" (exact match).

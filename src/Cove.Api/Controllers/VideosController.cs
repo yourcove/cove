@@ -942,7 +942,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             tag.TagGroup?.Name,
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
-            tag.MinOccurrencePercent);
+            tag.MinOccurrencePercent,
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
 
     // ===== Activity Tracking =====
 
@@ -1521,4 +1522,3 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 }
 
 public record GenerateScreenshotDto(double? AtSeconds = null);
-

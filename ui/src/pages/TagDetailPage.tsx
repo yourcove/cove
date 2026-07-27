@@ -228,10 +228,13 @@ export function TagDetailPage({ id, onNavigate }: Props) {
   return (
     <>
       <EntityHeroLayout
+        entityType="tag"
+        entityId={tag.id}
         backLabel={backLabel}
         onGoBack={goBack}
         imageUrl={tagImageUrl}
         imageAlt={tag.name}
+        imageFit="contain"
         imageClassName="h-full w-full object-contain p-3"
         onImageClick={canWriteTag ? () => setCoverOpen(true) : undefined}
         imageFallback={<TagIcon className="h-14 w-14 text-accent" />}
@@ -351,6 +354,8 @@ export function TagDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Tag Cover"
+        entityType="tag"
+        entityId={tag.id}
         currentImageUrl={tagImageUrl}
         onUpload={(file) => entityImages.uploadTagImage(tag.id, file)}
         onDelete={() => entityImages.deleteTagImage(tag.id)}

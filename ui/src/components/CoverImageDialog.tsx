@@ -1,10 +1,15 @@
 import type { ReactNode } from "react";
 import { ImageIcon, X } from "lucide-react";
 import { ImageInput } from "./ImageInput";
+import { ExtensionSlot } from "../router/RouteRegistry";
+import { ENTITY_COVER_EDITOR_SLOT, type EntityCoverEditorContext } from "./EntityCoverEditorExtension";
 
 interface CoverImageDialogProps {
   open: boolean;
   title: string;
+  entityType: EntityCoverEditorContext["entityType"];
+  entityId: number;
+  coverKey?: EntityCoverEditorContext["coverKey"];
   currentImageUrl?: string | null;
   onUpload?: (file: File) => Promise<unknown>;
   onDelete?: () => Promise<unknown>;
@@ -18,6 +23,9 @@ interface CoverImageDialogProps {
 export function CoverImageDialog({
   open,
   title,
+  entityType,
+  entityId,
+  coverKey = "primary",
   currentImageUrl,
   onUpload,
   onDelete,
@@ -36,7 +44,7 @@ export function CoverImageDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-surface p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
           <button type="button" onClick={onClose} className="rounded-lg border border-border bg-card p-1.5 text-secondary hover:text-foreground" title="Close">
@@ -73,6 +81,13 @@ export function CoverImageDialog({
             </div>
           </div>
         )}
+
+        <ExtensionSlot<EntityCoverEditorContext>
+          slot={ENTITY_COVER_EDITOR_SLOT}
+          context={{ entityType, entityId, coverKey, currentImageUrl, canEdit: Boolean(onUpload || onDelete) }}
+          contextResetKey={`${entityType}:${entityId}:${coverKey}`}
+          fallback={null}
+        />
 
         {extraActions ? <div className="mt-3 border-t border-border pt-3">{extraActions}</div> : null}
       </div>

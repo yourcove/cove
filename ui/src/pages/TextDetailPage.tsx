@@ -300,6 +300,8 @@ export function TextDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Text Cover"
+        entityType="text"
+        entityId={text.id}
         currentImageUrl={textCoverUrl}
         onUpload={(file) => entityImages.uploadTextImage(text.id, file)}
         onDelete={() => entityImages.deleteTextImage(text.id)}

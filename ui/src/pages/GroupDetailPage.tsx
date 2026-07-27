@@ -271,6 +271,9 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title={coverFace === "front" ? "Set Group Cover (Front)" : "Set Group Cover (Back)"}
+        entityType="group"
+        entityId={group.id}
+        coverKey={coverFace}
         currentImageUrl={coverFace === "front" ? group.frontImagePath : group.backImagePath}
         onUpload={(file) => coverFace === "front" ? entityImages.uploadGroupFrontImage(group.id, file) : entityImages.uploadGroupBackImage(group.id, file)}
         onDelete={() => coverFace === "front" ? entityImages.deleteGroupFrontImage(group.id) : entityImages.deleteGroupBackImage(group.id)}
@@ -308,6 +311,8 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       />
 
       <EntityHeroLayout
+        entityType="group"
+        entityId={group.id}
         title={<FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="name">{group.name}</FieldProvenanceHover>}
         description={group.description ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey={["synopsis", "description", "details"]} block>{group.description}</FieldProvenanceHover> : undefined}
         favorite={groupFavorite}
@@ -339,6 +344,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         alternateImageAlt={`${group.name} back cover`}
         primaryImageLabel="front cover"
         alternateImageLabel="back cover"
+        imageFit="contain"
         imageContainerClassName="relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-black/35"
         imageClassName="h-auto w-auto max-h-72 max-w-[20rem] object-contain md:max-h-96 md:max-w-[24rem]"
         imageFallbackClassName="h-72 w-56 items-center justify-center bg-card text-muted md:h-96 md:w-72"

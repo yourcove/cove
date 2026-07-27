@@ -4,6 +4,7 @@ import { AlertTriangle, MoreVertical, SlidersHorizontal } from "lucide-react";
 import type { FieldProvenance, Tag, TagProvenance } from "../api/types";
 import { getFieldProvenanceEntries } from "./FieldProvenanceHover";
 import { TagProvenanceHover } from "./TagProvenanceHover";
+import { TagMediaHover, type TagMediaReference } from "./EntityMedia";
 
 export { RatingBadge } from "./Rating";
 export { CustomFieldsDisplay, CustomFieldsEditor } from "./CustomFields";
@@ -11,12 +12,14 @@ export { FieldProvenanceHover } from "./FieldProvenanceHover";
 export { TagProvenanceHover } from "./TagProvenanceHover";
 import { getResolutionBucketLabel } from "../utils/resolutionBuckets";
 
-export function TagBadge({ name, tag, color, groupColor, onClick, provenance, reportable, onReportIncorrect, onAdjustThreshold }: { name: string; tag?: Pick<Tag, "color" | "tagGroupColor">; color?: string | null; groupColor?: string | null; onClick?: () => void; provenance?: TagProvenance[]; reportable?: boolean; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
+type TagBadgeData = Pick<Tag, "color" | "tagGroupColor"> & Partial<Pick<Tag, "id" | "name" | "imagePath" | "hasImage">>;
+export function TagBadge({ name, tag, color, groupColor, onClick, provenance, reportable, onReportIncorrect, onAdjustThreshold }: { name: string; tag?: TagBadgeData; color?: string | null; groupColor?: string | null; onClick?: () => void; provenance?: TagProvenance[]; reportable?: boolean; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
   const interactive = Boolean(onClick);
   const hasMenu = Boolean(reportable && (onReportIncorrect || onAdjustThreshold));
   const resolvedGroupColor = normalizeTagColor(groupColor ?? tag?.tagGroupColor);
   const resolvedColor = normalizeTagColor(color ?? tag?.color ?? groupColor ?? tag?.tagGroupColor);
   const colorStyle = resolvedColor ? getTagColorStyle(resolvedColor) : undefined;
+  const mediaTag = tag?.id ? { id: tag.id, name: tag.name ?? name, imagePath: tag.imagePath, hasImage: tag.hasImage } : undefined;
 
   const badgeContent = (
     <>
@@ -28,6 +31,11 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       <span>{name}</span>
     </>
   );
+  const withMediaHover = (content: ReactNode) => mediaTag && !provenance?.length ? (
+    <TagMediaHover tag={mediaTag}>
+      {content}
+    </TagMediaHover>
+  ) : content;
 
   // Without a menu, the whole chip is a single button (or static span) as before.
   if (!hasMenu) {
@@ -49,28 +57,31 @@ export function TagBadge({ name, tag, color, groupColor, onClick, provenance, re
       </span>
     );
 
-    return <TagProvenanceHover provenance={provenance}>{badge}</TagProvenanceHover>;
+    const badgeWithProvenance = <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>{badge}</TagProvenanceHover>;
+    return withMediaHover(badgeWithProvenance);
   }
 
   // With a menu, the chip box hosts the trigger inline (right edge) rather than a button-nested-in-button.
   // The menu routes the two intents apart: tuning how often a tag appears is a global threshold change,
   // while "this detection is wrong" is the rare per-video correction that deletes the AI's finding.
-  return (
+  const badgeWithMenu = (
     <TagBadgeWithMenu
       name={name}
       colorStyle={colorStyle}
       interactive={interactive}
       onClick={onClick}
       provenance={provenance}
+      mediaTag={mediaTag}
       onReportIncorrect={onReportIncorrect}
       onAdjustThreshold={onAdjustThreshold}
     >
       {badgeContent}
     </TagBadgeWithMenu>
   );
+  return withMediaHover(badgeWithMenu);
 }
 
-function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, children, onReportIncorrect, onAdjustThreshold }: { name: string; colorStyle?: CSSProperties; interactive: boolean; onClick?: () => void; provenance?: TagProvenance[]; children: ReactNode; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
+function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, mediaTag, children, onReportIncorrect, onAdjustThreshold }: { name: string; colorStyle?: CSSProperties; interactive: boolean; onClick?: () => void; provenance?: TagProvenance[]; mediaTag?: TagMediaReference; children: ReactNode; onReportIncorrect?: () => void; onAdjustThreshold?: () => void }) {
   const chip = (
     <span
       style={colorStyle}
@@ -93,7 +104,7 @@ function TagBadgeWithMenu({ name, colorStyle, interactive, onClick, provenance, 
     </span>
   );
 
-  return <TagProvenanceHover provenance={provenance}>{chip}</TagProvenanceHover>;
+  return <TagProvenanceHover provenance={provenance} mediaTag={mediaTag}>{chip}</TagProvenanceHover>;
 }
 
 // The "⋯" trigger + dropdown for a derived ("locked") tag chip, shared by the read-only Details chip

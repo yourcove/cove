@@ -92,6 +92,7 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             audioCodec={file.audioCodec}
             duration={duration}
             videoId={video.id}
+            extensionSurface="quick-view"
             playbackTracking={{
               hostType: "video",
               hostId: video.id,
@@ -380,4 +381,3 @@ function Overlay({ onClose, children }: { onClose: () => void; children: React.R
     </div>
   );
 }
-

@@ -138,6 +138,7 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
         manager.PrepareRuntimeServices(app.Services);
 
         manager.SetupDynamicEndpoints();
+        await manager.InitializeAllAsync(app.Services);
 
         var warning = Assert.Single(logger.Messages, entry => entry.Level == LogLevel.Warning);
         Assert.Contains("test.api", warning.Message);
@@ -183,6 +184,7 @@ public sealed class ExtensionEndpointAuthorizationConventionTests
         manager.PrepareRuntimeServices(app.Services);
 
         manager.SetupDynamicEndpoints();
+        await manager.InitializeAllAsync(app.Services);
 
         Assert.DoesNotContain(logger.Messages, entry => entry.Level == LogLevel.Warning);
     }
@@ -662,7 +664,7 @@ public sealed class ExtensionEndpointAuthorizationMiddlewareTests
                 extensionScope.ServiceProvider.GetRequiredService<IAuditService>());
         }
 
-        ExtensionEndpointPipeline.Configure(app, overlay.CreateScope);
+        ExtensionEndpointPipeline.Configure(app, endpoint => overlay.CreateScope(endpoint.ExtensionId));
         app.MapGet("/extension-security/{tagId:int}", () => Results.Ok())
             .RequireCovePermission(Permissions.TagsRead)
             .RequireCoveEntityAccess(EntityKinds.Tag, "tagId", Permissions.TagsRead)

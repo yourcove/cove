@@ -178,7 +178,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
   const { queue, currentId: queueCurrentId, hasPrev, hasNext, currentPosition, queueLength, queueItems, goToIndex, goPrevious, goNext, clearQueue, autoplay: queueAutoplay, toggleAutoplay } = useVideoQueue();
-  const { getTabsForPage, resolveComponent: resolveExtComponent, getFeature } = useExtensions();
+  const { getTabsForPage, getExtensionRevision, resolveComponent: resolveExtComponent, getFeature } = useExtensions();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -715,10 +715,10 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
     const extTabKey = activeTab.replace("ext:", "");
     const extTab = videoExtTabs.find((tab) => tab.key === extTabKey);
     if (!extTab) return null;
-    const Component = resolveExtComponent(extTab.componentName);
+    const Component = resolveExtComponent(extTab.extensionId, extTab.componentName);
     if (!Component) return <div className="p-4 text-muted">Extension component not found: {extTab.componentName}</div>;
     return (
-      <ExtensionErrorBoundary extensionId={extTab.extensionId}>
+      <ExtensionErrorBoundary extensionId={extTab.extensionId} resetKey={getExtensionRevision(extTab.extensionId)}>
         <Component entityId={id} />
       </ExtensionErrorBoundary>
     );
@@ -741,6 +741,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
             audioCodec={file.audioCodec}
             resumeTime={effectiveResumeTime}
             videoId={video.id}
+            extensionSurface="detail"
             detections={detections}
             segments={segments}
             faces={videoFaces.map(({ face }) => face)}
@@ -798,6 +799,8 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Video Cover"
+        entityType="video"
+        entityId={video.id}
         currentImageUrl={videos.screenshotUrl(video.id, video.updatedAt)}
         onUpload={(file) => entityImages.uploadVideoCoverImage(video.id, file)}
         onDelete={() => entityImages.deleteVideoCoverImage(video.id)}

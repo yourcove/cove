@@ -21,6 +21,7 @@ import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import { collapseExtensionCriteria, executableExtensionFilterKey, expandExtensionCriteria, unavailableExtensionCriterionDefinitions } from "../extensions/extensionListFilters";
 import { ListQueryState } from "./ListQueryState";
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
@@ -238,7 +239,11 @@ function normalizeReferenceEntityType(value?: string): EntityType | undefined {
 
 function createExtensionCriterionDefinition(contribution: ExtensionListFilterContribution): CriterionDefinition | null {
   const criterionType = normalizeCriterionType(contribution.criterionType || contribution.customFieldType);
-  const filterKey = contribution.filterKey || (contribution.customFieldKey ? `extension:${contribution.extensionId}:${contribution.id}` : undefined);
+  const executableFilterKey = executableExtensionFilterKey(contribution);
+  if (contribution.filterId && !executableFilterKey) return null;
+  const filterKey = executableFilterKey
+    || contribution.filterKey
+    || (contribution.customFieldKey ? `extension:${contribution.extensionId}:${contribution.id}` : undefined);
   if (!filterKey) return null;
 
   return {
@@ -590,10 +595,16 @@ export function ListPage({
     () => getListFiltersForEntity(listEntityType).map(createExtensionCriterionDefinition).filter((item): item is CriterionDefinition => item != null),
     [getListFiltersForEntity, listEntityType]
   );
+  const extensionFilterContributions = useMemo(() => getListFiltersForEntity(listEntityType), [getListFiltersForEntity, listEntityType]);
+  const unavailableExtensionCriteria = useMemo(
+    () => unavailableExtensionCriterionDefinitions(objectFilter ?? {}, extensionFilterContributions),
+    [extensionFilterContributions, objectFilter],
+  );
   const mergedCriteriaDefinitions = useMemo(() => {
-    const merged = [...(criteriaDefinitions ?? []), ...extensionCriteriaDefinitions];
+    const merged = [...(criteriaDefinitions ?? []), ...extensionCriteriaDefinitions, ...unavailableExtensionCriteria];
     return merged.length > 0 ? merged : undefined;
-  }, [criteriaDefinitions, extensionCriteriaDefinitions]);
+  }, [criteriaDefinitions, extensionCriteriaDefinitions, unavailableExtensionCriteria]);
+  const editorObjectFilter = useMemo(() => expandExtensionCriteria(objectFilter ?? {}), [objectFilter]);
   const extensionSortOptions = useMemo(
     () => getListSortsForEntity(listEntityType).map(createExtensionSortOption).filter((item): item is { value: string; label: string } => item != null),
     [getListSortsForEntity, listEntityType]
@@ -1075,18 +1086,18 @@ export function ListPage({
       )}
 
       {/* Active filter tags (criterion badges) */}
-      {objectFilter && onObjectFilterChange && mergedCriteriaDefinitions && Object.keys(objectFilter).length > 0 && (
+      {objectFilter && onObjectFilterChange && mergedCriteriaDefinitions && Object.keys(editorObjectFilter).length > 0 && (
         <ActiveObjectFilterChips
           criteriaDefinitions={mergedCriteriaDefinitions}
-          objectFilter={objectFilter}
+          objectFilter={editorObjectFilter}
           customFilterSections={mergedCustomFilterSections}
           onRemove={(key) => {
             if (pageKey) {
               trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", criteriaKeys: [key] } });
             }
-            const next = { ...objectFilter };
+            const next = { ...editorObjectFilter };
             delete next[key];
-            onObjectFilterChange(next);
+            onObjectFilterChange(collapseExtensionCriteria(next, objectFilter));
             onFilterChange({ ...filter, page: 1 });
           }}
           onClearAll={showClearAllObjectFilters ? () => {
@@ -1168,7 +1179,7 @@ export function ListPage({
           open={filterDialogOpen}
           onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); }}
           criteria={mergedCriteriaDefinitions}
-          activeFilter={objectFilter ?? {}}
+          activeFilter={editorObjectFilter}
           customSections={mergedCustomFilterSections}
           showCustomSectionDivider={showCustomFilterDivider}
           onApply={(f) => {
@@ -1183,7 +1194,7 @@ export function ListPage({
                 },
               });
             }
-            onObjectFilterChange(f);
+            onObjectFilterChange(collapseExtensionCriteria(f, objectFilter));
             onFilterChange({ ...filter, page: 1 });
           }}
           preselectCriterion={filterDialogPreselect}

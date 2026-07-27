@@ -206,6 +206,7 @@ export interface Tag {
   name: string;
   description?: string;
   imagePath?: string;
+  hasImage?: boolean;
   favorite: boolean;
   organized: boolean;
   showAsSegment?: boolean | null;
@@ -2663,6 +2664,14 @@ export interface TagFilterCriteria {
   childCountCriterion?: IntCriterion;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
+  extensionCriteria?: ExtensionFilterCriterion[];
+}
+
+export interface ExtensionFilterCriterion {
+  extensionId: string;
+  filterId: string;
+  modifier: string;
+  value: unknown;
 }
 
 export interface StudioFilterCriteria {
@@ -3067,6 +3076,7 @@ export interface PluginSettings {
 
 // ===== Extension System Types =====
 export interface ExtensionManifest {
+  extensionBundles: ExtensionUiBundle[];
   pages: ExtensionPageDef[];
   slots: ExtensionSlotContribution[];
   tabs: ExtensionTabContribution[];
@@ -3076,6 +3086,7 @@ export interface ExtensionManifest {
   layoutStyles: ExtensionLayoutStyleDef[];
   settingsTabs: ExtensionSettingsTab[];
   settingsPanels: ExtensionSettingsPanel[];
+  componentOverrides: ExtensionComponentOverride[];
   pageOverrides: ExtensionPageOverride[];
   dialogOverrides: ExtensionDialogOverride[];
   actions: ExtensionAction[];
@@ -3083,6 +3094,13 @@ export interface ExtensionManifest {
   listFilters?: ExtensionListFilterContribution[];
   listSorts?: ExtensionListSortContribution[];
   frontendRuntimeVersion?: string;
+  jsBundleUrl?: string;
+  cssBundleUrl?: string;
+}
+
+export interface ExtensionUiBundle {
+  extensionId: string;
+  version: string;
   jsBundleUrl?: string;
   cssBundleUrl?: string;
 }
@@ -3104,6 +3122,7 @@ export interface ExtensionListFilterContribution {
   entityReferenceType?: string;
   modifiers?: CriterionModifier[];
   options?: ExtensionListFilterOption[];
+  filterId?: string;
   order: number;
 }
 
@@ -3239,6 +3258,13 @@ export interface ExtensionSettingsPanel {
   order: number;
   targetTab?: string;
   targetSection?: string;
+}
+
+export interface ExtensionComponentOverride {
+  targetComponent: string;
+  extensionId: string;
+  componentName: string;
+  priority: number;
 }
 
 export interface ExtensionPageOverride {

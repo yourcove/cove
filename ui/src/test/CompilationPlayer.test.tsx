@@ -3,13 +3,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompilationPlayer } from "../components/CompilationPlayer";
 
-const { mockVideos, mockUiConfig } = vi.hoisted(() => ({
+const { mockVideos, mockUiConfig, videoPlayerMock } = vi.hoisted(() => ({
   mockVideos: {
     get: vi.fn(),
     streamUrl: vi.fn((id: number) => `/video-${id}.mp4`),
     screenshotUrl: vi.fn((id: number) => `/video-${id}.jpg`),
   },
   mockUiConfig: { autostartVideo: true },
+  videoPlayerMock: vi.fn(),
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
@@ -32,13 +33,16 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: ({ autostart, posterUrl, videoId, onPlay, onPause, onPlaybackStateChange }: { autostart?: boolean; posterUrl?: string; videoId: number; onPlay?: () => void; onPause?: () => void; onPlaybackStateChange?: (playing: boolean) => void }) => (
-    <div data-testid="compilation-video-player" data-autostart={String(autostart)} data-poster={posterUrl} data-video-id={videoId}>
+  VideoPlayer: (props: { autostart?: boolean; posterUrl?: string; videoId: number; onPlay?: () => void; onPause?: () => void; onPlaybackStateChange?: (playing: boolean) => void }) => {
+    videoPlayerMock(props);
+    return (
+      <div data-testid="compilation-video-player" data-autostart={String(props.autostart)} data-poster={props.posterUrl} data-video-id={props.videoId}>
       Video Player
-      <button type="button" onClick={() => { onPlaybackStateChange?.(true); onPlay?.(); }}>Simulate play</button>
-      <button type="button" onClick={() => { onPlaybackStateChange?.(false); onPause?.(); }}>Simulate pause</button>
-    </div>
-  ),
+        <button type="button" onClick={() => { props.onPlaybackStateChange?.(true); props.onPlay?.(); }}>Simulate play</button>
+        <button type="button" onClick={() => { props.onPlaybackStateChange?.(false); props.onPause?.(); }}>Simulate pause</button>
+      </div>
+    );
+  },
 }));
 
 function renderPlayer() {
@@ -105,6 +109,22 @@ describe("CompilationPlayer", () => {
     renderPlayer();
 
     expect(await screen.findByTestId("compilation-video-player")).toHaveAttribute("data-autostart", "true");
+  });
+
+  it("opts video playback into the compilation extension surface", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    });
+
+    renderPlayer();
+
+    expect(await screen.findByTestId("compilation-video-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
+      videoId: 14,
+      extensionSurface: "compilation",
+      interactionResetKey: "group:9:item:1",
+    }));
   });
 
   it("leaves compilation playback paused when automatic playback is disabled", async () => {

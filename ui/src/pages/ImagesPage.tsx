@@ -23,7 +23,7 @@ import { ExtensionSelectionActions } from "../components/ExtensionSelectionActio
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
 import { WallMediaCard } from "../components/WallMediaCard";
-import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, getFeedMediaStyle } from "../components/FeedCardFrame";
+import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, FeedTagChips, getFeedMediaStyle } from "../components/FeedCardFrame";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
@@ -472,8 +472,6 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
   const mediaIsPortrait = Boolean(mediaStyle);
   const likeCount = engagement?.likeCount ?? 0;
   const visitCount = engagement?.pageVisitCount ?? 0;
-  const visibleTags = image.tags.slice(0, 4);
-  const hiddenTags = image.tags.slice(4);
   const queryClient = useQueryClient();
   const ratingMut = useMutation({
     mutationFn: (value: number | undefined) => entityEngagement.setRating("image", image.id, { value: value ?? null, aspect: "overall" }),
@@ -602,26 +600,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
               {performer.name}
             </FeedChipButton>
           ))}
-          {visibleTags.map((tag) => (
-            <FeedChipButton
-              key={tag.id}
-              onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}
-            >
-              #{tag.name}
-            </FeedChipButton>
-          ))}
-          {hiddenTags.length > 0 ? (
-            <FeedChipOverflowMenu>
-              {hiddenTags.map((tag) => (
-                <FeedChipButton
-                  key={tag.id}
-                  onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}
-                >
-                  #{tag.name}
-                </FeedChipButton>
-              ))}
-            </FeedChipOverflowMenu>
-          ) : null}
+          <FeedTagChips tags={image.tags} onTagClick={(tag, event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })} />
         </>
       )}
     />

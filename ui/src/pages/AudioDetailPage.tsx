@@ -238,6 +238,8 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Audio Cover"
+        entityType="audio"
+        entityId={audio.id}
         currentImageUrl={audioCoverUrl}
         onUpload={(file) => entityImages.uploadAudioImage(audio.id, file)}
         onDelete={() => entityImages.deleteAudioImage(audio.id)}
@@ -695,4 +697,3 @@ function RelatedSection({ icon, title, children }: { icon: React.ReactNode; titl
     </div>
   );
 }
-

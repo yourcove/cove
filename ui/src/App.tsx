@@ -504,7 +504,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   // 1. Check for page overrides (extension replaces a built-in page)
   const override = getPageOverride(route.page);
   if (override) {
-    const Component = resolveComponent(override.componentName);
+    const Component = resolveComponent(override.extensionId, override.componentName);
     if (Component) {
       return <Component onNavigate={navigate} />;
     }
@@ -516,7 +516,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
     if (!canAccessExtensionContribution(extPage, hasPermission)) {
       return <AccessDeniedPage navigate={navigate} />;
     }
-    const Component = resolveComponent(extPage.componentName);
+    const Component = resolveComponent(extPage.extensionId ?? "", extPage.componentName);
     if (Component) {
       // Pass id if this is a detail page route
       const props: Record<string, unknown> = { onNavigate: navigate };

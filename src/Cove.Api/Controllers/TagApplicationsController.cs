@@ -109,5 +109,6 @@ public sealed class TagApplicationsController(TagApplicationService service) : C
             tag.TagGroup?.Name,
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
-            tag.MinOccurrencePercent);
+            tag.MinOccurrencePercent,
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
 }

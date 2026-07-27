@@ -17,11 +17,46 @@ import { BookmarkButton } from "./BookmarkButton";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { EntityMedia, TagMediaHover, type EntityMediaFit } from "./EntityMedia";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
-  const appConfig = useOptionalAppConfig();
-  const fitClass = appConfig?.config?.ui.imageObjectFit === "contain" ? "object-contain" : "object-cover";
+  const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
   return <img {...props} className={`${className} ${fitClass}`.trim()} />;
+}
+
+function useConfiguredImageFit() {
+  const appConfig = useOptionalAppConfig();
+  return appConfig?.config?.ui.imageObjectFit === "contain" ? "contain" as const : "cover" as const;
+}
+
+function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUrl: string; coverAlt: string; previewUrl: string; fit: EntityMediaFit }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.intersectionRatio > 0) video.play().catch(() => {});
+        else video.pause();
+      });
+    });
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <>
+      <img
+        src={coverUrl}
+        alt={coverAlt}
+        className="video-card-preview-image h-full w-full"
+        style={{ objectFit: fit }}
+        loading="lazy"
+      />
+      <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="video-card-preview-video" style={{ objectFit: fit }} />
+    </>
+  );
 }
 
 function createNestedEntityNavigationHandlers<T extends HTMLAnchorElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
@@ -65,7 +100,7 @@ interface EntityTileFrameProps {
  * and isolated (`max-h`/`overflow-hidden`/`contain`/`isolate`) — a bad render stays inside its own box and cannot
  * resize the card or break the grid.
  */
-export function CardExtensionSlot<TContext>({ slot, context }: { slot: string; context: TContext }) {
+export function CardExtensionSlot<TContext extends object>({ slot, context }: { slot: string; context: TContext }) {
   const has = useHasExtensionSlot(slot);
   if (!has) return null;
   return (
@@ -262,6 +297,24 @@ function EntityLinkList({ items, page, onNavigate }: { items: Array<{ id: number
   );
 }
 
+function TagLinkList({ items, onNavigate }: { items: TagType[]; onNavigate?: (route: any) => void }) {
+  return (
+    <div className="space-y-1">
+      {items.map((tag) => {
+        const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: tag.id }, onNavigate);
+        return (
+          <TagMediaHover key={`tag-${tag.id}`} tag={tag} wrapperClassName="block">
+            <a {...navigationHandlers} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-card-hover hover:underline">
+              <EntityLinkIcon page="tag" color={tag.color ?? tag.tagGroupColor} />
+              <span className="min-w-0 truncate">{tag.name}</span>
+            </a>
+          </TagMediaHover>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EntityReferencePopovers({
   performers: performerItems = [],
   tags: tagItems = [],
@@ -279,10 +332,9 @@ export function EntityReferencePopovers({
 }) {
   const studioName = studio?.name?.trim();
   const studioId = studio?.id ?? null;
-  const tagLinks = tagItems.map((tag) => ({ id: tag.id, label: tag.name, color: tag.color ?? tag.tagGroupColor }));
   const groupLinks = groupItems.map((group) => ({ id: group.id, label: group.name }));
 
-  if (!studioName && performerItems.length === 0 && tagLinks.length === 0 && groupLinks.length === 0) {
+  if (!studioName && performerItems.length === 0 && tagItems.length === 0 && groupLinks.length === 0) {
     return null;
   }
 
@@ -302,9 +354,9 @@ export function EntityReferencePopovers({
           <PerformerPreviewGrid performers={performerItems} onNavigate={onNavigate} />
         </PopoverButton>
       ) : null}
-      {tagLinks.length > 0 ? (
-        <PopoverButton icon={<Tag className="h-3.5 w-3.5" />} count={tagLinks.length} title="Tags" preferBelow>
-          <EntityLinkList items={tagLinks} page="tag" onNavigate={onNavigate} />
+      {tagItems.length > 0 ? (
+        <PopoverButton icon={<Tag className="h-3.5 w-3.5" />} count={tagItems.length} title="Tags" preferBelow>
+          <TagLinkList items={tagItems} onNavigate={onNavigate} />
         </PopoverButton>
       ) : null}
       {groupLinks.length > 0 ? (
@@ -587,7 +639,7 @@ export function VideoCardPopovers({ video, engagement, onNavigate }: { video: Vi
         )}
         {video.tags.length > 0 && (
           <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={video.tags.length} title="Tags" preferBelow>
-            <EntityLinkList items={video.tags.map((tag: any) => ({ id: tag.id, label: tag.name, color: tag.color ?? tag.tagGroupColor }))} page="tag" onNavigate={onNavigate} />
+            <TagLinkList items={video.tags} onNavigate={onNavigate} />
           </PopoverButton>
         )}
         {likeCount > 0 && (
@@ -801,7 +853,6 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
   const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, 1280);
   const previewUrl = videos.previewUrl(video.id);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const visibleResumeTime = typeof video.clipStartSec === "number" && typeof engagement?.resumeTime === "number"
     ? Math.max(0, engagement.resumeTime - video.clipStartSec)
     : engagement?.resumeTime;
@@ -824,31 +875,23 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
     setScrubSeconds((current) => current === nextSeconds ? current : nextSeconds);
   }, [duration, video.clipStartSec]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.intersectionRatio > 0) video.play().catch(() => {});
-        else video.pause();
-      });
-    });
-    observer.observe(video);
-    return () => observer.disconnect();
-  }, []);
-
   return (
     <div onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`video-card relative cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
       <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${cardTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="video-card-preview card-media relative aspect-video bg-black overflow-hidden">
-        <img
-          src={coverUrl}
+        <EntityMedia
+          entityType="video"
+          entityId={video.id}
+          surface="card"
+          imageUrl={coverUrl}
           alt={coverAlt}
-          className="video-card-preview-image h-full w-full"
-          style={{ objectFit: videoPreviewObjectFit }}
+          fit={videoPreviewObjectFit}
           loading="lazy"
+          className="video-card-preview-image h-full w-full"
+          renderDefault={() => (
+            <VideoCardNativeMedia coverUrl={coverUrl} coverAlt={coverAlt} previewUrl={previewUrl} fit={videoPreviewObjectFit} />
+          )}
         />
-        <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="video-card-preview-video" style={{ objectFit: videoPreviewObjectFit }} />
         {scrubImageUrl ? (
           <img
             src={scrubImageUrl}
@@ -971,11 +1014,23 @@ export function VideoTile({ video, onClick }: VideoTileProps) {
   return (
     <a {...linkProps} className="group text-left">
       <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-card shadow-md shadow-black/30">
-        <img
-          src={coverUrl}
+        <EntityMedia
+          entityType="video"
+          entityId={video.id}
+          surface="card"
+          imageUrl={coverUrl}
           alt={coverAlt}
-          className="h-full w-full object-cover"
+          fit="cover"
           loading="lazy"
+          className="h-full w-full object-cover"
+          renderDefault={() => (
+            <img
+              src={coverUrl}
+              alt={coverAlt}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          )}
         />
         {duration > 0 && <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] text-white">{formatDuration(duration)}</span>}
         {resLabel && <span className="absolute top-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-bold uppercase text-accent">{resLabel}</span>}
@@ -1018,6 +1073,7 @@ interface PerformerTileProps {
 }
 
 export function PerformerTile({ performer, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: PerformerTileProps & { engagement?: EntityEngagement }) {
+  const imageFit = useConfiguredImageFit();
   const videoCount = performer.videoCount ?? 0;
   const imageCount = performer.imageCount ?? 0;
   const galleryCount = performer.galleryCount ?? 0;
@@ -1039,14 +1095,24 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
       bodyClassName="p-2.5"
       media={(
         <>
-          {performerImageUrl ? (
-            <>
-              <CoverImage src={performerImageUrl} alt={performer.name} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
-              <div className="hidden h-full w-full items-center justify-center"><User className="h-12 w-12 text-muted" /></div>
-            </>
-          ) : (
-            <div className="flex h-full w-full items-center justify-center"><User className="h-12 w-12 text-muted" /></div>
-          )}
+          <EntityMedia
+            entityType="performer"
+            entityId={performer.id}
+            surface="card"
+            imageUrl={performerImageUrl}
+            alt={performer.name}
+            fit={imageFit}
+            loading="lazy"
+            className="h-full w-full"
+            renderDefault={() => performerImageUrl ? (
+              <>
+                <CoverImage src={performerImageUrl} alt={performer.name} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
+                <div className="hidden h-full w-full items-center justify-center"><User className="h-12 w-12 text-muted" /></div>
+              </>
+            ) : (
+              <div className="flex h-full w-full items-center justify-center"><User className="h-12 w-12 text-muted" /></div>
+            )}
+          />
           <RatingBanner rating={engagement?.rating} />
           {performer.favorite ? <Heart className="absolute right-1.5 top-1.5 z-[5] h-4 w-4 fill-red-500 text-red-500 drop-shadow-md" /> : null}
         </>
@@ -1139,27 +1205,37 @@ export function StudioTile({ studio, engagement, onClick, onNavigate, children, 
       selecting={selecting}
       media={(
         <>
-          {studio.imagePath ? (
-            <>
-              <img
-                src={studio.imagePath}
-                alt={studio.name}
-                className="box-border h-full w-full object-contain p-4"
-                loading="lazy"
-                onError={(event) => {
-                  const image = event.currentTarget;
-                  image.style.display = "none";
-                  const fallback = image.nextElementSibling as HTMLElement | null;
-                  if (fallback) fallback.style.display = "flex";
-                }}
-              />
-              <div className="hidden h-full w-full items-center justify-center">
-                <Building2 className="h-10 w-10 text-muted" />
-              </div>
-            </>
-          ) : (
-            <Building2 className="h-10 w-10 text-muted" />
-          )}
+          <EntityMedia
+            entityType="studio"
+            entityId={studio.id}
+            surface="card"
+            imageUrl={studio.imagePath ?? null}
+            alt={studio.name}
+            fit="contain"
+            loading="lazy"
+            className="box-border h-full w-full p-4"
+            renderDefault={() => studio.imagePath ? (
+              <>
+                <img
+                  src={studio.imagePath}
+                  alt={studio.name}
+                  className="box-border h-full w-full object-contain p-4"
+                  loading="lazy"
+                  onError={(event) => {
+                    const image = event.currentTarget;
+                    image.style.display = "none";
+                    const fallback = image.nextElementSibling as HTMLElement | null;
+                    if (fallback) fallback.style.display = "flex";
+                  }}
+                />
+                <div className="hidden h-full w-full items-center justify-center">
+                  <Building2 className="h-10 w-10 text-muted" />
+                </div>
+              </>
+            ) : (
+              <Building2 className="h-10 w-10 text-muted" />
+            )}
+          />
           <RatingBanner rating={engagement?.rating} />
           {studio.favorite ? <Heart className="absolute right-1.5 top-1.5 z-[5] h-4 w-4 fill-red-500 text-red-500 drop-shadow-md" /> : null}
         </>
@@ -1231,18 +1307,30 @@ interface ImageTileProps {
 }
 
 export function ImageTile({ image, engagement, onClick, onPreview, onDetails, onNavigate, onQuickView, selected, onSelect, selecting, bookmarkInitiallySaved }: ImageTileProps & { engagement?: EntityEngagement }) {
+  const imageFit = useConfiguredImageFit();
   const likeCount = engagement?.likeCount ?? 0;
   const hasFavorite = engagement?.isFavorite === true;
   const imageGroups = image.groups ?? [];
   const hasFooter = (image.tags?.length ?? 0) > 0 || (image.performers?.length ?? 0) > 0 || (image.galleries?.length ?? 0) > 0 || imageGroups.length > 0 || likeCount > 0 || hasFavorite || image.organized;
   const displayTitle = getImageDisplayTitle(image);
+  const imageUrl = images.thumbnailUrl(image.id);
   const detailsClick = onDetails ?? onClick;
   const previewClick = onPreview ?? detailsClick;
   return (
     <div onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`entity-card group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-md shadow-black/20 flex flex-col h-full transition-colors ${selected ? "ring-2 ring-accent border-accent" : "border-border hover:border-accent/60"}`}>
       {!onPreview ? <RouteCardLinkOverlay route={{ page: "image", id: image.id }} onClick={detailsClick} label={`Open image ${displayTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} /> : null}
       <div className="card-media aspect-square overflow-hidden bg-surface relative" onClick={selecting ? undefined : () => previewClick()}>
-        <CoverImage src={images.thumbnailUrl(image.id)} alt={displayTitle} className="h-full w-full" loading="lazy" />
+        <EntityMedia
+          entityType="image"
+          entityId={image.id}
+          surface="card"
+          imageUrl={imageUrl}
+          alt={displayTitle}
+          fit={imageFit}
+          loading="lazy"
+          className="h-full w-full"
+          renderDefault={() => <CoverImage src={imageUrl} alt={displayTitle} className="h-full w-full" loading="lazy" />}
+        />
         <RatingBanner rating={engagement?.rating} />
         {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
         {!selecting && (
@@ -1283,17 +1371,7 @@ export function ImageTile({ image, engagement, onClick, onPreview, onDetails, on
           <div className="relative z-10 flex flex-wrap items-center justify-center gap-1 px-2 py-1.5 rounded-b card-popovers min-h-[28px]">
             {(image.tags?.length ?? 0) > 0 && (
               <PopoverButton icon={<Tag className="w-3.5 h-3.5" />} count={image.tags.length} title="Tags" preferBelow>
-                <div className="flex flex-wrap gap-1">
-                  {image.tags.map((t: any) => {
-                    const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "tag", id: t.id }, onNavigate);
-
-                    return (
-                    <a key={t.id} {...navigationHandlers}
-                      className="text-[11px] text-accent hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-card border border-border hover:border-accent/40 transition-colors whitespace-nowrap">
-                      {t.name}
-                    </a>
-                  );})}
-                </div>
+                <TagLinkList items={image.tags} onNavigate={onNavigate} />
               </PopoverButton>
             )}
             {(image.performers?.length ?? 0) > 0 && (
@@ -1340,6 +1418,7 @@ interface GalleryTileProps {
 }
 
 export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting, bookmarkInitiallySaved }: GalleryTileProps & { engagement?: EntityEngagement }) {
+  const imageFit = useConfiguredImageFit();
   const hasFooter = gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
   const title = getGalleryDisplayTitle(gallery);
   const galleryCoverSrc = gallery.coverPath ?? galleries.coverUrl(gallery.id, gallery.updatedAt, 960);
@@ -1356,14 +1435,24 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
       bodyClassName="p-2"
       media={(
         <>
-          {galleryCoverSrc ? (
-            <>
-              <CoverImage src={galleryCoverSrc} alt={title} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
-              <div className="hidden h-full w-full items-center justify-center"><FolderOpen className="h-10 w-10 text-muted" /></div>
-            </>
-          ) : (
-            <FolderOpen className="h-10 w-10 text-muted" />
-          )}
+          <EntityMedia
+            entityType="gallery"
+            entityId={gallery.id}
+            surface="card"
+            imageUrl={galleryCoverSrc ?? null}
+            alt={title}
+            fit={imageFit}
+            loading="lazy"
+            className="h-full w-full"
+            renderDefault={() => galleryCoverSrc ? (
+              <>
+                <CoverImage src={galleryCoverSrc} alt={title} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
+                <div className="hidden h-full w-full items-center justify-center"><FolderOpen className="h-10 w-10 text-muted" /></div>
+              </>
+            ) : (
+              <FolderOpen className="h-10 w-10 text-muted" />
+            )}
+          />
           <RatingBanner rating={engagement?.rating} />
           {!selecting ? (
             <BookmarkButton
@@ -1555,6 +1644,7 @@ interface GroupTileProps {
 }
 
 export function GroupTile({ group, engagement, onClick, onNavigate, selected, onSelect, selecting, selectable, bookmarkInitiallySaved, dragHandleProps, isDragging, isOver }: GroupTileProps & { engagement?: EntityEngagement }) {
+  const imageFit = useConfiguredImageFit();
   const previewCountItems: Array<{ key: string; kind: GroupPreviewKind; title: string; count: number; icon: ReactNode }> = [
     { key: "image", kind: "image" as const, title: "Images", count: group.imageCount ?? 0, icon: <ImagesIcon className="w-3.5 h-3.5" /> },
     { key: "audio", kind: "audio" as const, title: "Audios", count: group.audioCount ?? 0, icon: <Headphones className="w-3.5 h-3.5" /> },
@@ -1586,14 +1676,24 @@ export function GroupTile({ group, engagement, onClick, onNavigate, selected, on
       isOver={isOver}
       media={(
         <>
-          {group.frontImagePath ? (
-            <>
-              <CoverImage src={group.frontImagePath} alt={group.name} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
-              <div className="hidden h-full w-full items-center justify-center"><Layers className="h-10 w-10 text-muted" /></div>
-            </>
-          ) : (
-            <Layers className="h-10 w-10 text-muted" />
-          )}
+          <EntityMedia
+            entityType="group"
+            entityId={group.id}
+            surface="card"
+            imageUrl={group.frontImagePath ?? null}
+            alt={group.name}
+            fit={imageFit}
+            loading="lazy"
+            className="h-full w-full"
+            renderDefault={() => group.frontImagePath ? (
+              <>
+                <CoverImage src={group.frontImagePath} alt={group.name} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
+                <div className="hidden h-full w-full items-center justify-center"><Layers className="h-10 w-10 text-muted" /></div>
+              </>
+            ) : (
+              <Layers className="h-10 w-10 text-muted" />
+            )}
+          />
           <RatingBanner rating={engagement?.rating} />
           {!selecting ? (
             <BookmarkButton
@@ -1665,6 +1765,7 @@ interface AudioTileProps {
 }
 
 export function AudioTile({ audio, engagement, selected, onSelect, selecting, onClick, onNavigate }: AudioTileProps) {
+  const imageFit = useConfiguredImageFit();
   const title = getAudioDisplayTitle(audio);
   const duration = audio.maxDuration > 0 ? formatDuration(audio.maxDuration) : null;
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -1706,11 +1807,21 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
     <article onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} onMouseEnter={schedulePreview} onMouseLeave={stopPreview} className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
       <RouteCardLinkOverlay route={{ page: "audio", id: audio.id }} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="card-media relative flex aspect-video items-center justify-center overflow-hidden bg-surface">
-        {audio.imagePath ? (
-          <CoverImage src={audio.imagePath} alt={title} className="h-full w-full" loading="lazy" />
-        ) : (
-          <Headphones className="h-12 w-12 text-muted opacity-50" />
-        )}
+        <EntityMedia
+          entityType="audio"
+          entityId={audio.id}
+          surface="card"
+          imageUrl={audio.imagePath ?? null}
+          alt={title}
+          fit={imageFit}
+          loading="lazy"
+          className="h-full w-full"
+          renderDefault={() => audio.imagePath ? (
+            <CoverImage src={audio.imagePath} alt={title} className="h-full w-full" loading="lazy" />
+          ) : (
+            <Headphones className="h-12 w-12 text-muted opacity-50" />
+          )}
+        />
         <audio ref={audioRef} src={audios.streamUrl(audio.id)} preload="none" />
         {(selected !== undefined || selecting) ? <div data-audio-preview-ignore onMouseEnter={stopPreview}><CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /></div> : null}
         {!selecting ? <BookmarkButton hostType="audio" hostId={audio.id} compact deferUntilHover className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100" /> : null}
@@ -1748,6 +1859,7 @@ interface TextTileProps {
 }
 
 export function TextTile({ text, engagement, selected, onSelect, selecting, onClick, onNavigate }: TextTileProps) {
+  const imageFit = useConfiguredImageFit();
   const title = getTextDisplayTitle(text);
   const primaryFile = pickPrimaryTextFile(text);
   const preview = primaryFile?.excerptText?.trim() || text.details?.trim() || "Open the document to read the extracted content and file details.";
@@ -1756,7 +1868,17 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
     <article onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"}`}>
       <RouteCardLinkOverlay route={{ page: "text", id: text.id }} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
       <div className="card-media relative flex aspect-video items-center justify-center overflow-hidden bg-surface">
-        {text.imagePath ? <CoverImage src={text.imagePath} alt={title} className="h-full w-full" loading="lazy" /> : <FileText className="h-12 w-12 text-muted opacity-50" />}
+        <EntityMedia
+          entityType="text"
+          entityId={text.id}
+          surface="card"
+          imageUrl={text.imagePath ?? null}
+          alt={title}
+          fit={imageFit}
+          loading="lazy"
+          className="h-full w-full"
+          renderDefault={() => text.imagePath ? <CoverImage src={text.imagePath} alt={title} className="h-full w-full" loading="lazy" /> : <FileText className="h-12 w-12 text-muted opacity-50" />}
+        />
         {(selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
         {!selecting ? <BookmarkButton hostType="text" hostId={text.id} compact deferUntilHover className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100" /> : null}
         {text.maxWordCount ? <span className="absolute bottom-1 right-1 z-[5] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">{Intl.NumberFormat().format(text.maxWordCount)} words</span> : null}
@@ -1777,6 +1899,7 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
 }
 
 export function TagTile({ tag, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: { tag: TagType; engagement?: EntityEngagement; onClick: (options?: MultiSelectToggleOptions) => void; onNavigate?: (r: any) => void; children?: ReactNode; selected?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; selecting?: boolean }) {
+  const imageFit = useConfiguredImageFit();
   const favorite = engagement?.isFavorite ?? tag.favorite;
   const hasFooter = Boolean(tag.videoCount || tag.segmentCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount);
 
@@ -1792,14 +1915,24 @@ export function TagTile({ tag, engagement, onClick, onNavigate, children, select
         <>
           <RatingBanner rating={engagement?.rating} />
           {favorite ? <Heart className="absolute right-2 top-2 z-10 h-4 w-4 fill-red-500 text-red-500 drop-shadow" /> : null}
-          {tag.imagePath ? (
-            <>
-              <CoverImage src={tag.imagePath} alt={tag.name} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
-              <div className="hidden h-full w-full items-center justify-center"><Tag className="h-10 w-10 text-muted" /></div>
-            </>
-          ) : (
-            <Tag className="h-10 w-10 text-muted" />
-          )}
+          <EntityMedia
+            entityType="tag"
+            entityId={tag.id}
+            surface="card"
+            imageUrl={tag.imagePath ?? null}
+            alt={tag.name}
+            fit={imageFit}
+            loading="lazy"
+            className="h-full w-full"
+            renderDefault={() => tag.imagePath ? (
+              <>
+                <CoverImage src={tag.imagePath} alt={tag.name} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
+                <div className="hidden h-full w-full items-center justify-center"><Tag className="h-10 w-10 text-muted" /></div>
+              </>
+            ) : (
+              <Tag className="h-10 w-10 text-muted" />
+            )}
+          />
         </>
       )}
       body={(
@@ -1843,11 +1976,21 @@ export function FaceTile({ face, onClick, selected, onSelect, selecting, childre
       extensionBeforeFooter
       media={(
         <>
-          {face.coverImageUrl ? (
-            <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" loading="lazy" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-surface text-muted"><Fingerprint className="h-12 w-12" /></div>
-          )}
+          <EntityMedia
+            entityType="face"
+            entityId={face.id}
+            surface="card"
+            imageUrl={face.coverImageUrl ?? null}
+            alt={title}
+            fit="cover"
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            renderDefault={() => face.coverImageUrl ? (
+              <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" loading="lazy" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-surface text-muted"><Fingerprint className="h-12 w-12" /></div>
+            )}
+          />
           <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-1 bg-gradient-to-t from-black/80 via-black/35 to-transparent p-2.5">
             {face.performerId ? <span className="inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] text-white"><Link2 className="h-3 w-3" />Linked</span> : null}
           </div>

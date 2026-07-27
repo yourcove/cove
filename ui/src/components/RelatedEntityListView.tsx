@@ -17,7 +17,7 @@ import type { DetailListDisplayMode } from "./DetailListToolbar";
 import { getRelatedEntityDisplayModes, type RelatedEntityType } from "./relatedEntityDisplayModes";
 export { getRelatedEntityDisplayModes, type RelatedEntityType } from "./relatedEntityDisplayModes";
 import { AudioTile, FaceTile, GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, SegmentTile, StudioTile, TagTile, TextTile } from "./EntityCards";
-import { FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedMetadataPill, FeedPortraitMediaFrame, getFeedMediaStyle } from "./FeedCardFrame";
+import { FeedCardFrame, FeedChipButton, FeedIdentityBadge, FeedMetadataPill, FeedPortraitMediaFrame, FeedTagChips, getFeedMediaStyle } from "./FeedCardFrame";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns, type InfiniteEntityLoadingState } from "./VirtualizedEntityLayouts";
@@ -29,6 +29,7 @@ import { TagTagger } from "./TagTagger";
 import { ScraperEntityTagger } from "./ScraperEntityTagger";
 import { TagGraphView } from "./TagGraphView";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { EntityMedia, getTagMediaImageUrl } from "./EntityMedia";
 
 type RelatedEntityItem = Video | Image | Performer | Gallery | Studio | Tag | Group | Audio | TextDocument | SegmentRecord | Face;
 
@@ -772,13 +773,10 @@ function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate
 }
 
 function RelatedFeedChips({ performers, tags, selecting, onSelect, onNavigate }: { performers: Array<{ id: number; name: string }>; tags: Tag[]; selecting?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; onNavigate: (route: any) => void }) {
-  const visibleTags = tags.slice(0, 4);
-  const hiddenTags = tags.slice(4);
   return (
     <>
       {performers.slice(0, 4).map((performer) => <FeedChipButton key={`performer-${performer.id}`} onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "performer", id: performer.id })}>{performer.name}</FeedChipButton>)}
-      {visibleTags.map((tag) => <FeedChipButton key={`tag-${tag.id}`} onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}>#{tag.name}</FeedChipButton>)}
-      {hiddenTags.length > 0 ? <FeedChipOverflowMenu>{hiddenTags.map((tag) => <FeedChipButton key={tag.id} onClick={(event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })}>#{tag.name}</FeedChipButton>)}</FeedChipOverflowMenu> : null}
+      <FeedTagChips tags={tags} onTagClick={(tag, event) => selecting ? onSelect?.(toggleOptionsFromEvent(event)) : onNavigate({ page: "tag", id: tag.id })} />
     </>
   );
 }
@@ -1003,7 +1001,8 @@ function getRelatedListDensity(level: number): RelatedListDensity {
 }
 
 function RelatedThumbnail({ entityType, item, density }: { entityType: RelatedEntityType; item: RelatedEntityItem; density: RelatedListDensity }) {
-  const src = getRelatedThumbnailUrl(entityType, item, 320);
+  const tag = entityType === "tags" ? item as Tag : null;
+  const src = tag ? getTagMediaImageUrl(tag) : getRelatedThumbnailUrl(entityType, item, 320);
   const Icon = getRelatedThumbnailIcon(entityType);
   const portrait = entityType === "performers";
   const height = density.thumbnailHeight;
@@ -1011,15 +1010,31 @@ function RelatedThumbnail({ entityType, item, density }: { entityType: RelatedEn
 
   return (
     <div className="relative shrink-0 overflow-hidden rounded-md border border-border/70 bg-surface/80" style={{ height, width }}>
-      {src ? (
-        <>
-          <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
-          <div className="hidden h-full w-full items-center justify-center text-muted"><Icon className="h-7 w-7" /></div>
-        </>
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-muted"><Icon className="h-7 w-7" /></div>
-      )}
+      {tag ? (
+        <EntityMedia
+          entityType="tag"
+          entityId={tag.id}
+          surface="list"
+          imageUrl={src}
+          alt={tag.name}
+          fit="cover"
+          loading="lazy"
+          className="h-full w-full"
+          renderDefault={() => <RelatedThumbnailFallback src={src} Icon={Icon} />}
+        />
+      ) : <RelatedThumbnailFallback src={src} Icon={Icon} />}
     </div>
+  );
+}
+
+function RelatedThumbnailFallback({ src, Icon }: { src?: string | null; Icon: ReturnType<typeof getRelatedThumbnailIcon> }) {
+  return src ? (
+    <>
+      <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
+      <div className="hidden h-full w-full items-center justify-center text-muted"><Icon className="h-7 w-7" /></div>
+    </>
+  ) : (
+    <div className="flex h-full w-full items-center justify-center text-muted"><Icon className="h-7 w-7" /></div>
   );
 }
 

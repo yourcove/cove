@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedMetadataPill } from "../components/FeedCardFrame";
+import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedMetadataPill, FeedTagChips } from "../components/FeedCardFrame";
 
 describe("FeedCardFrame", () => {
   it("renders a floating post layout with only media in the card-like frame", () => {
@@ -59,5 +59,47 @@ describe("FeedCardFrame", () => {
     expect(screen.getByTitle("Show more tags")).toHaveTextContent("...");
     expect(screen.getByRole("button", { name: "#hidden" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "#hidden" }).parentElement).toHaveClass("overflow-y-scroll");
+  });
+
+  it("adds media hover while keeping tag clicks caller-owned and contained", () => {
+    const onCardClick = vi.fn();
+    const onTagClick = vi.fn();
+    render(
+      <FeedCardFrame
+        header={null}
+        title={<span>Feed item</span>}
+        media={<div>Media</div>}
+        onClick={onCardClick}
+        chips={<FeedTagChips tags={[{ id: 7, name: "Preview Tag", imagePath: "/preview-tag.jpg" }]} onTagClick={onTagClick} />}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: "#Preview Tag" });
+    fireEvent.mouseEnter(chip);
+    expect(screen.getByRole("tooltip", { name: "Media for Preview Tag" })).toContainElement(
+      screen.getByRole("img", { name: "Preview Tag" }),
+    );
+
+    fireEvent.click(chip);
+    expect(onTagClick).toHaveBeenCalledWith(expect.objectContaining({ id: 7, name: "Preview Tag" }), expect.objectContaining({ shiftKey: false }));
+    expect(onCardClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps tags after the first four in the media-enabled overflow", () => {
+    const tags = Array.from({ length: 5 }, (_, index) => ({
+      id: index + 1,
+      name: `Tag ${index + 1}`,
+      imagePath: `/tag-${index + 1}.jpg`,
+    }));
+    render(<FeedTagChips tags={tags} onTagClick={vi.fn()} />);
+
+    expect(screen.getByTitle("Show more tags")).toBeInTheDocument();
+    const overflowChip = screen.getByRole("button", { name: "#Tag 5" });
+    expect(overflowChip.closest("details")).toBeInTheDocument();
+
+    fireEvent.mouseEnter(overflowChip);
+    expect(screen.getByRole("tooltip", { name: "Media for Tag 5" })).toContainElement(
+      screen.getByRole("img", { name: "Tag 5" }),
+    );
   });
 });

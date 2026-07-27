@@ -127,7 +127,7 @@ export function AiDataSettingsPanel() {
       </SectionCard>
 
       {aiDataPanels.map((panel) => {
-        const Component = resolveComponent(panel.componentName);
+        const Component = resolveComponent(panel.extensionId, panel.componentName);
         if (!Component) {
           return null;
         }
@@ -444,4 +444,3 @@ function formatKind(value: string) {
 function buildRowKey(item: AiDataSummaryItem) {
   return [item.kind, item.detail ?? "", item.sourceKey, item.sourceRunId ?? "", item.model ?? "", item.hostType].join("::");
 }
-

@@ -9,7 +9,9 @@ namespace Cove.Plugins;
 /// extension. The host pipeline uses this to execute the endpoint against that extension's own
 /// service container instead of the immutable root container.
 /// </summary>
-public sealed record ExtensionEndpointMetadata(string ExtensionId);
+public sealed record ExtensionEndpointMetadata(
+    string ExtensionId,
+    ExtensionManager.ExtensionExecutionHandle? Execution = null);
 
 /// <summary>
 /// Owns one isolated child ("overlay") dependency-injection container PER runtime-loaded (DLL)
@@ -63,8 +65,8 @@ public sealed class ExtensionServiceOverlay : IDisposable
     private readonly IReadOnlyList<ServiceDescriptor> _hostDescriptors;
     private readonly ILogger? _logger;
     private readonly object _gate = new();
-    private readonly Dictionary<string, ServiceProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<ServiceProvider> _retired = new();
+    private readonly Dictionary<string, ProviderEntry> _providers = new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
 
     public ExtensionServiceOverlay(
         IServiceProvider root,
@@ -83,40 +85,181 @@ public sealed class ExtensionServiceOverlay : IDisposable
             return _providers.ContainsKey(extensionId);
     }
 
-    /// <summary>The extension's container, or null if none has been built yet.</summary>
-    public IServiceProvider? GetProvider(string extensionId)
+    /// <summary>
+    /// Return the provider only for synchronous endpoint-model construction while the caller holds
+    /// the extension lifecycle gate. Runtime extension work must use <see cref="CreateScope"/> so
+    /// provider retirement can account for every active operation.
+    /// </summary>
+    internal IServiceProvider? GetProviderForEndpointBuild(
+        string extensionId,
+        IExtension extension,
+        object generation)
     {
         lock (_gate)
-            return _providers.TryGetValue(extensionId, out var p) ? p : null;
-    }
+        {
+            if (!_providers.TryGetValue(extensionId, out var entry)
+                || !ReferenceEquals(entry.Extension, extension)
+                || !ReferenceEquals(entry.Generation, generation))
+                return null;
 
-    /// <summary>
-    /// The provider an extension should receive (in <c>InitializeAsync</c>, job/event/scan contexts).
-    /// Falls back to the root provider if no container has been built so callers never get null.
-    /// Resolve scoped services by creating a scope from this provider, never directly.
-    /// </summary>
-    public IServiceProvider ProviderFor(string extensionId) => GetProvider(extensionId) ?? _root;
+            var scopeFactory = new TrackedScopeFactory(this, extensionId, entry);
+            return new TrackedServiceProvider(entry.Provider, scopeFactory);
+        }
+    }
 
     /// <summary>
     /// Create a scope for executing one extension's work (an HTTP request, a job, a scan pass). The
     /// scope resolves the extension's own services, host singletons as the shared instances, and host
-    /// scoped services as fresh container-owned instances built from those singletons.
+    /// scoped services as fresh container-owned instances built from those singletons. Throws when
+    /// the extension has no current provider; it never silently falls back to the host container.
     /// </summary>
-    public IServiceScope CreateScope(string extensionId) => ProviderFor(extensionId).CreateScope();
+    public IServiceScope CreateScope(string extensionId)
+        => TryCreateScope(extensionId, out var scope)
+            ? scope
+            : throw new InvalidOperationException($"No service container is available for extension '{extensionId}'.");
+
+    /// <summary>
+    /// Atomically lease the current provider generation and create a tracked scope. Returning false
+    /// means the extension has no active provider; callers must not substitute the host provider for
+    /// runtime extension work.
+    /// </summary>
+    public bool TryCreateScope(string extensionId, out IServiceScope scope)
+        => TryCreateScopeCore(extensionId, expectedExtension: null, expectedGeneration: null, out scope);
+
+    internal bool TryCreateScope(
+        string extensionId,
+        IExtension extension,
+        object generation,
+        out IServiceScope scope)
+        => TryCreateScopeCore(extensionId, extension, generation, out scope);
+
+    private bool TryCreateScopeCore(
+        string extensionId,
+        IExtension? expectedExtension,
+        object? expectedGeneration,
+        out IServiceScope scope)
+    {
+        ProviderEntry? entry;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_providers.TryGetValue(extensionId, out entry)
+                || (expectedExtension != null && !ReferenceEquals(entry.Extension, expectedExtension))
+                || (expectedGeneration != null && !ReferenceEquals(entry.Generation, expectedGeneration)))
+            {
+                scope = null!;
+                return false;
+            }
+
+            Acquire(entry);
+        }
+
+        scope = CreateTrackedScope(extensionId, entry);
+        return true;
+    }
+
+    internal bool TryGetGeneration(string extensionId, IExtension extension, out object generation)
+    {
+        lock (_gate)
+        {
+            if (_providers.TryGetValue(extensionId, out var entry)
+                && ReferenceEquals(entry.Extension, extension))
+            {
+                generation = entry.Generation;
+                return true;
+            }
+
+            generation = null!;
+            return false;
+        }
+    }
+
+    internal bool TryCreateLease(
+        string extensionId,
+        IExtension extension,
+        object generation,
+        out ProviderLease lease)
+    {
+        ProviderEntry? entry;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_providers.TryGetValue(extensionId, out entry)
+                || !ReferenceEquals(entry.Extension, extension)
+                || !ReferenceEquals(entry.Generation, generation))
+            {
+                lease = null!;
+                return false;
+            }
+
+            Acquire(entry);
+        }
+
+        var scopeFactory = new TrackedScopeFactory(this, extensionId, entry);
+        var services = new TrackedServiceProvider(entry.Provider, scopeFactory);
+        lease = new ProviderLease(services, () => ReleaseScope(entry));
+        return true;
+    }
+
+    private IServiceScope CreateNestedScope(string extensionId, ProviderEntry entry)
+    {
+        lock (_gate)
+        {
+            if (entry.Retired || entry.Disposed)
+                throw new InvalidOperationException($"The service container for extension '{extensionId}' has been retired.");
+
+            Acquire(entry);
+        }
+
+        return CreateTrackedScope(extensionId, entry);
+    }
+
+    private IServiceScope CreateTrackedScope(string extensionId, ProviderEntry entry)
+    {
+        IServiceScope innerScope;
+        try
+        {
+            innerScope = entry.Provider.CreateScope();
+        }
+        catch
+        {
+            ReleaseScope(entry);
+            throw;
+        }
+
+        var scopeFactory = new TrackedScopeFactory(this, extensionId, entry);
+        var services = new TrackedServiceProvider(innerScope.ServiceProvider, scopeFactory);
+        return new TrackedScope(innerScope, services, () => ReleaseScope(entry));
+    }
+
+    private static void Acquire(ProviderEntry entry) => entry.ActiveScopes++;
 
     /// <summary>
     /// Build (or rebuild) the container for one extension. Only this extension's container is replaced;
     /// every other extension's container — and its state — is left untouched. A previous container for
-    /// this id, if any, is retired and disposed at shutdown so in-flight scopes keep working. On
-    /// failure the previous container is left in place.
+    /// this id, if any, is retired and disposed as soon as its final active scope drains. On failure
+    /// the previous container is left in place.
     /// </summary>
     public void BuildProvider(
         string extensionId,
         IExtension extension,
         ExtensionContext context,
-        Action<string, Exception> onConfigureFailure)
+        Action<string, Exception> onConfigureFailure) =>
+        TryBuildProvider(extensionId, extension, context, onConfigureFailure);
+
+    /// <summary>
+    /// Try to build and publish a replacement container while reporting whether publication succeeded.
+    /// </summary>
+    /// <returns><see langword="true"/> when the replacement container was published.</returns>
+    public bool TryBuildProvider(
+        string extensionId,
+        IExtension extension,
+        ExtensionContext context,
+        Action<string, Exception> onBuildFailure)
     {
         var services = new ServiceCollection();
+        var entry = new ProviderEntry(extension);
+        var scopeFactory = new TrackedScopeFactory(this, extensionId, entry);
 
         // Stand up the fragile framework stacks fresh, then point logging at the host so extension log
         // output is unified. AddHttpClient() in particular must own a consistent stack so an
@@ -137,14 +280,24 @@ public sealed class ExtensionServiceOverlay : IDisposable
                 services.Add(descriptor); // copy scoped/transient — the container creates & owns its instance
         }
 
+        var contributionStartIndex = services.Count;
         try
         {
             extension.ConfigureServices(services, context);
+            ExtensionContributionServiceRegistration.KeyProvidersAddedSince(
+                services,
+                contributionStartIndex,
+                extensionId);
         }
         catch (Exception ex)
         {
-            onConfigureFailure(extension.Id, ex);
+            onBuildFailure(extension.Id, ex);
+            return false;
         }
+
+        // This host-owned registration is added last so extension services can safely constructor-
+        // inject a scope factory without bypassing provider-generation drain accounting.
+        services.Replace(ServiceDescriptor.Singleton<IExtensionServiceScopeFactory>(scopeFactory));
 
         ServiceProvider built;
         try
@@ -160,27 +313,51 @@ public sealed class ExtensionServiceOverlay : IDisposable
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to build service container for extension {Id}; keeping previous container", extensionId);
-            return;
+            onBuildFailure(extension.Id, ex);
+            return false;
         }
+        entry.Provider = built;
 
+        ProviderEntry? dispose = null;
+        var reject = false;
         lock (_gate)
         {
-            if (_providers.TryGetValue(extensionId, out var old))
-                _retired.Add(old);
-            _providers[extensionId] = built;
+            if (_disposed)
+            {
+                reject = true;
+            }
+            else
+            {
+                if (_providers.TryGetValue(extensionId, out var old))
+                    dispose = Retire(old);
+                _providers[extensionId] = entry;
+            }
         }
 
+        if (reject)
+        {
+            TryDispose(built);
+            throw new ObjectDisposedException(nameof(ExtensionServiceOverlay));
+        }
+        if (dispose != null)
+            TryDispose(dispose.Provider);
+
         _logger?.LogDebug("Service container built for extension {Id}", extensionId);
+        return true;
     }
 
     /// <summary>Retire and forget an extension's container (on uninstall/disable).</summary>
     public void Remove(string extensionId)
     {
+        ProviderEntry? dispose = null;
         lock (_gate)
         {
-            if (_providers.Remove(extensionId, out var provider))
-                _retired.Add(provider);
+            if (_providers.Remove(extensionId, out var entry))
+                dispose = Retire(entry);
         }
+
+        if (dispose != null)
+            TryDispose(dispose.Provider);
     }
 
     private static bool ShouldSkip(ServiceDescriptor descriptor)
@@ -190,6 +367,7 @@ public sealed class ExtensionServiceOverlay : IDisposable
         // Engine-provided services: the child container supplies its own.
         if (type == typeof(IServiceProvider)
             || type == typeof(IServiceScopeFactory)
+            || type == typeof(IExtensionServiceScopeFactory)
             || type == typeof(IServiceProviderIsService)
             || type == typeof(IServiceProviderIsKeyedService))
             return true;
@@ -277,27 +455,151 @@ public sealed class ExtensionServiceOverlay : IDisposable
 
     public void Dispose()
     {
+        List<ProviderEntry> dispose;
         lock (_gate)
         {
-            foreach (var provider in _retired)
-                TryDispose(provider);
-            _retired.Clear();
+            if (_disposed)
+                return;
 
-            foreach (var provider in _providers.Values)
-                TryDispose(provider);
+            _disposed = true;
+            dispose = _providers.Values
+                .Select(Retire)
+                .Where(entry => entry != null)
+                .Cast<ProviderEntry>()
+                .ToList();
             _providers.Clear();
         }
+
+        foreach (var entry in dispose)
+            TryDispose(entry.Provider);
+    }
+
+    private ProviderEntry? Retire(ProviderEntry entry)
+    {
+        entry.Retired = true;
+        if (entry.ActiveScopes != 0 || entry.Disposed)
+            return null;
+
+        entry.Disposed = true;
+        return entry;
+    }
+
+    private void ReleaseScope(ProviderEntry entry)
+    {
+        ProviderEntry? dispose = null;
+        lock (_gate)
+        {
+            if (entry.ActiveScopes <= 0)
+                return;
+
+            entry.ActiveScopes--;
+            if (entry.Retired && entry.ActiveScopes == 0 && !entry.Disposed)
+            {
+                entry.Disposed = true;
+                dispose = entry;
+            }
+        }
+
+        if (dispose != null)
+            TryDispose(dispose.Provider);
     }
 
     private void TryDispose(ServiceProvider provider)
     {
         try
         {
-            provider.Dispose();
+            provider.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Error disposing an extension service container");
+        }
+    }
+
+    private sealed class ProviderEntry(IExtension extension)
+    {
+        public IExtension Extension { get; } = extension;
+        public object Generation { get; } = new();
+        public ServiceProvider Provider { get; set; } = null!;
+        public int ActiveScopes { get; set; }
+        public bool Retired { get; set; }
+        public bool Disposed { get; set; }
+    }
+
+    internal sealed class ProviderLease(IServiceProvider services, Action release) : IDisposable
+    {
+        private int _disposed;
+
+        public IServiceProvider Services { get; } = services;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                release();
+        }
+    }
+
+    private sealed class TrackedScopeFactory(
+        ExtensionServiceOverlay owner,
+        string extensionId,
+        ProviderEntry entry) : IServiceScopeFactory, IExtensionServiceScopeFactory
+    {
+        public IServiceScope CreateScope() => owner.CreateNestedScope(extensionId, entry);
+
+        public AsyncServiceScope CreateAsyncScope() => new(CreateScope());
+    }
+
+    private sealed class TrackedServiceProvider(
+        IServiceProvider services,
+        IServiceScopeFactory scopeFactory) : IServiceProvider, IKeyedServiceProvider
+    {
+        public object? GetService(Type serviceType)
+        {
+            if (serviceType == typeof(IServiceProvider) || serviceType == typeof(IKeyedServiceProvider))
+                return this;
+            if (serviceType == typeof(IServiceScopeFactory))
+                return scopeFactory;
+            if (serviceType == typeof(IExtensionServiceScopeFactory))
+                return scopeFactory;
+
+            return services.GetService(serviceType);
+        }
+
+        public object? GetKeyedService(Type serviceType, object? serviceKey)
+            => ((IKeyedServiceProvider)services).GetKeyedService(serviceType, serviceKey);
+
+        public object GetRequiredKeyedService(Type serviceType, object? serviceKey)
+            => ((IKeyedServiceProvider)services).GetRequiredKeyedService(serviceType, serviceKey);
+    }
+
+    private sealed class TrackedScope(
+        IServiceScope scope,
+        IServiceProvider services,
+        Action release) : IServiceScope, IAsyncDisposable
+    {
+        private int _disposed;
+
+        public IServiceProvider ServiceProvider => services;
+
+        public void Dispose()
+            => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            try
+            {
+                if (scope is IAsyncDisposable asyncScope)
+                    await asyncScope.DisposeAsync().ConfigureAwait(false);
+                else
+                    scope.Dispose();
+            }
+            finally
+            {
+                release();
+            }
         }
     }
 }

@@ -16,6 +16,8 @@ namespace Cove.Plugins;
 /// <summary>
 /// Base interface for all Cove extensions. Every extension must implement this.
 /// Extensions can optionally implement additional capability interfaces.
+/// Identity, version, category, dependency, and other descriptive properties must be immutable and
+/// provider-independent because the host reads them before initialization and while disabled.
 /// </summary>
 public interface IExtension
 {
@@ -55,6 +57,17 @@ public interface IExtension
     Task OnInstallAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
     /// <summary>Called when the extension is being uninstalled. Clean up non-DB resources.</summary>
     Task OnUninstallAsync(IServiceProvider services, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Creates extension-owned service scopes that participate in provider-generation retirement.
+/// Inject this contract into extension services instead of the container engine's
+/// <see cref="IServiceScopeFactory"/>.
+/// </summary>
+public interface IExtensionServiceScopeFactory
+{
+    IServiceScope CreateScope();
+    AsyncServiceScope CreateAsyncScope();
 }
 
 /// <summary>
@@ -123,7 +136,104 @@ public interface IApiExtension : IExtension
 /// <summary>Contribute to the frontend UI via the manifest system.</summary>
 public interface IUIExtension : IExtension
 {
+    /// <summary>Return provider-independent UI declarations; this may be called while disabled.</summary>
     UIManifest GetUIManifest();
+}
+
+/// <summary>Marker for extension-owned provider services resolved by their real host-stamped owner.</summary>
+public interface IExtensionContributionProvider { }
+
+/// <summary>
+/// Resolves extension-owned predicates against host-authorized entity candidates. Providers return
+/// only membership; Cove retains ownership of authorization, query composition, sorting and paging.
+/// Cove owner-keys contribution-provider registrations; extension services that also consume their
+/// implementation should inject its concrete type rather than this discovery interface.
+/// Resolve callbacks execute against the exact provider generation captured for the criterion and
+/// must observe cancellation. Disable or replacement may retire that generation concurrently, but
+/// the host keeps its provider scope alive until every in-flight callback has completed.
+/// </summary>
+public interface IExtensionEntityFilterProvider : IExtensionContributionProvider
+{
+    IReadOnlyCollection<ExtensionEntityFilterDefinition> Filters { get; }
+    Task<ExtensionEntityFilterResult> ResolveAsync(ExtensionEntityFilterRequest request, CancellationToken ct);
+}
+
+public sealed record ExtensionEntityFilterDefinition(string FilterId, string EntityType);
+
+public sealed record ExtensionFilterPrincipal(
+    int? UserId,
+    string Username,
+    string Kind,
+    IReadOnlyCollection<string> Roles,
+    IReadOnlyCollection<string> Permissions);
+
+public sealed record ExtensionEntityFilterRequest(
+    string ExtensionId,
+    string EntityType,
+    string FilterId,
+    string Modifier,
+    System.Text.Json.JsonElement Value,
+    IReadOnlyList<int> CandidateIds,
+    ExtensionFilterPrincipal Principal);
+
+public sealed record ExtensionEntityFilterResult(
+    IReadOnlyCollection<int> MatchingEntityIds,
+    string Revision);
+
+/// <summary>A namespaced contribution owned by one extension.</summary>
+internal sealed record ExtensionContributionKey(string ExtensionId, string ContributionId);
+
+/// <summary>
+/// A contribution binding captured from one exact extension/provider generation. The runtime owns
+/// the provider scope and keeps it alive until all calls that were started through the execution
+/// have completed, including calls that outlive a host timeout.
+/// </summary>
+internal sealed record ExtensionContributionBinding<TDeclaration, TRequest, TResult>(
+    TDeclaration Declaration,
+    Func<TRequest, CancellationToken, Task<TResult>> ExecuteAsync);
+
+/// <summary>An exact-generation contribution execution.</summary>
+internal interface IExtensionContributionExecution<TDeclaration, TRequest, TResult> : IDisposable
+{
+    ExtensionContributionKey Key { get; }
+    TDeclaration Declaration { get; }
+    Task<TResult> ExecuteAsync(TRequest request, CancellationToken ct);
+}
+
+/// <summary>
+/// Host runtime for acquiring namespaced extension contributions. Implementations resolve and pin
+/// the exact provider generation under the owner's lifecycle gate, then release that gate before
+/// returning the execution.
+/// </summary>
+internal interface IExtensionContributionRuntime
+{
+    Task<IExtensionContributionExecution<TDeclaration, TRequest, TResult>?>
+        OpenContributionAsync<TDeclaration, TRequest, TResult>(
+        string extensionId,
+        string contributionId,
+        Func<IExtension, IServiceProvider, string, ExtensionContributionBinding<TDeclaration, TRequest, TResult>?> bind,
+        CancellationToken ct);
+}
+
+/// <summary>
+/// One owner-stamped filter declaration and exact provider generation captured for a criterion.
+/// Dispose the execution after all batches have been scheduled; implementations retain their
+/// provider scope until any timed-out in-flight work actually completes.
+/// </summary>
+public interface IExtensionEntityFilterExecution : IDisposable
+{
+    UIListFilterContribution Declaration { get; }
+    Task<ExtensionEntityFilterResult> ResolveAsync(ExtensionEntityFilterRequest request, CancellationToken ct);
+}
+
+/// <summary>Host runtime used by the query orchestrator. Contributions are always owner-stamped.</summary>
+public interface IExtensionEntityFilterRuntime
+{
+    Task<IExtensionEntityFilterExecution?> OpenEntityFilterAsync(
+        string extensionId,
+        string entityType,
+        string filterId,
+        CancellationToken ct);
 }
 
 /// <summary>
@@ -151,6 +261,7 @@ public interface IExtensionStore
 /// </summary>
 public interface IJobExtension : IExtension
 {
+    /// <summary>Provider-independent job declarations; the host may read them while disabled.</summary>
     IReadOnlyList<ExtensionJobDefinition> Jobs { get; }
     Task RunJobAsync(string jobId, IReadOnlyDictionary<string, string>? parameters, IJobProgress progress, CancellationToken ct);
 }
@@ -236,8 +347,12 @@ public interface IMiddlewareExtension : IExtension
 /// Extension that runs a long-lived background worker managed by the host. The host starts
 /// <see cref="RunAsync"/> after the extension initializes and cancels the token when the extension is
 /// disabled, uninstalled, or the host shuts down. Implementations should loop until the token is
-/// cancelled and create a scope per unit of work for scoped services. Persist durable state via the
-/// extension store — in-memory state is reset if the extension's container is rebuilt.
+/// cancelled and use <see cref="IExtensionServiceScopeFactory"/> to create a tracked scope per unit
+/// of work for scoped services. Persist durable state via the extension store — in-memory state is
+/// reset if the extension's container is rebuilt.
+/// <see cref="RunAsync"/> and any code it awaits must not invoke or await lifecycle operations,
+/// worker-stop operations, or host-wide extension shutdown for the same extension: the host drains
+/// the worker while holding that extension's lifecycle gate.
 /// </summary>
 public interface IBackgroundExtension : IExtension
 {
@@ -289,6 +404,7 @@ public record ScanPathInfo(
 /// </summary>
 public interface IActionExtension : IExtension
 {
+    /// <summary>Return provider-independent action declarations; this may be called while disabled.</summary>
     IReadOnlyList<ExtensionAction> GetActions();
 }
 
@@ -497,6 +613,7 @@ public class ExtensionMigrationRecord
 /// <summary>Complete UI manifest describing all frontend contributions.</summary>
 public class UIManifest
 {
+    public List<UIExtensionBundle> ExtensionBundles { get; set; } = [];
     public List<UIPageDefinition> Pages { get; set; } = [];
     public List<UISlotContribution> Slots { get; set; } = [];
     public List<UITabContribution> Tabs { get; set; } = [];
@@ -523,6 +640,17 @@ public class UIManifest
     /// <summary>URL of additional CSS to load.</summary>
     public string? CssBundleUrl { get; set; }
 }
+
+/// <summary>
+/// Versioned frontend assets owned by one extension. Keeping bundle ownership in the
+/// manifest lets the browser runtime load, replace, and unload extensions independently.
+/// </summary>
+public record UIExtensionBundle(
+    string ExtensionId,
+    string Version,
+    string? JsBundleUrl = null,
+    string? CssBundleUrl = null
+);
 
 /// <summary>In-app tutorial/manual topic contributed by Cove or an extension.</summary>
 public record UITutorialTopic(
@@ -759,8 +887,15 @@ public record UIListFilterContribution(
     string? EntityReferenceType = null,
     List<string>? Modifiers = null,
     List<UIListFilterOption>? Options = null,
-    int Order = 100
-);
+    int Order = 100)
+{
+    /// <summary>
+    /// Stable provider-owned filter identifier. Null means presentation-only/core-backed. This is
+    /// an init property so extensions compiled against the original positional record keep the
+    /// same constructor and deconstructor ABI.
+    /// </summary>
+    public string? FilterId { get; init; }
+}
 
 /// <summary>Static option for an extension-contributed enum/multi-select list filter.</summary>
 public record UIListFilterOption(string Value, string Label);

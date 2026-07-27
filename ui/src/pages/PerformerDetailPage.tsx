@@ -232,6 +232,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Performer Cover"
+        entityType="performer"
+        entityId={performer.id}
         currentImageUrl={performerImageUrl}
         onUpload={(file) => entityImages.uploadPerformerImage(performer.id, file)}
         onDelete={() => entityImages.deletePerformerImage(performer.id)}
@@ -240,6 +242,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         aspectRatio="2/3"
       />
       <EntityHeroLayout
+        entityType="performer"
+        entityId={performer.id}
         backLabel={backLabel}
         onGoBack={goBack}
         backgroundImageUrl={entityImages.performerImageUrl(performer.id, performer.updatedAt, 1600)}

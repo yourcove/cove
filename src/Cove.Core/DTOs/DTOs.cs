@@ -134,7 +134,8 @@ public record TagDto(
     double? EffectiveDurationSec = null,
     double? EffectiveDurationPercent = null,
     bool Organized = false,
-    bool CanReportIncorrect = false);
+    bool CanReportIncorrect = false,
+    bool HasImage = false);
 
 public record TagListDto(
     int Id,

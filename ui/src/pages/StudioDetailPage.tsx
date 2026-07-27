@@ -236,11 +236,14 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   return (
     <>
       <EntityHeroLayout
+        entityType="studio"
+        entityId={studio.id}
         backLabel={backLabel}
         onGoBack={goBack}
         backgroundImageUrl={entityImages.studioImageUrl(studio.id, studio.updatedAt, 1600)}
         imageUrl={studioImageUrl}
         imageAlt={studio.name}
+        imageFit="contain"
         imageClassName="h-full w-full object-contain p-3"
         onImageClick={canWriteStudio ? () => setCoverOpen(true) : undefined}
         imageFallback={<Building2 className="h-14 w-14 text-accent" />}
@@ -390,6 +393,8 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
       <CoverImageDialog
         open={coverOpen}
         title="Set Studio Cover"
+        entityType="studio"
+        entityId={studio.id}
         currentImageUrl={studioImageUrl}
         onUpload={(file) => entityImages.uploadStudioImage(studio.id, file)}
         onDelete={() => entityImages.deleteStudioImage(studio.id)}

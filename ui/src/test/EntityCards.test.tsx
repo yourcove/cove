@@ -7,7 +7,7 @@ vi.mock("../components/Rating", () => ({
   RatingBadge: () => null,
 }));
 
-import { GalleryTile, GroupTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
+import { GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 
 const videoFile = {
@@ -160,6 +160,38 @@ describe("VideoCard navigation", () => {
     expect(screen.getByRole("link", { name: /Popover Performer/i })).toHaveAttribute("href", "/performer/9");
   });
 
+  it("does not create hover media for tag references without an image", () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithQueryClient(
+      <VideoCardPopovers
+        video={{
+          ...baseVideo,
+          tags: [
+            { id: 9, name: "Featured", description: "List preview", videoCount: 12, hasImage: false },
+            { id: 10, name: "Second tag", hasImage: true },
+          ],
+        } as any}
+      />
+    );
+
+    fireEvent.mouseEnter(screen.getByTitle("Tags"));
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Featured" }));
+
+    expect(screen.getByRole("link", { name: "Featured" })).toHaveAttribute("href", "/tag/9");
+    expect(screen.getByRole("link", { name: "Featured" }).parentElement).toHaveClass("space-y-1");
+    expect(screen.queryByRole("tooltip", { name: "Media for Featured" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Featured" })).not.toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Second tag" }));
+    expect(screen.getByRole("img", { name: "Second tag" })).toHaveAttribute("src", "/api/tags/10/image?max=640");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/tags/"))).toBe(false);
+  });
+
   it("renders a likes counter instead of the legacy O badge", () => {
     render(<VideoCard video={baseVideo as any} engagement={{ hostId: 42, isFavorite: false, resumeTime: 0, playDuration: 0, playCount: 0, likeCount: 1, derivedLikeCount: 0, pageVisitCount: 0, completeCount: 0 }} onClick={vi.fn()} />);
 
@@ -233,6 +265,24 @@ describe("PerformerTile", () => {
 });
 
 describe("GalleryTile", () => {
+  it("uses media-enabled tag links in the shared reference popover", () => {
+    vi.useFakeTimers();
+    render(
+      <GalleryTile
+        gallery={{ ...baseGallery, tags: [{ id: 19, name: "Animated Gallery Tag", imagePath: "/gallery-tag.jpg" }] } as any}
+        onClick={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByTitle("Tags"));
+    act(() => vi.advanceTimersByTime(250));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Animated Gallery Tag" }));
+
+    expect(screen.getByRole("tooltip", { name: "Media for Animated Gallery Tag" })).toContainElement(
+      screen.getByRole("img", { name: "Animated Gallery Tag" }),
+    );
+  });
+
   it("shows image and video counts once in the footer popovers", () => {
     const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
@@ -277,6 +327,39 @@ describe("GalleryTile", () => {
     expect(screen.getByAltText("Studio Nine")).toHaveAttribute("src", expect.stringContaining("/api/studios/9/image"));
     expect(screen.getByTitle("Studio")).toBeInTheDocument();
     expect(screen.getByTitle("Performers")).toBeInTheDocument();
+  });
+});
+
+describe("ImageTile", () => {
+  it("uses media-enabled tag links in its tag popover", () => {
+    vi.useFakeTimers();
+    render(
+      <ImageTile
+        image={{
+          id: 3,
+          title: "Sample Image",
+          organized: false,
+          urls: [],
+          tags: [{ id: 23, name: "Animated Image Tag", imagePath: "/image-tag.jpg" }],
+          performers: [],
+          galleryCount: 0,
+          galleryIds: [],
+          galleries: [],
+          files: [],
+          createdAt: "",
+          updatedAt: "",
+        } as any}
+        onClick={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByTitle("Tags"));
+    act(() => vi.advanceTimersByTime(250));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Animated Image Tag" }));
+
+    expect(screen.getByRole("tooltip", { name: "Media for Animated Image Tag" })).toContainElement(
+      screen.getByRole("img", { name: "Animated Image Tag" }),
+    );
   });
 });
 
@@ -382,3 +465,21 @@ describe("DetailsTab performers", () => {
 
 });
 
+describe("DetailsTab tag hover", () => {
+  it("renders supplied static media without fetching tag details", () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const video = {
+      ...baseVideo,
+      remoteIds: [], urls: [], customFields: undefined,
+      tags: [{ id: 9, name: "Featured", imagePath: "/tag.jpg", description: "Preview description", favorite: false, organized: true, aliases: [], videoCount: 12 }],
+    };
+    renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Featured" }));
+
+    expect(screen.getByRole("tooltip", { name: "Media for Featured" })).toContainElement(screen.getByRole("img", { name: "Featured" }));
+    expect(screen.getByRole("img", { name: "Featured" })).toHaveAttribute("src", "/tag.jpg");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/tags/"))).toBe(false);
+  });
+});

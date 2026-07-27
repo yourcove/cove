@@ -24,6 +24,16 @@ Every compiled extension implements `IExtension`.
 
 Extensions may register their own services. They should treat host services as an explicit compatibility boundary, not assume every internal Cove service is stable. `IExtensionServiceExchange` is the supported opt-in exchange for publishing and resolving services across extension containers.
 
+### Provider generations and tracked scopes
+
+Cove builds an isolated service-provider generation for each runtime extension. Enable, disable, replacement, and unload transitions are serialized per extension. Requests, endpoints, middleware, events, jobs, scrapers, downloaders, scans, workers, and contributed providers stay bound to the exact generation on which their work started. Cove retires an old generation only after its tracked work drains.
+
+Inject `IExtensionServiceScopeFactory` into extension services when nested or long-lived work needs a scope. Its `CreateScope` and `CreateAsyncScope` methods keep the selected provider generation alive until the returned scope is disposed. Do not inject the container engine's `IServiceScopeFactory` for extension-owned work because that bypasses generation tracking.
+
+Create and dispose one tracked scope per background-work unit. A queued `IJobService` callback can outlive the request that enqueued it, so do not capture `HttpContext` or request-scoped services; create a fresh tracked scope inside the callback and honor its cancellation token.
+
+Metadata and declarations read outside active execution must remain immutable and provider-independent. In particular, identity, dependencies, `GetUIManifest()`, `IJobExtension.Jobs`, and `IActionExtension.GetActions()` must not resolve scoped services or depend on a mutable provider generation.
+
 ## SDK base classes
 
 `Cove.Sdk` provides manifest-aware base classes and a UI builder. They reduce lifecycle and dispatch boilerplate; they do not add capabilities that their implemented interfaces do not list.
@@ -132,7 +142,7 @@ public UIManifestBuilder AddTab(
 public UIManifest Build();
 ```
 
-The builder also has methods for actions, settings tabs and panels, tutorial topics, features, and list filters and sorts. `AddPane` and `OverrideComponent` build declarations whose frontend consumers are currently reserved; see [UI extension points](../ui-extension-points/) before choosing a method.
+The builder also has methods for actions, settings tabs and panels, tutorial topics, features, and list filters and sorts. `OverrideComponent` is currently usable only with Cove's published `entity.media` target. `AddPane` and other component-override targets remain reserved; see [UI extension points](../ui-extension-points/) before choosing a method.
 
 `UIManifestBuilder` does not replace `extension.json`. In particular, package frontend files with manifest `jsBundle` and `cssBundle`. Although the builder exposes `WithJsBundle`, `WithCssBundle`, and `WithRuntimeVersion`, the aggregated host manifest supplies asset URLs from the package manifest and supplies its own frontend runtime version. Do not use those methods as package configuration.
 
@@ -151,6 +161,7 @@ Implement only the interfaces your extension needs.
 | `IStatefulExtension` | Receive an extension-scoped `IExtensionStore` for persistent string key/value data. |
 | `IDataExtension` | Add extension-owned EF Core model configuration and ordered, forward-only SQL migrations. Do not drop core tables or columns. |
 | `IActionExtension` | Contribute toolbar and bulk actions backed by an API endpoint or frontend handler. The contract declares context-menu actions, but the frontend does not currently render them. |
+| `IExtensionEntityFilterProvider` | Resolve an owner-namespaced tag-filter predicate against host-authorized candidate batches. |
 
 ### Service and storage choices
 
@@ -160,7 +171,11 @@ Choose storage by shape:
 - use `IDataExtension` for structured, queryable extension-owned tables
 - use manifest `settings` for administrator-editable configuration
 
-Background workers should create a dependency-injection scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
+`IBlobService` stores host-managed binary media and preserves its normalized MIME type. Treat the returned blob id as opaque: do not infer a filesystem path or extension. `GetBlobAsync` returns a seekable stream suitable for an ASP.NET Core file result with range processing enabled, and callers own the returned stream.
+
+When replacing a referenced blob, store the new payload first, persist the new id, and delete the old blob only after the metadata update succeeds. Delete the new blob if that update fails. Honor cancellation while storing data and do not retain a stream after its request, job, or extension scope ends.
+
+Background workers should create an `IExtensionServiceScopeFactory` scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
 
 ## Metadata and intake providers
 
@@ -176,6 +191,12 @@ Scrapers declare supported entities, URL patterns, invocation capabilities, pref
 Downloaders declare supported entities, URL patterns, and capabilities such as resume, range requests, multiple qualities, or inline metadata. Cove supplies a temporary directory, HTTP clients, logging, and progress reporting through `IDownloaderHost`.
 
 For implementation guidance, see [Create a scraper](../create-scraper/) and [Create a downloader](../create-downloader/).
+
+### Extension-owned entity filters
+
+Pair `IExtensionEntityFilterProvider` with an `IUIExtension` declaration created by `UIManifestBuilder.AddExtensionListFilter`. Cove owner-keys provider registrations automatically, verifies that the provider's `Filters` collection matches the owner-stamped manifest declaration, and pins the exact provider generation for the complete criterion execution.
+
+The current executable boundary is limited to tags. Providers receive authorized candidate ids in bounded batches and return membership plus a stable revision; they do not own query authorization, sorting, counts, or pagination. See [UI extension points](../ui-extension-points/#extension-owned-tag-predicates) for the request contract, limits, cancellation rules, and saved-filter behavior.
 
 ## Specialized service contributions
 
@@ -233,9 +254,15 @@ Page overrides are intentionally broader than additive contributions. Prefer a p
 
 When multiple extensions target the same page, priority determines the winner. Page overrides carry greater compatibility risk because they replace host-owned UI rather than add to it.
 
+### Entity media replacement
+
+`UIComponentOverride` can target the published `entity.media` boundary to replace or wrap primary media on cards, lists, detail heroes, dialogs, pickers, recommendations, and hovers. The component receives the entity identity, surface and presentation hints, native image URL, and a `renderDefault` function that delegates to the next override and ultimately native media.
+
+Other component target strings remain reserved. See [UI extension points](../ui-extension-points/#entity-media-overrides) for the complete runtime contract and hover aspect-ratio convention.
+
 ### Reserved UI declarations
 
-`UIManifest` also defines panes, component overrides, selector overrides, dialog overrides, and a `DetailRoute` value on page definitions. Cove currently transports these declarations but does not consume them in the frontend, so they are not usable extension points yet. The `*` target documented on `UIPageOverride` is likewise not a working application-shell override; use an exact built-in page key.
+`UIManifest` also defines panes, selector overrides, dialog overrides, component-override targets other than `entity.media`, and a `DetailRoute` value on page definitions. Cove currently transports these declarations but does not consume them in the frontend, so they are not usable extension points yet. The `*` target documented on `UIPageOverride` is likewise not a working application-shell override; use an exact built-in page key.
 
 ## Manifest-only contributions
 

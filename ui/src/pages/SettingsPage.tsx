@@ -1790,7 +1790,7 @@ export function SettingsPage() {
     }
 
     const rendered = panels.map((panel) => {
-      const Component = resolveComponent(panel.componentName);
+      const Component = resolveComponent(panel.extensionId, panel.componentName);
       if (!Component) return null;
       if (layout === "page") {
         return <Component key={panel.id} />;
@@ -2449,7 +2449,7 @@ export function SettingsPage() {
               {libraryExtensionsPanels.length > 0 && (
                 <div className="mt-6 space-y-4 border-t border-border/70 pt-4">
                   {libraryExtensionsPanels.map((panel) => {
-                    const Component = resolveComponent(panel.componentName);
+                    const Component = resolveComponent(panel.extensionId, panel.componentName);
                     if (!Component) return null;
                     return (
                       <div key={panel.id} className="space-y-2">
@@ -2541,7 +2541,7 @@ export function SettingsPage() {
             </SectionCard>
             )}
             {resolvedActiveTab === "library-paths-storage" && libraryStandalonePanels.map((panel) => {
-              const Component = resolveComponent(panel.componentName);
+              const Component = resolveComponent(panel.extensionId, panel.componentName);
               if (!Component) return null;
               return (
                 <SectionCard key={panel.id} title={panel.label} description={`Provided by the ${panel.extensionId} extension.`}>
@@ -6098,7 +6098,10 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   const enableMut = useMutation({
     mutationFn: (args: { id: string; enable: boolean }) =>
       import("../api/client").then(m => args.enable ? m.extensions.enable(args.id) : m.extensions.disable(args.id)),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["extensions-list"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      void refreshManifest();
+    },
   });
 
   const { data: registryUpdates } = useQuery({
@@ -6158,6 +6161,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
       queryClient.invalidateQueries({ queryKey: ["plugins"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
       queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+      void refreshManifest();
     },
   });
 
@@ -6631,7 +6635,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
       {/* Extension-contributed settings panels */}
       {mode === "installed" && settingsPanels.length > 0 &&
         settingsPanels.map((panel) => {
-          const Component = resolveComponent(panel.componentName);
+          const Component = resolveComponent(panel.extensionId, panel.componentName);
           if (!Component) return null;
           return (
             <SectionCard
@@ -6795,6 +6799,7 @@ function FindAndInstallExtensions() {
       setExtensionToUninstall(null);
       queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
       queryClient.invalidateQueries({ queryKey: ["registry-search"] });
+      void refreshManifest();
     },
     onError: (error) => setInstallError(error instanceof Error ? error.message : "Extension uninstall failed."),
   });

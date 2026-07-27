@@ -11,7 +11,7 @@ vi.stubGlobal("IntersectionObserver", vi.fn(function IntersectionObserver() {
   };
 }));
 
-const { mockEntityImages, mockVideos, mockSegmentLibrary, mockTags, mockGoBack } = vi.hoisted(() => ({
+const { mockEntityImages, mockVideos, mockSegmentLibrary, mockTags, mockGoBack, videoPlayerMock } = vi.hoisted(() => ({
   mockEntityImages: {
     segmentCoverUrl: vi.fn(() => "/segment-cover.jpg"),
     videoCoverUrl: vi.fn(() => "/video-cover.jpg"),
@@ -41,6 +41,7 @@ const { mockEntityImages, mockVideos, mockSegmentLibrary, mockTags, mockGoBack }
     find: vi.fn(),
   },
   mockGoBack: vi.fn(),
+  videoPlayerMock: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -51,7 +52,10 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: () => <div data-testid="segment-video-player">Video Player</div>,
+  VideoPlayer: (props: Record<string, unknown>) => {
+    videoPlayerMock(props);
+    return <div data-testid="segment-video-player">Video Player</div>;
+  },
 }));
 
 vi.mock("../auth/AuthContext", () => ({
@@ -173,6 +177,9 @@ describe("SegmentDetailPage", () => {
     expect(screen.getByTestId("media-detail-layout-media")).toBeInTheDocument();
     expect(screen.getByTestId("segment-video-player")).toBeInTheDocument();
     expect(screen.queryByTestId("media-detail-layout-media-frame")).not.toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(expect.not.objectContaining({
+      extensionSurface: expect.anything(),
+    }));
 
     const tabs = screen.getByRole("tablist", { name: /detail tabs/i });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Eye,
   EyeOff,
@@ -19,6 +19,16 @@ import { videos } from "../api/client";
 import type { Detection, Face, Segment } from "../api/types";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
+import { ExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
+import {
+  EMPTY_MEDIA_PLAYER_INTERACTION,
+  MEDIA_PLAYER_ACTIONS_SLOT,
+  MEDIA_PLAYER_OVERLAY_SLOT,
+  type MediaPlayerExtensionContext,
+  type MediaPlayerInteractionModeOptions,
+  type MediaPlayerInteractionSnapshot,
+  type MediaPlayerSurface,
+} from "./MediaPlayerExtension";
 
 type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
 type DetectionOverlay = Detection & { overlayKey?: string };
@@ -146,6 +156,8 @@ export function VideoPlayer({
   videoStyle,
   onPrev,
   onNext,
+  extensionSurface,
+  interactionResetKey,
 }: {
   streamUrl: string;
   posterUrl?: string;
@@ -173,6 +185,8 @@ export function VideoPlayer({
   videoStyle?: CSSProperties;
   onPrev?: () => void;
   onNext?: () => void;
+  extensionSurface?: MediaPlayerSurface;
+  interactionResetKey?: unknown;
 }) {
   const { config } = useAppConfig();
   const maxLoopDuration = config?.ui.maxLoopDuration ?? 0;
@@ -241,6 +255,21 @@ export function VideoPlayer({
   const lastHideInteractionAt = useRef(0);
   const clipEndedHandled = useRef(false);
   const [videoBox, setVideoBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  const [intrinsicSize, setIntrinsicSize] = useState({ width: 0, height: 0 });
+  const ownerTokensRef = useRef(new Map<string, symbol>());
+  const interactionLeasesRef = useRef(new Map<symbol, {
+    ownerToken: symbol;
+    options: Required<MediaPlayerInteractionModeOptions>;
+  }>());
+  const interactionSnapshotRef = useRef<MediaPlayerInteractionSnapshot>(EMPTY_MEDIA_PLAYER_INTERACTION);
+  const [interactionSnapshot, setInteractionSnapshot] = useState<MediaPlayerInteractionSnapshot>(EMPTY_MEDIA_PLAYER_INTERACTION);
+  const [interactionGeneration, setInteractionGeneration] = useState(0);
+  const trackingLeaseTransitionRef = useRef<(paused: boolean, resume: boolean) => void>(() => {});
+  const pendingTrackingStartRef = useRef<number | null>(null);
+  const playerWasFullscreenRef = useRef(false);
+  const interactionIdentityRef = useRef({ videoId, interactionResetKey });
+  const videoMetricsReadyRef = useRef(false);
+  const playerActiveRef = useRef(true);
   const clipStart = clip?.start ?? 0;
   const clipEnd = Math.max(clipStart, clip?.end ?? duration);
   const timelineStart = clip ? clipStart : 0;
@@ -251,7 +280,88 @@ export function VideoPlayer({
     () => getConfiguredPlaybackStartTime(duration, playerVideoStartPercent, playerVideoStartMinDuration),
     [duration, playerVideoStartMinDuration, playerVideoStartPercent],
   );
-  const nextPlaybackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
+  const applyInteractionSnapshot = useCallback((resumeTracking: boolean) => {
+    const leases = [...interactionLeasesRef.current.values()];
+    const next: MediaPlayerInteractionSnapshot = {
+      active: leases.length > 0,
+      hideNativeControls: leases.some((lease) => lease.options.hideNativeControls),
+      pauseTracking: leases.some((lease) => lease.options.pauseTracking),
+      pausePlayback: leases.some((lease) => lease.options.pausePlayback),
+    };
+    const previous = interactionSnapshotRef.current;
+
+    if (previous.pauseTracking !== next.pauseTracking) {
+      trackingLeaseTransitionRef.current(next.pauseTracking, resumeTracking);
+    }
+
+    interactionSnapshotRef.current = next;
+    setInteractionSnapshot((current) => (
+      current.active === next.active
+      && current.hideNativeControls === next.hideNativeControls
+      && current.pauseTracking === next.pauseTracking
+      && current.pausePlayback === next.pausePlayback
+        ? current
+        : next
+    ));
+  }, []);
+
+  const releaseOwner = useCallback((ownerKey: string, ownerToken: symbol, resumeTracking: boolean) => {
+    if (ownerTokensRef.current.get(ownerKey) !== ownerToken) return;
+    ownerTokensRef.current.delete(ownerKey);
+    for (const [leaseToken, lease] of interactionLeasesRef.current) {
+      if (lease.ownerToken === ownerToken) interactionLeasesRef.current.delete(leaseToken);
+    }
+    applyInteractionSnapshot(resumeTracking && playerActiveRef.current);
+  }, [applyInteractionSnapshot]);
+
+  const acquireOwnerInteractionMode = useCallback((
+    ownerKey: string,
+    ownerToken: symbol,
+    options: MediaPlayerInteractionModeOptions = {},
+  ) => {
+    if (ownerTokensRef.current.get(ownerKey) !== ownerToken) return () => {};
+
+    const leaseToken = Symbol(ownerKey);
+    interactionLeasesRef.current.set(leaseToken, {
+      ownerToken,
+      options: {
+        hideNativeControls: options.hideNativeControls === true,
+        pauseTracking: options.pauseTracking === true,
+        pausePlayback: options.pausePlayback === true,
+      },
+    });
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    setShowControls(true);
+    setShowCursor(true);
+    if (options.pausePlayback === true) videoRef.current?.pause();
+    applyInteractionSnapshot(true);
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (!interactionLeasesRef.current.delete(leaseToken)) return;
+      applyInteractionSnapshot(true);
+    };
+  }, [applyInteractionSnapshot]);
+
+  const resetInteractionModes = useCallback((options: {
+    notify?: boolean;
+    resumeTracking?: boolean;
+  } = {}) => {
+    const { notify = true, resumeTracking = false } = options;
+    ownerTokensRef.current.clear();
+    interactionLeasesRef.current.clear();
+    const previous = interactionSnapshotRef.current;
+    if (previous.pauseTracking) trackingLeaseTransitionRef.current(false, resumeTracking);
+    interactionSnapshotRef.current = EMPTY_MEDIA_PLAYER_INTERACTION;
+    if (notify) {
+      setInteractionSnapshot(EMPTY_MEDIA_PLAYER_INTERACTION);
+      setInteractionGeneration((generation) => generation + 1);
+    }
+  }, []);
+
+  const basePlaybackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
     if (!trackingEnabled) {
       return null;
     }
@@ -268,6 +378,7 @@ export function VideoPlayer({
       route: typeof window === "undefined" ? baseTarget.route : baseTarget.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`,
     };
   }, [autostart, clip?.end, clip?.start, fullscreen, muted, playbackTracking, rate, videoId, trackingEnabled]);
+  const nextPlaybackTrackingTarget = interactionSnapshot.pauseTracking ? null : basePlaybackTrackingTarget;
   const playbackTrackingSignature = useMemo(() => JSON.stringify(nextPlaybackTrackingTarget), [nextPlaybackTrackingTarget]);
   // Callers commonly build playbackTracking inline. Preserve the normalized target identity while its
   // serialized meaning is unchanged so parent renders cannot tear down tracking effects and flush intervals.
@@ -275,6 +386,30 @@ export function VideoPlayer({
     () => nextPlaybackTrackingTarget,
     [playbackTrackingSignature],
   );
+
+  useLayoutEffect(() => {
+    const previousIdentity = interactionIdentityRef.current;
+    resetInteractionModes({ resumeTracking: previousIdentity.videoId === videoId });
+    interactionIdentityRef.current = { videoId, interactionResetKey };
+  }, [interactionResetKey, resetInteractionModes, videoId]);
+
+  useLayoutEffect(() => {
+    videoMetricsReadyRef.current = false;
+    pendingTrackingStartRef.current = null;
+    setPlaying(false);
+    setCurTime(0);
+    setBuffered(0);
+    setVideoBox({ left: 0, top: 0, width: 0, height: 0 });
+    setIntrinsicSize({ width: 0, height: 0 });
+  }, [videoId]);
+
+  useLayoutEffect(() => {
+    playerActiveRef.current = true;
+    return () => {
+      playerActiveRef.current = false;
+      resetInteractionModes({ notify: false });
+    };
+  }, [resetInteractionModes]);
 
   useEffect(() => {
     intervalStart.current = null;
@@ -389,12 +524,12 @@ export function VideoPlayer({
   const updateVideoBox = useCallback(() => {
     const video = videoRef.current;
     const container = containerRef.current;
-    if (!video || !container) {
+    if (!video || !container || !videoMetricsReadyRef.current) {
       return;
     }
 
-    const intrinsicWidth = video.videoWidth || video.clientWidth;
-    const intrinsicHeight = video.videoHeight || video.clientHeight;
+    const intrinsicWidth = video.videoWidth;
+    const intrinsicHeight = video.videoHeight;
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
 
@@ -402,11 +537,21 @@ export function VideoPlayer({
       return;
     }
 
+    setIntrinsicSize((current) => (
+      current.width === intrinsicWidth && current.height === intrinsicHeight
+        ? current
+        : { width: intrinsicWidth, height: intrinsicHeight }
+    ));
+
     const scale = Math.min(containerWidth / intrinsicWidth, containerHeight / intrinsicHeight);
-    const width = intrinsicWidth * scale;
-    const height = intrinsicHeight * scale;
-    const left = (containerWidth - width) / 2;
-    const top = (containerHeight - height) / 2;
+    const normalize = (value: number) => {
+      const rounded = Math.round(value * 1000) / 1000;
+      return Math.abs(rounded) < 0.0005 ? 0 : rounded;
+    };
+    const width = normalize(intrinsicWidth * scale);
+    const height = normalize(intrinsicHeight * scale);
+    const left = normalize((containerWidth - width) / 2);
+    const top = normalize((containerHeight - height) / 2);
 
     setVideoBox((current) => {
       if (
@@ -421,6 +566,11 @@ export function VideoPlayer({
       return { left, top, width, height };
     });
   }, []);
+
+  const handleVideoMetricsReady = useCallback(() => {
+    videoMetricsReadyRef.current = true;
+    updateVideoBox();
+  }, [updateVideoBox]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -697,6 +847,26 @@ export function VideoPlayer({
     lastTickAt.current = Date.now();
   }, []);
 
+  trackingLeaseTransitionRef.current = (paused, resume) => {
+    if (paused) {
+      pendingTrackingStartRef.current = null;
+      if (intervalStart.current !== null) flushInterval("editing");
+      intervalStart.current = null;
+      return;
+    }
+
+    const video = videoRef.current;
+    pendingTrackingStartRef.current = resume && basePlaybackTrackingTarget && video && !video.paused
+      ? roundPlaybackTime(toAbsoluteTime(video.currentTime))
+      : null;
+  };
+
+  useLayoutEffect(() => {
+    const pendingStart = pendingTrackingStartRef.current;
+    if (interactionSnapshot.pauseTracking || pendingStart === null || !basePlaybackTrackingTarget) return;
+    startTrackedInterval(pendingStart);
+  }, [basePlaybackTrackingTarget, interactionSnapshot.pauseTracking, startTrackedInterval]);
+
   useEffect(() => {
     if (!clip) {
       return;
@@ -798,20 +968,31 @@ export function VideoPlayer({
 
   useEffect(() => {
     const handler = () => {
-      const isFullscreen = !!document.fullscreenElement;
-      setFullscreen(isFullscreen);
+      const ownsFullscreen = document.fullscreenElement === containerRef.current;
+      if (ownsFullscreen) playerWasFullscreenRef.current = true;
+      if (!ownsFullscreen && playerWasFullscreenRef.current) {
+        playerWasFullscreenRef.current = false;
+        resetInteractionModes({ resumeTracking: true });
+      }
+      setFullscreen(ownsFullscreen);
       // Leaving fullscreen always restores the cursor (windowed mode never hides it).
-      if (!isFullscreen) setShowCursor(true);
+      if (!ownsFullscreen) setShowCursor(true);
     };
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
-  }, []);
+  }, [resetInteractionModes]);
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
     setShowCursor(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
+    if (interactionSnapshotRef.current.active) return;
     hideTimer.current = setTimeout(() => {
+      if (interactionSnapshotRef.current.active) {
+        setShowControls(true);
+        setShowCursor(true);
+        return;
+      }
       const video = videoRef.current;
       if (video && !video.paused) {
         setShowControls(false);
@@ -880,10 +1061,27 @@ export function VideoPlayer({
     video.play().catch(() => {});
   }, [prepareClipForPlayback]);
 
+  const playForExtension = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    prepareClipForPlayback();
+    await video.play();
+  }, [prepareClipForPlayback]);
+
+  const pauseForExtension = useCallback(() => {
+    videoRef.current?.pause();
+  }, []);
+
+  const seekForExtension = useCallback((seconds: number) => {
+    if (!Number.isFinite(seconds)) return;
+    seekToAbsoluteTime(seconds);
+  }, [seekToAbsoluteTime]);
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const v = videoRef.current;
       if (!v) return;
+      if (interactionSnapshotRef.current.active) return;
       const tag = (event.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -988,12 +1186,21 @@ export function VideoPlayer({
     else containerRef.current?.requestFullscreen();
   };
 
-  const changeRate = (nextRate: number) => {
+  const changeRate = useCallback((nextRate: number) => {
+    if (!Number.isFinite(nextRate)) return;
+    const supportedRate = Math.min(
+      PLAYBACK_RATES[PLAYBACK_RATES.length - 1],
+      Math.max(PLAYBACK_RATES[0], nextRate),
+    );
     const v = videoRef.current;
-    if (v) v.playbackRate = nextRate;
-    setRate(nextRate);
+    try {
+      if (v) v.playbackRate = supportedRate;
+    } catch {
+      return;
+    }
+    setRate(supportedRate);
     setShowSpeed(false);
-  };
+  }, []);
 
   const changeQuality = (quality: string) => {
     const v = videoRef.current;
@@ -1203,13 +1410,71 @@ export function VideoPlayer({
     return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}` : `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const mediaPlayerExtensionContext = useMemo<MediaPlayerExtensionContext | null>(() => (
+    extensionSurface
+      ? {
+          hostType: "video",
+          hostId: videoId,
+          surface: extensionSurface,
+          currentTime,
+          duration,
+          playing,
+          playbackRate: rate,
+          intrinsicWidth: intrinsicSize.width,
+          intrinsicHeight: intrinsicSize.height,
+          contentRect: videoBox,
+          play: playForExtension,
+          pause: pauseForExtension,
+          seek: seekForExtension,
+          setPlaybackRate: changeRate,
+          // Every rendered contribution receives an owner-bound implementation
+          // from createMediaPlayerEntryContext below.
+          acquireInteractionMode: () => () => {},
+        }
+      : null
+  ), [
+    currentTime,
+    changeRate,
+    duration,
+    extensionSurface,
+    intrinsicSize.height,
+    intrinsicSize.width,
+    pauseForExtension,
+    playForExtension,
+    rate,
+    playing,
+    seekForExtension,
+    videoBox,
+    videoId,
+  ]);
+  const mediaPlayerExtensionResetKey = useMemo(
+    () => ({ videoId, interactionResetKey }),
+    [interactionResetKey, videoId],
+  );
+
+  const createMediaPlayerEntryContext = useCallback((entry: SlotEntry<MediaPlayerExtensionContext>) => {
+    const ownerKey = JSON.stringify([entry.extensionId ?? null, entry.id]);
+    const ownerToken = Symbol(ownerKey);
+    return {
+      context: {
+        acquireInteractionMode: (options?: MediaPlayerInteractionModeOptions) => (
+          acquireOwnerInteractionMode(ownerKey, ownerToken, options)
+        ),
+      },
+      mount: () => {
+        ownerTokensRef.current.set(ownerKey, ownerToken);
+        return () => releaseOwner(ownerKey, ownerToken, true);
+      },
+    };
+  }, [acquireOwnerInteractionMode, interactionGeneration, releaseOwner]);
+
   return (
     <div
       ref={containerRef}
       className="relative group w-full h-full flex items-center justify-center bg-black"
       style={{ cursor: showCursor ? undefined : "none" }}
       onMouseMove={resetHideTimer}
-      onMouseLeave={() => playing && setShowControls(false)}
+      onMouseLeave={() => playing && !interactionSnapshotRef.current.active && setShowControls(false)}
     >
       <video
         ref={videoRef}
@@ -1218,8 +1483,8 @@ export function VideoPlayer({
         preload="metadata"
         poster={posterUrl}
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
-        onLoadedMetadata={updateVideoBox}
-        onLoadedData={updateVideoBox}
+        onLoadedMetadata={handleVideoMetricsReady}
+        onLoadedData={handleVideoMetricsReady}
         onError={(e) => {
           const code = e.currentTarget.error?.code;
           // Only a genuine container/codec failure (DECODE / SRC_NOT_SUPPORTED) warrants swapping to a
@@ -1231,8 +1496,8 @@ export function VideoPlayer({
             recoverFromNetworkStall();
           }
         }}
-        onClick={togglePlay}
-        onDoubleClick={toggleFullscreen}
+        onClick={interactionSnapshot.active ? undefined : togglePlay}
+        onDoubleClick={interactionSnapshot.active ? undefined : toggleFullscreen}
         onWaiting={() => setIsBuffering(true)}
         onStalled={() => setIsBuffering(true)}
         onCanPlay={() => setIsBuffering(false)}
@@ -1246,18 +1511,29 @@ export function VideoPlayer({
           onPlaybackStateChange?.(true);
           pendingAutostartRef.current = false;
           const currentPos = prepareClipForPlayback();
-          startTrackedInterval(currentPos);
+          if (!interactionSnapshotRef.current.pauseTracking) {
+            pendingTrackingStartRef.current = null;
+            startTrackedInterval(currentPos);
+          }
           if (!playTriggered.current) { playTriggered.current = true; onPlay?.(); }
-        }}
-        onPause={() => {
-          setPlaying(false);
-          onPlaybackStateChange?.(false);
-          onPause?.();
-          flushInterval("paused");
+          }}
+          onPause={() => {
+            setPlaying(false);
+            onPlaybackStateChange?.(false);
+            onPause?.();
+            if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+              startTrackedInterval(pendingTrackingStartRef.current);
+            }
+            pendingTrackingStartRef.current = null;
+            flushInterval("paused");
           intervalStart.current = null;
           trackPlayerInteraction("pause", { positionSec: lastSeenTime.current });
         }}
         onSeeking={() => {
+          if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+            startTrackedInterval(pendingTrackingStartRef.current);
+          }
+          pendingTrackingStartRef.current = null;
           if (intervalStart.current !== null) {
             flushInterval("active");
             intervalStart.current = null;
@@ -1271,7 +1547,7 @@ export function VideoPlayer({
         onSeeked={() => {
           setIsBuffering(false);
           const video = videoRef.current;
-          if (video && !video.paused) {
+          if (video && !video.paused && !interactionSnapshotRef.current.pauseTracking) {
             const time = roundPlaybackTime(toAbsoluteTime(video.currentTime));
             startTrackedInterval(time);
           }
@@ -1284,6 +1560,10 @@ export function VideoPlayer({
           // Don't accrue watch time while the tab is backgrounded: a <video> can keep playing and
           // firing timeupdate in a hidden tab, and counting that pollutes engagement/watch data.
           if (document.hidden) return;
+          if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+            startTrackedInterval(pendingTrackingStartRef.current);
+          }
+          pendingTrackingStartRef.current = null;
           const now = Date.now();
           if (trackingEnabled && intervalStart.current !== null) {
             const wallDt = lastTickAt.current > 0 ? (now - lastTickAt.current) / 1000 : 0;
@@ -1379,9 +1659,21 @@ export function VideoPlayer({
         </div>
       ) : null}
 
+      {mediaPlayerExtensionContext ? (
+        <div className="pointer-events-none absolute inset-0 z-[4]">
+          <ExtensionSlot
+            slot={MEDIA_PLAYER_OVERLAY_SLOT}
+            context={mediaPlayerExtensionContext}
+            contextResetKey={mediaPlayerExtensionResetKey}
+            createEntryContext={createMediaPlayerEntryContext}
+            wrapperClassName="contents pointer-events-auto"
+          />
+        </div>
+      ) : null}
+
       <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity ${
-          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        className={`absolute bottom-0 left-0 right-0 z-[5] bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity ${
+          showControls && !interactionSnapshot.hideNativeControls ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         style={{ padding: "40px 0 0 0" }}
       >
@@ -1451,6 +1743,15 @@ export function VideoPlayer({
           </span>
 
           <div className="ml-auto flex items-center gap-2">
+            {mediaPlayerExtensionContext ? (
+              <ExtensionSlot
+                slot={MEDIA_PLAYER_ACTIONS_SLOT}
+                context={mediaPlayerExtensionContext}
+                contextResetKey={mediaPlayerExtensionResetKey}
+                createEntryContext={createMediaPlayerEntryContext}
+                wrapperClassName="contents"
+              />
+            ) : null}
             <div className="relative">
               <button
                 onClick={() => setShowSpeed(!showSpeed)}
@@ -1569,8 +1870,8 @@ export function VideoPlayer({
         </div>
       )}
 
-      {!playing && !isBuffering && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {!playing && !isBuffering && !interactionSnapshot.hideNativeControls && (
+        <div data-testid="video-player-paused-affordance" className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="bg-black/40 rounded-full p-4">
             <Play className="w-12 h-12 text-white" />
           </div>

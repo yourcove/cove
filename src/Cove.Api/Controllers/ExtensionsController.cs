@@ -27,6 +27,38 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         manifest.FrontendRuntimeVersion = FrontendRuntimeContract.Version;
 
         var jsBundles = extensionManager.GetEnabledJsBundles();
+        var cssBundles = extensionManager.GetEnabledCssBundles();
+        var assetsByExtension = new Dictionary<string, (string? JsPath, string? CssPath)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (extensionId, path) in jsBundles)
+        {
+            assetsByExtension[extensionId] = (path, null);
+        }
+        foreach (var (extensionId, path) in cssBundles)
+        {
+            var assets = assetsByExtension.GetValueOrDefault(extensionId);
+            assetsByExtension[extensionId] = (assets.JsPath, path);
+        }
+
+        manifest.ExtensionBundles = assetsByExtension
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry =>
+            {
+                var extensionId = entry.Key;
+                var manifestFile = extensionManager.GetManifestFile(extensionId);
+                var version = extensionManager.GetInstallation(extensionId)?.Version
+                    ?? manifestFile?.Version
+                    ?? (extensionManager.GetExtension(extensionId) is { } extension
+                        ? extensionManager.ExecuteExtension(extension, () => extension.Version)
+                        : null)
+                    ?? "0.0.0";
+                return new UIExtensionBundle(
+                    extensionId,
+                    version,
+                    entry.Value.JsPath is { } jsPath ? BuildAssetUrl(extensionId, jsPath, version) : null,
+                    entry.Value.CssPath is { } cssPath ? BuildAssetUrl(extensionId, cssPath, version) : null);
+            })
+            .ToList();
+
         if (jsBundles.Count == 1)
         {
             var (extId, path) = jsBundles[0];
@@ -37,7 +69,6 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             manifest.JsBundleUrl = "/api/extensions/bundles/ui.mjs";
         }
 
-        var cssBundles = extensionManager.GetEnabledCssBundles();
         if (cssBundles.Count == 1)
         {
             var (extId, path) = cssBundles[0];
@@ -109,24 +140,27 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         return Content(string.Join("\n", lines), "text/css");
     }
 
-    private string BuildAssetUrl(string extensionId, string path)
+    private string BuildAssetUrl(string extensionId, string path, string? extensionVersion = null)
     {
         var url = $"/api/extensions/assets/{Uri.EscapeDataString(extensionId)}/{path}";
         var basePath = extensionManager.GetExtensionDirectory(extensionId);
-        if (basePath == null)
+        long? contentVersion = null;
+        if (basePath != null)
         {
-            return url;
+            var fullPath = Path.GetFullPath(Path.Combine(basePath, path));
+            if (IsPathInsideDirectory(basePath, fullPath) && System.IO.File.Exists(fullPath))
+            {
+                contentVersion = System.IO.File.GetLastWriteTimeUtc(fullPath).Ticks;
+            }
         }
 
-        var fullPath = Path.GetFullPath(Path.Combine(basePath, path));
-
-        if (!IsPathInsideDirectory(basePath, fullPath) || !System.IO.File.Exists(fullPath))
+        var query = new List<string>();
+        if (contentVersion.HasValue) query.Add($"v={contentVersion.Value}");
+        if (!string.IsNullOrWhiteSpace(extensionVersion))
         {
-            return url;
+            query.Add($"extensionVersion={Uri.EscapeDataString(extensionVersion)}");
         }
-
-        var version = System.IO.File.GetLastWriteTimeUtc(fullPath).Ticks;
-        return $"{url}?v={version}";
+        return query.Count > 0 ? $"{url}?{string.Join('&', query)}" : url;
     }
 
     /// <summary>Returns a list of all registered extensions with capability and category info.</summary>
@@ -134,44 +168,47 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     public ActionResult<IEnumerable<ExtensionInfo>> GetExtensions([FromQuery] string? category = null)
     {
         var loadedIds = extensionManager.Extensions
-            .Select(e => e.Id)
+            .Select(e => extensionManager.ExecuteExtensionMetadata(e, () => e.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var items = extensionManager.Extensions
             .Select(e =>
             {
-                var install = extensionManager.GetInstallation(e.Id);
-                var manifest = extensionManager.GetManifestFile(e.Id);
-                var categories = ResolveCategories(e.Categories, manifest?.Categories, install?.Categories);
-                if (!MatchesCategory(categories, category))
-                    return null;
+                return extensionManager.ExecuteExtensionMetadata(e, () =>
+                {
+                    var install = extensionManager.GetInstallation(e.Id);
+                    var manifest = extensionManager.GetManifestFile(e.Id);
+                    var categories = ResolveCategories(e.Categories, manifest?.Categories, install?.Categories);
+                    if (!MatchesCategory(categories, category))
+                        return null;
 
-                return new ExtensionInfo(
-                    e.Id,
-                    e.Name,
-                    install?.Version ?? manifest?.Version ?? e.Version,
-                    e.Description,
-                    e.Author,
-                    e.Url,
-                    e.IconUrl,
-                    extensionManager.IsEnabled(e.Id),
-                    e is IUIExtension,
-                    e is IApiExtension,
-                    e is IStatefulExtension,
-                    e is IJobExtension,
-                    e is IEventExtension,
-                    e is IDataExtension,
-                    e is IMiddlewareExtension,
-                    e is IActionExtension,
-                    categories,
-                    e.MinCoveVersion,
-                    e.Dependencies.ToDictionary(kv => kv.Key, kv => kv.Value),
-                    GetExternalDependencies(manifest, e.Id),
-                    GetSettings(manifest, e.Id),
-                    manifest?.Kind ?? "extension",
-                    install?.Source ?? "unknown",
-                    install?.InstalledAt,
-                    e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : []);
+                    return new ExtensionInfo(
+                        e.Id,
+                        e.Name,
+                        install?.Version ?? manifest?.Version ?? e.Version,
+                        e.Description,
+                        e.Author,
+                        e.Url,
+                        e.IconUrl,
+                        extensionManager.IsEnabled(e.Id),
+                        e is IUIExtension,
+                        e is IApiExtension,
+                        e is IStatefulExtension,
+                        e is IJobExtension,
+                        e is IEventExtension,
+                        e is IDataExtension,
+                        e is IMiddlewareExtension,
+                        e is IActionExtension,
+                        categories,
+                        e.MinCoveVersion,
+                        e.Dependencies.ToDictionary(kv => kv.Key, kv => kv.Value),
+                        GetExternalDependencies(manifest, e.Id),
+                        GetSettings(manifest, e.Id),
+                        manifest?.Kind ?? "extension",
+                        install?.Source ?? "unknown",
+                        install?.InstalledAt,
+                        e is IJobExtension je ? je.Jobs.Select(j => new JobInfo(j.Id, j.Name, j.Description)).ToList() : []);
+                });
             })
                 .Where(info => info != null)
                 .Cast<ExtensionInfo>()
@@ -275,7 +312,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [HttpGet("{id}/dependencies/missing")]
     public ActionResult<IEnumerable<string>> GetMissingDependencies(string id)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id);
+        var ext = extensionManager.GetExtension(id);
         if (ext == null) return NotFound();
         return Ok(extensionManager.GetMissingDependencies(id));
     }
@@ -285,13 +322,12 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [RequiresPermission(Permissions.ExtensionsConfigure)]
     public async Task<IActionResult> Enable(string id, CancellationToken ct)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id);
+        var ext = extensionManager.GetExtension(id);
         if (ext == null && extensionManager.GetInstallation(id) == null) return NotFound();
         var enabledExtensions = await extensionManager.EnableExtensionAsync(id, ct);
         foreach (var extensionId in enabledExtensions)
         {
             await extensionManager.InitializeExtensionAsync(extensionId, HttpContext.RequestServices, ct);
-            extensionManager.RegisterExtensionEndpoints(extensionId);
         }
         scraperService.ReloadScrapers();
         return Ok(new { enabledExtensions });
@@ -302,7 +338,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [RequiresPermission(Permissions.ExtensionsConfigure)]
     public async Task<IActionResult> Disable(string id, CancellationToken ct)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id);
+        var ext = extensionManager.GetExtension(id);
         if (ext == null && extensionManager.GetInstallation(id) == null) return NotFound();
         var disabledExtensions = await extensionManager.DisableExtensionAsync(id, ct);
         scraperService.ReloadScrapers();
@@ -314,7 +350,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [RequiresPermission(Permissions.ExtensionsConfigure)]
     public async Task<IActionResult> GetData(string id, CancellationToken ct)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id) as IStatefulExtension;
+        var ext = extensionManager.GetExtension(id) as IStatefulExtension;
         if (ext == null) return NotFound("Extension not found or not stateful");
 
         var factory = HttpContext.RequestServices.GetService<IExtensionStoreFactory>();
@@ -330,7 +366,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [RequiresPermission(Permissions.ExtensionsConfigure)]
     public async Task<IActionResult> SetData(string id, string key, [FromBody] string value, CancellationToken ct)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == id) as IStatefulExtension;
+        var ext = extensionManager.GetExtension(id) as IStatefulExtension;
         if (ext == null) return NotFound("Extension not found or not stateful");
 
         var factory = HttpContext.RequestServices.GetService<IExtensionStoreFactory>();
@@ -347,20 +383,26 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     public IActionResult RunJob(string id, string jobId, [FromBody] Dictionary<string, string>? parameters,
         [FromServices] IJobService jobService)
     {
-        var ext = extensionManager.Extensions.OfType<IJobExtension>().FirstOrDefault(e => e.Id == id);
+        var ext = extensionManager.GetExtension(id) as IJobExtension;
         if (ext == null) return NotFound("Extension not found or has no jobs");
 
-        var job = ext.Jobs.FirstOrDefault(j => j.Id == jobId);
+        var execution = extensionManager.CaptureExtensionExecution(ext);
+        var jobMetadata = extensionManager.ExecuteExtension(
+            execution,
+            () => (Job: ext.Jobs.FirstOrDefault(j => j.Id == jobId), ExtensionName: ext.Name));
+        var job = jobMetadata.Job;
         if (job == null) return NotFound($"Job '{jobId}' not found");
 
         // Run through the core job service for proper queuing, progress tracking, and SignalR updates
         var coreJobId = jobService.Enqueue(
             $"ext:{ext.Id}:{jobId}",
-            $"[{ext.Name}] {job.Name}",
+            $"[{jobMetadata.ExtensionName}] {job.Name}",
             async (coreProgress, ct) =>
             {
                 var bridge = new JobProgressBridge(coreProgress);
-                await ext.RunJobAsync(jobId, parameters, bridge, ct);
+                await extensionManager.ExecuteExtensionAsync(
+                    execution,
+                    () => ext.RunJobAsync(jobId, parameters, bridge, ct));
             },
             exclusive: false);
 
@@ -371,7 +413,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     [HttpGet("assets/{extensionId}/{**path}")]
     public IActionResult GetAsset(string extensionId, string path)
     {
-        var ext = extensionManager.Extensions.FirstOrDefault(e => e.Id == extensionId);
+        var ext = extensionManager.GetExtension(extensionId);
         if (ext == null) return NotFound();
 
         var basePath = Path.Combine(extensionManager.Context.DataDirectory, extensionId);
@@ -485,7 +527,6 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             if (!initialized)
                 return StatusCode(500, new { message = $"Extension '{manifest.Id}' was downloaded but failed to initialize.", path = extensionDir });
 
-            extensionManager.RegisterExtensionEndpoints(manifest.Id);
             await extensionManager.SetInstallationSourceAsync(manifest.Id, "url", ct);
             scraperService.ReloadScrapers();
 
@@ -656,7 +697,6 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         foreach (var dep in dependencyPlan)
         {
             await extensionManager.InitializeExtensionAsync(dep.Id, HttpContext.RequestServices, ct);
-            extensionManager.RegisterExtensionEndpoints(dep.Id);
             await extensionManager.SetInstallationMetadataAsync(dep.Id, "registry", dep.Version, ct);
         }
 
@@ -672,7 +712,6 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             });
         }
 
-        extensionManager.RegisterExtensionEndpoints(request.ExtensionId);
         await extensionManager.SetInstallationMetadataAsync(request.ExtensionId, "registry", selectedVersion.Version, ct);
         scraperService.ReloadScrapers();
 
