@@ -1,3 +1,4 @@
+using Cove.Api.Http;
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -546,10 +547,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
             .FirstOrDefaultAsync(ct);
 
         if (fallback?.ImageId is int imageId)
-            return Redirect(WithQuery($"/api/stream/image/{imageId}/thumbnail", max, v));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{imageId}/thumbnail", max, v)));
 
         if (fallback?.VideoId is int videoId)
-            return Redirect(WithQuery($"/api/stream/video/{videoId}/screenshot", null, v, fallback.StartSec));
+            return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/video/{videoId}/screenshot", null, v, fallback.StartSec)));
 
         return NotFound();
     }
