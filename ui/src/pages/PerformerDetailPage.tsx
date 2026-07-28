@@ -240,6 +240,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         onClose={() => setCoverOpen(false)}
         onSuccess={handleCoverChanged}
         aspectRatio="2/3"
+        deleteLabel="Remove Image"
       />
       <EntityHeroLayout
         entityType="performer"

@@ -17,6 +17,7 @@ interface CoverImageDialogProps {
   onSuccess?: () => void;
   aspectRatio?: string;
   objectFit?: "cover" | "contain";
+  deleteLabel?: string;
   extraActions?: ReactNode;
 }
 
@@ -33,6 +34,7 @@ export function CoverImageDialog({
   onSuccess,
   aspectRatio = "2/3",
   objectFit = "cover",
+  deleteLabel = "Use Default",
   extraActions,
 }: CoverImageDialogProps) {
   if (!open) return null;
@@ -61,7 +63,7 @@ export function CoverImageDialog({
             label="Cover"
             aspectRatio={aspectRatio}
             objectFit={objectFit}
-            deleteLabel="Use Default"
+            deleteLabel={deleteLabel}
           />
         ) : (
           <div className="space-y-2">

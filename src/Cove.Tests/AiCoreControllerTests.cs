@@ -409,6 +409,65 @@ public class AiCoreControllerTests
         Assert.Equal(bytes, output.ToArray());
     }
 
+    [Fact]
+    public async Task EntityImageController_DeletePerformerImage_RemovesStoredImages()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var performer = new Performer
+        {
+            Name = "Performer with metadata cover",
+            ImageOverrideBlobId = "override-cover",
+            ImageBlobId = "metadata-cover",
+        };
+        context.Performers.Add(performer);
+        await context.SaveChangesAsync();
+        var previousUpdatedAt = performer.UpdatedAt;
+        var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>());
+        var thumbnailService = new StubThumbnailService();
+
+        var controller = new EntityImageController(
+            context,
+            blobService,
+            thumbnailService,
+            new StubStreamService());
+
+        var result = await controller.DeletePerformerImage(performer.Id, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        context.ChangeTracker.Clear();
+        var persistedPerformer = await context.Performers.SingleAsync(candidate => candidate.Id == performer.Id);
+        Assert.Null(persistedPerformer.ImageOverrideBlobId);
+        Assert.Null(persistedPerformer.ImageBlobId);
+        Assert.Equal(["metadata-cover", "override-cover"], blobService.DeletedBlobIds.Order());
+        Assert.Equal(["metadata-cover", "override-cover"], thumbnailService.DeletedBlobIds.Order());
+        Assert.True(persistedPerformer.UpdatedAt > previousUpdatedAt);
+    }
+
+    [Fact]
+    public async Task EntityImageController_DeletePerformerImage_DeletesSharedBlobOnce()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var performer = new Performer
+        {
+            Name = "Performer with shared cover",
+            ImageOverrideBlobId = "shared-cover",
+            ImageBlobId = "shared-cover",
+        };
+        context.Performers.Add(performer);
+        await context.SaveChangesAsync();
+        var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>());
+        var thumbnailService = new StubThumbnailService();
+        var controller = new EntityImageController(context, blobService, thumbnailService, new StubStreamService());
+
+        var result = await controller.DeletePerformerImage(performer.Id, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(["shared-cover"], blobService.DeletedBlobIds);
+        Assert.Equal(["shared-cover"], thumbnailService.DeletedBlobIds);
+    }
+
 
     [Fact]
     public async Task EntityImageController_GetVideoImage_ReturnsStreamScreenshotWhenNoStoredBlob()
@@ -618,6 +677,8 @@ public class AiCoreControllerTests
 
     private sealed class StubBlobService(Dictionary<string, (byte[] Bytes, string ContentType)> blobs) : IBlobService
     {
+        public List<string> DeletedBlobIds { get; } = [];
+
         public Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default)
             => throw new NotSupportedException();
 
@@ -631,11 +692,16 @@ public class AiCoreControllerTests
         }
 
         public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
-            => Task.CompletedTask;
+        {
+            DeletedBlobIds.Add(blobId);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class StubThumbnailService : IThumbnailService
     {
+        public List<string> DeletedBlobIds { get; } = [];
+
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default)
             => throw new NotSupportedException();
 
@@ -658,7 +724,10 @@ public class AiCoreControllerTests
             => Task.CompletedTask;
 
         public Task DeleteBlobGeneratedFilesAsync(string blobId, CancellationToken ct = default)
-            => Task.CompletedTask;
+        {
+            DeletedBlobIds.Add(blobId);
+            return Task.CompletedTask;
+        }
 
         public Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -715,4 +784,3 @@ public class AiCoreControllerTests
             => throw new NotSupportedException();
     }
 }
-
