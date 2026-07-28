@@ -325,7 +325,7 @@ function StudioTaggerRow({
       const selectedResult = state?.results?.[state.selectedIndex ?? 0];
       if (!selectedResult) throw new Error("No result selected");
       const importReq: MetadataServerStudioImportRequest = {
-        endpoint,
+        endpoint: selectedResult.endpoint,
         studioId: selectedResult.id,
         fieldStrategies: buildStudioFieldStrategies(studio, selectedResult, state),
       };
