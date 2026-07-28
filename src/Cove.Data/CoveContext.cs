@@ -11,6 +11,7 @@ using System.Linq.Expressions;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using NpgsqlTypes;
+using System.Data;
 
 namespace Cove.Data;
 
@@ -18,6 +19,9 @@ public partial class CoveContext : DbContext
 {
     private static IReadOnlyList<IDataExtension> _dataExtensions = [];
     private static int _modelGeneration;
+    private const int DerivedArrayAdvisoryLockNamespace = 0x434F5600;
+    private static readonly SemaphoreSlim[] DerivedArrayWriteStripes =
+        Enumerable.Range(0, 257).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private bool _persistingDerivedCounts;
 
     /// <summary>
@@ -456,17 +460,38 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return base.SaveChanges();
 
-        UpdateTimestamps();
-        ComputeFilePaths();
-        MaintainDenormalizedIdArrays();
-        CleanupEngagementRowsForDeletedEntities();
-        var derivedCountTargets = CollectDerivedCountTargets();
-        var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-        var result = base.SaveChanges();
-        AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
-        MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
-        PersistDerivedCounts(derivedCountTargets);
-        return result;
+        ProtectDenormalizedIdArraysFromDirectWrites();
+        var arrayTargets = CollectDerivedArrayTargets();
+        var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
+            ? []
+            : AcquireLocalDerivedArrayWriteLocks(arrayTargets);
+        var databaseLock = default(DatabaseDerivedArrayWriteLock);
+        try
+        {
+            databaseLock = AcquireDatabaseDerivedArrayWriteLocks(arrayTargets);
+            UpdateTimestamps();
+            ComputeFilePaths();
+            MaintainDenormalizedIdArrays(arrayTargets);
+            CleanupEngagementRowsForDeletedEntities();
+            var derivedCountTargets = CollectDerivedCountTargets();
+            var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+            var result = base.SaveChanges();
+            AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
+            MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
+            PersistDerivedCounts(derivedCountTargets);
+            return result;
+        }
+        finally
+        {
+            try
+            {
+                ReleaseDatabaseDerivedArrayWriteLocks(databaseLock);
+            }
+            finally
+            {
+                ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+            }
+        }
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -474,13 +499,307 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return await base.SaveChangesAsync(cancellationToken);
 
-        UpdateTimestamps();
-        ComputeFilePaths();
-        MaintainDenormalizedIdArrays();
-        await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
-        var derivedCountTargets = CollectDerivedCountTargets();
-        var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-        return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
+        ProtectDenormalizedIdArraysFromDirectWrites();
+        var arrayTargets = CollectDerivedArrayTargets();
+        var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
+            ? []
+            : await AcquireLocalDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+        var databaseLock = default(DatabaseDerivedArrayWriteLock);
+        try
+        {
+            databaseLock = await AcquireDatabaseDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+            UpdateTimestamps();
+            ComputeFilePaths();
+            MaintainDenormalizedIdArrays(arrayTargets);
+            await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
+            var derivedCountTargets = CollectDerivedCountTargets();
+            var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+            return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                await ReleaseDatabaseDerivedArrayWriteLocksAsync(databaseLock);
+            }
+            finally
+            {
+                ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+            }
+        }
+    }
+
+    private DerivedArrayTargets CollectDerivedArrayTargets() =>
+        new(
+            CollectChangedParentIds<VideoTag>(link => link.VideoId),
+            CollectChangedParentIds<VideoPerformer>(link => link.VideoId),
+            CollectChangedParentIds<ImageTag>(link => link.ImageId),
+            CollectChangedParentIds<ImagePerformer>(link => link.ImageId),
+            CollectChangedParentIds<GalleryTag>(link => link.GalleryId),
+            CollectChangedParentIds<GalleryPerformer>(link => link.GalleryId));
+
+    private static int[] AcquireLocalDerivedArrayWriteLocks(DerivedArrayTargets targets)
+    {
+        var indexes = GetDerivedArrayWriteStripeIndexes(targets);
+        foreach (var index in indexes)
+            DerivedArrayWriteStripes[index].Wait();
+        return indexes;
+    }
+
+    private static async Task<int[]> AcquireLocalDerivedArrayWriteLocksAsync(
+        DerivedArrayTargets targets,
+        CancellationToken cancellationToken)
+    {
+        var indexes = GetDerivedArrayWriteStripeIndexes(targets);
+        var acquiredCount = 0;
+        try
+        {
+            foreach (var index in indexes)
+            {
+                await DerivedArrayWriteStripes[index].WaitAsync(cancellationToken);
+                acquiredCount++;
+            }
+            return indexes;
+        }
+        catch
+        {
+            for (var index = acquiredCount - 1; index >= 0; index--)
+                DerivedArrayWriteStripes[indexes[index]].Release();
+            throw;
+        }
+    }
+
+    private static void ReleaseLocalDerivedArrayWriteLocks(int[] indexes)
+    {
+        for (var index = indexes.Length - 1; index >= 0; index--)
+            DerivedArrayWriteStripes[indexes[index]].Release();
+    }
+
+    private static int[] GetDerivedArrayWriteStripeIndexes(DerivedArrayTargets targets) =>
+        targets.GetLockKeys()
+            .Select(key => (int)((uint)HashCode.Combine(key.Namespace, key.ParentId) % DerivedArrayWriteStripes.Length))
+            .Distinct()
+            .Order()
+            .ToArray();
+
+    private DatabaseDerivedArrayWriteLock AcquireDatabaseDerivedArrayWriteLocks(DerivedArrayTargets targets)
+    {
+        var keys = targets.GetLockKeys();
+        if (keys.Length == 0 || !UsesDatabaseDerivedArrayWriteLocks())
+            return default;
+
+        var openedConnection = Database.GetDbConnection().State != ConnectionState.Open;
+        if (openedConnection)
+            Database.OpenConnection();
+
+        var transactionScoped = Database.CurrentTransaction != null;
+        var acquiredCount = 0;
+        try
+        {
+            foreach (var key in keys)
+            {
+                if (transactionScoped)
+                    Database.ExecuteSqlInterpolated($"SELECT pg_advisory_xact_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
+                else
+                    Database.ExecuteSqlInterpolated($"SELECT pg_advisory_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
+                acquiredCount++;
+            }
+            return new DatabaseDerivedArrayWriteLock(keys, transactionScoped, openedConnection);
+        }
+        catch
+        {
+            try
+            {
+                if (!transactionScoped)
+                {
+                    for (var index = acquiredCount - 1; index >= 0; index--)
+                    {
+                        var key = keys[index];
+                        Database.ExecuteSqlInterpolated($"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
+                    }
+                }
+            }
+            finally
+            {
+                if (openedConnection)
+                    Database.CloseConnection();
+            }
+            throw;
+        }
+    }
+
+    private async Task<DatabaseDerivedArrayWriteLock> AcquireDatabaseDerivedArrayWriteLocksAsync(
+        DerivedArrayTargets targets,
+        CancellationToken cancellationToken)
+    {
+        var keys = targets.GetLockKeys();
+        if (keys.Length == 0 || !UsesDatabaseDerivedArrayWriteLocks())
+            return default;
+
+        var openedConnection = Database.GetDbConnection().State != ConnectionState.Open;
+        if (openedConnection)
+            await Database.OpenConnectionAsync(cancellationToken);
+
+        var transactionScoped = Database.CurrentTransaction != null;
+        var acquiredCount = 0;
+        try
+        {
+            foreach (var key in keys)
+            {
+                if (transactionScoped)
+                    await Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_xact_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
+                        cancellationToken);
+                else
+                    await Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_lock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
+                        cancellationToken);
+                acquiredCount++;
+            }
+            return new DatabaseDerivedArrayWriteLock(keys, transactionScoped, openedConnection);
+        }
+        catch
+        {
+            try
+            {
+                if (!transactionScoped)
+                {
+                    for (var index = acquiredCount - 1; index >= 0; index--)
+                    {
+                        var key = keys[index];
+                        await Database.ExecuteSqlInterpolatedAsync(
+                            $"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
+                            CancellationToken.None);
+                    }
+                }
+            }
+            finally
+            {
+                if (openedConnection)
+                    await Database.CloseConnectionAsync();
+            }
+            throw;
+        }
+    }
+
+    private bool UsesDatabaseDerivedArrayWriteLocks() =>
+        Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL";
+
+    private void ReleaseDatabaseDerivedArrayWriteLocks(DatabaseDerivedArrayWriteLock databaseLock)
+    {
+        var keys = databaseLock.Keys ?? [];
+        try
+        {
+            if (!databaseLock.TransactionScoped)
+            {
+                for (var index = keys.Length - 1; index >= 0; index--)
+                {
+                    var key = keys[index];
+                    Database.ExecuteSqlInterpolated($"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})");
+                }
+            }
+        }
+        finally
+        {
+            if (databaseLock.OpenedConnection)
+                Database.CloseConnection();
+        }
+    }
+
+    private async Task ReleaseDatabaseDerivedArrayWriteLocksAsync(DatabaseDerivedArrayWriteLock databaseLock)
+    {
+        var keys = databaseLock.Keys ?? [];
+        try
+        {
+            if (!databaseLock.TransactionScoped)
+            {
+                for (var index = keys.Length - 1; index >= 0; index--)
+                {
+                    var key = keys[index];
+                    await Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_unlock({DerivedArrayAdvisoryLockNamespace + key.Namespace}, {key.ParentId})",
+                        CancellationToken.None);
+                }
+            }
+        }
+        finally
+        {
+            if (databaseLock.OpenedConnection)
+                await Database.CloseConnectionAsync();
+        }
+    }
+
+    private readonly record struct DerivedArrayLockKey(int Namespace, int ParentId);
+
+    private readonly record struct DatabaseDerivedArrayWriteLock(
+        DerivedArrayLockKey[] Keys,
+        bool TransactionScoped,
+        bool OpenedConnection);
+
+    private readonly record struct DerivedArrayTargets(
+        HashSet<int> VideoTagParents,
+        HashSet<int> VideoPerformerParents,
+        HashSet<int> ImageTagParents,
+        HashSet<int> ImagePerformerParents,
+        HashSet<int> GalleryTagParents,
+        HashSet<int> GalleryPerformerParents)
+    {
+        public DerivedArrayLockKey[] GetLockKeys()
+        {
+            var keys = new List<DerivedArrayLockKey>(
+                VideoTagParents.Count
+                + VideoPerformerParents.Count
+                + ImageTagParents.Count
+                + ImagePerformerParents.Count
+                + GalleryTagParents.Count
+                + GalleryPerformerParents.Count);
+            Add(keys, 1, VideoTagParents.Concat(VideoPerformerParents).Distinct());
+            Add(keys, 2, ImageTagParents.Concat(ImagePerformerParents).Distinct());
+            Add(keys, 3, GalleryTagParents.Concat(GalleryPerformerParents).Distinct());
+            return keys.OrderBy(key => key.Namespace).ThenBy(key => key.ParentId).ToArray();
+        }
+
+        private static void Add(ICollection<DerivedArrayLockKey> keys, int lockNamespace, IEnumerable<int> parentIds)
+        {
+            foreach (var parentId in parentIds)
+                keys.Add(new DerivedArrayLockKey(lockNamespace, parentId));
+        }
+    }
+
+    private void ProtectDenormalizedIdArraysFromDirectWrites()
+    {
+        var changedVideoTagIds = CollectChangedParentIds<VideoTag>(link => link.VideoId);
+        var changedVideoPerformerIds = CollectChangedParentIds<VideoPerformer>(link => link.VideoId);
+        var changedImageTagIds = CollectChangedParentIds<ImageTag>(link => link.ImageId);
+        var changedImagePerformerIds = CollectChangedParentIds<ImagePerformer>(link => link.ImageId);
+        var changedGalleryTagIds = CollectChangedParentIds<GalleryTag>(link => link.GalleryId);
+        var changedGalleryPerformerIds = CollectChangedParentIds<GalleryPerformer>(link => link.GalleryId);
+
+        ProtectDerivedArray(ChangeTracker.Entries<Video>(), video => video.TagIds, changedVideoTagIds);
+        ProtectDerivedArray(ChangeTracker.Entries<Video>(), video => video.PerformerIds, changedVideoPerformerIds);
+        ProtectDerivedArray(ChangeTracker.Entries<Image>(), image => image.TagIds, changedImageTagIds);
+        ProtectDerivedArray(ChangeTracker.Entries<Image>(), image => image.PerformerIds, changedImagePerformerIds);
+        ProtectDerivedArray(ChangeTracker.Entries<Gallery>(), gallery => gallery.TagIds, changedGalleryTagIds);
+        ProtectDerivedArray(ChangeTracker.Entries<Gallery>(), gallery => gallery.PerformerIds, changedGalleryPerformerIds);
+    }
+
+    private static void ProtectDerivedArray<TEntity>(
+        IEnumerable<EntityEntry<TEntity>> entries,
+        Expression<Func<TEntity, int[]>> property,
+        IReadOnlySet<int> parentsWithChangedLinks)
+        where TEntity : BaseEntity
+    {
+        foreach (var entry in entries)
+        {
+            if (entry.State != EntityState.Modified
+                || entry.Entity.Id <= 0
+                || parentsWithChangedLinks.Contains(entry.Entity.Id))
+            {
+                continue;
+            }
+
+            entry.Property(property).IsModified = false;
+        }
     }
 
     private void CleanupEngagementRowsForDeletedEntities()
@@ -589,7 +908,7 @@ public partial class CoveContext : DbContext
         return result;
     }
 
-    private void MaintainDenormalizedIdArrays()
+    private void MaintainDenormalizedIdArrays(DerivedArrayTargets targets)
     {
         // Refresh GIN-indexed Video/Image/Gallery TagIds/PerformerIds arrays whenever
         // the corresponding join tables change. The arrays let combo filters like
@@ -602,31 +921,24 @@ public partial class CoveContext : DbContext
 
         InitializeAddedParentIdArrays();
 
-        var videoTagParents = CollectChangedParentIds<VideoTag>(e => e.VideoId);
-        var videoPerformerParents = CollectChangedParentIds<VideoPerformer>(e => e.VideoId);
-        var imageTagParents = CollectChangedParentIds<ImageTag>(e => e.ImageId);
-        var imagePerformerParents = CollectChangedParentIds<ImagePerformer>(e => e.ImageId);
-        var galleryTagParents = CollectChangedParentIds<GalleryTag>(e => e.GalleryId);
-        var galleryPerformerParents = CollectChangedParentIds<GalleryPerformer>(e => e.GalleryId);
-
         // Also handle Added Video/Image/Gallery rows whose join collections were set
         // through the navigation property: in that case the link entries are Added too
         // and will already be picked up above. But a freshly-Added parent with no links
         // still needs its arrays initialized to an empty array (the default), so nothing
         // extra is needed here.
 
-        if (videoTagParents.Count > 0)
-            RebuildArray<Video, VideoTag>(videoTagParents, s => s.TagIds, e => e.VideoId, e => e.TagId);
-        if (videoPerformerParents.Count > 0)
-            RebuildArray<Video, VideoPerformer>(videoPerformerParents, s => s.PerformerIds, e => e.VideoId, e => e.PerformerId);
-        if (imageTagParents.Count > 0)
-            RebuildArray<Image, ImageTag>(imageTagParents, i => i.TagIds, e => e.ImageId, e => e.TagId);
-        if (imagePerformerParents.Count > 0)
-            RebuildArray<Image, ImagePerformer>(imagePerformerParents, i => i.PerformerIds, e => e.ImageId, e => e.PerformerId);
-        if (galleryTagParents.Count > 0)
-            RebuildArray<Gallery, GalleryTag>(galleryTagParents, g => g.TagIds, e => e.GalleryId, e => e.TagId);
-        if (galleryPerformerParents.Count > 0)
-            RebuildArray<Gallery, GalleryPerformer>(galleryPerformerParents, g => g.PerformerIds, e => e.GalleryId, e => e.PerformerId);
+        if (targets.VideoTagParents.Count > 0)
+            RebuildArray<Video, VideoTag>(targets.VideoTagParents, s => s.TagIds, e => e.VideoId, e => e.TagId);
+        if (targets.VideoPerformerParents.Count > 0)
+            RebuildArray<Video, VideoPerformer>(targets.VideoPerformerParents, s => s.PerformerIds, e => e.VideoId, e => e.PerformerId);
+        if (targets.ImageTagParents.Count > 0)
+            RebuildArray<Image, ImageTag>(targets.ImageTagParents, i => i.TagIds, e => e.ImageId, e => e.TagId);
+        if (targets.ImagePerformerParents.Count > 0)
+            RebuildArray<Image, ImagePerformer>(targets.ImagePerformerParents, i => i.PerformerIds, e => e.ImageId, e => e.PerformerId);
+        if (targets.GalleryTagParents.Count > 0)
+            RebuildArray<Gallery, GalleryTag>(targets.GalleryTagParents, g => g.TagIds, e => e.GalleryId, e => e.TagId);
+        if (targets.GalleryPerformerParents.Count > 0)
+            RebuildArray<Gallery, GalleryPerformer>(targets.GalleryPerformerParents, g => g.PerformerIds, e => e.GalleryId, e => e.PerformerId);
     }
 
     private readonly record struct DerivedCountTargets(
@@ -653,7 +965,8 @@ public partial class CoveContext : DbContext
         IReadOnlyList<ImageTag> ImageTagsWithDeferredIds,
         IReadOnlyList<ImagePerformer> ImagePerformersWithDeferredIds,
         IReadOnlyList<GalleryTag> GalleryTagsWithDeferredIds,
-        IReadOnlyList<GalleryPerformer> GalleryPerformersWithDeferredIds);
+        IReadOnlyList<GalleryPerformer> GalleryPerformersWithDeferredIds,
+        IReadOnlyList<Studio> StudiosWithDeferredIds);
 
     private PostSaveDerivedCountTargets CollectPostSaveDerivedCountTargets()
     {
@@ -675,7 +988,11 @@ public partial class CoveContext : DbContext
             CollectAddedLinksWithDeferredIds<ImageTag>(link => link.ImageId, link => link.TagId),
             CollectAddedLinksWithDeferredIds<ImagePerformer>(link => link.ImageId, link => link.PerformerId),
             CollectAddedLinksWithDeferredIds<GalleryTag>(link => link.GalleryId, link => link.TagId),
-            CollectAddedLinksWithDeferredIds<GalleryPerformer>(link => link.GalleryId, link => link.PerformerId));
+            CollectAddedLinksWithDeferredIds<GalleryPerformer>(link => link.GalleryId, link => link.PerformerId),
+            ChangeTracker.Entries<Studio>()
+                .Where(entry => entry.State == EntityState.Added && entry.Entity.Id <= 0)
+                .Select(entry => entry.Entity)
+                .ToList());
     }
 
     private IReadOnlyList<TLink> CollectAddedLinksWithDeferredIds<TLink>(Func<TLink, int> parentId, Func<TLink, int> childId)
@@ -699,6 +1016,9 @@ public partial class CoveContext : DbContext
             AddIfPositive(targets.ImageIds, imageFile.ImageId);
             AddIfPositive(targets.ImageIds, imageFile.Image?.Id);
         }
+
+        foreach (var studio in postSaveTargets.StudiosWithDeferredIds)
+            AddIfPositive(targets.StudioIds, studio.Id);
     }
 
     private void MaintainPostSaveDenormalizedIdArrays(DerivedCountTargets targets, PostSaveDerivedCountTargets postSaveTargets)
@@ -2024,19 +2344,27 @@ public partial class CoveContext : DbContext
                 set.Add(row.Child);
         }
 
-        // Overlay change tracker mutations on top of the DB snapshot.
-        foreach (var entry in ChangeTracker.Entries<TLink>())
+        // Overlay removals before additions. Whole-collection replacement can leave
+        // a Deleted old link and an Added replacement with the same composite key
+        // in the tracker. The database's final state keeps that relationship, so
+        // additions must win regardless of ChangeTracker enumeration order.
+        var trackedLinks = ChangeTracker.Entries<TLink>()
+            .Where(entry => byParent.ContainsKey(linkParentFn(entry.Entity)))
+            .ToArray();
+        foreach (var entry in trackedLinks.Where(entry => entry.State == EntityState.Deleted))
         {
             var pid = linkParentFn(entry.Entity);
-            if (!byParent.TryGetValue(pid, out var set)) continue;
+            var set = byParent[pid];
             var cid = linkChildFn(entry.Entity);
-            switch (entry.State)
-            {
-                case EntityState.Added: set.Add(cid); break;
-                case EntityState.Deleted: set.Remove(cid); break;
-                // Modified on a composite-key link table is rare; treat as add.
-                case EntityState.Modified: set.Add(cid); break;
-            }
+            set.Remove(cid);
+        }
+        foreach (var entry in trackedLinks.Where(entry =>
+                     entry.State is EntityState.Added or EntityState.Modified))
+        {
+            var pid = linkParentFn(entry.Entity);
+            var set = byParent[pid];
+            var cid = linkChildFn(entry.Entity);
+            set.Add(cid);
         }
 
         // Locate or load each parent and assign the new array.

@@ -559,19 +559,58 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
     public async Task<IActionResult> SetCoverFromFrame(int id, [FromBody] GenerateScreenshotDto? dto, CancellationToken ct)
     {
-        var video = await videoRepo.GetByIdAsync(id, ct);
-        if (video == null) return NotFound();
+        var existingVideo = await db.Videos
+            .AsNoTracking()
+            .Where(video => video.Id == id)
+            .Select(video => new { video.ImageBlobId })
+            .SingleOrDefaultAsync(ct);
+        if (existingVideo == null) return NotFound();
 
         await thumbnailService.GenerateVideoThumbnailAsync(id, dto?.AtSeconds, ct);
         var screenshot = await streamService.GetVideoScreenshot(id, dto?.AtSeconds, ct);
         if (screenshot == null) return NotFound();
 
-        if (!string.IsNullOrWhiteSpace(video.ImageBlobId))
-            await blobService.DeleteBlobAsync(video.ImageBlobId, ct);
-
         await using var screenshotStream = screenshot.Value.stream;
-        video.ImageBlobId = await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct);
-        await videoRepo.UpdateAsync(video, ct);
+        var imageBlobId = await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct);
+        int updatedRows;
+        try
+        {
+            updatedRows = await db.Videos
+                .Where(video => video.Id == id && video.ImageBlobId == existingVideo.ImageBlobId)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(video => video.ImageBlobId, imageBlobId)
+                        .SetProperty(video => video.UpdatedAt, DateTime.UtcNow),
+                    ct);
+        }
+        catch (Exception updateException)
+        {
+            try
+            {
+                await blobService.DeleteBlobAsync(imageBlobId, CancellationToken.None);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(
+                    "The cover update failed and the generated cover could not be cleaned up.",
+                    updateException,
+                    cleanupException);
+            }
+
+            throw;
+        }
+
+        if (updatedRows != 1)
+        {
+            await blobService.DeleteBlobAsync(imageBlobId, CancellationToken.None);
+            return Conflict(new
+            {
+                message = "The video cover changed while this cover was being generated. Please try again.",
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(existingVideo.ImageBlobId))
+            await blobService.DeleteBlobAsync(existingVideo.ImageBlobId, CancellationToken.None);
 
         return Ok(new { success = true });
     }
@@ -1467,12 +1506,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
     public async Task<IActionResult> GenerateScreenshot(int id, [FromBody] GenerateScreenshotDto? dto, CancellationToken ct)
     {
-        var video = await videoRepo.GetByIdAsync(id, ct);
-        if (video == null) return NotFound();
+        if (!await db.Videos.AsNoTracking().AnyAsync(video => video.Id == id, ct))
+            return NotFound();
 
         await thumbnailService.GenerateVideoThumbnailAsync(id, dto?.AtSeconds, ct);
-        video.UpdatedAt = DateTime.UtcNow;
-        await videoRepo.UpdateAsync(video, ct);
+        await db.Videos
+            .Where(video => video.Id == id)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(video => video.UpdatedAt, DateTime.UtcNow),
+                ct);
         return Ok(new { success = true });
     }
 

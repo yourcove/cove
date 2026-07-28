@@ -7,6 +7,7 @@ import { formatDuration, getResolutionLabel } from "./shared";
 import { createNestedRouteLinkProps } from "./cardNavigation";
 import { buildFragmentDraft, findDefaultKind, getVideoNameSearchInput, supportsScrapeKind, type CollectionMode, type InputKind } from "./videoScrapeUtils";
 import { buildMatchInfo, buildRelationSelectionPayload, relationKey, ScrapeRelationChoices, type ScrapeRelationActionMap } from "./ScrapeRelationChoices";
+import { invalidateVideoMetadataQueries } from "./videoMetadataQueryInvalidation";
 import {
   CompactCollectionDecision,
   CompactImageDecision,
@@ -686,6 +687,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         selectedSource={selectedSource?.value ?? taggerConfig.selectedEndpoint}
         onSourceChange={(value) => {
           setTaggerConfig((c) => ({ ...c, selectedEndpoint: value }));
+          setSearchStates({});
           setQueryOverrides({});
           setScraperInputKinds({});
         }}
@@ -994,7 +996,7 @@ function TaggerVideoRow({
         : undefined;
 
       const importReq: MetadataServerVideoImportRequest = {
-        endpoint: source?.kind === "metadata-server" ? source.endpoint : selectedResult?.endpoint ?? "",
+        endpoint: selectedResult.endpoint,
         videoId: selectedResult?.id ?? "",
         setCoverImage: getVideoImageReplace(video, selectedResult, state, taggerConfig),
         // When the user explicitly chose Replace, overwrite even an explicitly set cover.
@@ -1015,10 +1017,9 @@ function TaggerVideoRow({
       };
       return videos.importFromMetadataServer(video.id, importReq);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       onUpdateState({ saved: true });
-      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      await invalidateVideoMetadataQueries(queryClient, video.id);
     },
   });
 

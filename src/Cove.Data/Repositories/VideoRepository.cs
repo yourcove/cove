@@ -42,7 +42,12 @@ public class VideoRepository : IVideoRepository
 
     public async Task UpdateAsync(Video entity, CancellationToken ct = default)
     {
-        _db.Videos.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+        {
+            throw new InvalidOperationException(
+                "VideoRepository.UpdateAsync requires an entity tracked by this repository's CoveContext.");
+        }
+
         await _db.SaveChangesAsync(ct);
     }
 
