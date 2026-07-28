@@ -82,7 +82,10 @@ Lifecycle methods and `GetUIManifest()` default to no work. Override `ConfigureS
 
 ### Capability-specific bases
 
-`DataExtensionBase` requires `ConfigureModel(ModelBuilder)` and provides `DefineMigrations()` plus `Migration(name, sql)`. Migrations are forward-only, ordered as added, and tracked by name.
+`DataExtensionBase` requires `ConfigureModel(ModelBuilder)` and provides `DefineMigrations()` plus
+`Migration(name, sql)`. Migrations are forward-only and ordered as added. Cove commits each SQL
+script and its name receipt in one transaction, runs that transaction inside the configured database
+retry strategy, and verifies the receipt before replaying an ambiguous attempt.
 
 `EventExtensionBase` calls `RegisterHandlers()` from its constructor. Register exact event strings with `On`, or use `OnCreated`, `OnUpdated`, and `OnDeleted`. Handlers receive the event and cancellation token.
 

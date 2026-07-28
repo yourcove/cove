@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -2531,20 +2532,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                     try
                     {
                         _logger?.LogInformation("Applying extension migration {ExtId}/{Name}", ext.Id, migration.Name);
-                        // Extension migrations are complete SQL scripts, not composite format strings.
-                        // EF's ExecuteSqlRaw APIs still interpret literal braces (for example a
-                        // PostgreSQL JSON default of '{}'), so execute the script directly.
-                        var connection = db.Database.GetDbConnection();
-                        if (connection.State != System.Data.ConnectionState.Open)
-                            await connection.OpenAsync(ct);
-                        await using var migrationCommand = connection.CreateCommand();
-                        migrationCommand.CommandText = migration.UpSql;
-                        await migrationCommand.ExecuteNonQueryAsync(ct);
-
-                        // Record the migration
-                        await db.Database.ExecuteSqlRawAsync(
-                            "INSERT INTO extension_migrations (extension_id, migration_name) VALUES ({0}, {1})",
-                            ext.Id, migration.Name);
+                        await ApplyExtensionMigrationAsync(db, ext.Id, migration, ct);
                         _logger?.LogInformation("Applied extension migration {ExtId}/{Name}", ext.Id, migration.Name);
                     }
                     catch (Exception ex)
@@ -2559,6 +2547,84 @@ public class ExtensionManager : IExtensionContributionRuntime
         {
             _extensionMigrationGate.Release();
         }
+    }
+
+    internal static async Task ApplyExtensionMigrationAsync(
+        DbContext db,
+        string extensionId,
+        ExtensionMigration migration,
+        CancellationToken ct)
+    {
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            // A retry after an ambiguous commit must not run non-idempotent migration SQL twice.
+            // The receipt is committed in the same transaction, so its presence verifies that the
+            // preceding attempt completed.
+            if (await HasExtensionMigrationReceiptAsync(db, extensionId, migration.Name, ct))
+                return;
+
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            try
+            {
+                // Extension migrations are complete SQL scripts, not composite format strings.
+                // Execute them directly so literal braces such as PostgreSQL JSON defaults
+                // are never interpreted as formatting placeholders.
+                var connection = db.Database.GetDbConnection();
+                if (connection.State != System.Data.ConnectionState.Open)
+                    await connection.OpenAsync(ct);
+                await using var migrationCommand = connection.CreateCommand();
+                migrationCommand.Transaction = transaction.GetDbTransaction();
+                migrationCommand.CommandText = migration.UpSql;
+                await migrationCommand.ExecuteNonQueryAsync(ct);
+                await db.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO extension_migrations (extension_id, migration_name) VALUES ({0}, {1})",
+                    extensionId, migration.Name);
+                await transaction.CommitAsync(ct);
+            }
+            catch
+            {
+                // Preserve the operation/commit exception so the execution strategy can classify it.
+                // A broken connection or an ambiguous successful commit can also make rollback fail;
+                // that secondary failure must not prevent a retry from verifying the receipt.
+                try
+                {
+                    await transaction.RollbackAsync(CancellationToken.None);
+                }
+                catch
+                {
+                    // Disposal still releases the transaction. The original exception is rethrown.
+                }
+                throw;
+            }
+        });
+    }
+
+    private static async Task<bool> HasExtensionMigrationReceiptAsync(
+        DbContext db,
+        string extensionId,
+        string migrationName,
+        CancellationToken ct)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(ct);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT 1
+            FROM extension_migrations
+            WHERE extension_id = @extension_id AND migration_name = @migration_name
+            """;
+        var extensionIdParameter = command.CreateParameter();
+        extensionIdParameter.ParameterName = "@extension_id";
+        extensionIdParameter.Value = extensionId;
+        command.Parameters.Add(extensionIdParameter);
+        var migrationNameParameter = command.CreateParameter();
+        migrationNameParameter.ParameterName = "@migration_name";
+        migrationNameParameter.Value = migrationName;
+        command.Parameters.Add(migrationNameParameter);
+        return await command.ExecuteScalarAsync(ct) is not null;
     }
 
     // ========================================================================
