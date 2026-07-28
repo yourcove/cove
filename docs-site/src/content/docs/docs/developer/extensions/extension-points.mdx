@@ -82,7 +82,10 @@ Lifecycle methods and `GetUIManifest()` default to no work. Override `ConfigureS
 
 ### Capability-specific bases
 
-`DataExtensionBase` requires `ConfigureModel(ModelBuilder)` and provides `DefineMigrations()` plus `Migration(name, sql)`. Migrations are forward-only, ordered as added, and tracked by name.
+`DataExtensionBase` requires `ConfigureModel(ModelBuilder)` and provides `DefineMigrations()` plus
+`Migration(name, sql)`. Migrations are forward-only and ordered as added. Cove commits each SQL
+script and its name receipt in one transaction, runs that transaction inside the configured database
+retry strategy, and verifies the receipt before replaying an ambiguous attempt.
 
 `EventExtensionBase` calls `RegisterHandlers()` from its constructor. Register exact event strings with `On`, or use `OnCreated`, `OnUpdated`, and `OnDeleted`. Handlers receive the event and cancellation token.
 
@@ -176,6 +179,13 @@ Choose storage by shape:
 When replacing a referenced blob, store the new payload first, persist the new id, and delete the old blob only after the metadata update succeeds. Delete the new blob if that update fails. Honor cancellation while storing data and do not retain a stream after its request, job, or extension scope ends.
 
 Background workers should create an `IExtensionServiceScopeFactory` scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
+
+Extensions that commit video-segment changes outside Cove's built-in controllers should resolve
+`ISegmentSpanCacheInvalidator` from their service provider. Call `InvalidateVideo(videoId)` only
+after the database transaction commits. Use `InvalidateAll()` for a bulk mutation only when the
+affected videos cannot be identified. The service invalidates raw, resolved, display-rule, and
+derived-query projections, including an in-flight result that started before the invalidation; it
+does not authorize or persist the mutation.
 
 ## Metadata and intake providers
 

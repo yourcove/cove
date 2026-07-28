@@ -523,6 +523,9 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       if ("id" in route && route.id !== undefined) {
         props.id = route.id;
       }
+      if (route.slug !== undefined) {
+        props.slug = route.slug;
+      }
       return <Component {...props} />;
     }
   }

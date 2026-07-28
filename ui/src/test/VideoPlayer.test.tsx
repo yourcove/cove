@@ -1,7 +1,7 @@
 import React from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { VideoPlayer } from "../components/VideoPlayer";
+import { VideoPlayer, type VideoPlayerPlaybackControls } from "../components/VideoPlayer";
 
 const { mockPlaybackTracker } = vi.hoisted(() => ({
   mockPlaybackTracker: {
@@ -63,12 +63,86 @@ beforeAll(() => {
 
 describe("VideoPlayer source lifecycle", () => {
   beforeEach(() => {
-    playMock.mockClear();
+    playMock.mockReset();
+    playMock.mockResolvedValue(undefined);
     pauseMock.mockClear();
     loadMock.mockClear();
     mockPlaybackTracker.setTarget.mockClear();
     mockPlaybackTracker.recordInterval.mockClear();
     mockPlaybackTracker.flush.mockClear();
+  });
+
+  it("lets registered seeks preserve pause state when requested", async () => {
+    let seek: ((time: number, forcePlay?: boolean) => void) | undefined;
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        onSeekRegister={(registered) => { seek = registered; }}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    await waitFor(() => expect(seek).toBeTypeOf("function"));
+
+    act(() => seek?.(25, false));
+
+    expect(video.currentTime).toBe(25);
+    expect(playMock).not.toHaveBeenCalled();
+
+    act(() => seek?.(30));
+    expect(playMock).toHaveBeenCalledOnce();
+  });
+
+  it("registers playback controls for keyboard-driven extension editors", async () => {
+    let controls: VideoPlayerPlaybackControls | undefined;
+    const unregister = vi.fn();
+    const { container, unmount } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        onPlaybackControlRegister={(registered) => {
+          controls = registered;
+          return unregister;
+        }}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    await waitFor(() => expect(controls).toBeDefined());
+
+    video.currentTime = 20;
+    act(() => controls?.seekBy(5));
+    expect(video.currentTime).toBe(25);
+    expect(playMock).not.toHaveBeenCalled();
+    act(() => video.dispatchEvent(new Event("timeupdate")));
+    expect(unregister).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await controls?.play();
+    });
+    expect(playMock).toHaveBeenCalledOnce();
+    act(() => controls?.pause());
+    expect(pauseMock).toHaveBeenCalledOnce();
+
+    Object.defineProperty(video, "paused", { configurable: true, value: true });
+    act(() => controls?.toggle());
+    expect(playMock).toHaveBeenCalledTimes(2);
+
+    playMock.mockRejectedValueOnce(new Error("Playback was blocked"));
+    act(() => controls?.toggle());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    unmount();
+    expect(unregister).toHaveBeenCalledOnce();
   });
 
   it("restores the rendered source after StrictMode replays mount effects", async () => {

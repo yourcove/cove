@@ -34,7 +34,7 @@ See [Frontend runtime API](../frontend-runtime/) for supported module imports, a
 | --- | --- |
 | `Route` | Page key used by Cove routing. Keep it unique and stable. |
 | `Label` | Navigation and page label. |
-| `ComponentName` | Exported React component. Cove passes `onNavigate`; numeric detail-style routes also receive `id`. |
+| `ComponentName` | Exported React component. Cove passes `onNavigate`. One positive numeric child segment is passed as `id`; one non-numeric child segment is passed as `slug`. |
 | `ShowInNav` | Adds the page to the main navigation when `true`. Pages remain directly routable when it is `false`. |
 | `NavOrder` | Positions the navigation item. |
 | `Icon` | Optional navigation icon. The currently recognized values are `music` and `puzzle`; other values render no icon. |
@@ -42,6 +42,10 @@ See [Frontend runtime API](../frontend-runtime/) for supported module imports, a
 | `RequiredPermissions`, `RequiredPermissionMode` | Requires all listed permissions by default, or at least one when the mode is `Any`. A non-empty array takes precedence over `RequiredPermission`. |
 
 Unauthorized pages are omitted from extension navigation. Direct navigation renders Cove's access-denied page instead of mounting the extension component. `DetailRoute` remains reserved and does not create a second route.
+
+The child-route contract is intentionally one segment deep. Numeric children are always ids, so a
+numeric slug is not available, and Cove does not route a deeper child hierarchy. Keep deeper state
+inside the page or in query parameters.
 
 Page permission checks only control presentation. Protect every API used by the page with the matching server-side convention described in [Extension permissions](../permissions/).
 

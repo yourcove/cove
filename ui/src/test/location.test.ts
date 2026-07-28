@@ -34,6 +34,58 @@ describe("route history", () => {
     expect(buildRouteUrl({ page: "video", id: 42, seekTo: 91.5 })).toBe("/video/42?t=91.5");
   });
 
+  it("parses and rebuilds parameterized extension page routes", () => {
+    window.history.replaceState(null, "", "/reports/42");
+
+    expect(parseCurrentRoute()).toEqual({
+      page: "reports",
+      id: 42,
+    });
+
+    expect(buildRouteUrl({ page: "reports", id: 42 })).toBe("/reports/42");
+  });
+
+  it("parses and rebuilds static child extension page routes", () => {
+    window.history.replaceState(null, "", "/reports/settings");
+
+    expect(parseCurrentRoute()).toEqual({
+      page: "reports",
+      slug: "settings",
+    });
+
+    expect(buildRouteUrl({ page: "reports", slug: "settings" })).toBe("/reports/settings");
+  });
+
+  it("keeps numeric children in the existing detail-id contract", () => {
+    window.history.replaceState(null, "", "/reports/7");
+
+    expect(parseCurrentRoute()).toEqual({
+      page: "reports",
+      id: 7,
+    });
+  });
+
+  it.each(["0", "-1", "1.5", "%34%32"])(
+    "does not expose unsupported numeric child %s as a slug",
+    (child) => {
+      window.history.replaceState(null, "", `/reports/${child}`);
+
+      expect(parseCurrentRoute()).toEqual({ page: "reports" });
+    },
+  );
+
+  it("does not treat deeper paths as a supported static child route", () => {
+    window.history.replaceState(null, "", "/reports/settings/advanced");
+
+    expect(parseCurrentRoute()).toEqual({ page: "reports" });
+  });
+
+  it("does not decode an unsupported deeper child path", () => {
+    window.history.replaceState(null, "", "/reports/%E0%A4%A/advanced");
+
+    expect(parseCurrentRoute()).toEqual({ page: "reports" });
+  });
+
   it("includes saved list state in list route URLs", () => {
     expect(buildRouteUrl({
       page: "videos",

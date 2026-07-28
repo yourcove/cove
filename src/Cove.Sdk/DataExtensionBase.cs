@@ -18,7 +18,8 @@ public abstract class DataExtensionBase : CoveExtensionBase, IDataExtension
 
     /// <summary>
     /// Override to define migrations. Call <see cref="Migration"/> to add each migration.
-    /// Migrations are applied in the order they are added. They run exactly once (tracked by name).
+    /// Migrations are applied in the order they are added. Each SQL script and its name receipt
+    /// commit atomically, and a transient retry verifies the receipt before rerunning the script.
     /// </summary>
     protected virtual void DefineMigrations() { }
 

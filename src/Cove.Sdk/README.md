@@ -62,3 +62,29 @@ The `Cove.Core` / `Cove.Plugins` / `Cove.Sdk` trio **is** the extension ABI. Ext
 a version of it and declare `minCoveVersion` in `extension.json`; the host refuses to load an extension
 that needs a newer host than is running. Keep the trio's public surface the stable contract — treat a
 breaking change to it as a major version of the extension ABI.
+
+## Invalidating segment-span caches
+
+Extensions that commit changes to Cove's video segments outside the built-in controllers must resolve
+`Cove.Core.Interfaces.ISegmentSpanCacheInvalidator` from their service provider. Call
+`InvalidateVideo(videoId)` after the transaction commits. Cove then removes raw-segment, resolved-span,
+and derived-query projections for that video, including results that were still being computed when
+the invalidation happened.
+
+`InvalidateAll()` is available for bulk operations that cannot identify the affected videos, but
+video-specific invalidation should be preferred. The service only invalidates projections; it neither
+persists nor authorizes the underlying mutation.
+
+## Host services and extension-container ownership
+
+Each runtime extension has a reloadable service container. Closed host singletons available through
+the SDK contract are forwarded as the exact host-owned instance; disabling or upgrading an extension
+does not dispose them. Scoped and transient host registrations are recreated inside the extension
+scope, while extension registrations remain extension-owned and are disposed when that provider
+generation drains.
+
+Cove deliberately does not copy arbitrary open-generic host singleton registrations. The built-in
+container cannot forward future closed instances while preserving host ownership, and copying the
+descriptor would let extension reload dispose services the host still owns. Logging, options, and
+HTTP client generics are rebuilt by Cove. An extension that needs another open-generic service must
+register and own its implementation in `ConfigureServices`.

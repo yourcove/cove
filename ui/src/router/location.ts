@@ -3,6 +3,11 @@ import type { FindFilter, SegmentDerivedQueryDescriptor } from "../api/types";
 export interface Route {
   page: string;
   id?: number;
+  /**
+   * A single non-numeric child segment for an extension-contributed page.
+   * Numeric children are represented by `id`; deeper child paths are not supported.
+   */
+  slug?: string;
   seekTo?: number;
   spanKey?: string;
   profileId?: number;
@@ -62,6 +67,13 @@ function parsePath(pathname: string, search?: string): Route {
     return applyRouteSearch({ page, id }, search);
   }
 
+  if (parts.length === 2 && parts[1]) {
+    const child = decodeURIComponent(parts[1]);
+    if (Number.isNaN(Number(child))) {
+      return applyRouteSearch({ page, slug: child }, search);
+    }
+  }
+
   return applyRouteSearch({ page }, search);
 }
 
@@ -106,6 +118,10 @@ export function buildRoutePath(route: Route): string {
 
   if (route.id != null) {
     return `/${route.page}/${route.id}`;
+  }
+
+  if (route.slug) {
+    return `/${route.page}/${encodeURIComponent(route.slug)}`;
   }
 
   return `/${route.page}`;

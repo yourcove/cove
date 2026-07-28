@@ -39,8 +39,12 @@ public sealed record ExtensionEndpointMetadata(
 ///
 /// <para><b>Composition rules</b> for each container:</para>
 /// <list type="bullet">
-/// <item><b>Host singletons are forwarded</b> (resolved from the root provider) so there is exactly
-/// one shared instance — one database pool, one cache, one logger factory, one exchange.</item>
+/// <item><b>Closed host singletons are forwarded</b> (resolved from the root provider) so there is
+/// exactly one shared instance — one database pool, one cache, one logger factory, one exchange.
+/// Open-generic host singletons are deliberately not copied: the built-in container cannot forward
+/// their future closed instances without making the extension provider their owner. An extension
+/// that needs another open-generic service must register its own implementation; the fresh
+/// logging/options/HTTP stacks below already supply their framework generics.</item>
 /// <item><b>Host scoped/transient services are copied</b> so the container creates its own instance
 /// per scope from the shared singletons. A pooled <c>DbContext</c> resolved in an overlay scope is
 /// leased from the shared pool and returned exactly once.</item>
@@ -428,28 +432,29 @@ public sealed class ExtensionServiceOverlay : IDisposable
             return;
         }
 
-        // Open-generic singletons can't be expressed as a factory registration; copy as-is.
+        // Open-generic singletons cannot be resolved to a pre-created instance, so there is no safe
+        // way to preserve the shared, host-owned singleton contract. Copying the descriptor would
+        // silently make every closed instance extension-owned and dispose it on reload. Skip the
+        // descriptor instead; extensions may register their own implementation, and framework
+        // generics are supplied by the fresh logging/options/HTTP stacks above.
         if (type.IsGenericTypeDefinition)
         {
-            services.Add(descriptor);
+            _logger?.LogDebug(
+                "Skipping open-generic host singleton {ServiceType} in extension container",
+                type);
             return;
         }
 
         if (descriptor.IsKeyedService)
         {
             var key = descriptor.ServiceKey;
-            services.Add(new ServiceDescriptor(
-                type,
-                key,
-                (_, k) => ((IKeyedServiceProvider)_root).GetRequiredKeyedService(type, k),
-                ServiceLifetime.Singleton));
+            var instance = _root.GetRequiredKeyedService(type, key);
+            services.Add(ServiceDescriptor.KeyedSingleton(type, key, instance));
         }
         else
         {
-            services.Add(new ServiceDescriptor(
-                type,
-                _ => _root.GetService(type)!,
-                ServiceLifetime.Singleton));
+            var instance = _root.GetRequiredService(type);
+            services.Add(ServiceDescriptor.Singleton(type, instance));
         }
     }
 
