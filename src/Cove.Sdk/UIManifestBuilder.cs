@@ -57,7 +57,13 @@ public class UIManifestBuilder
         return this;
     }
 
-    /// <summary>Register a full page route.</summary>
+    /// <summary>
+    /// Register a full page route.
+    /// </summary>
+    /// <remarks>
+    /// The registered component may also receive one child segment: a non-numeric child as
+    /// <c>slug</c>, or a positive numeric child as <c>id</c>. Cove does not route deeper child paths.
+    /// </remarks>
     public UIManifestBuilder AddPage(
         string route,
         string label,

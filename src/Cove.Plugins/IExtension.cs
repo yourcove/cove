@@ -682,7 +682,15 @@ public record UITutorialSlide(
 /// <summary>External link rendered from an in-app manual slide.</summary>
 public record UITutorialLink(string Label, string Url);
 
-/// <summary>A new page contributed by an extension.</summary>
+/// <summary>
+/// A new top-level page contributed by an extension.
+/// </summary>
+/// <remarks>
+/// Cove also routes one optional child path segment to the same component. A non-numeric child is
+/// supplied to the component as <c>slug</c>; a positive numeric child uses the existing <c>id</c>
+/// detail-page contract. Deeper child paths and numeric slugs are not supported. Extensions that
+/// need a deeper route hierarchy should keep that state inside their page or use query parameters.
+/// </remarks>
 public record UIPageDefinition(
     string Route,
     string Label,
