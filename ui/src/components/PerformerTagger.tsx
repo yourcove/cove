@@ -600,7 +600,7 @@ function PerformerTaggerRow({
         });
       }
       const importReq: MetadataServerPerformerImportRequest = {
-        endpoint: source?.kind === "metadata-server" ? source.endpoint : selectedResult.endpoint,
+        endpoint: selectedResult.endpoint,
         performerId: selectedResult.id,
         fieldStrategies: buildPerformerFieldStrategies(performer, selectedResult, state),
       };
