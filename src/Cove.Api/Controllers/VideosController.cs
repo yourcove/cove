@@ -19,7 +19,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ILogger<VideosController>? logger = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -559,21 +559,63 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
     public async Task<IActionResult> SetCoverFromFrame(int id, [FromBody] GenerateScreenshotDto? dto, CancellationToken ct)
     {
-        var video = await videoRepo.GetByIdAsync(id, ct);
-        if (video == null) return NotFound();
+        var existingVideo = await db.Videos
+            .AsNoTracking()
+            .Where(video => video.Id == id)
+            .Select(video => new { video.ImageBlobId })
+            .SingleOrDefaultAsync(ct);
+        if (existingVideo == null) return NotFound();
 
         await thumbnailService.GenerateVideoThumbnailAsync(id, dto?.AtSeconds, ct);
         var screenshot = await streamService.GetVideoScreenshot(id, dto?.AtSeconds, ct);
         if (screenshot == null) return NotFound();
 
-        if (!string.IsNullOrWhiteSpace(video.ImageBlobId))
-            await blobService.DeleteBlobAsync(video.ImageBlobId, ct);
-
         await using var screenshotStream = screenshot.Value.stream;
-        video.ImageBlobId = await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct);
-        await videoRepo.UpdateAsync(video, ct);
+        var imageBlobId = await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct);
+        int updatedRows;
+        try
+        {
+            updatedRows = await db.Videos
+                .Where(video => video.Id == id && video.ImageBlobId == existingVideo.ImageBlobId)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(video => video.ImageBlobId, imageBlobId)
+                        .SetProperty(video => video.UpdatedAt, DateTime.UtcNow),
+                    ct);
+        }
+        catch
+        {
+            await TryDeleteCoverBlobAsync(imageBlobId);
+            throw;
+        }
+
+        if (updatedRows != 1)
+        {
+            await TryDeleteCoverBlobAsync(imageBlobId);
+            return Conflict(new
+            {
+                message = "The video cover changed while this cover was being generated. Please try again.",
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(existingVideo.ImageBlobId))
+            await TryDeleteCoverBlobAsync(existingVideo.ImageBlobId);
 
         return Ok(new { success = true });
+    }
+
+    private async Task TryDeleteCoverBlobAsync(string blobId)
+    {
+        try
+        {
+            await blobService.DeleteBlobAsync(blobId, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger?.LogWarning(
+                exception,
+                "Failed to clean up a superseded video cover blob");
+        }
     }
 
     private async Task<VideoDto> MapToDtoWithProvenanceAsync(Video video, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, CancellationToken cancellationToken = default)
@@ -1467,12 +1509,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
     public async Task<IActionResult> GenerateScreenshot(int id, [FromBody] GenerateScreenshotDto? dto, CancellationToken ct)
     {
-        var video = await videoRepo.GetByIdAsync(id, ct);
-        if (video == null) return NotFound();
+        if (!await db.Videos.AsNoTracking().AnyAsync(video => video.Id == id, ct))
+            return NotFound();
 
         await thumbnailService.GenerateVideoThumbnailAsync(id, dto?.AtSeconds, ct);
-        video.UpdatedAt = DateTime.UtcNow;
-        await videoRepo.UpdateAsync(video, ct);
+        await db.Videos
+            .Where(video => video.Id == id)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(video => video.UpdatedAt, DateTime.UtcNow),
+                ct);
         return Ok(new { success = true });
     }
 
