@@ -135,7 +135,9 @@ describe("FaceDetailPage", () => {
 
     expect(await screen.findByText("Nearest neighbors from the face embedding index.")).toBeInTheDocument();
     expect(await screen.findByText("Similar Jane")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "2" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Page 2" })).toHaveLength(2);
+    expect(screen.getByRole("navigation", { name: "Pagination above results" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Pagination" })).toBeInTheDocument();
     expect(mockFaces.similar).toHaveBeenCalledWith(7, expect.objectContaining({ k: 250 }));
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(2);
 
@@ -174,5 +176,3 @@ describe("FaceDetailPage", () => {
     expect(mockGoBack).toHaveBeenCalled();
   });
 });
-
-

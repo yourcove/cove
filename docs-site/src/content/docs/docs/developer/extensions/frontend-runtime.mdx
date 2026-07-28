@@ -79,7 +79,7 @@ The `v1` barrel groups these exports:
 | Ratings | `InteractiveRating`, `RatingBadge`, `RatingBanner`, `RatingField`, `getRatingBannerColor`, `convertToRatingFormat`, `convertFromRatingFormat`, `formatDisplayRating`, `getRatingMax`, `getRatingStep`, `getRatingInputLabel`, `normalizeRatingOptions`, `defaultRatingSystemOptions` |
 | Utilities and custom fields | `TagBadge`, `formatDuration`, `formatFileSize`, `formatDate`, `getResolutionLabel`, `CustomFieldsDisplay`, `CustomFieldsEditor` |
 | Host integration | `openTutorialStoryboard`, `registerManualContext`, `useManualContext`, `useMultiSelect`, `useKeySequence`, `useListUrlState`, `useAppConfig`, `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT` |
-| Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface`, `VideoPlayerSeek`, `VideoPlayerPlaybackControls` |
+| Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface`, `VideoPlayerSeek`, `VideoPlayerPlaybackControls`, `DetailListPaginationProps` |
 
 The table groups helper families for readability. Check the matching runtime type declarations when a helper has several arguments.
 
@@ -109,7 +109,11 @@ Use `DetailListPagination` when the pager belongs below the results instead of i
 />
 ```
 
-It also accepts `allowInfinitePageSize`, `infinitePageSizeOnly`, `showPagingControls`, and `className`.
+It also accepts `allowInfinitePageSize`, `infinitePageSizeOnly`, `showPagingControls`, `className`,
+and `ariaLabel`. Give top and bottom pagers distinct `ariaLabel` values. Once a non-empty count is
+known, the paginator corrects an out-of-range `filter.page` through `onFilterChange`; it does not
+reset a deep page while the count is zero or still loading. The pager inside `DetailListToolbar`
+uses `Pagination above results` by default and can be renamed with `paginationAriaLabel`.
 
 These primitives provide Cove's current UI behavior, but the extension still owns its data query, empty and error states, and permission handling. Prefer host CSS variables and shared components over copying internal markup or Tailwind classes that are not part of this barrel.
 

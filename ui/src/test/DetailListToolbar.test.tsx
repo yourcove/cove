@@ -77,7 +77,7 @@ describe("DetailListToolbar", () => {
       </>,
     );
 
-    const pageTwoButtons = screen.getAllByRole("button", { name: "2" });
+    const pageTwoButtons = screen.getAllByRole("button", { name: "Page 2" });
     expect(pageTwoButtons).toHaveLength(2);
 
     await user.click(pageTwoButtons[1]);
@@ -88,6 +88,49 @@ describe("DetailListToolbar", () => {
       sort: "title",
       direction: "desc",
     });
+  });
+
+  it("labels native pagination controls and identifies the current page", () => {
+    render(
+      <DetailListPagination
+        filter={{ page: 2, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={100}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "First page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Last page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Page 2" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("navigation", { name: "Pagination" })).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).toHaveAttribute("type", "button");
+    }
+  });
+
+  it("supports distinct navigation landmarks for multiple pagers", () => {
+    const filter = { page: 2, perPage: 24 };
+    render(
+      <>
+        <DetailListPagination
+          filter={filter}
+          onFilterChange={vi.fn()}
+          totalCount={100}
+          ariaLabel="Results pagination above list"
+        />
+        <DetailListPagination
+          filter={filter}
+          onFilterChange={vi.fn()}
+          totalCount={100}
+          ariaLabel="Results pagination below list"
+        />
+      </>,
+    );
+
+    expect(screen.getByRole("navigation", { name: "Results pagination above list" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Results pagination below list" })).toBeInTheDocument();
   });
 
   it("does not render detail pagination for infinite or single-page lists", () => {

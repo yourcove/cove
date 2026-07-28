@@ -95,6 +95,7 @@ export type {
   MediaDetailSectionProps,
 } from "./MediaDetailLayout/types";
 export { DetailListPagination, DetailListToolbar } from "./DetailListToolbar";
+export type { DetailListPaginationProps } from "./DetailListToolbar";
 export { ListPage } from "./ListPage";
 export type { DisplayMode } from "./ListPage";
 // Cove's canonical multi-mode results renderer (grid / list / wall / feed / vertical) for a given entity type —

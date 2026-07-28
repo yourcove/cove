@@ -52,6 +52,8 @@ interface DetailListToolbarProps {
   allowInfinitePageSize?: boolean;
   infinitePageSizeOnly?: boolean;
   showPagingControls?: boolean;
+  /** Accessible label for the toolbar's pager landmark. */
+  paginationAriaLabel?: string;
   // When set (e.g. "videos"), shows the saved-filter menu so embedded lists inside detail pages
   // (a performer's videos, a studio's galleries, …) can save, apply and default-pin filters too.
   filterMode?: string;
@@ -62,7 +64,7 @@ interface DetailListToolbarProps {
   defaultFilterResolved?: boolean;
 }
 
-interface DetailListPaginationProps {
+export interface DetailListPaginationProps {
   filter: FindFilter;
   onFilterChange: (filter: FindFilter) => void;
   totalCount: number;
@@ -70,9 +72,11 @@ interface DetailListPaginationProps {
   infinitePageSizeOnly?: boolean;
   showPagingControls?: boolean;
   className?: string;
+  /** Accessible navigation-landmark label; make this distinct when a page renders multiple pagers. */
+  ariaLabel?: string;
 }
 
-export function DetailListPagination({ filter, onFilterChange, totalCount, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, className = "mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-1 py-4" }: DetailListPaginationProps) {
+export function DetailListPagination({ filter, onFilterChange, totalCount, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, className = "mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-1 py-4", ariaLabel = "Pagination" }: DetailListPaginationProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
@@ -85,13 +89,13 @@ export function DetailListPagination({ filter, onFilterChange, totalCount, allow
   const goTo = (nextPage: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, nextPage)) });
 
   return (
-    <div className={className}>
+    <nav aria-label={ariaLabel} className={className}>
       <PaginationControls page={clampedPage} totalPages={totalPages} goTo={goTo} />
-    </div>
+    </nav>
   );
 }
 
-export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, filterMode, filterDefaultKey, defaultFilterResolved = false }: DetailListToolbarProps) {
+export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, paginationAriaLabel = "Pagination above results", filterMode, filterDefaultKey, defaultFilterResolved = false }: DetailListToolbarProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
   // Random sort with no seed (e.g. a default saved filter, or a re-mounted detail-page list) would
@@ -322,6 +326,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         infinitePageSizeOnly={infinitePageSizeOnly}
         showPagingControls={showPagingControls}
         className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-center gap-1 py-1"
+        ariaLabel={paginationAriaLabel}
       />
       {criteriaDefinitions && onObjectFilterChange ? (
         <FilterDialog
