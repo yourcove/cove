@@ -198,6 +198,8 @@ export function EntityHeroLayout({
                 loading="eager"
                 onLoad={(event) => {
                   event.currentTarget.style.display = "";
+                  const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = "none";
                 }}
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = "none";

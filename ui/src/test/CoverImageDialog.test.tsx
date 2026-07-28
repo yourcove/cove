@@ -35,6 +35,7 @@ describe("CoverImageDialog extension media contract", () => {
     );
 
     expect(screen.getByText("Cover")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use Default" })).toBeInTheDocument();
     expect(screen.getByTestId("cover-editor-extension")).toBeInTheDocument();
     expect(screen.getByText("Set Tag Cover").parentElement?.parentElement)
       .toHaveClass("max-h-[90vh]", "overflow-y-auto");
@@ -50,5 +51,25 @@ describe("CoverImageDialog extension media contract", () => {
       contextResetKey: "tag:17:primary",
       fallback: null,
     }]);
+  });
+
+  it("supports an explicit remove label", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CoverImageDialog
+          open
+          title="Set Performer Cover"
+          entityType="performer"
+          entityId={41}
+          currentImageUrl="/performer-41.jpg"
+          onUpload={vi.fn()}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
+          deleteLabel="Remove Image"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Remove Image" })).toBeInTheDocument();
   });
 });

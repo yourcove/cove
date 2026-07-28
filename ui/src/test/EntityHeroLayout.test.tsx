@@ -8,13 +8,15 @@ interface OverrideRendererCall {
   renderDefault: () => ReactNode;
 }
 
-const { overrideRendererCalls } = vi.hoisted(() => ({
+const { overrideRendererCalls, renderDefaultMedia } = vi.hoisted(() => ({
   overrideRendererCalls: [] as OverrideRendererCall[],
+  renderDefaultMedia: { current: false },
 }));
 
 vi.mock("../extensions/ExtensionLoader", () => ({
   ExtensionComponentOverrideRenderer: (props: OverrideRendererCall) => {
     overrideRendererCalls.push(props);
+    if (renderDefaultMedia.current) return props.renderDefault();
     return (
       <div
         data-testid="hero-media-override"
@@ -39,6 +41,36 @@ const PhaseTwoEntityHeroLayout = EntityHeroLayout as ComponentType<PhaseTwoEntit
 describe("EntityHeroLayout entity media integration", () => {
   beforeEach(() => {
     overrideRendererCalls.length = 0;
+    renderDefaultMedia.current = false;
+  });
+
+  it("hides a fallback again when a replacement image loads after an error", () => {
+    renderDefaultMedia.current = true;
+    const props: ComponentProps<typeof EntityHeroLayout> = {
+      entityType: "performer",
+      entityId: 41,
+      backLabel: "Back to performers",
+      onGoBack: vi.fn(),
+      imageUrl: "/missing-cover.jpg",
+      imageAlt: "Performer cover",
+      imageFallback: <span>Performer fallback</span>,
+      title: "Performer",
+    };
+    const { container, rerender } = render(<EntityHeroLayout {...props} />);
+
+    const missingImage = screen.getByRole("img", { name: "Performer cover" });
+    const fallback = screen.getByText("Performer fallback").parentElement;
+    fireEvent.error(missingImage);
+    expect(missingImage).toHaveStyle({ display: "none" });
+    expect(fallback).toHaveStyle({ display: "flex" });
+
+    rerender(<EntityHeroLayout {...props} imageUrl="/replacement-cover.jpg" />);
+    const replacementImage = container.querySelector<HTMLImageElement>('img[alt="Performer cover"]');
+    expect(replacementImage).not.toBeNull();
+    if (!replacementImage) return;
+    fireEvent.load(replacementImage);
+    expect(replacementImage).not.toHaveStyle({ display: "none" });
+    expect(fallback).toHaveStyle({ display: "none" });
   });
 
   it("passes canonical hero media context while keeping the cover action host-owned", () => {

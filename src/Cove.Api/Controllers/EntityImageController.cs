@@ -208,11 +208,21 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
     {
         var entity = await db.Performers.FirstOrDefaultAsync(performer => performer.Id == id, ct);
         if (entity == null) return NotFound();
-        if (entity.ImageOverrideBlobId == null) return NoContent();
 
-        await blobService.DeleteBlobAsync(entity.ImageOverrideBlobId, ct);
+        var blobIds = new[] { entity.ImageOverrideBlobId, entity.ImageBlobId }
+            .Where(blobId => !string.IsNullOrWhiteSpace(blobId))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         entity.ImageOverrideBlobId = null;
+        entity.ImageBlobId = null;
         await db.SaveChangesAsync(ct);
+
+        foreach (var blobId in blobIds)
+        {
+            await thumbnailService.DeleteBlobGeneratedFilesAsync(blobId!, CancellationToken.None);
+            await blobService.DeleteBlobAsync(blobId!, CancellationToken.None);
+        }
 
         return NoContent();
     }
@@ -888,4 +898,3 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         return query.Count == 0 ? path : $"{path}?{string.Join("&", query)}";
     }
 }
-
