@@ -71,6 +71,31 @@ describe("VideoPlayer source lifecycle", () => {
     mockPlaybackTracker.flush.mockClear();
   });
 
+  it("lets registered seeks preserve pause state when requested", async () => {
+    let seek: ((time: number, forcePlay?: boolean) => void) | undefined;
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        onSeekRegister={(registered) => { seek = registered; }}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    await waitFor(() => expect(seek).toBeTypeOf("function"));
+
+    act(() => seek?.(25, false));
+
+    expect(video.currentTime).toBe(25);
+    expect(playMock).not.toHaveBeenCalled();
+
+    act(() => seek?.(30));
+    expect(playMock).toHaveBeenCalledOnce();
+  });
+
   it("restores the rendered source after StrictMode replays mount effects", async () => {
     const { container } = render(
       <React.StrictMode>

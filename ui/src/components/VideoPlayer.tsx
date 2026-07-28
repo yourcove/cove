@@ -129,6 +129,14 @@ function getConfiguredPlaybackStartTime(duration: number, startPercent: number, 
   return roundPlaybackTime(duration * Math.min(95, Math.max(0, startPercent)) / 100);
 }
 
+/**
+ * Repositions the host video player.
+ *
+ * `forcePlay` defaults to `true` for backward compatibility. Pass `false` to preserve the
+ * player's current playing or paused state, which is useful for selection and frame-review tools.
+ */
+export type VideoPlayerSeek = (time: number, forcePlay?: boolean) => void;
+
 export function VideoPlayer({
   streamUrl,
   posterUrl,
@@ -173,7 +181,8 @@ export function VideoPlayer({
   onPlay?: () => void;
   onPause?: () => void;
   onPlaybackStateChange?: (playing: boolean) => void;
-  onSeekRegister?: (fn: (time: number) => void) => void;
+  /** Receives the current seek function whenever its host implementation changes. */
+  onSeekRegister?: (fn: VideoPlayerSeek) => void;
   onTimeUpdate?: (time: number) => void;
   autostart?: boolean;
   autostartToken?: number;
@@ -515,8 +524,8 @@ export function VideoPlayer({
 
   useEffect(() => {
     if (onSeekRegister) {
-      onSeekRegister((time: number) => {
-        seekToAbsoluteTime(time, true);
+      onSeekRegister((time: number, forcePlay = true) => {
+        seekToAbsoluteTime(time, forcePlay);
       });
     }
   }, [onSeekRegister, seekToAbsoluteTime]);
