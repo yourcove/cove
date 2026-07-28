@@ -54,6 +54,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { normalizeStoredResumeTime } from "../utils/playbackResume";
 import { getLoadError } from "../utils/queryLoadState";
+import { videoEditClearFields } from "../utils/videoEditClearFields";
 
 const GenerateDialog = lazy(() => import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })));
 const DetailMergeDialog = lazy(() => import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })));
@@ -2206,10 +2207,12 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
+    const clearFields = videoEditClearFields(date, studioId);
     mutation.mutate({ title: title, code: code, details: details,
       director: director, date: date || undefined, isVr, rating, studioId,
       urls: urlList, remoteIds: normalizeRemoteIds(remoteIds), customFields,
-      tagIds: selectedTagIds, performerIds: selectedPerformerIds, galleryIds: selectedGalleryIds, groups: selectedGroups });
+      tagIds: selectedTagIds, performerIds: selectedPerformerIds, galleryIds: selectedGalleryIds,
+      groups: selectedGroups, clearFields });
   };
 
   const setPerformerContextTagIds = (performerId: number, tagIds: number[]) => {

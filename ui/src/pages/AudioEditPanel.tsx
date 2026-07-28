@@ -71,6 +71,7 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
   };
 
   const handleSave = () => {
+    const clearFields = studioId === undefined ? ["studioId"] : [];
     mutation.mutate({
       title: title.trim(),
       code: code.trim(),
@@ -82,6 +83,7 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
       performerIds: selectedPerformerIds,
       customFields,
       groupIds: selectedGroups,
+      clearFields,
     });
   };
 

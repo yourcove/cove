@@ -287,6 +287,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         {
             return NotFound();
         }
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Title != null) audio.Title = NormalizeOptionalText(dto.Title);
         if (dto.Code != null) audio.Code = NormalizeOptionalText(dto.Code);
@@ -294,6 +295,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         if (dto.Organized.HasValue) audio.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) audio.StudioId = dto.StudioId;
         if (dto.Date != null) audio.Date = ParseDate(dto.Date);
+        if (clearFields.Contains("studioId")) audio.StudioId = null;
 
         if (dto.Urls != null)
         {

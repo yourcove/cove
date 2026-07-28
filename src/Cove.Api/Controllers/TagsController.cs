@@ -389,6 +389,7 @@ public class TagsController(
                 .Include(t => t.ChildRelations)
                 .FirstOrDefaultAsync(t => t.Id == id, ct);
         if (tag == null) return NotFound();
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
             var validation = await ValidateTagMetadataAsync(dto.Color, dto.TagGroupId, ct);
             if (validation != null) return validation;
@@ -396,6 +397,8 @@ public class TagsController(
         if (dto.Name != null) tag.Name = dto.Name;
         if (dto.SortName != null) tag.SortName = dto.SortName;
         if (dto.Description != null) tag.Description = dto.Description;
+        if (clearFields.Contains("sortName")) tag.SortName = null;
+        if (clearFields.Contains("description")) tag.Description = null;
         tag.Color = NormalizeOptionalText(dto.Color);
         tag.TagGroupId = NormalizeOptionalId(dto.TagGroupId);
         if (dto.Favorite.HasValue) tag.Favorite = dto.Favorite.Value;

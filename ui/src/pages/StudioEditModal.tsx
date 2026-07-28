@@ -51,6 +51,10 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
     const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
+    const clearFields = [
+      !details && "details",
+      parentId === undefined && "parentId",
+    ].filter((field): field is string => Boolean(field));
     mutation.mutate({
       name,
       details: details || undefined,
@@ -60,6 +64,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
       tagIds: selectedTagIds,
       customFields,
       remoteIds: normalizeRemoteIds(remoteIds),
+      clearFields,
     });
   };
 

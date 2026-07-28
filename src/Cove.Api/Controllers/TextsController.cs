@@ -280,6 +280,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         {
             return NotFound();
         }
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Title != null) text.Title = NormalizeOptionalText(dto.Title);
         if (dto.Code != null) text.Code = NormalizeOptionalText(dto.Code);
@@ -287,6 +288,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         if (dto.Organized.HasValue) text.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) text.StudioId = dto.StudioId;
         if (dto.Date != null) text.Date = ParseDate(dto.Date);
+        if (clearFields.Contains("studioId")) text.StudioId = null;
 
         if (dto.Urls != null)
         {

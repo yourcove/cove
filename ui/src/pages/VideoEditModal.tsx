@@ -10,6 +10,7 @@ import { StudioSelector } from "../components/StudioSelector";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
 import { EntityReferenceMultiSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
+import { videoEditClearFields } from "../utils/videoEditClearFields";
 
 interface Props {
   video: Video;
@@ -79,6 +80,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
 
   const handleSave = () => {
     const urlList = urls.map((u) => u.trim()).filter(Boolean);
+    const clearFields = videoEditClearFields(date, studioId);
     mutation.mutate({
       title: title,
       code: code,
@@ -96,6 +98,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
       groups: selectedGroups,
       customFields,
       remoteIds: normalizeRemoteIds(remoteIds),
+      clearFields,
     });
   };
 

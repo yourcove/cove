@@ -70,7 +70,9 @@ export interface FileBackedCreate {
   filePath: string;
 }
 
-export interface VideoUpdate extends Partial<VideoCreate> {}
+export interface VideoUpdate extends Partial<VideoCreate> {
+  clearFields?: string[];
+}
 
 export interface Performer {
   id: number;
@@ -163,7 +165,9 @@ export interface PerformerCreate {
   customFields?: Record<string, unknown>;
 }
 
-export interface PerformerUpdate extends Partial<PerformerCreate> {}
+export interface PerformerUpdate extends Partial<PerformerCreate> {
+  clearFields?: string[];
+}
 
 export interface PerformerScrapeRequest {
   inputKind?: "url" | "name";
@@ -383,7 +387,9 @@ export interface TagCreate {
   customFields?: Record<string, unknown>;
 }
 
-export interface TagUpdate extends Partial<TagCreate> {}
+export interface TagUpdate extends Partial<TagCreate> {
+  clearFields?: string[];
+}
 
 export interface Studio {
   id: number;
@@ -431,7 +437,9 @@ export interface StudioCreate {
   customFields?: Record<string, unknown>;
 }
 
-export interface StudioUpdate extends Partial<StudioCreate> {}
+export interface StudioUpdate extends Partial<StudioCreate> {
+  clearFields?: string[];
+}
 
 export interface Gallery {
   id: number;
@@ -505,7 +513,9 @@ export interface GalleryCreate {
   customFields?: Record<string, unknown>;
 }
 
-export interface GalleryUpdate extends Partial<GalleryCreate> {}
+export interface GalleryUpdate extends Partial<GalleryCreate> {
+  clearFields?: string[];
+}
 
 export interface ImageFile {
   id: number;
@@ -595,6 +605,7 @@ export interface ImageUpdate {
   galleryIds?: number[];
   customFields?: Record<string, unknown>;
   groupIds?: VideoGroupInput[];
+  clearFields?: string[];
 }
 
 export interface AudioFile {
@@ -671,6 +682,7 @@ export interface AudioUpdate {
   performerIds?: number[];
   customFields?: Record<string, unknown>;
   groupIds?: VideoGroupInput[];
+  clearFields?: string[];
 }
 
 export interface TextFile {
@@ -735,6 +747,7 @@ export interface TextUpdate {
   performerIds?: number[];
   customFields?: Record<string, unknown>;
   groupIds?: VideoGroupInput[];
+  clearFields?: string[];
 }
 
 export interface TextContent {
@@ -927,7 +940,9 @@ export interface GroupCreate {
   sortOrder?: number;
 }
 
-export interface GroupUpdate extends Partial<GroupCreate> {}
+export interface GroupUpdate extends Partial<GroupCreate> {
+  clearFields?: string[];
+}
 
 export interface BookmarkDto {
   hostType: AffinityHostType;

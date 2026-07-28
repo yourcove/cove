@@ -124,6 +124,27 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
     const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
+    const clearFields = [
+      !disambiguation && "disambiguation",
+      !gender && "gender",
+      !birthdate && "birthdate",
+      !deathDate && "deathDate",
+      !ethnicity && "ethnicity",
+      !country && "country",
+      !eyeColor && "eyeColor",
+      !hairColor && "hairColor",
+      heightCm === undefined && "heightCm",
+      weight === undefined && "weight",
+      !measurements && "measurements",
+      !fakeTits && "fakeTits",
+      penisLength === undefined && "penisLength",
+      !circumcised && "circumcised",
+      !careerStart && "careerStart",
+      !careerEnd && "careerEnd",
+      !tattoos && "tattoos",
+      !piercings && "piercings",
+      !details && "details",
+    ].filter((field): field is string => Boolean(field));
     mutation.mutate({
       name,
       disambiguation: disambiguation || undefined,
@@ -151,6 +172,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       tagIds: selectedTagIds,
       customFields,
       remoteIds: normalizeRemoteIds(remoteIds),
+      clearFields,
     });
   };
 

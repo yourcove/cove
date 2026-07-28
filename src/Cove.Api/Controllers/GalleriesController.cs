@@ -140,6 +140,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var gallery = await galleryRepo.GetByIdWithRelationsAsync(id, ct);
         if (gallery == null) return NotFound();
         var previousTagIds = dto.TagIds != null ? gallery.GalleryTags.Select(galleryTag => galleryTag.TagId).ToArray() : [];
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Title != null) gallery.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
         if (dto.Code != null) gallery.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
@@ -148,6 +149,8 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (dto.Photographer != null) gallery.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
         if (dto.Organized.HasValue) gallery.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) gallery.StudioId = dto.StudioId;
+        if (clearFields.Contains("date")) gallery.Date = null;
+        if (clearFields.Contains("studioId")) gallery.StudioId = null;
 
         if (dto.Urls != null)
         {
@@ -592,4 +595,3 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         return Ok(new { deleted = galleries.Count });
     }
 }
-

@@ -63,6 +63,7 @@ export function TextEditPanel({ text, onSaved }: Props) {
   const tagProvenanceById = buildTagProvenanceById(text.tags, text.fieldProvenance);
 
   const handleSave = () => {
+    const clearFields = studioId === undefined ? ["studioId"] : [];
     mutation.mutate({
       title: title.trim(),
       code: code.trim(),
@@ -74,6 +75,7 @@ export function TextEditPanel({ text, onSaved }: Props) {
       performerIds: selectedPerformerIds,
       customFields,
       groupIds: selectedGroups,
+      clearFields,
     });
   };
 

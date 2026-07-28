@@ -106,4 +106,33 @@ describe("VideoEditModal", () => {
     expect(mocks.tagApplicationsCreate).not.toHaveBeenCalled();
     expect(mocks.tagApplicationsDelete).not.toHaveBeenCalled();
   });
+
+  it("marks a cleared date for removal", async () => {
+    const user = userEvent.setup();
+    const video: Video = {
+      id: 43,
+      title: "Sample Video",
+      date: "2026-05-01",
+      studioId: 9,
+      organized: true,
+      urls: [],
+      tags: [],
+      performers: [],
+      files: [],
+      groups: [],
+      galleries: [],
+      remoteIds: [],
+      createdAt: "2026-05-01T00:00:00Z",
+      updatedAt: "2026-05-02T00:00:00Z",
+    };
+
+    renderModal(video);
+
+    await user.clear(screen.getByDisplayValue("2026-05-01"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocks.videosUpdate).toHaveBeenCalledWith(43, expect.objectContaining({
+      clearFields: ["date"],
+    })));
+  });
 });

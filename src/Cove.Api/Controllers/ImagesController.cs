@@ -121,6 +121,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         var image = await imageRepo.GetByIdWithRelationsAsync(id, ct);
         if (image == null) return NotFound();
         var previousTagIds = dto.TagIds != null ? image.ImageTags.Select(imageTag => imageTag.TagId).ToArray() : [];
+        var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
         if (dto.Title != null) image.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
         if (dto.Code != null) image.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
@@ -129,6 +130,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         if (dto.Organized.HasValue) image.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) image.StudioId = dto.StudioId;
         if (dto.Date != null) image.Date = ParseDate(dto.Date);
+        if (clearFields.Contains("date")) image.Date = null;
+        if (clearFields.Contains("studioId")) image.StudioId = null;
 
         if (dto.Urls != null)
         {
@@ -588,4 +591,3 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     private static List<TagProvenanceDto> GetTagProvenance(IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup, int tagId)
         => provenanceLookup != null && provenanceLookup.TryGetValue(tagId, out var provenance) ? provenance : [];
 }
-
