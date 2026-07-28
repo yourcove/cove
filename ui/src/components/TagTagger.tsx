@@ -197,7 +197,7 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
     mutationFn: () => {
       const selectedResult = state?.results?.[state.selectedIndex ?? 0];
       if (!selectedResult) throw new Error("No result selected");
-      const request: MetadataServerTagImportRequest = { endpoint, tagId: selectedResult.id };
+      const request: MetadataServerTagImportRequest = { endpoint: selectedResult.endpoint, tagId: selectedResult.id };
       return tags.importFromMetadataServer(tag.id, request);
     },
     onSuccess: () => onUpdateState({ saved: true }),
