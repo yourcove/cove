@@ -28,6 +28,7 @@ public record StashPathMapping(string Source, string Target);
 public record StashImportOptions(string? CoveGeneratedPath, bool MigrateGeneratedContent = true, IReadOnlyList<StashPathMapping>? PathMappings = null);
 
 public sealed class StashMigrationInProgressException(string message) : InvalidOperationException(message);
+public sealed class StashMigrationOwnerRequiredException(string message) : InvalidOperationException(message);
 
 public partial class StashMigrationService
 {
@@ -138,12 +139,20 @@ public partial class StashMigrationService
         _logger = logger;
     }
 
-    private async Task<int?> GetImportEngagementUserIdAsync(CancellationToken ct)
-        => await _db.Users.AsNoTracking()
+    private async Task<int> GetRequiredImportEngagementUserIdAsync(CancellationToken ct)
+    {
+        var userId = await _db.Users.AsNoTracking()
             .Where(user => user.IsSystem && user.IsActive && !user.IsLocked)
             .OrderBy(user => user.Id)
             .Select(user => (int?)user.Id)
             .FirstOrDefaultAsync(ct);
+
+        if (userId is null)
+            throw new StashMigrationOwnerRequiredException(
+                "Create the Owner account before importing from Stash so ratings, favorites, and engagement data have an owner.");
+
+        return userId.Value;
+    }
 
     private async Task AddImportedOverallRatingsAsync(
         IEnumerable<ImportedRatingSeed> seeds,
@@ -151,11 +160,7 @@ public partial class StashMigrationService
         RatingHostType hostType,
         CancellationToken ct)
     {
-        var userId = await GetImportEngagementUserIdAsync(ct);
-        if (userId is null)
-            return;
-
-        var engagementUserId = userId.Value;
+        var engagementUserId = await GetRequiredImportEngagementUserIdAsync(ct);
 
         var ratingsByHostId = new Dictionary<int, int>();
         foreach (var seed in seeds)
@@ -206,11 +211,7 @@ public partial class StashMigrationService
         AffinityHostType hostType,
         CancellationToken ct)
     {
-        var userId = await GetImportEngagementUserIdAsync(ct);
-        if (userId is null)
-            return;
-
-        var engagementUserId = userId.Value;
+        var engagementUserId = await GetRequiredImportEngagementUserIdAsync(ct);
 
         var affinitiesByHostId = new Dictionary<int, ImportedAffinityAggregate>();
         foreach (var seed in seeds)
@@ -331,11 +332,17 @@ public partial class StashMigrationService
         return RunImportAsync(stashDbPath, options, NullJobProgress.Instance, ct);
     }
 
-    public string StartImport(string stashDbPath, StashImportOptions? options = null)
+    public async Task<string> StartImportAsync(string stashDbPath, StashImportOptions? options = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(stashDbPath))
             throw new ArgumentException("Stash database path is required.", nameof(stashDbPath));
 
+        _ = await GetRequiredImportEngagementUserIdAsync(ct);
+        return EnqueueImport(stashDbPath, options);
+    }
+
+    private string EnqueueImport(string stashDbPath, StashImportOptions? options)
+    {
         options = NormalizeImportOptions(options);
 
         lock (ImportSync)
@@ -397,6 +404,10 @@ public partial class StashMigrationService
 
     public async Task<StashImportResult> RunImportAsync(string stashDbPath, StashImportOptions? options, IJobProgress progress, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(stashDbPath))
+            throw new ArgumentException("Stash database path is required.", nameof(stashDbPath));
+
+        _ = await GetRequiredImportEngagementUserIdAsync(ct);
         options = NormalizeImportOptions(options);
         progress.Report(0.01, "Opening Stash database...");
         var result = await ImportCoreAsync(stashDbPath, options, progress, ct);
