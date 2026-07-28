@@ -157,6 +157,36 @@ describe("DetailListToolbar", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("corrects an out-of-range page when used without the toolbar", async () => {
+    const onFilterChange = vi.fn();
+    render(
+      <DetailListPagination
+        filter={{ page: 9999, perPage: 24, q: "example" }}
+        onFilterChange={onFilterChange}
+        totalCount={100}
+      />,
+    );
+
+    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({
+      page: 5,
+      perPage: 24,
+      q: "example",
+    }));
+  });
+
+  it("does not reset a deep page while its result count is unavailable", () => {
+    const onFilterChange = vi.fn();
+    render(
+      <DetailListPagination
+        filter={{ page: 12, perPage: 24 }}
+        onFilterChange={onFilterChange}
+        totalCount={0}
+      />,
+    );
+
+    expect(onFilterChange).not.toHaveBeenCalled();
+  });
+
   it("shows and removes applied object-filter parameters", async () => {
     const user = userEvent.setup();
     const onFilterChange = vi.fn();

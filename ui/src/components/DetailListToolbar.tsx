@@ -76,6 +76,10 @@ export interface DetailListPaginationProps {
   ariaLabel?: string;
 }
 
+/**
+ * Reusable finite/infinite list pagination. Once a non-empty count is known, the component repairs
+ * an out-of-range page through `onFilterChange` so standalone consumers cannot remain stranded.
+ */
 export function DetailListPagination({ filter, onFilterChange, totalCount, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, className = "mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-1 py-4", ariaLabel = "Pagination" }: DetailListPaginationProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
@@ -83,6 +87,14 @@ export function DetailListPagination({ filter, onFilterChange, totalCount, allow
   const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
   const totalPages = Math.max(1, Math.ceil(totalCount / effectivePerPage));
   const clampedPage = Math.min(Math.max(1, page), totalPages);
+
+  useEffect(() => {
+    if (totalCount > 0 && clampedPage !== page) {
+      onFilterChange({ ...filter, page: clampedPage });
+    }
+    // Correct standalone pagination as well as the copy rendered by the toolbar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clampedPage, page, totalCount]);
 
   if (!showPagingControls || infinitePageSize || totalPages <= 1) return null;
 
@@ -140,16 +152,6 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const handleSearchChange = useCallback((query: string | undefined) => {
     onFilterChange({ ...filter, q: query, page: 1 });
   }, [filter, onFilterChange]);
-
-  // Correct an out-of-range page back into the filter so the stale value doesn't persist (e.g. in the
-  // URL) and re-strand the user next time. Guarded on a loaded count so a transient 0 during fetch
-  // doesn't reset a deep-linked page before its data arrives.
-  useEffect(() => {
-    if (totalCount > 0 && clampedPage !== page) {
-      onFilterChange({ ...filter, page: clampedPage });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clampedPage, page, totalCount]);
 
   const handleZoomChange = (level: number) => {
     const nextLevel = clampEntityCardSizeLevel(inferredCardSizeEntityType, level);
