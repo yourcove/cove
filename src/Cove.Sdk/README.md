@@ -74,3 +74,17 @@ the invalidation happened.
 `InvalidateAll()` is available for bulk operations that cannot identify the affected videos, but
 video-specific invalidation should be preferred. The service only invalidates projections; it neither
 persists nor authorizes the underlying mutation.
+
+## Host services and extension-container ownership
+
+Each runtime extension has a reloadable service container. Closed host singletons available through
+the SDK contract are forwarded as the exact host-owned instance; disabling or upgrading an extension
+does not dispose them. Scoped and transient host registrations are recreated inside the extension
+scope, while extension registrations remain extension-owned and are disposed when that provider
+generation drains.
+
+Cove deliberately does not copy arbitrary open-generic host singleton registrations. The built-in
+container cannot forward future closed instances while preserving host ownership, and copying the
+descriptor would let extension reload dispose services the host still owns. Logging, options, and
+HTTP client generics are rebuilt by Cove. An extension that needs another open-generic service must
+register and own its implementation in `ConfigureServices`.
