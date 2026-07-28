@@ -177,6 +177,13 @@ When replacing a referenced blob, store the new payload first, persist the new i
 
 Background workers should create an `IExtensionServiceScopeFactory` scope per unit of work and persist checkpoints rather than relying on in-memory state. Event handlers, jobs, middleware, and endpoints should honor cancellation and keep failure messages local to the operation.
 
+Extensions that commit video-segment changes outside Cove's built-in controllers should resolve
+`ISegmentSpanCacheInvalidator` from their service provider. Call `InvalidateVideo(videoId)` only
+after the database transaction commits. Use `InvalidateAll()` for a bulk mutation only when the
+affected videos cannot be identified. The service invalidates raw, resolved, display-rule, and
+derived-query projections, including an in-flight result that started before the invalidation; it
+does not authorize or persist the mutation.
+
 ## Metadata and intake providers
 
 These provider interfaces integrate with Cove's built-in review, provenance, and intake workflows.

@@ -16,6 +16,10 @@ public static class DataServiceExtensions
 {
     public static IServiceCollection AddCoveData(this IServiceCollection services, string connectionString)
     {
+        // Segment span projection services are part of the data layer and share this host cache.
+        // Register it here so AddCoveData remains a complete composition unit outside Cove.Api.
+        services.AddMemoryCache();
+
         services.AddSingleton(sp =>
         {
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
@@ -70,6 +74,9 @@ public static class DataServiceExtensions
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<ISavedFilterRepository, SavedFilterRepository>();
         services.AddScoped<EmbeddingService>();
+        services.AddSingleton<SegmentSpanCacheRegistry>();
+        services.AddSingleton<ISegmentSpanCacheInvalidator>(
+            sp => sp.GetRequiredService<SegmentSpanCacheRegistry>());
         services.AddScoped<SegmentSpanResolver>();
         services.AddScoped<FacePerformerPropagationService>();
         services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
@@ -113,4 +120,3 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
         return services;
     }
 }
-

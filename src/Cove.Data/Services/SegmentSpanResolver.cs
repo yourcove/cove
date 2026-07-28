@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,21 +7,28 @@ using Cove.Core.Entities;
 using Cove.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Primitives;
 
 namespace Cove.Data.Services;
 
-public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccessor principalAccessor, IMemoryCache memoryCache)
+public sealed class SegmentSpanResolver(
+    CoveContext db,
+    ICurrentPrincipalAccessor principalAccessor,
+    IMemoryCache memoryCache,
+    SegmentSpanCacheRegistry? cacheRegistry = null)
 {
     private const double BuiltInDefaultMergeGapSec = 8d;
     private const double BuiltInDefaultMinDurationSec = 10d;
     private const int DefaultSpanCacheMinutes = 5;
-    private readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> VideoCacheKeys = new();
-    private readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> ProfileCacheKeys = new();
+    private readonly SegmentSpanCacheRegistry _cacheRegistry = cacheRegistry ?? new SegmentSpanCacheRegistry(memoryCache);
     private static readonly SemaphoreSlim ProfileInitializationLock = new(1, 1);
 
     public async Task<VideoResolvedSpansDto> ResolveVideoAsync(int videoId, int? profileId, CancellationToken ct)
     {
         var profile = await ResolveProfileAsync(profileId, ct);
+        var allChangeToken = _cacheRegistry.GetAllChangeToken();
+        using var videoChangeLease = _cacheRegistry.AcquireVideoChangeToken(videoId);
+        using var profileChangeLease = _cacheRegistry.AcquireProfileChangeToken(profile.Id);
         var cacheKey = $"segment-spans:{videoId}:{profile.Id}:{profile.Version}";
         if (memoryCache.TryGetValue<VideoResolvedSpansDto>(cacheKey, out var cached) && cached is not null)
             return cached;
@@ -32,8 +38,7 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         var spans = BuildVideoSpans(videoId, profile, segments, rules);
         var response = new VideoResolvedSpansDto(spans, profile.Id, profile.Version);
 
-        memoryCache.Set(cacheKey, response, TimeSpan.FromMinutes(DefaultSpanCacheMinutes));
-        RegisterCacheKey(videoId, profile.Id, cacheKey);
+        SetVideoProfileCache(videoId, profile.Id, cacheKey, response, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, videoChangeLease.Token, profileChangeLease.Token);
 
         return response;
     }
@@ -44,10 +49,14 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         if (videoIds.Count == 0) return [];
 
         var profile = await ResolveProfileAsync(profileId, ct);
+        var allChangeToken = _cacheRegistry.GetAllChangeToken();
+        using var profileChangeLease = _cacheRegistry.AcquireProfileChangeToken(profile.Id);
         var rules = await LoadRulesAsync(profile.Id, ct);
 
         var results = new List<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>(videoIds.Count);
         var uncachedIds = new List<int>(videoIds.Count);
+        using var changeLeases = new ChangeTokenLeaseSet();
+        var changeTokens = new Dictionary<int, SegmentSpanCacheRegistry.ChangeTokenLease>();
 
         foreach (var videoId in videoIds)
         {
@@ -59,6 +68,7 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             else
             {
                 uncachedIds.Add(videoId);
+                changeTokens[videoId] = changeLeases.Add(_cacheRegistry.AcquireVideoChangeToken(videoId));
             }
         }
 
@@ -81,8 +91,7 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             var response = new VideoResolvedSpansDto(spans, profile.Id, profile.Version);
 
             var cacheKey = $"segment-spans:{videoId}:{profile.Id}:{profile.Version}";
-            memoryCache.Set(cacheKey, response, TimeSpan.FromMinutes(DefaultSpanCacheMinutes));
-            RegisterCacheKey(videoId, profile.Id, cacheKey);
+            SetVideoProfileCache(videoId, profile.Id, cacheKey, response, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, changeTokens[videoId].Token, profileChangeLease.Token);
 
             results.Add((videoId, spans));
         }
@@ -97,11 +106,15 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             return [];
 
         var profile = await ResolveProfileAsync(queryRequest.Profile, ct);
+        var allChangeToken = _cacheRegistry.GetAllChangeToken();
         var requestJson = JsonSerializer.Serialize(new { queryRequest.Operator, Operands = queryRequest.Operands, queryRequest.MergeGapSec, queryRequest.MinDurationSec });
         var requestHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(requestJson))[..10]).ToLowerInvariant();
 
         var results = new List<(int VideoId, IReadOnlyList<ResolvedSpan> Spans)>(videoIds.Count);
         var uncachedIds = new List<int>(videoIds.Count);
+        using var changeLeases = new ChangeTokenLeaseSet();
+        var changeTokens = new Dictionary<int, SegmentSpanCacheRegistry.ChangeTokenLease>();
+        using var profileChangeLease = _cacheRegistry.AcquireProfileChangeToken(profile.Id);
 
         foreach (var videoId in videoIds)
         {
@@ -113,6 +126,7 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             else
             {
                 uncachedIds.Add(videoId);
+                changeTokens[videoId] = changeLeases.Add(_cacheRegistry.AcquireVideoChangeToken(videoId));
             }
         }
 
@@ -182,8 +196,7 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             }
 
             var cacheKey = $"video-segment-query:{videoId}:{profile.Id}:{profile.Version}:{requestHash}";
-            memoryCache.Set(cacheKey, (IReadOnlyList<ResolvedSpan>)resolvedSpans, TimeSpan.FromMinutes(DefaultSpanCacheMinutes));
-            RegisterCacheKey(videoId, profile.Id, cacheKey);
+            SetVideoProfileCache(videoId, profile.Id, cacheKey, (IReadOnlyList<ResolvedSpan>)resolvedSpans, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, changeTokens[videoId].Token, profileChangeLease.Token);
 
             results.Add((videoId, resolvedSpans));
         }
@@ -276,6 +289,9 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         ArgumentNullException.ThrowIfNull(request);
 
         var profile = await ResolveProfileAsync(request.Profile, ct);
+        var allChangeToken = _cacheRegistry.GetAllChangeToken();
+        using var videoChangeLease = _cacheRegistry.AcquireVideoChangeToken(videoId);
+        using var profileChangeLease = _cacheRegistry.AcquireProfileChangeToken(profile.Id);
         if (request.Operands is null || request.Operands.Count == 0)
             return [];
 
@@ -305,8 +321,7 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         result = IntervalAlgebra.Filter(IntervalAlgebra.Merge(result, mergeGapSec), minDurationSec);
         if (result.Count == 0)
         {
-            memoryCache.Set(queryCacheKey, (IReadOnlyList<ResolvedSpan>)[], TimeSpan.FromMinutes(DefaultSpanCacheMinutes));
-            RegisterCacheKey(videoId, profile.Id, queryCacheKey);
+            SetVideoProfileCache(videoId, profile.Id, queryCacheKey, (IReadOnlyList<ResolvedSpan>)[], TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, videoChangeLease.Token, profileChangeLease.Token);
             return [];
         }
 
@@ -336,30 +351,15 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
                 overlappingIds));
         }
 
-        memoryCache.Set(queryCacheKey, (IReadOnlyList<ResolvedSpan>)spans, TimeSpan.FromMinutes(DefaultSpanCacheMinutes));
-        RegisterCacheKey(videoId, profile.Id, queryCacheKey);
+        SetVideoProfileCache(videoId, profile.Id, queryCacheKey, (IReadOnlyList<ResolvedSpan>)spans, TimeSpan.FromMinutes(DefaultSpanCacheMinutes), allChangeToken, videoChangeLease.Token, profileChangeLease.Token);
         return spans;
     }
 
     public void EvictVideo(int videoId)
-    {
-        if (!VideoCacheKeys.TryRemove(videoId, out var keys))
-            return;
-
-        foreach (var key in keys.Keys)
-            memoryCache.Remove(key);
-    }
+        => _cacheRegistry.InvalidateVideo(videoId);
 
     public void EvictProfile(int profileId)
-    {
-        if (!ProfileCacheKeys.TryRemove(profileId, out var keys))
-            return;
-
-        foreach (var key in keys.Keys)
-            memoryCache.Remove(key);
-
-        memoryCache.Remove($"segment-display-rules:{profileId}");
-    }
+        => _cacheRegistry.InvalidateProfile(profileId);
 
     public async Task<int> ResolveProfileIdAsync(int? profileId, CancellationToken ct)
     {
@@ -419,6 +419,8 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
 
     private async Task<List<Segment>> LoadVideoSegmentsAsync(int videoId, CancellationToken ct)
     {
+        var allChangeToken = _cacheRegistry.GetAllChangeToken();
+        using var videoChangeLease = _cacheRegistry.AcquireVideoChangeToken(videoId);
         var cacheKey = $"video-raw-segments:{videoId}";
         if (memoryCache.TryGetValue<List<Segment>>(cacheKey, out var cached) && cached is not null)
             return cached;
@@ -430,13 +432,14 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             .ThenBy(segment => segment.Id)
             .ToListAsync(ct);
 
-        memoryCache.Set(cacheKey, segments, TimeSpan.FromMinutes(5));
-        RegisterVideoCacheKey(videoId, cacheKey);
+        SetVideoCache(videoId, cacheKey, segments, TimeSpan.FromMinutes(5), allChangeToken, videoChangeLease.Token);
         return segments;
     }
 
     private async Task<List<SegmentDisplayRule>> LoadRulesAsync(int profileId, CancellationToken ct)
     {
+        var allChangeToken = _cacheRegistry.GetAllChangeToken();
+        using var profileChangeLease = _cacheRegistry.AcquireProfileChangeToken(profileId);
         var cacheKey = $"segment-display-rules:{profileId}";
         if (memoryCache.TryGetValue<List<SegmentDisplayRule>>(cacheKey, out var cached) && cached is not null)
             return cached;
@@ -452,7 +455,15 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
             .ThenBy(rule => rule.Id)
             .ToListAsync(ct);
 
-        memoryCache.Set(cacheKey, rules, TimeSpan.FromMinutes(5));
+        var registration = _cacheRegistry.RegisterProfile(profileId, cacheKey);
+        memoryCache.Set(
+            cacheKey,
+            rules,
+            CreateVideoCacheOptions(
+                TimeSpan.FromMinutes(5),
+                registration,
+                allChangeToken,
+                profileChangeLease.Token));
         return rules;
     }
 
@@ -774,15 +785,68 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
         return 0;
     }
 
-    private void RegisterCacheKey(int videoId, int profileId, string cacheKey)
+    private void SetVideoProfileCache<T>(
+        int videoId,
+        int profileId,
+        string cacheKey,
+        T value,
+        TimeSpan expiration,
+        params IChangeToken[] changeTokens)
     {
-        VideoCacheKeys.GetOrAdd(videoId, static _ => new ConcurrentDictionary<string, byte>())[cacheKey] = 0;
-        ProfileCacheKeys.GetOrAdd(profileId, static _ => new ConcurrentDictionary<string, byte>())[cacheKey] = 0;
+        var registration = _cacheRegistry.Register(videoId, profileId, cacheKey);
+        memoryCache.Set(cacheKey, value, CreateVideoCacheOptions(expiration, registration, changeTokens));
     }
 
-    private void RegisterVideoCacheKey(int videoId, string cacheKey)
+    private void SetVideoCache<T>(
+        int videoId,
+        string cacheKey,
+        T value,
+        TimeSpan expiration,
+        params IChangeToken[] changeTokens)
     {
-        VideoCacheKeys.GetOrAdd(videoId, static _ => new ConcurrentDictionary<string, byte>())[cacheKey] = 0;
+        var registration = _cacheRegistry.RegisterVideo(videoId, cacheKey);
+        memoryCache.Set(cacheKey, value, CreateVideoCacheOptions(expiration, registration, changeTokens));
+    }
+
+    private MemoryCacheEntryOptions CreateVideoCacheOptions(
+        TimeSpan expiration,
+        SegmentSpanCacheRegistry.RegistrationToken registration,
+        params IChangeToken[] changeTokens)
+    {
+        var options = new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(expiration)
+            .RegisterPostEvictionCallback(
+                static (key, _, _, state) =>
+                {
+                    var callback = (CacheEvictionCallback)state!;
+                    callback.Registry.Unregister((string)key, callback.Registration);
+                },
+                new CacheEvictionCallback(_cacheRegistry, registration));
+        foreach (var changeToken in changeTokens)
+            options.AddExpirationToken(changeToken);
+        return options;
+    }
+
+    private sealed record CacheEvictionCallback(
+        SegmentSpanCacheRegistry Registry,
+        SegmentSpanCacheRegistry.RegistrationToken Registration);
+
+    private sealed class ChangeTokenLeaseSet : IDisposable
+    {
+        private readonly List<SegmentSpanCacheRegistry.ChangeTokenLease> _leases = [];
+
+        public SegmentSpanCacheRegistry.ChangeTokenLease Add(
+            SegmentSpanCacheRegistry.ChangeTokenLease lease)
+        {
+            _leases.Add(lease);
+            return lease;
+        }
+
+        public void Dispose()
+        {
+            foreach (var lease in _leases)
+                lease.Dispose();
+        }
     }
 
     private async Task EnsureBuiltInProfilesAsync(CancellationToken ct)
@@ -883,4 +947,3 @@ public sealed class SegmentSpanResolver(CoveContext db, ICurrentPrincipalAccesso
 
     private sealed record OperandMatch(List<IntervalAlgebra.Interval> Intervals, HashSet<int> SegmentIds);
 }
-

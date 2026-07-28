@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Cove.Api.Controllers;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -11,11 +12,156 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 
 namespace Cove.Tests;
 
 public class SegmentCoreControllerTests
 {
+    [Fact]
+    public void TypedInvalidator_EvictsRegisteredVideoCaches()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        ISegmentSpanCacheInvalidator invalidator = registry;
+        const string key = "segment-spans:test";
+        memoryCache.Set(key, "cached");
+        registry.RegisterVideo(123, key);
+        Assert.Equal(1, registry.RegistrationCount);
+
+        invalidator.InvalidateVideo(123);
+
+        Assert.False(memoryCache.TryGetValue(key, out _));
+        Assert.Equal(0, registry.RegistrationCount);
+    }
+
+    [Fact]
+    public void TypedInvalidator_CanEvictEveryRegisteredCache()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        ISegmentSpanCacheInvalidator invalidator = registry;
+        memoryCache.Set("one", "cached");
+        memoryCache.Set("two", "cached");
+        registry.RegisterVideo(123, "one");
+        registry.RegisterVideo(456, "two");
+
+        invalidator.InvalidateAll();
+
+        Assert.False(memoryCache.TryGetValue("one", out _));
+        Assert.False(memoryCache.TryGetValue("two", out _));
+        Assert.Equal(0, registry.RegistrationCount);
+    }
+
+    [Fact]
+    public void ProfileEviction_RemovesKeysFromEveryRegistryBucket()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        memoryCache.Set("one", "cached");
+        memoryCache.Set("two", "cached");
+        registry.Register(1, 9, "one");
+        registry.Register(2, 9, "two");
+
+        registry.InvalidateProfile(9);
+
+        Assert.Equal(0, registry.RegistrationCount);
+        Assert.False(memoryCache.TryGetValue("one", out _));
+        Assert.False(memoryCache.TryGetValue("two", out _));
+    }
+
+    [Fact]
+    public void LateCacheSet_AfterVideoEvictionIsImmediatelyExpired()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        using var staleLease = registry.AcquireVideoChangeToken(123);
+
+        registry.InvalidateVideo(123);
+        memoryCache.Set("late", "stale", new MemoryCacheEntryOptions().AddExpirationToken(staleLease.Token));
+
+        Assert.False(memoryCache.TryGetValue("late", out _));
+    }
+
+    [Fact]
+    public void LateRulesCacheSet_AfterProfileEvictionIsImmediatelyExpired()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        using var staleLease = registry.AcquireProfileChangeToken(9);
+
+        registry.InvalidateProfile(9);
+        memoryCache.Set(
+            "segment-display-rules:9",
+            "stale",
+            new MemoryCacheEntryOptions().AddExpirationToken(staleLease.Token));
+
+        Assert.False(memoryCache.TryGetValue("segment-display-rules:9", out _));
+    }
+
+    [Fact]
+    public void OldEvictionCallback_DoesNotRemoveReplacementRegistration()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        var original = registry.Register(1, 9, "segment-spans:test");
+        var replacement = registry.Register(1, 9, "segment-spans:test");
+
+        registry.Unregister("segment-spans:test", original);
+
+        Assert.Equal(1, registry.RegistrationCount);
+        registry.Unregister("segment-spans:test", replacement);
+        Assert.Equal(0, registry.RegistrationCount);
+    }
+
+    [Fact]
+    public void LateCacheSet_AfterGlobalInvalidationIsImmediatelyExpired()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        var staleToken = registry.GetAllChangeToken();
+
+        registry.InvalidateAll();
+        memoryCache.Set("late", "stale", new MemoryCacheEntryOptions().AddExpirationToken(staleToken));
+
+        Assert.False(memoryCache.TryGetValue("late", out _));
+    }
+
+    [Fact]
+    public void ChangeTokenState_IsPrunedAfterItsLastCacheAndComputationRelease()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        var videoLease = registry.AcquireVideoChangeToken(123);
+        var profileLease = registry.AcquireProfileChangeToken(9);
+        var registration = registry.Register(123, 9, "segment-spans:test");
+
+        videoLease.Dispose();
+        profileLease.Dispose();
+
+        Assert.Equal(1, registry.VideoTokenCount);
+        Assert.Equal(1, registry.ProfileTokenCount);
+
+        registry.Unregister("segment-spans:test", registration);
+
+        Assert.Equal(0, registry.VideoTokenCount);
+        Assert.Equal(0, registry.ProfileTokenCount);
+    }
+
+    [Fact]
+    public void UncachedChangeTokenState_IsPrunedWhenComputationReleasesItsLease()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var registry = new SegmentSpanCacheRegistry(memoryCache);
+        var lease = registry.AcquireVideoChangeToken(123);
+
+        Assert.Equal(1, registry.VideoTokenCount);
+
+        lease.Dispose();
+
+        Assert.Equal(0, registry.VideoTokenCount);
+    }
+
     [Fact]
     public async Task VideoSegmentsController_CanCreateUpdateListAndDeleteVideoSegments()
     {

@@ -62,3 +62,15 @@ The `Cove.Core` / `Cove.Plugins` / `Cove.Sdk` trio **is** the extension ABI. Ext
 a version of it and declare `minCoveVersion` in `extension.json`; the host refuses to load an extension
 that needs a newer host than is running. Keep the trio's public surface the stable contract — treat a
 breaking change to it as a major version of the extension ABI.
+
+## Invalidating segment-span caches
+
+Extensions that commit changes to Cove's video segments outside the built-in controllers must resolve
+`Cove.Core.Interfaces.ISegmentSpanCacheInvalidator` from their service provider. Call
+`InvalidateVideo(videoId)` after the transaction commits. Cove then removes raw-segment, resolved-span,
+and derived-query projections for that video, including results that were still being computed when
+the invalidation happened.
+
+`InvalidateAll()` is available for bulk operations that cannot identify the affected videos, but
+video-specific invalidation should be preferred. The service only invalidates projections; it neither
+persists nor authorizes the underlying mutation.
