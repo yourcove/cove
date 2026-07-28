@@ -19,7 +19,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ILogger<VideosController>? logger = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -583,15 +583,26 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                         .SetProperty(video => video.UpdatedAt, DateTime.UtcNow),
                     ct);
         }
-        catch
+        catch (Exception updateException)
         {
-            await TryDeleteCoverBlobAsync(imageBlobId);
+            try
+            {
+                await blobService.DeleteBlobAsync(imageBlobId, CancellationToken.None);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(
+                    "The cover update failed and the generated cover could not be cleaned up.",
+                    updateException,
+                    cleanupException);
+            }
+
             throw;
         }
 
         if (updatedRows != 1)
         {
-            await TryDeleteCoverBlobAsync(imageBlobId);
+            await blobService.DeleteBlobAsync(imageBlobId, CancellationToken.None);
             return Conflict(new
             {
                 message = "The video cover changed while this cover was being generated. Please try again.",
@@ -599,23 +610,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
 
         if (!string.IsNullOrWhiteSpace(existingVideo.ImageBlobId))
-            await TryDeleteCoverBlobAsync(existingVideo.ImageBlobId);
+            await blobService.DeleteBlobAsync(existingVideo.ImageBlobId, CancellationToken.None);
 
         return Ok(new { success = true });
-    }
-
-    private async Task TryDeleteCoverBlobAsync(string blobId)
-    {
-        try
-        {
-            await blobService.DeleteBlobAsync(blobId, CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            logger?.LogWarning(
-                exception,
-                "Failed to clean up a superseded video cover blob");
-        }
     }
 
     private async Task<VideoDto> MapToDtoWithProvenanceAsync(Video video, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, CancellationToken cancellationToken = default)

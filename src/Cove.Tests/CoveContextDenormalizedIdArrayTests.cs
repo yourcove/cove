@@ -546,6 +546,50 @@ public sealed class CoveContextDenormalizedIdArrayTests
         Assert.DoesNotContain("new-cover-1", blobService.DeletedBlobIds);
     }
 
+    [Fact]
+    public async Task SetCoverFromFrame_CleanupFailure_IsReported()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        int videoId;
+        await using (var setup = new CoveContext(options))
+        {
+            await setup.Database.EnsureCreatedAsync();
+            var video = new Video { Title = "Cover cleanup video", ImageBlobId = "old-cover" };
+            setup.Add(video);
+            await setup.SaveChangesAsync();
+            videoId = video.Id;
+        }
+
+        await using var context = new CoveContext(options);
+        var thumbnailService = new BlockingThumbnailService();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = CreateCoverController(
+            context,
+            thumbnailService,
+            memoryCache,
+            new FailingDeleteBlobService(),
+            new StaticScreenshotStreamService());
+
+        var request = controller.SetCoverFromFrame(videoId, null, CancellationToken.None);
+        await thumbnailService.GenerationStarted;
+        thumbnailService.CompleteGeneration();
+
+        var exception = await Assert.ThrowsAsync<IOException>(() => request);
+        Assert.Contains("old-cover", exception.Message, StringComparison.Ordinal);
+
+        context.ChangeTracker.Clear();
+        var storedBlobId = await context.Videos
+            .Where(video => video.Id == videoId)
+            .Select(video => video.ImageBlobId)
+            .SingleAsync();
+        Assert.Equal("new-cover", storedBlobId);
+    }
+
     private static async Task AddPerformerAsync(
         DbContextOptions<CoveContext> options,
         int videoId,
@@ -675,5 +719,22 @@ public sealed class CoveContextDenormalizedIdArrayTests
                 _deletedBlobIds.Add(blobId);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FailingDeleteBlobService : IBlobService
+    {
+        public Task<string> StoreBlobAsync(
+            Stream data,
+            string contentType,
+            CancellationToken ct = default) =>
+            Task.FromResult("new-cover");
+
+        public Task<(Stream Stream, string ContentType)?> GetBlobAsync(
+            string blobId,
+            CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task DeleteBlobAsync(string blobId, CancellationToken ct = default) =>
+            Task.FromException(new IOException($"Failed to delete {blobId}"));
     }
 }
