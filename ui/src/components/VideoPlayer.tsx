@@ -137,6 +137,20 @@ function getConfiguredPlaybackStartTime(duration: number, startPercent: number, 
  */
 export type VideoPlayerSeek = (time: number, forcePlay?: boolean) => void;
 
+/**
+ * Imperative controls for a consumer that renders Cove's reusable `VideoPlayer`.
+ *
+ * These controls delegate to the same bounded player operations used by media-player slot
+ * contributions. `seekBy` is relative, clamps through the host seek path, and preserves the
+ * current playing or paused state. `play` can reject when the browser blocks playback.
+ */
+export type VideoPlayerPlaybackControls = {
+  play: () => Promise<void>;
+  pause: () => void;
+  toggle: () => void;
+  seekBy: (seconds: number) => void;
+};
+
 export function VideoPlayer({
   streamUrl,
   posterUrl,
@@ -153,6 +167,7 @@ export function VideoPlayer({
   onPause,
   onPlaybackStateChange,
   onSeekRegister,
+  onPlaybackControlRegister,
   onTimeUpdate: onTimeUpdateProp,
   autostart,
   autostartToken,
@@ -183,6 +198,12 @@ export function VideoPlayer({
   onPlaybackStateChange?: (playing: boolean) => void;
   /** Receives the current seek function whenever its host implementation changes. */
   onSeekRegister?: (fn: VideoPlayerSeek) => void;
+  /**
+   * Receives a bounded control generation for components that render the reusable player.
+   * The callback runs again when an implementation changes. It may return a cleanup function,
+   * which Cove runs before replacing that generation and when the player unmounts.
+   */
+  onPlaybackControlRegister?: (controls: VideoPlayerPlaybackControls) => void | (() => void);
   onTimeUpdate?: (time: number) => void;
   autostart?: boolean;
   autostartToken?: number;
@@ -1041,7 +1062,9 @@ export function VideoPlayer({
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
-    const currentPosition = roundPlaybackTime(video ? toAbsoluteTime(video.currentTime) : currentTime);
+    const currentPosition = roundPlaybackTime(
+      video ? toAbsoluteTime(video.currentTime) : lastSeenTime.current,
+    );
 
     if (!video || !clip || loop) {
       return currentPosition;
@@ -1061,7 +1084,7 @@ export function VideoPlayer({
     }
 
     return currentPosition;
-  }, [clip, clipEnd, clipStart, currentTime, loop, seekToAbsoluteTime, toAbsoluteTime]);
+  }, [clip, clipEnd, clipStart, loop, seekToAbsoluteTime, toAbsoluteTime]);
 
   const playVideo = useCallback(() => {
     const video = videoRef.current;
@@ -1085,6 +1108,29 @@ export function VideoPlayer({
     if (!Number.isFinite(seconds)) return;
     seekToAbsoluteTime(seconds);
   }, [seekToAbsoluteTime]);
+
+  const toggleForRegisteredControl = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) void playForExtension().catch(() => {});
+    else pauseForExtension();
+  }, [pauseForExtension, playForExtension]);
+
+  const seekByForRegisteredControl = useCallback((seconds: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(seconds)) return;
+    seekToAbsoluteTime(toAbsoluteTime(video.currentTime) + seconds, false);
+  }, [seekToAbsoluteTime, toAbsoluteTime]);
+
+  useEffect(() => {
+    if (!onPlaybackControlRegister) return;
+    return onPlaybackControlRegister({
+      play: playForExtension,
+      pause: pauseForExtension,
+      toggle: toggleForRegisteredControl,
+      seekBy: seekByForRegisteredControl,
+    });
+  }, [onPlaybackControlRegister, pauseForExtension, playForExtension, seekByForRegisteredControl, toggleForRegisteredControl]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {

@@ -73,7 +73,7 @@ export type {
 
 // ─── Players / Viewers ────────────────────────────────────────────────────
 export { VideoPlayer } from "./VideoPlayer";
-export type { VideoPlayerSeek } from "./VideoPlayer";
+export type { VideoPlayerPlaybackControls, VideoPlayerSeek } from "./VideoPlayer";
 export {
   MEDIA_PLAYER_ACTIONS_SLOT,
   MEDIA_PLAYER_OVERLAY_SLOT,

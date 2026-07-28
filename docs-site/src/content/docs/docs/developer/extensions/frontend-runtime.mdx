@@ -79,7 +79,7 @@ The `v1` barrel groups these exports:
 | Ratings | `InteractiveRating`, `RatingBadge`, `RatingBanner`, `RatingField`, `getRatingBannerColor`, `convertToRatingFormat`, `convertFromRatingFormat`, `formatDisplayRating`, `getRatingMax`, `getRatingStep`, `getRatingInputLabel`, `normalizeRatingOptions`, `defaultRatingSystemOptions` |
 | Utilities and custom fields | `TagBadge`, `formatDuration`, `formatFileSize`, `formatDate`, `getResolutionLabel`, `CustomFieldsDisplay`, `CustomFieldsEditor` |
 | Host integration | `openTutorialStoryboard`, `registerManualContext`, `useManualContext`, `useMultiSelect`, `useKeySequence`, `useListUrlState`, `useAppConfig`, `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT` |
-| Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface` |
+| Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface`, `VideoPlayerSeek`, `VideoPlayerPlaybackControls` |
 
 The table groups helper families for readability. Check the matching runtime type declarations when a helper has several arguments.
 
@@ -112,6 +112,33 @@ Use `DetailListPagination` when the pager belongs below the results instead of i
 It also accepts `allowInfinitePageSize`, `infinitePageSizeOnly`, `showPagingControls`, and `className`.
 
 These primitives provide Cove's current UI behavior, but the extension still owns its data query, empty and error states, and permission handling. Prefer host CSS variables and shared components over copying internal markup or Tailwind classes that are not part of this barrel.
+
+### Reusable video player controls
+
+`VideoPlayer` can register bounded controls for a component that renders the reusable player:
+
+```tsx
+<VideoPlayer
+  {...playerProps}
+  onSeekRegister={(seek) => {
+    seekRef.current = seek;
+  }}
+  onPlaybackControlRegister={(controls) => {
+    controlsRef.current = controls;
+    return () => {
+      controlsRef.current = null;
+    };
+  }}
+/>
+```
+
+`VideoPlayerSeek(time, forcePlay?)` keeps the historical play-on-seek behavior by default. Pass
+`false` to preserve the current playing or paused state. `VideoPlayerPlaybackControls` provides
+`play`, `pause`, `toggle`, and relative `seekBy`; relative seeks also preserve playback state.
+`play` returns a promise because browser playback policy can reject it. A registration callback may
+return cleanup, which Cove runs before replacing that control generation and when the player
+unmounts. These controls operate the reusable `VideoPlayer`; media-player slot contributions should
+use the bounded controls in `MediaPlayerExtensionContext`.
 
 ## Compatibility
 
