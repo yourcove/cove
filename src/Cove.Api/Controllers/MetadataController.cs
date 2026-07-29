@@ -5,6 +5,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using System.Net.Http;
@@ -25,6 +26,7 @@ public class MetadataController(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     CoveConfiguration config,
+    IEventBus eventBus,
     ILogger<MetadataController> logger) : ControllerBase
 {
     private static readonly JsonSerializerOptions MetadataExportJsonOptions = new(CoveJson.Default)
@@ -1257,12 +1259,19 @@ public class MetadataController(
                 {
                     try
                     {
-                        await TryScraperIdentifyVideoAsync(video, enabledScraperIds, opts, identifyDefaults, scraperSvc, scrapeAttemptSvc, ct);
+                        identified = await TryScraperIdentifyVideoAsync(video, enabledScraperIds, opts, identifyDefaults, scraperSvc, scrapeAttemptSvc, ct);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Scraper identify failed for video {VideoId}", video.Id);
                     }
+                }
+
+                // Identify is where a video gains its remote ids, so it is the one signal an extension
+                // needs to act on a newly-resolved scene. A video nothing matched publishes nothing.
+                if (identified)
+                {
+                    eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));
                 }
             }
 
