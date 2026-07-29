@@ -9,6 +9,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
@@ -19,7 +20,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -330,6 +331,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (video == null) return NotFound();
 
         var engagement = (await engagementService.GetVideoSnapshotsAsync([videoId], ct)).GetValueOrDefault(videoId);
+        eventBus.Publish(new EntityEvent(EventType.VideoCreated, "Video", videoId));
         return CreatedAtAction(nameof(GetById), new { id = videoId }, await MapToDtoWithProvenanceAsync(video, engagement, HasUserScopedEngagement, ct));
     }
 
@@ -452,6 +454,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, id, ct);
                 await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Video, id, ct);
                 await videoRepo.DeleteAsync(id, ct);
+                eventBus.Publish(new EntityEvent(EventType.VideoDeleted, "Video", id));
                 deletedCount++;
             }
         }
@@ -529,6 +532,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (!imported) return NotFound();
 
         await db.SaveChangesAsync(ct);
+        eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", id));
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct));
     }
@@ -1497,6 +1501,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
 
         await db.SaveChangesAsync(ct);
+
+        // A merge is one update and N disappearances: a consumer holding a source id needs to learn it
+        // is gone, not just that the target changed.
+        eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", target.Id));
+        foreach (var source in sources)
+        {
+            eventBus.Publish(new EntityEvent(EventType.VideoDeleted, "Video", source.Id));
+        }
+
         var result = await videoRepo.GetByIdWithRelationsAsync(target.Id, ct);
         var engagement = (await engagementService.GetVideoSnapshotsAsync([target.Id], ct)).GetValueOrDefault(target.Id);
         return Ok(await MapToDtoWithProvenanceAsync(result!, engagement, HasUserScopedEngagement, ct));
@@ -1560,6 +1573,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         file.VideoId = id;
         await db.SaveChangesAsync(ct);
+        eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", id));
         return Ok();
     }
 
