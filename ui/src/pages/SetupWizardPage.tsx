@@ -29,8 +29,35 @@ interface Props {
   onComplete: (options?: { showTutorial?: boolean }) => void;
 }
 
-type Step = "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "owner" | "theme" | "done";
-type SetupMode = "fresh" | "stash" | "backup" | null;
+export type Step = "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "owner" | "theme" | "done";
+export type SetupMode = "fresh" | "stash" | "backup" | null;
+type ActiveSetupMode = Exclude<SetupMode, null>;
+
+export function buildSetupStepList(activeMode: ActiveSetupMode, needsOwnerSetup: boolean): Step[] {
+  const ownerStep: Step[] = needsOwnerSetup ? ["owner"] : [];
+  if (activeMode === "stash") {
+    return ["welcome", "source", ...ownerStep, "stash-config", "theme", "done"];
+  }
+  if (activeMode === "backup") {
+    return ["welcome", "source", "backup-restore", ...ownerStep, "theme", "done"];
+  }
+  return ["welcome", "source", "paths", "confirm", ...ownerStep, "theme", "done"];
+}
+
+export function resolveStashSetupEntryStep(ownerExists: boolean): Step {
+  return ownerExists ? "stash-config" : "owner";
+}
+
+export function resolveOwnerNextStep(activeMode: ActiveSetupMode, stashImportComplete: boolean): Step {
+  return activeMode === "stash" && !stashImportComplete ? "stash-config" : "theme";
+}
+
+export function resolveOwnerBackStep(activeMode: ActiveSetupMode, stashImportComplete: boolean): Step {
+  if (activeMode === "stash") {
+    return stashImportComplete ? "stash-config" : "source";
+  }
+  return activeMode === "fresh" ? "confirm" : "backup-restore";
+}
 
 interface BackupRestoreResultSummary {
   backupPath: string;
@@ -292,16 +319,22 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       : "fresh");
   const bootstrapStatusQuery = useQuery({ queryKey: ["auth", "bootstrap-status"], queryFn: auth.bootstrapStatus });
   const needsOwnerSetup = bootstrapStatusQuery.data?.ownerExists === false;
-  const ownerStep: Step[] = needsOwnerSetup ? ["owner"] : [];
-  const stepList: Step[] = activeMode === "stash"
-    ? ["welcome", "source", "stash-config", ...ownerStep, "theme", "done"]
-    : activeMode === "backup"
-    ? ["welcome", "source", "backup-restore", ...ownerStep, "theme", "done"]
-    : ["welcome", "source", "paths", "confirm", ...ownerStep, "theme", "done"];
+  const stepList = buildSetupStepList(activeMode, needsOwnerSetup);
   const themeOptions = useMemo(() => availableThemes, [availableThemes]);
   const goToPostContentSetup = async () => {
     const status = await bootstrapStatusQuery.refetch();
     setStep(status.data?.ownerExists === false ? "owner" : "theme");
+  };
+  const handleBeginStashSetup = async () => {
+    setError(null);
+    const status = await bootstrapStatusQuery.refetch();
+    if (status.isError || !status.data) {
+      setError("Cove could not verify whether an Owner account exists. Try again before starting the Stash import.");
+      return;
+    }
+
+    setSetupMode("stash");
+    setStep(resolveStashSetupEntryStep(status.data.ownerExists));
   };
 
   const stashPreviewMut = useMutation({
@@ -426,7 +459,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
       authStore.setTokens(response.token, response.refreshToken);
       await refreshMe();
       await bootstrapStatusQuery.refetch();
-      setStep("theme");
+      setStep(resolveOwnerNextStep(activeMode, stashResult !== null));
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -540,8 +573,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   </div>
                 </button>
                 <button
-                  onClick={() => { setSetupMode("stash"); setStep("stash-config"); }}
-                  className="flex flex-col items-center gap-3 p-6 bg-card border-2 border-border hover:border-accent rounded-xl transition-colors text-left"
+                  onClick={handleBeginStashSetup}
+                  disabled={bootstrapStatusQuery.isFetching}
+                  className="flex flex-col items-center gap-3 p-6 bg-card border-2 border-border hover:border-accent rounded-xl transition-colors text-left disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Database className="w-8 h-8 text-accent" />
                   <div>
@@ -560,6 +594,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   </div>
                 </button>
               </div>
+              {error ? <div role="alert" className="mt-4 rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300">{error}</div> : null}
               <div className="mt-6 flex justify-start">
                 <button
                   onClick={() => setStep("welcome")}
@@ -1007,7 +1042,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
             <div className="p-8">
               <h2 className="text-xl font-bold text-foreground mb-2">Set the owner password</h2>
               <p className="text-sm text-secondary mb-6">
-                Create the Owner account now so Cove is ready if authentication is enabled later or the outside-IP failsafe requires sign-in.
+                {activeMode === "stash" && stashResult === null
+                  ? "Create the Owner account before importing so ratings, favorites, and engagement data have an owner."
+                  : "Create the Owner account now so Cove is ready if authentication is enabled later or the outside-IP failsafe requires sign-in."}
               </p>
 
               <div className="space-y-4">
@@ -1055,7 +1092,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 <button
                   onClick={() => {
                     setError(null);
-                    setStep(activeMode === "fresh" ? "confirm" : activeMode === "stash" ? "stash-config" : "backup-restore");
+                    setStep(resolveOwnerBackStep(activeMode, stashResult !== null));
                   }}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
                 >
@@ -1308,4 +1345,3 @@ function SetupImportProgressCard({ job }: { job: JobInfo }) {
     </div>
   );
 }
-

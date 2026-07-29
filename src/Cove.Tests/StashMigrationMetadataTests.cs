@@ -16,6 +16,43 @@ namespace Cove.Tests;
 public class StashMigrationMetadataTests
 {
     [Fact]
+    public async Task ImportAsync_RejectsImportWhenNoEngagementOwnerExists()
+    {
+        await using var context = CreateContext(includeOwner: false);
+        var dbPath = await CreateSqliteDatabaseAsync("", "cove-ownerless-stash-migration");
+
+        try
+        {
+            var service = CreateService(context);
+
+            var exception = await Assert.ThrowsAsync<StashMigrationOwnerRequiredException>(
+                () => service.ImportAsync(
+                    dbPath,
+                    new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false)));
+
+            Assert.Contains("Owner", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDeleteFile(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task StartImportAsync_RejectsImportWhenNoEngagementOwnerExists()
+    {
+        await using var context = CreateContext(includeOwner: false);
+        var service = CreateService(context);
+
+        var exception = await Assert.ThrowsAsync<StashMigrationOwnerRequiredException>(
+            () => service.StartImportAsync(
+                "/path/that-must-not-be-queued.sqlite",
+                new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false)));
+
+        Assert.Contains("Owner", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CoveContext_PreservesExplicitTimestampsOnImportedEntities()
     {
         await using var context = CreateContext();
@@ -1961,22 +1998,26 @@ VALUES
         }
     }
 
-    private static CoveContext CreateContext()
+    private static CoveContext CreateContext(bool includeOwner = true)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseInMemoryDatabase($"stash-metadata-{Guid.NewGuid():N}")
             .Options;
 
         var context = new TestCoveContext(options);
-        context.Users.Add(new User
+        if (includeOwner)
         {
-            Username = "owner",
-            PasswordHash = "test",
-            PasswordAlgo = "test",
-            IsSystem = true,
-            IsActive = true,
-        });
-        context.SaveChanges();
+            context.Users.Add(new User
+            {
+                Username = "owner",
+                PasswordHash = "test",
+                PasswordAlgo = "test",
+                IsSystem = true,
+                IsActive = true,
+            });
+            context.SaveChanges();
+        }
+
         return context;
     }
 

@@ -23,15 +23,22 @@ public class StashMigrationController(StashMigrationService migrationService) : 
     }
 
     [HttpPost("import")]
-    public ActionResult<object> Import([FromBody] ImportRequest req)
+    public async Task<ActionResult<object>> Import([FromBody] ImportRequest req, CancellationToken ct)
     {
         try
         {
             var pathMappings = req.PathMappings?
                 .Select(mapping => new StashPathMapping(mapping.Source, mapping.Target))
                 .ToArray();
-            var jobId = migrationService.StartImport(req.StashDbPath, new StashImportOptions(req.GeneratedPath, req.MigrateGeneratedContent, pathMappings));
+            var jobId = await migrationService.StartImportAsync(
+                req.StashDbPath,
+                new StashImportOptions(req.GeneratedPath, req.MigrateGeneratedContent, pathMappings),
+                ct);
             return Accepted(new { jobId });
+        }
+        catch (StashMigrationOwnerRequiredException ex)
+        {
+            return Conflict(new { code = "OWNER_REQUIRED", error = ex.Message });
         }
         catch (StashMigrationInProgressException ex)
         {
