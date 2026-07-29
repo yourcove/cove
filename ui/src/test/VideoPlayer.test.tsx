@@ -2,6 +2,7 @@ import React from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayer, type VideoPlayerPlaybackControls } from "../components/VideoPlayer";
+import { videos } from "../api/client";
 
 const { mockPlaybackTracker } = vi.hoisted(() => ({
   mockPlaybackTracker: {
@@ -28,6 +29,7 @@ vi.mock("../state/AppConfigContext", () => ({
 const playMock = vi.fn(() => Promise.resolve());
 const pauseMock = vi.fn();
 const loadMock = vi.fn();
+const getResolutionsMock = vi.spyOn(videos, "getResolutions");
 const localStorageMock = {
   getItem: vi.fn(() => null),
   setItem: vi.fn(),
@@ -67,6 +69,8 @@ describe("VideoPlayer source lifecycle", () => {
     playMock.mockResolvedValue(undefined);
     pauseMock.mockClear();
     loadMock.mockClear();
+    getResolutionsMock.mockReset();
+    getResolutionsMock.mockResolvedValue(["240p", "480p"]);
     mockPlaybackTracker.setTarget.mockClear();
     mockPlaybackTracker.recordInterval.mockClear();
     mockPlaybackTracker.flush.mockClear();
@@ -298,6 +302,43 @@ describe("VideoPlayer source lifecycle", () => {
     const source = container.querySelector("source");
     expect(source).toBeInstanceOf(HTMLSourceElement);
     expect(source).not.toHaveAttribute("type");
+  });
+
+  it("proactively transcodes WMV instead of waiting for an unreliable media error", async () => {
+    const { container, getByText } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/42"
+        format="wmv"
+        duration={120}
+        videoId={42}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    const source = container.querySelector("source");
+    await waitFor(() => {
+      expect(source).toHaveAttribute("src", "/api/stream/video/42/transcode?resolution=480p");
+    });
+    expect(getByText(/unsupported video format/i)).toBeInTheDocument();
+  });
+
+  it("keeps browser-native MP4 sources in Direct mode", async () => {
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/42"
+        format="mp4"
+        duration={120}
+        videoId={42}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    const source = container.querySelector("source");
+    await waitFor(() => expect(getResolutionsMock).toHaveBeenCalledWith(42));
+    expect(source).toHaveAttribute("src", "/api/stream/video/42");
+    expect(source).toHaveAttribute("type", "video/mp4");
   });
 
   it("does not carry the previous video's end position into a different video", async () => {

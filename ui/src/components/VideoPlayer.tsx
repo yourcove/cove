@@ -74,6 +74,20 @@ function getVideoSourceMimeType(format?: string) {
 // smaller transcode-ladder entries are available (e.g. a sub-360p source).
 const SOURCE_TRANSCODE_QUALITY = "Source";
 
+// Containers browsers can generally attempt directly. Known non-native formats such as WMV,
+// ASF, and AVI may never emit a useful media error, so route them through FFmpeg proactively.
+const BROWSER_NATIVE_VIDEO_FORMATS = new Set(["mp4", "m4v", "webm", "ogg", "ogv", "mpeg", "mpg", "mov"]);
+
+function isBrowserCompatibleVideoFormat(format?: string) {
+  const normalized = format?.trim().toLowerCase();
+  if (!normalized) {
+    // Unknown format - retain Direct and let the media error fallback decide.
+    return true;
+  }
+
+  return BROWSER_NATIVE_VIDEO_FORMATS.has(normalized);
+}
+
 // Audio codecs that browsers generally cannot decode in a direct <video> playback. Files with
 // these codecs play with video but NO audio in Direct mode, and because playback does not error
 // the onError->transcode fallback never fires — so we proactively avoid defaulting to Direct.
@@ -249,13 +263,13 @@ export function VideoPlayer({
   const [selectedQuality, setSelectedQuality] = useState<string>("Direct");
   const [transcodeStartSec, setTranscodeStartSec] = useState(0);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
-  // Set when we avoid Direct play because the audio codec is browser-incompatible, so we can surface
+  // Set when we avoid Direct play because the source is browser-incompatible, so we can surface
   // a subtle note explaining why a transcoded stream was chosen. Reset per video.
-  const [audioFallbackActive, setAudioFallbackActive] = useState(false);
+  const [compatibilityFallbackReason, setCompatibilityFallbackReason] = useState<"video format" | "audio codec" | null>(null);
   // Guards the one-shot automatic transcode fallback (on direct-play error). Reset per video.
   const autoTranscodeTriedRef = useRef(false);
-  // Guards the one-shot incompatible-audio default selection so a user can still pick Direct later.
-  const audioFallbackAppliedRef = useRef(false);
+  // Guards the one-shot compatibility default selection so a user can still pick Direct later.
+  const compatibilityFallbackAppliedRef = useRef(false);
   const [faceOverlayEnabled, setFaceOverlayEnabled] = usePersistedFlag(FACE_OVERLAY_KEY, false);
   const playbackTracker = useRef(createPlaybackTracker());
   const sourceRef = useRef<HTMLSourceElement>(null);
@@ -450,10 +464,10 @@ export function VideoPlayer({
     pendingAutostartRef.current = false;
     setPlaying(false);
     autoTranscodeTriedRef.current = false;
-    audioFallbackAppliedRef.current = false;
+    compatibilityFallbackAppliedRef.current = false;
     if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
     networkRecoveryRef.current = { attempts: 0, timer: null };
-    setAudioFallbackActive(false);
+    setCompatibilityFallbackReason(null);
     setSelectedQuality("Direct");
     setTranscodeStartSec(0);
   }, [videoId]);
@@ -1045,20 +1059,21 @@ export function VideoPlayer({
       const resolutions = res ?? [];
       setAvailableQualities(resolutions);
 
-      // If the source audio codec can't be decoded by the browser, Direct play would yield video
-      // with no audio (and no error to trigger the onError fallback). Proactively default to the
-      // best available transcode instead. Only applied once per video so the user can still
-      // explicitly choose Direct afterward.
-      if (!audioFallbackAppliedRef.current && !isBrowserCompatibleAudio(audioCodec)) {
-        audioFallbackAppliedRef.current = true;
+      // Some unsupported containers and audio codecs never produce a useful media error. Proactively
+      // default those sources to the best available transcode, while still allowing Direct manually.
+      const fallbackReason = !isBrowserCompatibleVideoFormat(format)
+        ? "video format"
+        : !isBrowserCompatibleAudio(audioCodec) ? "audio codec" : null;
+      if (!compatibilityFallbackAppliedRef.current && fallbackReason) {
+        compatibilityFallbackAppliedRef.current = true;
         const target = resolutions.length > 0
           ? resolutions[resolutions.length - 1]
           : SOURCE_TRANSCODE_QUALITY;
         setSelectedQuality((prev) => (prev === "Direct" ? target : prev));
-        setAudioFallbackActive(true);
+        setCompatibilityFallbackReason(fallbackReason);
       }
     }).catch(() => {});
-  }, [audioCodec, videoId]);
+  }, [audioCodec, format, videoId]);
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -1264,8 +1279,8 @@ export function VideoPlayer({
     sourceRestoreRef.current = { time: curTime, shouldPlay: wasPlaying };
     if (quality === "Direct") {
       setTranscodeStartSec(0);
-      // User explicitly chose Direct — dismiss the incompatible-audio note.
-      setAudioFallbackActive(false);
+      // User explicitly chose Direct — dismiss the compatibility note.
+      setCompatibilityFallbackReason(null);
     } else {
       setTranscodeStartSec(curTime);
     }
@@ -1919,9 +1934,9 @@ export function VideoPlayer({
         </div>
       )}
 
-      {audioFallbackActive && (
+      {compatibilityFallbackReason && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[3] pointer-events-none rounded bg-black/70 px-3 py-1 text-xs text-white/90">
-          Direct play unavailable: unsupported audio codec — using transcoded stream
+          Direct play unavailable: unsupported {compatibilityFallbackReason} — using transcoded stream
         </div>
       )}
 
