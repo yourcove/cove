@@ -42,7 +42,37 @@ public sealed class EntityEventFilter : IAsyncActionFilter
         var (eventType, entityId) = DetermineEvent(actionName, entityType, context, result);
         if (eventType == null) return;
 
+        // A bulk update names every entity it touched. Publishing one event with id 0 told a consumer
+        // that something changed without saying what, which is indistinguishable from no information.
+        if (actionName == "bulkupdate" && ExtractBulkIds(context) is { Count: > 0 } bulkIds)
+        {
+            foreach (var id in bulkIds)
+            {
+                eventBus.Publish(new EntityEvent(eventType.Value, entityType, id));
+            }
+            return;
+        }
+
         eventBus.Publish(new EntityEvent(eventType.Value, entityType, entityId));
+    }
+
+    /// <summary>
+    /// Reads the id list off a bulk action's request DTO by convention (an <c>Ids</c> property of
+    /// <c>List&lt;int&gt;</c>). Returns null when no argument exposes one, so the caller falls back to the
+    /// single-event path rather than dropping the event.
+    /// </summary>
+    private static List<int>? ExtractBulkIds(ActionExecutingContext context)
+    {
+        foreach (var argument in context.ActionArguments.Values)
+        {
+            if (argument == null) continue;
+
+            var idsProp = argument.GetType().GetProperty("Ids");
+            if (idsProp?.GetValue(argument) is List<int> ids)
+                return ids;
+        }
+
+        return null;
     }
 
     private static (EventType? eventType, int entityId) DetermineEvent(
