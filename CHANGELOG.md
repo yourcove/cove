@@ -10,6 +10,22 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-29
+
+Smarter browsing and editing, smoother compilations, and a major expansion of Cove's extension platform.
+
+- Group item views now support random sorting and saved filters, preserve filters in the URL, and play compilations in the chosen order. Compilations also honor autoplay and switch items without pausing or flashing posters.
+- Saved filters are now private to each user and list type, can be updated in place, and give clearer feedback for duplicate names or failed saves.
+- Continue Watching now paginates correctly and filters completed or unavailable items before counting them. Detail searches keep focus while loading, and pagination recovers when filtering or deletion leaves the current page out of range.
+- Tag artwork previews now appear when hovering tag references across cards, feeds, lists, and related-item popovers.
+- Metadata refreshes now save performer, studio, and tag results through the correct source. Video imports refresh related views, and overlapping video saves preserve relationships.
+- Optional metadata fields can now be cleared across Cove's edit forms. Removing a performer image now also removes its stored cover and generated thumbnails.
+- First-run Stash imports now require the Owner account first, ensuring imported ratings, favorites, and watch activity have an owner.
+- Extensions can now customize artwork and cover editing throughout Cove, add tag filters and nested pages, and contribute media-player controls and overlays.
+- Extension pages, tabs, and APIs now respect Cove permissions and authentication. Extension reloads are better isolated, and extension database migrations are atomic and retry-safe.
+- Authentication is more reliable for personal access tokens, share links, and API-token media URLs, including redirected group and gallery covers.
+- Documentation has been reorganized around real tasks, with clearer installation and media-mount guidance, expanded user and developer references, screenshots, and an extension tutorial.
+
 ## [1.0.0] - 2026-07-18
 
 - Last minute performance enhancements for list pages
