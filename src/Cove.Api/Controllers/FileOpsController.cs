@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Data;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -12,7 +13,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/files")]
 [RequiresPermission(Permissions.FilesRead)]
-public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger) : ControllerBase
+public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileOpsController> logger) : ControllerBase
 {
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
@@ -60,7 +61,45 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
         }
 
         await db.SaveChangesAsync(ct);
+        PublishOwnerUpdates(files);
         return Ok(new { moved = movedCount, total = files.Count });
+    }
+
+    /// <summary>
+    /// Announces the owning entity of every moved or unlinked file as updated.
+    /// </summary>
+    /// <remarks>
+    /// The event names the OWNER, not the file row: a path change is a fact about the video or image a
+    /// consumer holds. Unlinking a file is an update even when it was the last one — the entity itself
+    /// survives here (only Clean removes a fileless record), so a Deleted event would be a false claim.
+    /// Files with no owner are skipped; there is nothing to announce them against.
+    /// </remarks>
+    private void PublishOwnerUpdates(IEnumerable<BaseFileEntity> files)
+    {
+        var videoIds = new HashSet<int>();
+        var imageIds = new HashSet<int>();
+        foreach (var file in files)
+        {
+            switch (file)
+            {
+                case VideoFile { VideoId: int videoId }:
+                    videoIds.Add(videoId);
+                    break;
+                case ImageFile { ImageId: int imageId }:
+                    imageIds.Add(imageId);
+                    break;
+            }
+        }
+
+        foreach (var videoId in videoIds)
+        {
+            eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", videoId));
+        }
+
+        foreach (var imageId in imageIds)
+        {
+            eventBus.Publish(new EntityEvent(EventType.ImageUpdated, "Image", imageId));
+        }
     }
 
     [HttpPost("delete")]
@@ -93,6 +132,7 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
         }
 
         await db.SaveChangesAsync(ct);
+        PublishOwnerUpdates(files);
         logger.LogInformation("Deleted {Count} file record(s) ({DiskCount} also removed from disk)", deletedCount, deletedFromDisk);
         return Ok(new { deleted = deletedCount });
     }
