@@ -126,6 +126,7 @@ public sealed class TagProvenanceServiceTests
             null!,
             new NoOpUserEngagementService(),
             new CustomFieldService(context),
+            new EventBus(),
             new TagProvenanceService(context));
 
         var createResult = await controller.Create(

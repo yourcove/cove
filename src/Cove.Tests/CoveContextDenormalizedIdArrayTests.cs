@@ -1,6 +1,7 @@
 using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
@@ -403,7 +404,8 @@ public sealed class CoveContextDenormalizedIdArrayTests
             null!,
             null!,
             null!,
-            null!);
+            null!,
+            new EventBus());
 
         var screenshotRequest = controller.GenerateScreenshot(videoId, null, CancellationToken.None);
         await thumbnailService.GenerationStarted;
@@ -627,7 +629,8 @@ public sealed class CoveContextDenormalizedIdArrayTests
             blobService,
             streamService,
             null!,
-            null!);
+            null!,
+            new EventBus());
 
     private sealed class BlockingThumbnailService : IThumbnailService
     {
