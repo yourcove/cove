@@ -1077,9 +1077,32 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]
     public async Task<ActionResult<int?>> SetRating(int id, [FromBody] VideoRatingDto dto, CancellationToken ct)
     {
+        // Created-vs-updated is only knowable before the write, and a rating is keyed on its aspect —
+        // a second aspect on the same video is a new rating, not an update of the first.
+        var existing = await engagementService.GetRatingsByAspectAsync(AffinityHostType.Video, id, ct);
+        var hadRating = existing?.ContainsKey(dto.Aspect) == true;
+
         var snapshot = await engagementService.SetVideoRatingAsync(id, dto.Value, dto.Aspect, ct);
-        return snapshot is null ? NotFound() : Ok(snapshot.Rating);
+        if (snapshot is null) return NotFound();
+
+        var eventType = dto.Value is null
+            ? EventType.RatingDeleted
+            : hadRating ? EventType.RatingUpdated : EventType.RatingCreated;
+        PublishRatingEvent(eventType, id, dto.Aspect, dto.Value);
+        return Ok(snapshot.Rating);
     }
+
+    /// <summary>
+    /// Publishes a rating lifecycle event carrying the payload <see cref="EventType.RatingCreated"/> and
+    /// its siblings document: <c>{ userId, aspect, value }</c>, with a null value meaning cleared.
+    /// </summary>
+    private void PublishRatingEvent(EventType eventType, int videoId, string aspect, int? value)
+        => eventBus.Publish(new EntityEvent(eventType, "Video", videoId, new Dictionary<string, object?>
+        {
+            ["userId"] = principalAccessor?.Current?.UserId,
+            ["aspect"] = aspect,
+            ["value"] = value,
+        }));
 
     [HttpGet("{id:int}/ratings")]
     [RequiresPermission(Permissions.VideosRead)]
@@ -1096,7 +1119,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     public async Task<IActionResult> ClearRating(int id, [FromQuery] string aspect = "overall", CancellationToken ct = default)
     {
         var snapshot = await engagementService.SetVideoRatingAsync(id, null, aspect, ct);
-        return snapshot is null ? NotFound() : NoContent();
+        if (snapshot is null) return NotFound();
+
+        PublishRatingEvent(EventType.RatingDeleted, id, aspect, null);
+        return NoContent();
     }
 
     // ===== Video Wall/Discovery =====
