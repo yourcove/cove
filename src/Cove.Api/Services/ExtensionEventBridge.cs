@@ -62,37 +62,32 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
         });
     }
 
-    private static string MapEventType(EventType type) => type switch
+    /// <summary>The verbs an <see cref="EventType"/> name ends in, longest first so a prefix never wins.</summary>
+    private static readonly string[] EventVerbs =
+        ["Completed", "Progress", "Stopping", "Created", "Updated", "Deleted", "Started", "Merged"];
+
+    /// <summary>
+    /// Derives the extension-facing <c>noun.verb</c> name from an <see cref="EventType"/> member's own name.
+    /// </summary>
+    /// <remarks>
+    /// Derived rather than enumerated so a new member is named correctly the day it is added: a name no
+    /// rule produces is a dotless one like <c>"audiocreated"</c>, which matches no other event and so can
+    /// have no subscriber written against it. An unrecognised verb keeps the plain lowercase name rather
+    /// than guessing a split point.
+    /// </remarks>
+    internal static string MapEventType(EventType type)
     {
-        EventType.VideoCreated => "video.created",
-        EventType.VideoUpdated => "video.updated",
-        EventType.VideoDeleted => "video.deleted",
-        EventType.PerformerCreated => "performer.created",
-        EventType.PerformerUpdated => "performer.updated",
-        EventType.PerformerDeleted => "performer.deleted",
-        EventType.TagCreated => "tag.created",
-        EventType.TagUpdated => "tag.updated",
-        EventType.TagDeleted => "tag.deleted",
-        EventType.TagMerged => "tag.merged",
-        EventType.StudioCreated => "studio.created",
-        EventType.StudioUpdated => "studio.updated",
-        EventType.StudioDeleted => "studio.deleted",
-        EventType.GalleryCreated => "gallery.created",
-        EventType.GalleryUpdated => "gallery.updated",
-        EventType.GalleryDeleted => "gallery.deleted",
-        EventType.ImageCreated => "image.created",
-        EventType.ImageUpdated => "image.updated",
-        EventType.ImageDeleted => "image.deleted",
-        EventType.GroupCreated => "group.created",
-        EventType.GroupUpdated => "group.updated",
-        EventType.GroupDeleted => "group.deleted",
-        EventType.RatingCreated => "rating.created",
-        EventType.RatingUpdated => "rating.updated",
-        EventType.RatingDeleted => "rating.deleted",
-        EventType.ScanStarted => "scan.started",
-        EventType.ScanCompleted => "scan.completed",
-        _ => type.ToString().ToLowerInvariant(),
-    };
+        var name = type.ToString();
+        foreach (var verb in EventVerbs)
+        {
+            if (name.Length > verb.Length && name.EndsWith(verb, StringComparison.Ordinal))
+            {
+                return $"{name[..^verb.Length].ToLowerInvariant()}.{verb.ToLowerInvariant()}";
+            }
+        }
+
+        return name.ToLowerInvariant();
+    }
 
     public void Dispose() => _subscription?.Dispose();
 }

@@ -11,7 +11,7 @@ namespace Cove.Api.Middleware;
 /// </summary>
 public sealed class EntityEventFilter : IAsyncActionFilter
 {
-    private static readonly Dictionary<string, string> ControllerEntityMap = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> ControllerEntityMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Videos"] = "video",
         ["Performers"] = "performer",
@@ -20,6 +20,8 @@ public sealed class EntityEventFilter : IAsyncActionFilter
         ["Galleries"] = "gallery",
         ["Images"] = "image",
         ["Groups"] = "group",
+        ["Audios"] = "audio",
+        ["Texts"] = "text",
     };
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
@@ -107,31 +109,21 @@ public sealed class EntityEventFilter : IAsyncActionFilter
         return 0;
     }
 
-    private static EventType? GetEventType(string entityType, string operation) =>
-        (entityType, operation) switch
-        {
-            ("video", "created") => EventType.VideoCreated,
-            ("video", "updated") => EventType.VideoUpdated,
-            ("video", "deleted") => EventType.VideoDeleted,
-            ("performer", "created") => EventType.PerformerCreated,
-            ("performer", "updated") => EventType.PerformerUpdated,
-            ("performer", "deleted") => EventType.PerformerDeleted,
-            ("studio", "created") => EventType.StudioCreated,
-            ("studio", "updated") => EventType.StudioUpdated,
-            ("studio", "deleted") => EventType.StudioDeleted,
-            ("tag", "created") => EventType.TagCreated,
-            ("tag", "updated") => EventType.TagUpdated,
-            ("tag", "deleted") => EventType.TagDeleted,
-            ("gallery", "created") => EventType.GalleryCreated,
-            ("gallery", "updated") => EventType.GalleryUpdated,
-            ("gallery", "deleted") => EventType.GalleryDeleted,
-            ("image", "created") => EventType.ImageCreated,
-            ("image", "updated") => EventType.ImageUpdated,
-            ("image", "deleted") => EventType.ImageDeleted,
-            ("group", "created") => EventType.GroupCreated,
-            ("group", "updated") => EventType.GroupUpdated,
-            ("group", "deleted") => EventType.GroupDeleted,
-            _ => null,
-        };
+    /// <summary>
+    /// Resolves the <see cref="EventType"/> for an entity and operation from the enum's own naming
+    /// (<c>video</c> + <c>created</c> → <see cref="EventType.VideoCreated"/>).
+    /// </summary>
+    /// <remarks>
+    /// Parsed rather than listed so registering a controller in <see cref="ControllerEntityMap"/> is the
+    /// ONE edit that adds an entity. Returns null when the enum has no matching member, which is what keeps
+    /// a controller whose entity has no event type from publishing a wrong one.
+    /// </remarks>
+    internal static EventType? GetEventType(string entityType, string operation) =>
+        Enum.TryParse<EventType>($"{Capitalize(entityType)}{Capitalize(operation)}", out var eventType)
+            ? eventType
+            : null;
+
+    private static string Capitalize(string value) =>
+        value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
 }
 

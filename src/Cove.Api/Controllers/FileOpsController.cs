@@ -76,29 +76,30 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
     /// </remarks>
     private void PublishOwnerUpdates(IEnumerable<BaseFileEntity> files)
     {
-        var videoIds = new HashSet<int>();
-        var imageIds = new HashSet<int>();
+        var owners = new HashSet<(EventType Type, string EntityType, int Id)>();
         foreach (var file in files)
         {
-            switch (file)
+            // Every file subclass carries its owner under a differently-named FK, so this is the one place
+            // the schema has to be spelled out; a new file type is one arm.
+            (EventType Type, string EntityType, int Id)? owner = file switch
             {
-                case VideoFile { VideoId: int videoId }:
-                    videoIds.Add(videoId);
-                    break;
-                case ImageFile { ImageId: int imageId }:
-                    imageIds.Add(imageId);
-                    break;
+                VideoFile { VideoId: int id } => (EventType.VideoUpdated, "Video", id),
+                ImageFile { ImageId: int id } => (EventType.ImageUpdated, "Image", id),
+                GalleryFile { GalleryId: int id } => (EventType.GalleryUpdated, "Gallery", id),
+                AudioFile { AudioId: int id } => (EventType.AudioUpdated, "Audio", id),
+                TextFile { TextDocumentId: int id } => (EventType.TextUpdated, "Text", id),
+                _ => null,
+            };
+
+            if (owner is { } resolved)
+            {
+                owners.Add(resolved);
             }
         }
 
-        foreach (var videoId in videoIds)
+        foreach (var (type, entityType, id) in owners)
         {
-            eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", videoId));
-        }
-
-        foreach (var imageId in imageIds)
-        {
-            eventBus.Publish(new EntityEvent(EventType.ImageUpdated, "Image", imageId));
+            eventBus.Publish(new EntityEvent(type, entityType, id));
         }
     }
 
