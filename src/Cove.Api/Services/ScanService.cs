@@ -1504,7 +1504,7 @@ public partial class ScanService(
 
             db.Galleries.Add(gallery);
             createdGalleries.Add(gallery);
-            logger.LogTrace("Created folder gallery for: {Path} with {Count} images", folder.Path, group.ImageIds.Count);
+            TraceFolderGalleryCreated(folder.Path, group.ImageIds.Count);
         }
 
         await db.SaveChangesAsync(ct);
@@ -1822,7 +1822,7 @@ public partial class ScanService(
                 {
                     if (syncCaptions)
                         SyncVideoCaptions(match, path, captionFilesByDir);
-                    logger.LogTrace("Re-linked moved video file to {NewPath} (previously {OldPath})", path, match.Path);
+                    TraceVideoFileRelinked(path, match.Path);
                     return (match, true);
                 }
 
@@ -1838,7 +1838,7 @@ public partial class ScanService(
                 };
                 db.VideoFiles.Add(duplicateFile);
                 await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir);
-                logger.LogTrace("Attached duplicate video file {NewPath} to existing video {VideoId}", path, match.VideoId);
+                TraceVideoFileDuplicateAttached(path, match.VideoId);
                 return (duplicateFile, true);
             }
         }
@@ -1873,7 +1873,7 @@ public partial class ScanService(
 
         await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir);
 
-        logger.LogTrace("Added video file for: {Path}", path);
+        TraceVideoFileAdded(path);
         return (videoFile, false);
     }
 
@@ -2161,7 +2161,7 @@ public partial class ScanService(
                 {
                     if (isMove)
                     {
-                        logger.LogTrace("Re-linked moved image file to {NewPath} (previously {OldPath})", path, match.Path);
+                        TraceImageFileRelinked(path, match.Path);
                         return (parentImage, true);
                     }
 
@@ -2176,7 +2176,7 @@ public partial class ScanService(
                     };
                     db.ImageFiles.Add(duplicateFile);
                     await EnrichImageFileAsync(duplicateFile, path, ct);
-                    logger.LogTrace("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
+                    TraceImageFileDuplicateAttached(path, matchedImageId);
                     return (parentImage, true);
                 }
             }
@@ -2219,7 +2219,7 @@ public partial class ScanService(
 
         await EnrichImageFileAsync(imageFile, path, ct);
 
-        logger.LogTrace("Added image for: {Path}", path);
+        TraceImageFileAdded(path);
         return (image, false);
     }
 
@@ -2265,8 +2265,7 @@ public partial class ScanService(
         // If gallery exists and already has images, skip re-processing
         if (existing?.Gallery?.ImageGalleries.Count > 0)
         {
-            logger.LogTrace("Gallery already processed with {Count} images: {Path}",
-                existing.Gallery.ImageGalleries.Count, path);
+            TraceGalleryAlreadyProcessed(existing.Gallery.ImageGalleries.Count, path);
             return existing.Gallery;
         }
 
@@ -2348,7 +2347,7 @@ public partial class ScanService(
                     imageEntries.Count - distinctEntries.Count,
                     path);
 
-            logger.LogTrace("Found {Count} images in gallery: {Path}", distinctEntries.Count, path);
+            TraceGalleryImagesFound(distinctEntries.Count, path);
 
             // Create a virtual folder for this zip's contents
             // This ensures images from different zips don't conflict on the unique constraint (ParentFolderId + Basename)
@@ -2400,7 +2399,7 @@ public partial class ScanService(
             // Save all images and their gallery associations
             await db.SaveChangesAsync(ct);
 
-            logger.LogTrace("Added gallery with {Count} images: {Path}", distinctEntries.Count, path);
+            TraceGalleryAdded(distinctEntries.Count, path);
         }
         catch (FileNotFoundException)
         {
@@ -2475,7 +2474,7 @@ public partial class ScanService(
                 {
                     if (isMove)
                     {
-                        logger.LogTrace("Re-linked moved audio file to {NewPath} (previously {OldPath})", path, match.Path);
+                        TraceAudioFileRelinked(path, match.Path);
                         RefreshAudioSummary(parentAudio);
                         return (parentAudio, true);
                     }
@@ -2492,7 +2491,7 @@ public partial class ScanService(
                     parentAudio.Files.Add(duplicateFile);
                     await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct);
                     RefreshAudioSummary(parentAudio);
-                    logger.LogTrace("Attached duplicate audio file {NewPath} to existing audio {AudioId}", path, matchedAudioId);
+                    TraceAudioFileDuplicateAttached(path, matchedAudioId);
                     return (parentAudio, true);
                 }
             }
@@ -2532,7 +2531,7 @@ public partial class ScanService(
         await EnrichAudioFileAsync(audio, audioFile, path, ct);
         RefreshAudioSummary(audio);
 
-        logger.LogTrace("Added audio for: {Path}", path);
+        TraceAudioFileAdded(path);
         return (audio, false);
     }
 
@@ -2588,7 +2587,7 @@ public partial class ScanService(
                 {
                     if (isMove)
                     {
-                        logger.LogTrace("Re-linked moved text file to {NewPath} (previously {OldPath})", path, match.Path);
+                        TraceTextFileRelinked(path, match.Path);
                         RefreshTextSummary(parentDocument);
                         return (parentDocument, true);
                     }
@@ -2605,7 +2604,7 @@ public partial class ScanService(
                     parentDocument.Files.Add(duplicateFile);
                     await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct);
                     RefreshTextSummary(parentDocument);
-                    logger.LogTrace("Attached duplicate text file {NewPath} to existing text document {TextId}", path, matchedTextId);
+                    TraceTextFileDuplicateAttached(path, matchedTextId);
                     return (parentDocument, true);
                 }
             }
@@ -2645,7 +2644,7 @@ public partial class ScanService(
         await EnrichTextFileAsync(textDocument, textFile, path, ct);
         RefreshTextSummary(textDocument);
 
-        logger.LogTrace("Added text document for: {Path}", path);
+        TraceTextFileAdded(path);
         return (textDocument, false);
     }
 
@@ -3582,6 +3581,70 @@ public partial class ScanService(
         Level = LogLevel.Trace,
         Message = "Committed scan batch containing {FileCount} files")]
     private partial void TraceScanBatchCommitted(int fileCount);
+
+    [LoggerMessage(EventId = 2104, Level = LogLevel.Trace,
+        Message = "Created folder gallery for {Path} with {ImageCount} images")]
+    private partial void TraceFolderGalleryCreated(string path, int imageCount);
+
+    [LoggerMessage(EventId = 2105, Level = LogLevel.Trace,
+        Message = "Re-linked moved video file to {NewPath} (previously {OldPath})")]
+    private partial void TraceVideoFileRelinked(string newPath, string oldPath);
+
+    [LoggerMessage(EventId = 2106, Level = LogLevel.Trace,
+        Message = "Attached duplicate video file {NewPath} to existing video {VideoId}")]
+    private partial void TraceVideoFileDuplicateAttached(string newPath, int? videoId);
+
+    [LoggerMessage(EventId = 2107, Level = LogLevel.Trace,
+        Message = "Added video file for {Path}")]
+    private partial void TraceVideoFileAdded(string path);
+
+    [LoggerMessage(EventId = 2108, Level = LogLevel.Trace,
+        Message = "Re-linked moved image file to {NewPath} (previously {OldPath})")]
+    private partial void TraceImageFileRelinked(string newPath, string oldPath);
+
+    [LoggerMessage(EventId = 2109, Level = LogLevel.Trace,
+        Message = "Attached duplicate image file {NewPath} to existing image {ImageId}")]
+    private partial void TraceImageFileDuplicateAttached(string newPath, int imageId);
+
+    [LoggerMessage(EventId = 2110, Level = LogLevel.Trace,
+        Message = "Added image for {Path}")]
+    private partial void TraceImageFileAdded(string path);
+
+    [LoggerMessage(EventId = 2111, Level = LogLevel.Trace,
+        Message = "Re-linked moved audio file to {NewPath} (previously {OldPath})")]
+    private partial void TraceAudioFileRelinked(string newPath, string oldPath);
+
+    [LoggerMessage(EventId = 2112, Level = LogLevel.Trace,
+        Message = "Attached duplicate audio file {NewPath} to existing audio {AudioId}")]
+    private partial void TraceAudioFileDuplicateAttached(string newPath, int audioId);
+
+    [LoggerMessage(EventId = 2113, Level = LogLevel.Trace,
+        Message = "Added audio for {Path}")]
+    private partial void TraceAudioFileAdded(string path);
+
+    [LoggerMessage(EventId = 2114, Level = LogLevel.Trace,
+        Message = "Re-linked moved text file to {NewPath} (previously {OldPath})")]
+    private partial void TraceTextFileRelinked(string newPath, string oldPath);
+
+    [LoggerMessage(EventId = 2115, Level = LogLevel.Trace,
+        Message = "Attached duplicate text file {NewPath} to existing text document {TextId}")]
+    private partial void TraceTextFileDuplicateAttached(string newPath, int textId);
+
+    [LoggerMessage(EventId = 2116, Level = LogLevel.Trace,
+        Message = "Added text document for {Path}")]
+    private partial void TraceTextFileAdded(string path);
+
+    [LoggerMessage(EventId = 2117, Level = LogLevel.Trace,
+        Message = "Gallery already processed with {ImageCount} images: {Path}")]
+    private partial void TraceGalleryAlreadyProcessed(int imageCount, string path);
+
+    [LoggerMessage(EventId = 2118, Level = LogLevel.Trace,
+        Message = "Found {ImageCount} images in gallery: {Path}")]
+    private partial void TraceGalleryImagesFound(int imageCount, string path);
+
+    [LoggerMessage(EventId = 2119, Level = LogLevel.Trace,
+        Message = "Added gallery with {ImageCount} images: {Path}")]
+    private partial void TraceGalleryAdded(int imageCount, string path);
 
     private record CaptionSidecar(string Filename, string LanguageCode, string CaptionType);
 

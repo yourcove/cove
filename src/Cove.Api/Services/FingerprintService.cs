@@ -790,7 +790,8 @@ public class FingerprintService(
             try { await stderrTask; } catch { }
             if (ct.IsCancellationRequested)
                 throw;
-            logger.LogTrace("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            if (logger.IsEnabled(LogLevel.Trace))
+                logger.LogTrace("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
@@ -798,7 +799,8 @@ public class FingerprintService(
             return true;
 
         var stderr = await stderrTask;
-        logger.LogTrace("pHash FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+        if (logger.IsEnabled(LogLevel.Trace))
+            logger.LogTrace("pHash FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
         return false;
     }
 

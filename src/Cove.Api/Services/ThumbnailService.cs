@@ -1625,7 +1625,8 @@ public class ThumbnailService(
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { }
-            logger.LogTrace("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            if (logger.IsEnabled(LogLevel.Trace))
+                logger.LogTrace("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
@@ -1633,7 +1634,8 @@ public class ThumbnailService(
             return true;
 
         var stderr = await stderrTask;
-        logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+        if (logger.IsEnabled(LogLevel.Trace))
+            logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
         return false;
     }
 

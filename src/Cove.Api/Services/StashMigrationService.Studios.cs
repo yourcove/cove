@@ -64,10 +64,12 @@ public partial class StashMigrationService
             }
             catch (Exception ex)
             {
-                _logger.LogError(
+                // RunMigrationPhaseAsync records the terminal phase failure. Keep this local context
+                // diagnostic-only so a failed save does not emit the same exception at Error twice.
+                _logger.LogDebug(
                     ex,
-                    "Failed importing studio batch with Stash IDs [{StashStudioIds}]",
-                    string.Join(", ", pendingStudios.Select(static item => item.StashId)));
+                    "Failed importing studio batch containing {StashStudioCount} records",
+                    pendingStudios.Count);
                 throw;
             }
 

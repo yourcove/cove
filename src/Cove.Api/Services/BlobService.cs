@@ -4,7 +4,7 @@ using Cove.Core.Interfaces;
 
 namespace Cove.Api.Services;
 
-public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) : IBlobService
+public partial class BlobService(CoveConfiguration config, ILogger<BlobService> logger) : IBlobService
 {
     private const string MetadataSuffix = ".metadata.json";
 
@@ -25,6 +25,14 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
         .ToDictionary(kvp => kvp.Value, kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
     private string BlobDir => Path.Combine(config.GeneratedPath, "blobs");
+
+    [LoggerMessage(EventId = 2601, Level = LogLevel.Trace,
+        Message = "Stored blob {BlobId} at {Path}")]
+    private partial void TraceBlobStored(string blobId, string path);
+
+    [LoggerMessage(EventId = 2602, Level = LogLevel.Trace,
+        Message = "Deleted blob {BlobId} at {Path}")]
+    private partial void TraceBlobDeleted(string blobId, string path);
 
     public async Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default)
     {
@@ -74,7 +82,7 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
             throw;
         }
 
-        logger.LogTrace("Stored blob {BlobId} at {Path}", blobId, path);
+        TraceBlobStored(blobId, path);
         return blobId;
     }
 
@@ -121,7 +129,7 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
         if (path != null)
         {
             File.Delete(path);
-            logger.LogTrace("Deleted blob {BlobId} at {Path}", blobId, path);
+            TraceBlobDeleted(blobId, path);
         }
 
         DeleteIfExists(GetMetadataPath(blobId));
