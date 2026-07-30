@@ -36,4 +36,29 @@ public sealed class SignalRLogSinkTests
             "operation-456",
             entry.GetType().GetProperty("OperationId")?.GetValue(entry));
     }
+
+    [Fact]
+    public void Emit_PreservesFullExceptionDetails()
+    {
+        var message = $"trace-sink-exception-test-{Guid.NewGuid():N}";
+        var exception = new InvalidOperationException(
+            "outer failure",
+            new ArgumentException("inner failure"));
+        var logEvent = new LogEvent(
+            DateTimeOffset.UtcNow,
+            LogEventLevel.Error,
+            exception,
+            new MessageTemplateParser().Parse(message),
+            []);
+
+        new SignalRLogSink().Emit(logEvent);
+
+        var entry = Assert.Single(
+            SignalRLogSink.GetRecentLogs(),
+            candidate => candidate.Message == message);
+        Assert.Contains(nameof(InvalidOperationException), entry.Exception);
+        Assert.Contains("outer failure", entry.Exception);
+        Assert.Contains(nameof(ArgumentException), entry.Exception);
+        Assert.Contains("inner failure", entry.Exception);
+    }
 }

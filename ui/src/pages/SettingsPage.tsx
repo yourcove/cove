@@ -4325,15 +4325,20 @@ function LogsPanel() {
               <span className="whitespace-nowrap text-muted">{entry.timestamp}</span>
               <span className={`whitespace-nowrap font-semibold ${levelColor(entry.level)}`}>{entry.level}</span>
               <span className="whitespace-nowrap text-accent">{shortLogCategory(entry.category)}</span>
-              <span className="min-w-0 break-all text-foreground">
+              <div className="min-w-0 break-all text-foreground">
                 {(entry.jobId || entry.operationId) ? (
                   <span className="mr-2 text-muted">
                     [{entry.jobId ? `job=${entry.jobId}${entry.jobType ? `/${entry.jobType}` : ""}` : `operation=${entry.operationId}`}]
                   </span>
                 ) : null}
                 {entry.message}
-                {entry.exception ? <span className="block text-red-300">{entry.exception}</span> : null}
-              </span>
+                {entry.exception ? (
+                  <details className="mt-1 text-red-300">
+                    <summary className="cursor-pointer select-none">Exception details</summary>
+                    <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px]">{entry.exception}</pre>
+                  </details>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>

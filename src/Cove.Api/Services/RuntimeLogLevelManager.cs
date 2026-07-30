@@ -9,6 +9,7 @@ public sealed class RuntimeLogLevelManager : IDisposable
     private readonly object _gate = new();
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _traceDuration;
+    private readonly Action<LogEventLevel>? _traceExpired;
     private CancellationTokenSource? _traceSessionCancellation;
     private long _sessionVersion;
     private LogEventLevel _persistedLevel;
@@ -17,10 +18,12 @@ public sealed class RuntimeLogLevelManager : IDisposable
     public RuntimeLogLevelManager(
         LogEventLevel configuredLevel,
         TimeSpan? traceDuration = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Action<LogEventLevel>? traceExpired = null)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _traceDuration = traceDuration ?? DefaultTraceDuration;
+        _traceExpired = traceExpired;
 
         // Trace is deliberately temporary. Treat a legacy persisted Trace value as Info
         // so upgrading cannot leave detailed, potentially sensitive logging enabled forever.
@@ -94,10 +97,19 @@ public sealed class RuntimeLogLevelManager : IDisposable
             if (version != _sessionVersion)
                 return;
 
-            LevelSwitch.MinimumLevel = _persistedLevel;
-            _traceExpiresAt = null;
-            _traceSessionCancellation?.Dispose();
-            _traceSessionCancellation = null;
+            try
+            {
+                // Emit while the switch is still at Verbose so the closing marker is
+                // retained even when the restored level is Warning or higher.
+                _traceExpired?.Invoke(_persistedLevel);
+            }
+            finally
+            {
+                LevelSwitch.MinimumLevel = _persistedLevel;
+                _traceExpiresAt = null;
+                _traceSessionCancellation?.Dispose();
+                _traceSessionCancellation = null;
+            }
         }
     }
 

@@ -210,7 +210,12 @@ try
     var isTestHarness = isIntegrationTest || isIntegrationStartupTest;
 
     var runtimeLogLevelManager = new RuntimeLogLevelManager(
-        ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")));
+        ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")),
+        traceExpired: restoredLevel => Log
+            .ForContext<RuntimeLogLevelManager>()
+            .Information(
+                "Temporary Trace logging expired; restored {LogLevel}",
+                restoredLevel));
     builder.Services.AddSingleton(runtimeLogLevelManager);
 
     if (isTestHarness)
@@ -224,8 +229,8 @@ try
         EnsureDataRootWriteable();
 
         Log.Logger = new LoggerConfiguration()
-            .WriteTo.Console()
-            .WriteTo.File(GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
+            .WriteTo.Console(CoveTextLogFormatter.Instance)
+            .WriteTo.File(CoveTextLogFormatter.Instance, GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
             .CreateBootstrapLogger();
 
         // Serilog
@@ -236,8 +241,8 @@ try
             .MinimumLevel.ControlledBy(services.GetRequiredService<RuntimeLogLevelManager>().LevelSwitch)
             .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
             .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
-            .WriteTo.Console()
-                .WriteTo.File(GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
+            .WriteTo.Console(CoveTextLogFormatter.Instance)
+            .WriteTo.File(CoveTextLogFormatter.Instance, GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
             .WriteTo.Sink(new SignalRLogSink()));
     }
 
@@ -538,6 +543,7 @@ try
 
     // Middleware pipeline
     // UseSerilogRequestLogging removed â€” adds 3-5ms per request overhead
+    app.UseMiddleware<Cove.Api.Middleware.OperationLogContextMiddleware>();
     app.UseMiddleware<Cove.Api.Middleware.DatabaseUnavailableMiddleware>();
 
     if (app.Environment.IsDevelopment())

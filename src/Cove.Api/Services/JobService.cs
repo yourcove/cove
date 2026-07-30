@@ -208,7 +208,7 @@ public class JobService : IJobService, IHostedService
 
                 FinalizeSuccessfulWork(entry);
 
-                _logger.LogInformation("Job {JobId} completed with status {Status}", entry.Id, entry.Status);
+                LogCompleted(entry, "Exclusive");
             }
             catch (OperationCanceledException) when (entry.Cts?.IsCancellationRequested == true)
             {
@@ -217,14 +217,14 @@ public class JobService : IJobService, IHostedService
                 // of the queue processor (which would tear down the background processor loop / host).
                 entry.Status = JobStatus.Cancelled;
                 entry.CompletedAt = DateTime.UtcNow;
-                _logger.LogInformation("Job {JobId} cancelled", entry.Id);
+                LogCancelled(entry, "Exclusive");
             }
             catch (Exception ex)
             {
                 entry.Status = JobStatus.Failed;
                 entry.Error = ex.Message;
                 entry.CompletedAt = DateTime.UtcNow;
-                _logger.LogError(ex, "Job {JobId} failed", entry.Id);
+                LogFailed(entry, "Exclusive", ex);
             }
 
             NotifyClients(entry);
@@ -248,21 +248,21 @@ public class JobService : IJobService, IHostedService
             _logger.LogInformation("Concurrent job {JobId} started: {Description}", entry.Id, entry.Description);
             await entry.Work(progress, entry.Cts.Token);
             FinalizeSuccessfulWork(entry);
-            _logger.LogInformation("Concurrent job {JobId} completed", entry.Id);
+            LogCompleted(entry, "Concurrent");
         }
         catch (OperationCanceledException) when (entry.Cts?.IsCancellationRequested == true)
         {
             // Graceful cancellation via this job's own token; mark cancelled instead of failing.
             entry.Status = JobStatus.Cancelled;
             entry.CompletedAt = DateTime.UtcNow;
-            _logger.LogInformation("Concurrent job {JobId} cancelled", entry.Id);
+            LogCancelled(entry, "Concurrent");
         }
         catch (Exception ex)
         {
             entry.Status = JobStatus.Failed;
             entry.Error = ex.Message;
             entry.CompletedAt = DateTime.UtcNow;
-            _logger.LogError(ex, "Concurrent job {JobId} failed", entry.Id);
+            LogFailed(entry, "Concurrent", ex);
         }
 
         NotifyClients(entry);
@@ -275,6 +275,95 @@ public class JobService : IJobService, IHostedService
             ["JobId"] = entry.Id,
             ["JobType"] = entry.Type,
         });
+
+    private void LogCompleted(JobEntry entry, string mode)
+    {
+        if (!HasUnitOutcome(entry))
+        {
+            _logger.LogInformation(
+                "{Mode} job {JobId} completed with status {Status} in {ElapsedMs} ms",
+                mode,
+                entry.Id,
+                entry.Status,
+                GetElapsedMilliseconds(entry));
+            return;
+        }
+
+        _logger.LogInformation(
+            "{Mode} job {JobId} completed with status {Status} in {ElapsedMs} ms; units={UnitsCompleted}/{UnitsTotal}, succeeded={UnitsSucceeded}, failed={UnitsFailed}, skipped={UnitsSkipped}",
+            mode,
+            entry.Id,
+            entry.Status,
+            GetElapsedMilliseconds(entry),
+            entry.UnitsCompleted.GetValueOrDefault(),
+            entry.UnitsTotal.GetValueOrDefault(),
+            entry.UnitsSucceeded.GetValueOrDefault(),
+            entry.UnitsFailed.GetValueOrDefault(),
+            entry.UnitsSkipped.GetValueOrDefault());
+    }
+
+    private void LogCancelled(JobEntry entry, string mode)
+    {
+        if (!HasUnitOutcome(entry))
+        {
+            _logger.LogInformation(
+                "{Mode} job {JobId} cancelled after {ElapsedMs} ms",
+                mode,
+                entry.Id,
+                GetElapsedMilliseconds(entry));
+            return;
+        }
+
+        _logger.LogInformation(
+            "{Mode} job {JobId} cancelled after {ElapsedMs} ms; units={UnitsCompleted}/{UnitsTotal}, succeeded={UnitsSucceeded}, failed={UnitsFailed}, skipped={UnitsSkipped}",
+            mode,
+            entry.Id,
+            GetElapsedMilliseconds(entry),
+            entry.UnitsCompleted.GetValueOrDefault(),
+            entry.UnitsTotal.GetValueOrDefault(),
+            entry.UnitsSucceeded.GetValueOrDefault(),
+            entry.UnitsFailed.GetValueOrDefault(),
+            entry.UnitsSkipped.GetValueOrDefault());
+    }
+
+    private void LogFailed(JobEntry entry, string mode, Exception exception)
+    {
+        if (!HasUnitOutcome(entry))
+        {
+            _logger.LogError(
+                exception,
+                "{Mode} job {JobId} failed after {ElapsedMs} ms",
+                mode,
+                entry.Id,
+                GetElapsedMilliseconds(entry));
+            return;
+        }
+
+        _logger.LogError(
+            exception,
+            "{Mode} job {JobId} failed after {ElapsedMs} ms; units={UnitsCompleted}/{UnitsTotal}, succeeded={UnitsSucceeded}, failed={UnitsFailed}, skipped={UnitsSkipped}",
+            mode,
+            entry.Id,
+            GetElapsedMilliseconds(entry),
+            entry.UnitsCompleted.GetValueOrDefault(),
+            entry.UnitsTotal.GetValueOrDefault(),
+            entry.UnitsSucceeded.GetValueOrDefault(),
+            entry.UnitsFailed.GetValueOrDefault(),
+            entry.UnitsSkipped.GetValueOrDefault());
+    }
+
+    private static bool HasUnitOutcome(JobEntry entry) =>
+        entry.UnitsTotal.HasValue
+        || entry.UnitsCompleted.HasValue
+        || entry.UnitsSucceeded.HasValue
+        || entry.UnitsFailed.HasValue
+        || entry.UnitsSkipped.HasValue;
+
+    private static long GetElapsedMilliseconds(JobEntry entry)
+    {
+        var completedAt = entry.CompletedAt ?? DateTime.UtcNow;
+        return Math.Max(0L, (long)(completedAt - entry.StartedAt).TotalMilliseconds);
+    }
 
     private void MoveToHistory(JobEntry entry)
     {

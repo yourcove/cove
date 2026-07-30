@@ -52,4 +52,21 @@ public sealed class RuntimeLogLevelManagerTests
         Assert.Equal(LogEventLevel.Information, state.PersistedLevel);
         Assert.Null(state.TraceExpiresAt);
     }
+
+    [Fact]
+    public async Task TemporaryTrace_NotifiesWhenPersistedLevelIsRestored()
+    {
+        var expired = new TaskCompletionSource<LogEventLevel>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new RuntimeLogLevelManager(
+            LogEventLevel.Warning,
+            traceDuration: TimeSpan.FromMilliseconds(25),
+            traceExpired: level => expired.SetResult(level));
+
+        manager.StartTemporaryTrace();
+
+        var restoredLevel = await expired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(LogEventLevel.Warning, restoredLevel);
+        Assert.Equal(LogEventLevel.Warning, manager.GetState().EffectiveLevel);
+    }
 }

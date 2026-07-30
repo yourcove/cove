@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Collections.Concurrent;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
 using Cove.Core.Events;
@@ -64,6 +65,77 @@ public class JobServiceTests
             Assert.Equal(JobStatus.Completed, job.Status);
             Assert.Equal(1.0, job.Progress, 3);
             Assert.NotNull(job.CompletedAt);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task CompletedJobLog_IncludesDurationAndUnitOutcomes()
+    {
+        var logger = new ScopeRecordingLogger<JobService>();
+        var service = new JobService(new EventBus(), new FakeHubContext(), logger);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var jobId = service.Enqueue(
+                "generate",
+                "Generating content",
+                static (progress, _) =>
+                {
+                    using var succeeded = progress.StartUnit("one");
+                    succeeded.Complete(JobUnitOutcome.Succeeded);
+                    using var skipped = progress.StartUnit("two");
+                    skipped.Complete(JobUnitOutcome.Skipped);
+                    return Task.CompletedTask;
+                });
+
+            var job = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+            Assert.NotNull(job);
+
+            var completion = Assert.Single(
+                logger.Entries,
+                entry => entry.Message.Contains("completed with status", StringComparison.Ordinal));
+            Assert.Equal(JobStatus.Completed, completion.Properties["Status"]);
+            Assert.IsType<long>(completion.Properties["ElapsedMs"]);
+            Assert.Equal(2, completion.Properties["UnitsTotal"]);
+            Assert.Equal(2, completion.Properties["UnitsCompleted"]);
+            Assert.Equal(1, completion.Properties["UnitsSucceeded"]);
+            Assert.Equal(0, completion.Properties["UnitsFailed"]);
+            Assert.Equal(1, completion.Properties["UnitsSkipped"]);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task CompletedJobLog_OmitsUnitOutcomesWhenJobDoesNotReportUnits()
+    {
+        var logger = new ScopeRecordingLogger<JobService>();
+        var service = new JobService(new EventBus(), new FakeHubContext(), logger);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var jobId = service.Enqueue(
+                "refresh",
+                "Refreshing",
+                static (_, _) => Task.CompletedTask);
+
+            var job = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+            Assert.NotNull(job);
+
+            var completion = Assert.Single(
+                logger.Entries,
+                entry => entry.Message.Contains("completed with status", StringComparison.Ordinal));
+            Assert.DoesNotContain("units=", completion.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("UnitsTotal", completion.Properties);
+            Assert.DoesNotContain("UnitsCompleted", completion.Properties);
         }
         finally
         {
@@ -230,9 +302,12 @@ public class JobServiceTests
     private sealed class ScopeRecordingLogger<T> : ILogger<T>
     {
         private readonly AsyncLocal<IReadOnlyDictionary<string, object?>?> _currentScope = new();
+        private readonly ConcurrentQueue<RecordedLog> _entries = new();
 
         public IReadOnlyDictionary<string, object?> CurrentScope =>
             _currentScope.Value ?? new Dictionary<string, object?>();
+
+        public IReadOnlyCollection<RecordedLog> Entries => _entries.ToArray();
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull
         {
@@ -254,7 +329,22 @@ public class JobServiceTests
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
+            var properties = (state as IEnumerable<KeyValuePair<string, object?>>)?
+                .Where(pair => pair.Key != "{OriginalFormat}")
+                .ToDictionary(pair => pair.Key, pair => pair.Value)
+                ?? new Dictionary<string, object?>();
+            _entries.Enqueue(new RecordedLog(
+                logLevel,
+                formatter(state, exception),
+                properties,
+                exception));
         }
+
+        public sealed record RecordedLog(
+            LogLevel Level,
+            string Message,
+            IReadOnlyDictionary<string, object?> Properties,
+            Exception? Exception);
 
         private sealed class ScopeLease(Action dispose) : IDisposable
         {
