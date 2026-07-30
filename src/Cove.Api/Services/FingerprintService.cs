@@ -297,7 +297,7 @@ public class FingerprintService(
         var useInProcess = string.Equals(config.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase);
         if (useInProcess)
             FfmpegInProcess.EnsureInitialized(ffmpegPath, !FfmpegHwAccel.IsHardwareAccelerationOff(config.HardwareAcceleration));
-        logger.LogDebug("pHash FFmpeg setup: path={FfmpegPath}, managed={Managed}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
+        logger.LogTrace("pHash FFmpeg setup: path={FfmpegPath}, managed={Managed}, inProcessAvailable={IsAvailable}, duration={Duration:F1}s, target={Path}",
             ffmpegPath, useInProcess, FfmpegInProcess.IsAvailable, duration, path);
 
         var chunkCount = SpriteColumns * SpriteRows; // 25
@@ -310,13 +310,13 @@ public class FingerprintService(
         if (useInProcess && FfmpegInProcess.IsAvailable)
         {
             // Fast path: in-process frame extraction (seeks directly, no process spawning).
-            logger.LogDebug("Attempting in-process pHash extraction for {Path}", path);
+            logger.LogTrace("Attempting in-process pHash extraction for {Path}", path);
             try
             {
                 var frames = FfmpegInProcess.ExtractFrames(path, timestamps, SpriteFrameSize, threadCount: 1, ct);
                 if (frames != null)
                 {
-                    logger.LogDebug("In-process pHash extraction succeeded for {Path}", path);
+                    logger.LogTrace("In-process pHash extraction succeeded for {Path}", path);
                     try
                     {
                         return BuildSpritePhash(frames);
@@ -327,17 +327,17 @@ public class FingerprintService(
                     }
                 }
 
-                logger.LogWarning("In-process pHash frame extraction returned null for {Path}, falling back to process spawn", path);
+                logger.LogDebug("In-process pHash frame extraction returned null for {Path}, falling back to process spawn", path);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "In-process FFmpeg failed for {Path}, falling back to process spawn", path);
+                logger.LogDebug(ex, "In-process FFmpeg failed for {Path}, falling back to process spawn", path);
             }
         }
         else
         {
-            logger.LogDebug("Using ffmpeg CLI for pHash extraction (managed={Managed}, available={Available}) for {Path}",
+            logger.LogTrace("Using ffmpeg CLI for pHash extraction (managed={Managed}, available={Available}) for {Path}",
                 useInProcess, FfmpegInProcess.IsAvailable, path);
         }
 
@@ -349,11 +349,11 @@ public class FingerprintService(
             if (!string.IsNullOrWhiteSpace(spritePhash))
                 return spritePhash;
 
-            logger.LogDebug("Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
+            logger.LogTrace("Single-process sprite extraction failed for {Path}; falling back to per-frame process extraction", path);
         }
         else
         {
-            logger.LogDebug("Skipping whole-window sprite pHash path for long video ({Duration:F0}s) {Path}; using seek-based extraction", duration, path);
+            logger.LogTrace("Skipping whole-window sprite pHash path for long video ({Duration:F0}s) {Path}; using seek-based extraction", duration, path);
         }
 
         // Final fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
@@ -404,7 +404,7 @@ public class FingerprintService(
             var args = $"{decodeArgs} -v error -fflags +discardcorrupt -err_detect ignore_err -y -ss {offsetText} -t {sampleWindowText} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 -q:v 3 -pix_fmt yuvj420p -f image2 \"{spritePath}\"";
             var timeout = TimeSpan.FromSeconds(Math.Clamp(duration / 2d, 45d, 300d));
 
-            logger.LogDebug("Attempting single-process sprite extraction for {Path}", videoPath);
+            logger.LogTrace("Attempting single-process sprite extraction for {Path}", videoPath);
             if (!await TryRunFfmpegAsync(ffmpegPath, args, timeout, ct) || !File.Exists(spritePath))
                 return null;
 
@@ -413,7 +413,7 @@ public class FingerprintService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Single-process sprite extraction failed for {Path}", videoPath);
+            logger.LogDebug(ex, "Single-process sprite extraction failed for {Path}", videoPath);
             return null;
         }
         finally
@@ -515,21 +515,22 @@ public class FingerprintService(
 
             var completed = 0;
             var failed = 0;
-            // Coarse progress milestone (~ every 10%) so the default Info log shows job progress.
+            // Coarse progress milestone (~ every 10%) for diagnostic progress without
+            // adding per-file noise to the default Information log.
             var milestoneEvery = Math.Max(1, workItems.Count / 10);
 
             await Parallel.ForEachAsync(workItems, new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = ct }, async (item, token) =>
             {
                 try
                 {
-                    logger.LogDebug("Computing pHash for file {FileId}: {Path} (duration={Duration:F1}s)",
+                    logger.LogTrace("Computing pHash for file {FileId}: {Path} (duration={Duration:F1}s)",
                         item.FileId, item.Path, item.Duration);
 
                     var phash = await ComputeVideoPhashAsync(item.Path, item.Duration, token);
 
                     if (!string.IsNullOrWhiteSpace(phash))
                     {
-                        logger.LogDebug("Computed pHash for file {FileId}: {Phash}", item.FileId, phash);
+                        logger.LogTrace("Computed pHash for file {FileId}: {Phash}", item.FileId, phash);
                         using var innerScope = scopeFactory.CreateScope();
                         var innerDb = innerScope.ServiceProvider.GetRequiredService<CoveContext>();
                         var existing = await innerDb.FileFingerprints.FirstOrDefaultAsync(fp => fp.FileId == item.FileId && fp.Type == "phash", token);
@@ -537,7 +538,7 @@ public class FingerprintService(
                         {
                             innerDb.FileFingerprints.Add(new FileFingerprint { FileId = item.FileId, Type = "phash", Value = phash });
                             await innerDb.SaveChangesAsync(token);
-                            logger.LogDebug("Saved pHash for file {FileId}", item.FileId);
+                            logger.LogTrace("Saved pHash for file {FileId}", item.FileId);
                         }
                     }
                     else
@@ -548,7 +549,7 @@ public class FingerprintService(
 
                     var done = Interlocked.Increment(ref completed);
                     if (done % milestoneEvery == 0 || done == workItems.Count)
-                        logger.LogInformation("Video pHash progress: {Done}/{Total} files processed", done, workItems.Count);
+                        logger.LogDebug("Video pHash progress: {Done}/{Total} files processed", done, workItems.Count);
                     progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -557,7 +558,7 @@ public class FingerprintService(
                     // its own CancellationToken (raising a single OperationCanceledException) rather than
                     // surfacing this as an unobserved per-worker exception. The inner scope/DbContext above is
                     // disposed by its `using` even on this path.
-                    logger.LogDebug("Video pHash computation cancelled for file {FileId}", item.FileId);
+                    logger.LogTrace("Video pHash computation cancelled for file {FileId}", item.FileId);
                 }
             });
 
@@ -620,7 +621,7 @@ public class FingerprintService(
 
                     var done = Interlocked.Increment(ref completed);
                     if (done % milestoneEvery == 0 || done == workItems.Count)
-                        logger.LogInformation("Image pHash progress: {Done}/{Total} files processed", done, workItems.Count);
+                        logger.LogDebug("Image pHash progress: {Done}/{Total} files processed", done, workItems.Count);
                     progress.Report((double)done / workItems.Count, $"({done}/{workItems.Count}) {Path.GetFileName(item.Path)}");
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -628,7 +629,7 @@ public class FingerprintService(
                     // Job cancelled mid-item: swallow so the loop ends via its own CancellationToken rather
                     // than as an unobserved per-worker exception. The inner scope/DbContext is disposed by
                     // its `using` even on this path.
-                    logger.LogDebug("Image pHash computation cancelled for file {FileId}", item.FileId);
+                    logger.LogTrace("Image pHash computation cancelled for file {FileId}", item.FileId);
                 }
             });
 
@@ -786,7 +787,7 @@ public class FingerprintService(
             try { await stderrTask; } catch { }
             if (ct.IsCancellationRequested)
                 throw;
-            logger.LogWarning("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            logger.LogTrace("pHash FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
@@ -794,7 +795,7 @@ public class FingerprintService(
             return true;
 
         var stderr = await stderrTask;
-        logger.LogWarning("pHash FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+        logger.LogTrace("pHash FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
         return false;
     }
 

@@ -1822,7 +1822,7 @@ public partial class ScanService(
                 {
                     if (syncCaptions)
                         SyncVideoCaptions(match, path, captionFilesByDir);
-                    logger.LogInformation("Re-linked moved video file to {NewPath} (previously {OldPath})", path, match.Path);
+                    logger.LogTrace("Re-linked moved video file to {NewPath} (previously {OldPath})", path, match.Path);
                     return (match, true);
                 }
 
@@ -1838,7 +1838,7 @@ public partial class ScanService(
                 };
                 db.VideoFiles.Add(duplicateFile);
                 await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir);
-                logger.LogInformation("Attached duplicate video file {NewPath} to existing video {VideoId}", path, match.VideoId);
+                logger.LogTrace("Attached duplicate video file {NewPath} to existing video {VideoId}", path, match.VideoId);
                 return (duplicateFile, true);
             }
         }
@@ -2161,7 +2161,7 @@ public partial class ScanService(
                 {
                     if (isMove)
                     {
-                        logger.LogInformation("Re-linked moved image file to {NewPath} (previously {OldPath})", path, match.Path);
+                        logger.LogTrace("Re-linked moved image file to {NewPath} (previously {OldPath})", path, match.Path);
                         return (parentImage, true);
                     }
 
@@ -2176,7 +2176,7 @@ public partial class ScanService(
                     };
                     db.ImageFiles.Add(duplicateFile);
                     await EnrichImageFileAsync(duplicateFile, path, ct);
-                    logger.LogInformation("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
+                    logger.LogTrace("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
                     return (parentImage, true);
                 }
             }
@@ -2475,7 +2475,7 @@ public partial class ScanService(
                 {
                     if (isMove)
                     {
-                        logger.LogInformation("Re-linked moved audio file to {NewPath} (previously {OldPath})", path, match.Path);
+                        logger.LogTrace("Re-linked moved audio file to {NewPath} (previously {OldPath})", path, match.Path);
                         RefreshAudioSummary(parentAudio);
                         return (parentAudio, true);
                     }
@@ -2492,7 +2492,7 @@ public partial class ScanService(
                     parentAudio.Files.Add(duplicateFile);
                     await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct);
                     RefreshAudioSummary(parentAudio);
-                    logger.LogInformation("Attached duplicate audio file {NewPath} to existing audio {AudioId}", path, matchedAudioId);
+                    logger.LogTrace("Attached duplicate audio file {NewPath} to existing audio {AudioId}", path, matchedAudioId);
                     return (parentAudio, true);
                 }
             }
@@ -2588,7 +2588,7 @@ public partial class ScanService(
                 {
                     if (isMove)
                     {
-                        logger.LogInformation("Re-linked moved text file to {NewPath} (previously {OldPath})", path, match.Path);
+                        logger.LogTrace("Re-linked moved text file to {NewPath} (previously {OldPath})", path, match.Path);
                         RefreshTextSummary(parentDocument);
                         return (parentDocument, true);
                     }
@@ -2605,7 +2605,7 @@ public partial class ScanService(
                     parentDocument.Files.Add(duplicateFile);
                     await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct);
                     RefreshTextSummary(parentDocument);
-                    logger.LogInformation("Attached duplicate text file {NewPath} to existing text document {TextId}", path, matchedTextId);
+                    logger.LogTrace("Attached duplicate text file {NewPath} to existing text document {TextId}", path, matchedTextId);
                     return (parentDocument, true);
                 }
             }
@@ -3658,7 +3658,7 @@ public partial class ScanService(
             if ((now - _lastLogReport).TotalSeconds >= 10)
             {
                 _lastLogReport = now;
-                logger.LogInformation(
+                logger.LogDebug(
                     "Scan discovery progress after {ElapsedMs} ms: {MediaFileCount} media files, {DirectoryCount} directories, {IgnoredPathCount} ignored, {UnsupportedFileCount} unsupported, {UnreadablePathCount} unreadable. Current path: {Path}",
                     _elapsed.ElapsedMilliseconds,
                     MediaFileCount,

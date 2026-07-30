@@ -259,7 +259,7 @@ public class ThumbnailService(
 
                 if (source.Value.stream.CanSeek)
                     source.Value.stream.Position = 0;
-                logger.LogDebug("Skipping thumbnail generation for unsupported image format {ImageId}", imageId);
+                logger.LogTrace("Skipping thumbnail generation for unsupported image format {ImageId}", imageId);
                 return (source.Value.stream, sourceContentType, source.Value.supportsRangeRequests);
             }
 
@@ -272,12 +272,12 @@ public class ThumbnailService(
 
             if (source.Value.stream.CanSeek)
                 source.Value.stream.Position = 0;
-            logger.LogInformation("Skipping thumbnail generation for unsupported image format {ImageId}", imageId);
+            logger.LogTrace("Skipping thumbnail generation for unsupported image format {ImageId}", imageId);
             return (source.Value.stream, sourceContentType, source.Value.supportsRangeRequests);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Falling back to original image stream for thumbnail {ImageId}", imageId);
+            logger.LogDebug(ex, "Falling back to original image stream for thumbnail {ImageId}", imageId);
             if (source.Value.stream.CanSeek)
                 source.Value.stream.Position = 0;
             return (source.Value.stream, sourceContentType, source.Value.supportsRangeRequests);
@@ -320,12 +320,12 @@ public class ThumbnailService(
 
             if (source.Value.Stream.CanSeek)
                 source.Value.Stream.Position = 0;
-            logger.LogDebug("Skipping cached blob thumbnail generation for unsupported image format {BlobId}", blobId);
+            logger.LogTrace("Skipping cached blob thumbnail generation for unsupported image format {BlobId}", blobId);
             return (source.Value.Stream, sourceContentType, source.Value.Stream.CanSeek);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Falling back to original blob stream for entity image thumbnail {BlobId}", blobId);
+            logger.LogDebug(ex, "Falling back to original blob stream for entity image thumbnail {BlobId}", blobId);
             if (source.Value.Stream.CanSeek)
                 source.Value.Stream.Position = 0;
             return (source.Value.Stream, sourceContentType, source.Value.Stream.CanSeek);
@@ -356,7 +356,7 @@ public class ThumbnailService(
         await using (source.Value.stream)
         {
             if (!await TryGenerateImageThumbnailFileAsync(source.Value.stream, TryGetDirectImageSourcePath(imageFile), effectiveContentType ?? source.Value.contentType, thumbnailPath, imageFile.ModTime, maxDimension, thumbnailOutput, ct))
-                logger.LogDebug("Skipping generated thumbnail for unsupported image format {ImageId}", imageId);
+                logger.LogTrace("Skipping generated thumbnail for unsupported image format {ImageId}", imageId);
             else
                 DeleteAlternateImageThumbnailVariants(thumbnailBasePath, thumbnailPath);
         }
@@ -994,7 +994,7 @@ public class ThumbnailService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "In-process thumbnail generation failed for {FilePath}; falling back to ffmpeg CLI", filePath);
+            logger.LogDebug(ex, "In-process thumbnail generation failed for {FilePath}; falling back to ffmpeg CLI", filePath);
             return false;
         }
         finally
@@ -1266,7 +1266,7 @@ public class ThumbnailService(
             // A hardware encode that still fails (session exhaustion, driver/SDK mismatch, etc.) must not
             // leave a missing/empty chunk that later breaks the concat — fall back to the CPU encoder so
             // generation degrades gracefully instead of producing a broken preview.
-            logger.LogWarning("Hardware encode ({Encoder}) failed for {Output}; falling back to libx264.", encoder, Path.GetFileName(outputPath));
+            logger.LogDebug("Hardware encode ({Encoder}) failed for {Output}; falling back to libx264.", encoder, Path.GetFileName(outputPath));
         }
 
         var swArgs = argsTemplate.Replace(VideoCodecPlaceholder, FfmpegHwAccel.VideoEncodeArgs("libx264", PreviewCrf, softwarePreset), StringComparison.Ordinal);
@@ -1340,7 +1340,7 @@ public class ThumbnailService(
             // seek-based extractor below instead of burning minutes (and CPU) on a doomed decode.
             if (duration <= FpsFilterSpriteMaxDurationSeconds)
             {
-                logger.LogDebug("Falling back to ffmpeg CLI sprite generation for video {VideoId}", videoId);
+                logger.LogTrace("Falling back to ffmpeg CLI sprite generation for video {VideoId}", videoId);
 
                 if (await TryGenerateVideoSpriteViaFfmpegAsync(ffmpegPath, filePath, spritePath, frameCount, cols, rows, duration, ct))
                 {
@@ -1350,10 +1350,10 @@ public class ThumbnailService(
             }
             else
             {
-                logger.LogDebug("Skipping whole-file fps sprite path for long video {VideoId} ({Duration:F0}s); using seek-based extraction", videoId, duration);
+                logger.LogTrace("Skipping whole-file fps sprite path for long video {VideoId} ({Duration:F0}s); using seek-based extraction", videoId, duration);
             }
 
-            logger.LogDebug("Falling back to ffmpeg process frame extraction for sprite generation of video {VideoId}", videoId);
+            logger.LogTrace("Falling back to ffmpeg process frame extraction for sprite generation of video {VideoId}", videoId);
 
             // Build timestamps for seek-based extraction (center of each interval)
             var timestamps = new double[frameCount];
@@ -1448,7 +1448,7 @@ public class ThumbnailService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "In-process sprite generation failed for {FilePath}; falling back to ffmpeg CLI", filePath);
+            logger.LogDebug(ex, "In-process sprite generation failed for {FilePath}; falling back to ffmpeg CLI", filePath);
             return false;
         }
         finally
@@ -1625,7 +1625,7 @@ public class ThumbnailService(
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { }
-            logger.LogWarning("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
+            logger.LogTrace("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
@@ -1633,7 +1633,7 @@ public class ThumbnailService(
             return true;
 
         var stderr = await stderrTask;
-        logger.LogWarning("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+        logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
         return false;
     }
 
@@ -1647,6 +1647,9 @@ public class ThumbnailService(
             var videoIds = await db.Videos.Select(s => s.Id).ToListAsync(ct);
             var total = videoIds.Count;
             var processed = 0;
+            var generated = 0;
+            var alreadyPresent = 0;
+            var failed = 0;
 
             foreach (var videoId in videoIds)
             {
@@ -1655,12 +1658,25 @@ public class ThumbnailService(
                 progress.Report((double)processed / total, $"Video {processed}/{total}");
 
                 var thumbPath = GetThumbnailPath(videoId);
-                if (File.Exists(thumbPath)) continue;
+                if (File.Exists(thumbPath))
+                {
+                    alreadyPresent++;
+                    continue;
+                }
 
                 await GenerateVideoThumbnailAsync(videoId, null, ct);
+                if (File.Exists(thumbPath))
+                    generated++;
+                else
+                    failed++;
             }
 
-            logger.LogInformation("Generated thumbnails for {Count} videos", total);
+            logger.LogInformation(
+                "Thumbnail generation finished: {Generated} generated, {AlreadyPresent} already present, {Failed} failed of {Total} videos",
+                generated,
+                alreadyPresent,
+                failed,
+                total);
         });
     }
 
@@ -1758,4 +1774,3 @@ public class ThumbnailService(
     private string ProbeH264Encoder(string ffmpegPath)
         => FfmpegHwAccel.SelectH264Encoder(ffmpegPath, config.HardwareAcceleration, logger);
 }
-
