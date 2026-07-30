@@ -497,6 +497,150 @@ public static class FilterHelpers
             : query.Where(Expression.Lambda<Func<T, bool>>(predicate, entityParam));
     }
 
+    /// <summary>Apply a provider-endpoint criterion to an entity's remote ID endpoints.</summary>
+    public static IQueryable<T> ApplyRemoteIdEndpoint<T>(
+        IQueryable<T> query,
+        StringCriterion? criterion,
+        Expression<Func<T, IEnumerable<string>>> endpointsSelector)
+    {
+        var value = criterion?.Value?.Trim();
+        if (criterion == null) return query;
+
+        var entityParam = endpointsSelector.Parameters[0];
+        var endpointParam = Expression.Parameter(typeof(string), "endpoint");
+        var endpointOrEmpty = Expression.Coalesce(endpointParam, Expression.Constant(string.Empty));
+        var hasAnyEndpoint = Any(
+            endpointsSelector.Body,
+            endpointParam,
+            Expression.NotEqual(endpointOrEmpty, Expression.Constant(string.Empty)));
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            var globalNullPredicate = criterion.Modifier switch
+            {
+                CriterionModifier.IsNull => Expression.Not(hasAnyEndpoint),
+                CriterionModifier.NotNull => hasAnyEndpoint,
+                _ => null,
+            };
+            return globalNullPredicate == null
+                ? query
+                : query.Where(Expression.Lambda<Func<T, bool>>(globalNullPredicate, entityParam));
+        }
+
+        var toLower = typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!;
+        var normalizedEndpoint = Expression.Call(endpointOrEmpty, toLower);
+        var normalizedValue = value.ToLowerInvariant();
+        var equals = Expression.Equal(normalizedEndpoint, Expression.Constant(normalizedValue));
+        var contains = Expression.Call(
+            normalizedEndpoint,
+            typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!,
+            Expression.Constant(normalizedValue));
+        var regexMatch = Expression.Call(
+            typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string)])!,
+            endpointOrEmpty,
+            Expression.Constant($"(?i){value}"));
+
+        var anyEquals = Any(endpointsSelector.Body, endpointParam, equals);
+        Expression? predicate = criterion.Modifier switch
+        {
+            CriterionModifier.Equals => anyEquals,
+            CriterionModifier.NotEquals => Expression.Not(anyEquals),
+            CriterionModifier.Includes => Any(endpointsSelector.Body, endpointParam, contains),
+            CriterionModifier.Excludes => Expression.Not(Any(endpointsSelector.Body, endpointParam, contains)),
+            CriterionModifier.MatchesRegex => Any(endpointsSelector.Body, endpointParam, regexMatch),
+            CriterionModifier.NotMatchesRegex => Expression.Not(Any(endpointsSelector.Body, endpointParam, regexMatch)),
+            CriterionModifier.IsNull => Expression.Not(anyEquals),
+            CriterionModifier.NotNull => anyEquals,
+            _ => null,
+        };
+
+        return predicate == null
+            ? query
+            : query.Where(Expression.Lambda<Func<T, bool>>(predicate, entityParam));
+    }
+
+    public static IQueryable<T> ApplyRemoteId<T, TRemoteId>(
+        IQueryable<T> query,
+        StringCriterion? endpointCriterion,
+        StringCriterion? valueCriterion,
+        Expression<Func<T, IEnumerable<TRemoteId>>> remoteIdsSelector,
+        Expression<Func<TRemoteId, string>> endpointSelector,
+        Expression<Func<TRemoteId, string>> valueSelector)
+    {
+        if (valueCriterion == null)
+            return ApplyRemoteIdEndpoint(query, endpointCriterion, Project(remoteIdsSelector, endpointSelector));
+
+        var endpoint = endpointCriterion?.Value?.Trim();
+        var value = valueCriterion.Value?.Trim() ?? string.Empty;
+        var entityParam = remoteIdsSelector.Parameters[0];
+        var remoteIdParam = Expression.Parameter(typeof(TRemoteId), "remoteId");
+        var endpointBody = new ParameterReplaceVisitor(endpointSelector.Parameters[0], remoteIdParam).Visit(endpointSelector.Body)!;
+        var valueBody = new ParameterReplaceVisitor(valueSelector.Parameters[0], remoteIdParam).Visit(valueSelector.Body)!;
+        var endpointMatches = string.IsNullOrWhiteSpace(endpoint)
+            ? Expression.Constant(true)
+            : CaseInsensitiveEquals(endpointBody, endpoint);
+        var hasScopedRemoteId = Any(remoteIdsSelector.Body, remoteIdParam, endpointMatches);
+
+        if (valueCriterion.Modifier is CriterionModifier.IsNull or CriterionModifier.NotNull)
+        {
+            var nullPredicate = valueCriterion.Modifier == CriterionModifier.IsNull
+                ? Expression.Not(hasScopedRemoteId)
+                : hasScopedRemoteId;
+            return query.Where(Expression.Lambda<Func<T, bool>>(nullPredicate, entityParam));
+        }
+
+        if (string.IsNullOrWhiteSpace(value)) return query;
+
+        var valueMatches = BuildCaseInsensitiveStringMatch(valueBody, value, valueCriterion.Modifier);
+        var pairMatches = Expression.AndAlso(endpointMatches, valueMatches);
+        var anyPairMatches = Any(remoteIdsSelector.Body, remoteIdParam, pairMatches);
+        var predicate = valueCriterion.Modifier is CriterionModifier.NotEquals
+            or CriterionModifier.Excludes
+            or CriterionModifier.NotMatchesRegex
+            ? Expression.Not(anyPairMatches)
+            : anyPairMatches;
+        return query.Where(Expression.Lambda<Func<T, bool>>(predicate, entityParam));
+    }
+
+    private static Expression<Func<T, IEnumerable<string>>> Project<T, TItem>(
+        Expression<Func<T, IEnumerable<TItem>>> source,
+        Expression<Func<TItem, string>> selector)
+    {
+        var select = Expression.Call(
+            typeof(Enumerable),
+            nameof(Enumerable.Select),
+            [typeof(TItem), typeof(string)],
+            source.Body,
+            selector);
+        return Expression.Lambda<Func<T, IEnumerable<string>>>(select, source.Parameters);
+    }
+
+    private static Expression CaseInsensitiveEquals(Expression body, string value)
+    {
+        var coalesced = Expression.Coalesce(body, Expression.Constant(string.Empty));
+        return Expression.Equal(
+            Expression.Call(coalesced, typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!),
+            Expression.Constant(value.ToLowerInvariant()));
+    }
+
+    private static Expression BuildCaseInsensitiveStringMatch(Expression body, string value, CriterionModifier modifier)
+    {
+        var coalesced = Expression.Coalesce(body, Expression.Constant(string.Empty));
+        var lowered = Expression.Call(coalesced, typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!);
+        return modifier switch
+        {
+            CriterionModifier.Equals or CriterionModifier.NotEquals => Expression.Equal(lowered, Expression.Constant(value.ToLowerInvariant())),
+            CriterionModifier.Includes or CriterionModifier.Excludes => Expression.Call(
+                lowered,
+                typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!,
+                Expression.Constant(value.ToLowerInvariant())),
+            CriterionModifier.MatchesRegex or CriterionModifier.NotMatchesRegex => Expression.Call(
+                typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string)])!,
+                coalesced,
+                Expression.Constant($"(?i){value}")),
+            _ => Expression.Constant(false),
+        };
+    }
+
     /// <summary>Apply a DateCriterion to a DateOnly? property.</summary>
     public static IQueryable<T> ApplyDate<T>(IQueryable<T> query, DateCriterion? criterion, Expression<Func<T, DateOnly?>> selector)
     {

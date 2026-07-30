@@ -186,6 +186,7 @@ public class VideoFilter
     public IntCriterion? BitrateInterval { get; set; }
     public IntCriterion? FileCountCriterion { get; set; }
     public StringCriterion? RemoteIdCriterion { get; set; }
+    public StringCriterion? RemoteIdValueCriterion { get; set; }
     public IntCriterion? RemoteIdCountCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
     public StringCriterion? DuplicatedCriterion { get; set; }
@@ -325,6 +326,7 @@ public class StudioFilter
     public IntCriterion? ImageCountCriterion { get; set; }
     public StringCriterion? UrlCriterion { get; set; }
     public StringCriterion? RemoteIdCriterion { get; set; }
+    public StringCriterion? RemoteIdValueCriterion { get; set; }
     public IntCriterion? RemoteIdCountCriterion { get; set; }
     public BoolCriterion? IsMissingCriterion { get; set; }
     public TimestampCriterion? CreatedAtCriterion { get; set; }

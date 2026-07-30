@@ -2572,6 +2572,7 @@ export interface VideoFilterCriteria {
   bitrateInterval?: IntCriterion;
   fileCountCriterion?: IntCriterion;
   remoteIdCriterion?: StringCriterion;
+  remoteIdValueCriterion?: StringCriterion;
   remoteIdCountCriterion?: IntCriterion;
   isMissingCriterion?: BoolCriterion;
   duplicatedCriterion?: StringCriterion;
@@ -2700,6 +2701,7 @@ export interface StudioFilterCriteria {
   videoCountCriterion?: IntCriterion;
   urlCriterion?: StringCriterion;
   remoteIdCriterion?: StringCriterion;
+  remoteIdValueCriterion?: StringCriterion;
   remoteIdCountCriterion?: IntCriterion;
   isMissingCriterion?: BoolCriterion;
   createdAtCriterion?: TimestampCriterion;
