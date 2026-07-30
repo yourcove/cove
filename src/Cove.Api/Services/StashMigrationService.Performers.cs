@@ -75,6 +75,8 @@ public partial class StashMigrationService
         var idMap = new Dictionary<int, int>(rows.Count);
         var customPerformerImageFiles = GetCustomPerformerImageFiles(_currentImportCustomPerformerImageLocation);
         var customPerformerImageBlobIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var customPerformerImageFailureCount = 0;
+        var failedCustomPerformerImageSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         const int PerformerBatchSize = 500;
         var pendingBatch = new List<(int StashId, Performer Entity)>(PerformerBatchSize);
         progress.Report(startProgress, "Importing performers...");
@@ -137,11 +139,17 @@ public partial class StashMigrationService
             var imageBlobId = GetBlobId(blobMap, row.ImageBlob);
             if (imageBlobId is null && string.IsNullOrWhiteSpace(row.ImageBlob))
             {
-                imageBlobId = await TryImportCustomPerformerImageAsync(
+                var customImageImport = await TryImportCustomPerformerImageAsync(
                     customPerformerImageFiles,
                     customPerformerImageBlobIds,
                     row.Name,
                     ct);
+                imageBlobId = customImageImport.BlobId;
+                if (customImageImport.FailedSourcePath is not null)
+                {
+                    customPerformerImageFailureCount++;
+                    failedCustomPerformerImageSources.Add(customImageImport.FailedSourcePath);
+                }
             }
 
             var entity = new Performer
@@ -189,6 +197,14 @@ public partial class StashMigrationService
             RatingHostType.Performer,
             ct);
 
+        if (customPerformerImageFailureCount > 0)
+        {
+            _logger.LogWarning(
+                "Failed to import custom images for {AffectedPerformerCount} performers from {FailedSourceCount} source files",
+                customPerformerImageFailureCount,
+                failedCustomPerformerImageSources.Count);
+        }
+
         _logger.LogInformation("Imported {Count} performers in {Elapsed}", idMap.Count, stopwatch.Elapsed);
         return idMap;
     }
@@ -204,19 +220,19 @@ public partial class StashMigrationService
             .ToList();
     }
 
-    private async Task<string?> TryImportCustomPerformerImageAsync(
+    private async Task<(string? BlobId, string? FailedSourcePath)> TryImportCustomPerformerImageAsync(
         IReadOnlyList<string> customPerformerImageFiles,
         Dictionary<string, string> customPerformerImageBlobIds,
         string performerName,
         CancellationToken ct)
     {
         if (customPerformerImageFiles.Count == 0 || string.IsNullOrWhiteSpace(performerName))
-            return null;
+            return (null, null);
 
         var fileIndex = (int)(ComputeStablePerformerImageHash(performerName) % (ulong)customPerformerImageFiles.Count);
         var sourcePath = customPerformerImageFiles[fileIndex];
         if (customPerformerImageBlobIds.TryGetValue(sourcePath, out var existingBlobId))
-            return existingBlobId;
+            return (existingBlobId, null);
 
         try
         {
@@ -224,7 +240,7 @@ public partial class StashMigrationService
             var contentType = DetectImageContentType(sourceStream);
             var blobId = await _blobService.StoreBlobAsync(sourceStream, contentType, ct);
             customPerformerImageBlobIds[sourcePath] = blobId;
-            return blobId;
+            return (blobId, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -232,8 +248,8 @@ public partial class StashMigrationService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to import Stash custom performer image from {Path}", sourcePath);
-            return null;
+            TraceCustomPerformerImageImportFailure(_logger, ex, sourcePath);
+            return (null, sourcePath);
         }
     }
 

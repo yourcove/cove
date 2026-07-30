@@ -20,13 +20,13 @@ public partial class StashMigrationService
     {
         if (!await TableExistsAsync(conn, "galleries", ct))
         {
-            _logger.LogInformation("No galleries table found, skipping");
+            _logger.LogDebug("No galleries table found; skipping gallery import");
             return (0, new Dictionary<int, int>(), new Dictionary<int, int>());
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var total = await CountAsync(conn, "galleries", ct);
-        _logger.LogInformation("Importing {Total} galleries...", total);
+        _logger.LogDebug("Preparing to import {Total} galleries", total);
 
         var galleryTagMap = await ReadJunctionAsync(conn, "galleries_tags", "gallery_id", "tag_id", ct);
         var galleryPerformerMap = await ReadJunctionAsync(conn, "performers_galleries", "gallery_id", "performer_id", ct);
@@ -199,7 +199,7 @@ public partial class StashMigrationService
                 pendingGalleryFiles.Clear();
                 _db.ChangeTracker.Clear();
                 ReportPhase(progress, startProgress, endProgress, count, total, $"Importing galleries ({count}/{total})");
-                _logger.LogInformation("Imported {Count}/{Total} galleries...", count, total);
+                _logger.LogDebug("Imported {Count}/{Total} galleries", count, total);
                 _logger.LogDebug(
                     "[StashTiming] phase=galleries checkpoint=batch imported={Imported} total={Total} galleryFiles={GalleryFiles} elapsedMs={ElapsedMilliseconds:F0}",
                     count,
@@ -232,7 +232,7 @@ public partial class StashMigrationService
     {
         if (!await TableExistsAsync(conn, "scenes_galleries", ct))
         {
-            _logger.LogInformation("No scenes_galleries table found, skipping video-gallery relationships");
+            _logger.LogDebug("No scenes_galleries table found; skipping video-gallery relationships");
             return 0;
         }
 

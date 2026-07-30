@@ -32,6 +32,21 @@ public sealed class StashMigrationOwnerRequiredException(string message) : Inval
 
 public partial class StashMigrationService
 {
+    [LoggerMessage(EventId = 2301, Level = LogLevel.Trace, Message = "Stash blob {Checksum} had no inline data and no matching blob file")]
+    private static partial void TraceStashMissingBlobData(ILogger logger, string checksum);
+
+    [LoggerMessage(EventId = 2302, Level = LogLevel.Trace, Message = "Skipping duplicate imported {EntityType} file {Basename} in folder {FolderId}")]
+    private static partial void TraceSkippedDuplicateFile(ILogger logger, string entityType, string basename, int folderId);
+
+    [LoggerMessage(EventId = 2303, Level = LogLevel.Trace, Message = "Failed to import Stash custom performer image from {SourcePath}")]
+    private static partial void TraceCustomPerformerImageImportFailure(ILogger logger, Exception exception, string sourcePath);
+
+    [LoggerMessage(EventId = 2304, Level = LogLevel.Trace, Message = "Failed to migrate generated {AssetType} for scene {SceneId} from {SourcePath}")]
+    private static partial void TraceGeneratedAssetMigrationFailure(ILogger logger, Exception? exception, string assetType, int sceneId, string sourcePath);
+
+    [LoggerMessage(EventId = 2305, Level = LogLevel.Trace, Message = "Failed to migrate scene screenshot for scene {SceneId} from blob {BlobId}")]
+    private static partial void TraceSceneScreenshotMigrationFailure(ILogger logger, Exception? exception, int sceneId, string blobId);
+
     private readonly CoveContext _db;
     private readonly IBlobService _blobService;
     private readonly ConfigService _configService;
@@ -424,7 +439,8 @@ public partial class StashMigrationService
         await conn.OpenAsync(ct);
         var sw = Stopwatch.StartNew();
         var dbSizeBytes = new FileInfo(stashDbPath).Length;
-        _logger.LogInformation("Starting Stash migration from {Path} ({Size:N0} bytes)", stashDbPath, dbSizeBytes);
+        _logger.LogInformation("Starting Stash migration ({Size:N0} bytes)", dbSizeBytes);
+        _logger.LogDebug("Stash migration source database is {Path}", stashDbPath);
 
         await ApplyCoveGeneratedPathOverrideAsync(options.CoveGeneratedPath, ct);
 

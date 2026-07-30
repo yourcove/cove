@@ -39,7 +39,7 @@ public partial class StashMigrationService
         var ordered = TopologicalSort(rows.Select(r => r.Id).ToList(),
             id => byId[id].ParentId.HasValue ? [byId[id].ParentId!.Value] : (IEnumerable<int>)[]);
 
-        _logger.LogInformation("Importing {Total} studios...", rows.Count);
+        _logger.LogDebug("Preparing to import {Total} studios", rows.Count);
         var idMap = new Dictionary<int, int>();
         var createdStudiosByStashId = new Dictionary<int, Studio>();
         const int StudioBatchSize = 500;
@@ -133,7 +133,7 @@ public partial class StashMigrationService
     {
         if (!await TableExistsAsync(conn, "studios_tags", ct))
         {
-            _logger.LogInformation("No studios_tags table found, skipping studio-tag relationships");
+            _logger.LogDebug("No studios_tags table found; skipping studio-tag relationships");
             return 0;
         }
 
