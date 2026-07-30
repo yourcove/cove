@@ -34,13 +34,15 @@ import type {
   AudioFilterCriteria,
   TextFilterCriteria,
   GroupFilterCriteria,
+  MetadataServer,
 } from "../api/types";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { rankByLabel } from "../utils/searchRanking";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
+export type CriterionType = "string" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -57,6 +59,7 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   hierarchyToggleLabel?: string;
   auxiliaryToggleKey?: TFilterKey;
   auxiliaryToggleLabel?: string;
+  secondaryFilterKey?: TFilterKey;
   supported?: boolean;
   unsupportedReason?: string;
 }
@@ -84,6 +87,7 @@ const MODIFIER_LABELS: Record<CriterionModifier, string> = {
 // Which modifiers each type supports
 const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   string: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
+  remoteId: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   hash: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   number: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
   bool: ["EQUALS"],
@@ -194,11 +198,22 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
       return getTagDurationClauses(criterionValue).some((clause) => isTagDurationClauseValid(clause));
     }
     case "string":
+    case "remoteId":
     case "hash":
     case "date":
     case "timestamp":
     case "enum":
-      return criterion.type === "hash"
+      return criterion.type === "remoteId"
+        ? Boolean((value as { _legacyEndpointCriterion?: StringCriterion })._legacyEndpointCriterion
+          ? (
+            (value as { endpoint?: string }).endpoint?.trim()
+            || NULL_VALUE_MODIFIERS.has((value as StringCriterion).modifier ?? "EQUALS")
+          )
+          : (
+            NULL_VALUE_MODIFIERS.has((value as StringCriterion).modifier ?? "EQUALS")
+            || (value as StringCriterion).value?.trim()
+          ))
+        : criterion.type === "hash"
         ? hasFingerprintCriterionValue(value as { modifier?: CriterionModifier; value?: string; type?: string })
         : hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
     case "number":
@@ -250,6 +265,16 @@ function coerceCustomFieldCriterionForEditor(value: CustomFieldCriterion | undef
 }
 
 function getCriterionFilterValue(filter: Record<string, unknown>, criterion: CriterionDefinition) {
+  if (criterion.type === "remoteId" && criterion.secondaryFilterKey) {
+    const valueCriterion = filter[criterion.filterKey] as StringCriterion | undefined;
+    const endpointCriterion = filter[criterion.secondaryFilterKey] as StringCriterion | undefined;
+    if (!valueCriterion && !endpointCriterion) return undefined;
+    return {
+      ...(valueCriterion ?? { value: "", modifier: endpointCriterion?.modifier ?? "EQUALS" }),
+      endpoint: endpointCriterion?.value ?? "",
+      _legacyEndpointCriterion: valueCriterion ? undefined : endpointCriterion,
+    };
+  }
   return criterion.customFieldKey ? coerceCustomFieldCriterionForEditor(findCustomFieldCriterion(filter, criterion), criterion) : filter[criterion.filterKey];
 }
 
@@ -284,6 +309,7 @@ function removeCriterionFilterValue(filter: Record<string, unknown>, criterion: 
   }
 
   delete next[criterion.filterKey];
+  if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
   if (criterion.auxiliaryToggleKey) {
     delete next[criterion.auxiliaryToggleKey];
   }
@@ -303,6 +329,21 @@ function setCriterionFilterValue(filter: Record<string, unknown>, criterion: Cri
     return { ...filter, customFieldCriteria: [...remaining, customFieldCriterion] };
   }
 
+  if (criterion.type === "remoteId" && criterion.secondaryFilterKey) {
+    const raw = value as StringCriterion & { endpoint?: string; _legacyEndpointCriterion?: StringCriterion };
+    const next = removeCriterionFilterValue(filter, criterion);
+    if (raw._legacyEndpointCriterion && !(raw.value?.trim())) {
+      next[criterion.secondaryFilterKey] = raw._legacyEndpointCriterion;
+      return next;
+    }
+    const endpoint = raw.endpoint?.trim() ?? "";
+    if (endpoint) next[criterion.secondaryFilterKey] = { value: endpoint, modifier: "EQUALS" };
+    if (NULL_VALUE_MODIFIERS.has(raw.modifier ?? "EQUALS") || raw.value?.trim()) {
+      next[criterion.filterKey] = { value: raw.value ?? "", modifier: raw.modifier ?? "EQUALS" };
+    }
+    return next;
+  }
+
   return { ...filter, [criterion.filterKey]: value };
 }
 
@@ -315,7 +356,7 @@ function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: Crite
       continue;
     }
 
-    if (criterion.customFieldKey) {
+    if (criterion.customFieldKey || criterion.type === "remoteId") {
       sanitized = setCriterionFilterValue(sanitized, criterion, value);
     } else {
       sanitized[criterion.filterKey] = value;
@@ -356,7 +397,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "galleries", label: "Galleries", type: "multiId", entityType: "galleries", filterKey: "galleriesCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
-  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "remoteId", filterKey: "remoteIdValueCriterion", secondaryFilterKey: "remoteIdCriterion" },
   { id: "remoteIdCount", label: "Remote ID Count", type: "number", filterKey: "remoteIdCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "videoCodec", label: "Video Codec", type: "string", filterKey: "videoCodecCriterion" },
@@ -404,8 +445,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "birthdate", label: "Birthdate", type: "date", filterKey: "birthdateCriterion" },
   { id: "height", label: "Height (cm)", type: "number", filterKey: "heightCriterion" },
   { id: "weight", label: "Weight", type: "number", filterKey: "weightCriterion" },
-  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdValueCriterion" },
-  { id: "remoteIdProvider", label: "Remote ID Provider", type: "string", filterKey: "remoteIdCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "remoteId", filterKey: "remoteIdValueCriterion", secondaryFilterKey: "remoteIdCriterion" },
   { id: "remoteIdCount", label: "Remote ID Count", type: "number", filterKey: "remoteIdCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion", modifiers: NON_NULL_TIMESTAMP_MODIFIERS },
@@ -446,8 +486,7 @@ export const TAG_CRITERIA: CriteriaDefinitionList<TagFilterCriteria> = [
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
   { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "sortName", label: "Sort Name", type: "string", filterKey: "sortNameCriterion" },
-  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdValueCriterion" },
-  { id: "remoteIdProvider", label: "Remote ID Provider", type: "string", filterKey: "remoteIdCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "remoteId", filterKey: "remoteIdValueCriterion", secondaryFilterKey: "remoteIdCriterion" },
   { id: "remoteIdCount", label: "Remote ID Count", type: "number", filterKey: "remoteIdCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "aliases", label: "Aliases", type: "string", filterKey: "aliasesCriterion" },
   { id: "description", label: "Description", type: "string", filterKey: "descriptionCriterion" },
@@ -466,7 +505,7 @@ export const STUDIO_CRITERIA: CriteriaDefinitionList<StudioFilterCriteria> = [
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "videoCount", label: "Video Count", type: "number", filterKey: "videoCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
-  { id: "remoteId", label: "Remote ID", type: "string", filterKey: "remoteIdCriterion" },
+  { id: "remoteId", label: "Remote ID", type: "remoteId", filterKey: "remoteIdValueCriterion", secondaryFilterKey: "remoteIdCriterion" },
   { id: "remoteIdCount", label: "Remote ID Count", type: "number", filterKey: "remoteIdCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
@@ -1134,6 +1173,8 @@ function CriterionEditor({
       return <HashEditor value={value as FingerprintCriterion | undefined} onChange={onChange} modifiers={modifiers} options={criterion.options ?? []} />;
     case "string":
       return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+    case "remoteId":
+      return <RemoteIdFilterEditor value={value as (StringCriterion & { endpoint?: string }) | undefined} onChange={onChange} modifiers={modifiers} />;
     case "enum":
       return criterion.multiSelectOptions
         ? <MultiEnumEditor value={value as StringCriterion | undefined} onChange={onChange} options={criterion.options ?? []} />
@@ -1553,6 +1594,72 @@ function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion;
           type="text"
           value={value?.value ?? ""}
           onChange={(e) => onChange({ value: e.target.value, modifier })}
+          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+          placeholder="Value..."
+        />
+      )}
+    </div>
+  );
+}
+
+export function RemoteIdFilterEditor({
+  value,
+  onChange,
+  modifiers,
+  metadataServers,
+}: {
+  value?: StringCriterion & { endpoint?: string };
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+  metadataServers?: MetadataServer[];
+}) {
+  const appConfig = useOptionalAppConfig();
+  const modifier = value?.modifier ?? "EQUALS";
+  const selectedEndpoint = value?.endpoint?.trim() ?? "";
+  const isNull = NULL_VALUE_MODIFIERS.has(modifier);
+  const configuredServers = metadataServers ?? appConfig?.config?.scraping?.metadataServers ?? [];
+  const options = useMemo(() => {
+    const endpoints = new Set<string>();
+    const configured = configuredServers.flatMap((server) => {
+      const endpoint = server.endpoint.trim();
+      const normalizedEndpoint = endpoint.toLowerCase();
+      if (!endpoint || endpoints.has(normalizedEndpoint)) return [];
+      endpoints.add(normalizedEndpoint);
+      const optionValue = selectedEndpoint.toLowerCase() === normalizedEndpoint ? selectedEndpoint : endpoint;
+      return [{ value: optionValue, label: server.name?.trim() || endpoint }];
+    });
+
+    if (selectedEndpoint && !endpoints.has(selectedEndpoint.toLowerCase())) {
+      configured.push({ value: selectedEndpoint, label: `${selectedEndpoint} (unconfigured)` });
+    }
+
+    return configured;
+  }, [configuredServers, selectedEndpoint]);
+
+  return (
+    <div className="space-y-2">
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(nextModifier) => onChange({ value: value?.value ?? "", endpoint: selectedEndpoint, modifier: nextModifier })}
+      />
+      <select
+        aria-label="Metadata Service"
+        value={selectedEndpoint}
+        onChange={(event) => onChange({ value: value?.value ?? "", endpoint: event.target.value, modifier })}
+        className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent disabled:opacity-60"
+      >
+        <option value="">Any metadata service</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      {!isNull && (
+        <input
+          type="text"
+          aria-label="Remote ID value"
+          value={value?.value ?? ""}
+          onChange={(event) => onChange({ value: event.target.value, endpoint: selectedEndpoint, modifier })}
           className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
           placeholder="Value..."
         />

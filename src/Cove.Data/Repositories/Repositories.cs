@@ -524,24 +524,6 @@ public class PerformerRepository : IPerformerRepository
                 };
             }
 
-            if (filter.RemoteIdValueCriterion != null)
-            {
-                var remoteIdValue = filter.RemoteIdValueCriterion.Value?.Trim() ?? string.Empty;
-
-                query = filter.RemoteIdValueCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals when remoteIdValue.Length > 0 => query.Where(p => p.RemoteIds.Any(sid => sid.RemoteId == remoteIdValue)),
-                    CriterionModifier.NotEquals when remoteIdValue.Length > 0 => query.Where(p => !p.RemoteIds.Any(sid => sid.RemoteId == remoteIdValue)),
-                    CriterionModifier.Includes when remoteIdValue.Length > 0 => query.Where(p => p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.Excludes when remoteIdValue.Length > 0 => query.Where(p => !p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.IsNull when remoteIdValue.Length > 0 => query.Where(p => !p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.NotNull when remoteIdValue.Length > 0 => query.Where(p => p.RemoteIds.Any(sid => EF.Functions.ILike(sid.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.IsNull => query.Where(p => p.RemoteIds.Count == 0),
-                    CriterionModifier.NotNull => query.Where(p => p.RemoteIds.Count > 0),
-                    _ => query,
-                };
-            }
-
             // PenisLength as int (rounded)
             query = FilterHelpers.ApplyInt(query, filter.PenisLengthCriterion, p => (int)(p.PenisLength ?? 0));
 
@@ -565,26 +547,7 @@ public class PerformerRepository : IPerformerRepository
                 };
             }
 
-            // RemoteId criterion
-            if (filter.RemoteIdCriterion != null)
-            {
-                var providerValue = filter.RemoteIdCriterion.Value?.Trim() ?? string.Empty;
-                var normalizedProvider = providerValue.ToLower();
-                var hasProviderFilter = !string.IsNullOrWhiteSpace(providerValue);
-
-                query = filter.RemoteIdCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals when hasProviderFilter => query.Where(p => p.RemoteIds.Any(sid => sid.Endpoint.ToLower() == normalizedProvider)),
-                    CriterionModifier.NotEquals when hasProviderFilter => query.Where(p => !p.RemoteIds.Any(sid => sid.Endpoint.ToLower() == normalizedProvider)),
-                    CriterionModifier.Includes when hasProviderFilter => query.Where(p => p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.Excludes when hasProviderFilter => query.Where(p => !p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.IsNull when hasProviderFilter => query.Where(p => !p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.NotNull when hasProviderFilter => query.Where(p => p.RemoteIds.Any(sid => sid.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.IsNull => query.Where(p => p.RemoteIds.Count == 0),
-                    CriterionModifier.NotNull => query.Where(p => p.RemoteIds.Count > 0),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyRemoteId(query, filter.RemoteIdCriterion, filter.RemoteIdValueCriterion, performer => performer.RemoteIds, remoteId => remoteId.Endpoint, remoteId => remoteId.RemoteId);
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Performer, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
         }
@@ -765,43 +728,7 @@ public class TagRepository : ITagRepository
             query = FilterHelpers.ApplyString(query, filter.SortNameCriterion, t => t.SortName);
             query = FilterHelpers.ApplyString(query, filter.DescriptionCriterion, t => t.Description);
 
-            if (filter.RemoteIdValueCriterion != null)
-            {
-                var remoteIdValue = filter.RemoteIdValueCriterion.Value?.Trim() ?? string.Empty;
-
-                query = filter.RemoteIdValueCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals when remoteIdValue.Length > 0 => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.RemoteId == remoteIdValue)),
-                    CriterionModifier.NotEquals when remoteIdValue.Length > 0 => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.RemoteId == remoteIdValue)),
-                    CriterionModifier.Includes when remoteIdValue.Length > 0 => query.Where(t => t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.Excludes when remoteIdValue.Length > 0 => query.Where(t => !t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.IsNull when remoteIdValue.Length > 0 => query.Where(t => !t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.NotNull when remoteIdValue.Length > 0 => query.Where(t => t.RemoteIds.Any(remoteId => EF.Functions.ILike(remoteId.RemoteId, $"%{remoteIdValue}%"))),
-                    CriterionModifier.IsNull => query.Where(t => t.RemoteIds.Count == 0),
-                    CriterionModifier.NotNull => query.Where(t => t.RemoteIds.Count > 0),
-                    _ => query,
-                };
-            }
-
-            if (filter.RemoteIdCriterion != null)
-            {
-                var providerValue = filter.RemoteIdCriterion.Value?.Trim() ?? string.Empty;
-                var normalizedProvider = providerValue.ToLower();
-                var hasProviderFilter = !string.IsNullOrWhiteSpace(providerValue);
-
-                query = filter.RemoteIdCriterion.Modifier switch
-                {
-                    CriterionModifier.Equals when hasProviderFilter => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower() == normalizedProvider)),
-                    CriterionModifier.NotEquals when hasProviderFilter => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower() == normalizedProvider)),
-                    CriterionModifier.Includes when hasProviderFilter => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.Excludes when hasProviderFilter => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.IsNull when hasProviderFilter => query.Where(t => !t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.NotNull when hasProviderFilter => query.Where(t => t.RemoteIds.Any(remoteId => remoteId.Endpoint.ToLower().Contains(normalizedProvider))),
-                    CriterionModifier.IsNull => query.Where(t => t.RemoteIds.Count == 0),
-                    CriterionModifier.NotNull => query.Where(t => t.RemoteIds.Count > 0),
-                    _ => query,
-                };
-            }
+            query = FilterHelpers.ApplyRemoteId(query, filter.RemoteIdCriterion, filter.RemoteIdValueCriterion, tag => tag.RemoteIds, remoteId => remoteId.Endpoint, remoteId => remoteId.RemoteId);
 
             query = FilterHelpers.ApplyInt(query, filter.RemoteIdCountCriterion, t => t.RemoteIds.Count);
 
@@ -1339,15 +1266,7 @@ public class StudioRepository : IStudioRepository
                 };
             }
 
-            if (filter.RemoteIdCriterion != null)
-            {
-                query = filter.RemoteIdCriterion.Modifier switch
-                {
-                    CriterionModifier.IsNull => query.Where(s => s.RemoteIds.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.RemoteIds.Count > 0),
-                    _ => query.Where(s => s.RemoteIds.Any(sid => EF.Functions.ILike(sid.Endpoint, $"%{filter.RemoteIdCriterion.Value}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyRemoteId(query, filter.RemoteIdCriterion, filter.RemoteIdValueCriterion, studio => studio.RemoteIds, remoteId => remoteId.Endpoint, remoteId => remoteId.RemoteId);
 
             query = FilterHelpers.ApplyInt(query, filter.RemoteIdCountCriterion, s => s.RemoteIds.Count);
 

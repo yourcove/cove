@@ -91,7 +91,7 @@ describe("filter criteria definitions", () => {
     expect(performerCriteriaById.get("createdAt")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("updatedAt")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("remoteId")?.label).toBe("Remote ID");
-    expect(performerCriteriaById.get("remoteIdProvider")?.label).toBe("Remote ID Provider");
+    expect(performerCriteriaById.get("remoteId")?.type).toBe("remoteId");
   });
 
   it("keeps count-based tag, studio, gallery, image, and group criteria aligned with non-null backend semantics", () => {
@@ -114,7 +114,7 @@ describe("filter criteria definitions", () => {
     expect(tagCriteriaById.get("childCount")?.label).toBe("Sub-Tag Count");
     expect(tagCriteriaById.get("childCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(tagCriteriaById.get("remoteId")?.label).toBe("Remote ID");
-    expect(tagCriteriaById.get("remoteIdProvider")?.label).toBe("Remote ID Provider");
+    expect(tagCriteriaById.get("remoteId")?.type).toBe("remoteId");
 
     expect(studioCriteriaById.get("childCount")?.label).toBe("Substudios Count");
     expect(studioCriteriaById.get("videoCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);

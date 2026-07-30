@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { FilterDialog, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA } from "../components/FilterDialog";
+import { FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA } from "../components/FilterDialog";
+import type { CriterionModifier } from "../api/types";
 
 const { performersFind } = vi.hoisted(() => ({ performersFind: vi.fn() }));
 
@@ -21,6 +22,125 @@ function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) =
 }
 
 describe("FilterDialog", () => {
+  const metadataServiceModifiers: CriterionModifier[] = [
+    "EQUALS",
+    "NOT_EQUALS",
+    "INCLUDES",
+    "EXCLUDES",
+    "MATCHES_REGEX",
+    "NOT_MATCHES_REGEX",
+    "IS_NULL",
+    "NOT_NULL",
+  ];
+
+  it("renders configured metadata service names with endpoint fallback labels", () => {
+    render(
+      <RemoteIdFilterEditor
+        onChange={vi.fn()}
+        modifiers={metadataServiceModifiers}
+        metadataServers={[
+          { endpoint: "https://named.example/graphql", name: "Named Service", apiKey: "", maxRequestsPerMinute: 0 },
+          { endpoint: "https://fallback.example/graphql", name: "", apiKey: "", maxRequestsPerMinute: 0 },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("option", { name: "Named Service" })).toHaveValue("https://named.example/graphql");
+    expect(screen.getByRole("option", { name: "https://fallback.example/graphql" })).toHaveValue("https://fallback.example/graphql");
+  });
+
+  it("shows an explicit no-services state", () => {
+    render(<RemoteIdFilterEditor onChange={vi.fn()} modifiers={metadataServiceModifiers} metadataServers={[]} />);
+
+    expect(screen.getByRole("combobox", { name: "Metadata Service" })).toBeEnabled();
+    expect(screen.getByRole("option", { name: "Any metadata service" })).toBeInTheDocument();
+  });
+
+  it("keeps a legacy unconfigured endpoint selected", () => {
+    render(
+      <RemoteIdFilterEditor
+        value={{ value: "", endpoint: "https://legacy.example/graphql", modifier: "NOT_NULL" }}
+        onChange={vi.fn()}
+        modifiers={metadataServiceModifiers}
+        metadataServers={[]}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Metadata Service" })).toHaveValue("https://legacy.example/graphql");
+    expect(screen.getByRole("option", { name: "https://legacy.example/graphql (unconfigured)" })).toBeInTheDocument();
+  });
+
+  it("uses the configured label for a saved endpoint with different casing", () => {
+    render(
+      <RemoteIdFilterEditor
+        value={{ value: "remote-123", endpoint: "HTTPS://SERVICE.EXAMPLE/GRAPHQL", modifier: "EQUALS" }}
+        onChange={vi.fn()}
+        modifiers={metadataServiceModifiers}
+        metadataServers={[
+          { endpoint: "https://service.example/graphql", name: "Configured Service", apiKey: "", maxRequestsPerMinute: 0 },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Metadata Service" })).toHaveValue("HTTPS://SERVICE.EXAMPLE/GRAPHQL");
+    expect(screen.getByRole("option", { name: "Configured Service" })).toHaveValue("HTTPS://SERVICE.EXAMPLE/GRAPHQL");
+    expect(screen.queryByText(/unconfigured/i)).not.toBeInTheDocument();
+  });
+
+  it("emits a paired endpoint and value payload", () => {
+    const onApply = vi.fn();
+    render(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Remote ID"));
+    fireEvent.change(screen.getByLabelText("Remote ID value"), { target: { value: "remote-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      remoteIdValueCriterion: { value: "remote-123", modifier: "EQUALS" },
+    });
+  });
+
+  it.each(metadataServiceModifiers)("preserves selected metadata services for %s", (modifier) => {
+    const onApply = vi.fn();
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ remoteIdCriterion: { value: "https://service.example/graphql", modifier } }}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledWith({
+      remoteIdCriterion: { value: "https://service.example/graphql", modifier },
+    });
+  });
+
+  it.each([[VIDEO_CRITERIA], [PERFORMER_CRITERIA], [STUDIO_CRITERIA], [TAG_CRITERIA]])(
+    "preserves legacy blank-value null filters",
+    (criteria) => {
+      const onApply = vi.fn();
+      render(
+        <FilterDialog
+          open
+          onClose={vi.fn()}
+          criteria={criteria}
+          activeFilter={{ remoteIdCriterion: { value: "   ", modifier: "IS_NULL" } }}
+          onApply={onApply}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+      expect(onApply).toHaveBeenCalledWith({
+        remoteIdCriterion: { value: "   ", modifier: "IS_NULL" },
+      });
+    },
+  );
+
   it("keeps performer suggestions visible while a search refreshes", async () => {
     const onApply = vi.fn();
     let resolveSearch: ((value: { items: { id: number; name: string }[] }) => void) | undefined;

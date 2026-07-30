@@ -273,15 +273,7 @@ public class VideoRepository : IVideoRepository
                     ? query.Where(s => s.VideoPerformers.Any(sp => sp.Performer!.Favorite))
                     : query.Where(s => !s.VideoPerformers.Any(sp => sp.Performer!.Favorite));
 
-            if (filter.RemoteIdCriterion != null)
-            {
-                query = filter.RemoteIdCriterion.Modifier switch
-                {
-                    CriterionModifier.IsNull => query.Where(s => s.RemoteIds.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.RemoteIds.Count > 0),
-                    _ => query.Where(s => s.RemoteIds.Any(sid => EF.Functions.ILike(sid.Endpoint, $"%{filter.RemoteIdCriterion.Value}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyRemoteId(query, filter.RemoteIdCriterion, filter.RemoteIdValueCriterion, video => video.RemoteIds, remoteId => remoteId.Endpoint, remoteId => remoteId.RemoteId);
 
             query = ApplyIntCriterion(query, filter.RemoteIdCountCriterion, s => s.RemoteIds.Count);
 

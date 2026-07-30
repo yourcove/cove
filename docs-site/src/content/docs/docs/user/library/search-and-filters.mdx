@@ -39,6 +39,12 @@ Filters are best when you want to shape a result set deliberately:
 
 Filters are how you turn “somewhere in the library” into “the exact slice I want right now.”
 
+### Remote ID filters
+
+Videos, performers, studios, and tags provide a **Remote ID** filter. Enter the external identifier and optionally select one of Cove's configured metadata services. **Any metadata service** searches identifiers across every endpoint. Cove stores the endpoint separately from the identifier, and a saved filter that refers to a removed service shows its endpoint as an unconfigured selection until you choose another service.
+
+**Equals**, **Includes**, and **Regex** match identifier values without regard to letter case. Their inverse operators also include records that have no matching remote ID. With **Any metadata service**, **Is Null** and **Not Null** check whether the record has any remote ID. When a service is selected, those null checks are scoped to that service. **Remote ID Count** continues to filter the total number of remote IDs.
+
 <DocsScreenshot
   src="images/docs/search-filter-controls.png"
   alt="Videos filter editor listing searchable criteria above an empty results area"
