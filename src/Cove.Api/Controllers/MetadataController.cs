@@ -1267,8 +1267,8 @@ public class MetadataController(
                     }
                 }
 
-                // Identify is where a video gains its remote ids, so it is the one signal an extension
-                // needs to act on a newly-resolved scene. A video nothing matched publishes nothing.
+                // Identify is where a video gains its remote ids, so this is the one signal an extension
+                // can act on to reach a newly-resolved scene.
                 if (identified)
                 {
                     eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));

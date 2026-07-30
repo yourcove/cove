@@ -1093,8 +1093,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     /// <summary>
-    /// Publishes a rating lifecycle event carrying the payload <see cref="EventType.RatingCreated"/> and
-    /// its siblings document: <c>{ userId, aspect, value }</c>, with a null value meaning cleared.
+    /// Publishes a rating lifecycle event with the payload <see cref="EventType.RatingCreated"/> and its
+    /// siblings document — <c>{ userId, aspect, value }</c>, a null value meaning cleared.
     /// </summary>
     private void PublishRatingEvent(EventType eventType, int videoId, string aspect, int? value)
         => eventBus.Publish(new EntityEvent(eventType, "Video", videoId, new Dictionary<string, object?>

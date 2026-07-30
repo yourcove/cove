@@ -42,8 +42,8 @@ public sealed class EntityEventFilter : IAsyncActionFilter
         var (eventType, entityId) = DetermineEvent(actionName, entityType, context, result);
         if (eventType == null) return;
 
-        // A bulk update names every entity it touched. Publishing one event with id 0 told a consumer
-        // that something changed without saying what, which is indistinguishable from no information.
+        // A bulk update names every entity it touched: an event carrying id 0 says something changed
+        // without saying what, which is no more actionable than silence.
         if (actionName == "bulkupdate" && ExtractBulkIds(context) is { Count: > 0 } bulkIds)
         {
             foreach (var id in bulkIds)
