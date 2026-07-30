@@ -174,21 +174,21 @@ public class CleanService(
             {
                 await db.VideoFiles.Where(f => f.VideoId != null && orphanVideoIds.Contains(f.VideoId.Value)).ExecuteDeleteAsync(ct);
                 await db.Videos.Where(s => orphanVideoIds.Contains(s.Id)).ExecuteDeleteAsync(ct);
-                logger.LogInformation("Removed {Count} orphaned videos", orphanVideoIds.Count);
+                logger.LogDebug("Removed {Count} orphaned videos", orphanVideoIds.Count);
             }
 
             if (orphanImageIds.Count > 0)
             {
                 await db.ImageFiles.Where(f => f.ImageId != null && orphanImageIds.Contains(f.ImageId.Value)).ExecuteDeleteAsync(ct);
                 await db.Images.Where(im => orphanImageIds.Contains(im.Id)).ExecuteDeleteAsync(ct);
-                logger.LogInformation("Removed {Count} orphaned images", orphanImageIds.Count);
+                logger.LogDebug("Removed {Count} orphaned images", orphanImageIds.Count);
             }
 
             if (orphanGalleryIds.Count > 0)
             {
                 await db.GalleryFiles.Where(f => f.GalleryId != null && orphanGalleryIds.Contains(f.GalleryId.Value)).ExecuteDeleteAsync(ct);
                 await db.Galleries.Where(g => orphanGalleryIds.Contains(g.Id)).ExecuteDeleteAsync(ct);
-                logger.LogInformation("Removed {Count} orphaned galleries", orphanGalleryIds.Count);
+                logger.LogDebug("Removed {Count} orphaned galleries", orphanGalleryIds.Count);
             }
 
             var deletedAny = orphanVideoIds.Count > 0 || orphanImageIds.Count > 0 || orphanGalleryIds.Count > 0;
@@ -203,19 +203,23 @@ public class CleanService(
             if (danglingFiles > 0)
             {
                 deletedAny = true;
-                logger.LogInformation("Removed {Count} dangling file rows with no parent", danglingFiles);
+                logger.LogDebug("Removed {Count} dangling file rows with no parent", danglingFiles);
             }
 
             // ExecuteDeleteAsync bypasses EF's per-SaveChanges count maintenance, so the bulk deletes
             // above leave denormalized rollups stale (studio/performer/tag counts, per-entity FileCount).
             // That is what makes stats and the "0 files" filter keep reporting removed entries. Repair
             // every denormalized count so the library totals match reality after a clean.
+            var recomputed = 0;
             if (deletedAny)
             {
                 progress.Report(1.0, "Recomputing library counts");
-                var recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
-                logger.LogInformation("Recomputed denormalized counts for {Count} entities after clean", recomputed);
+                recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
+                logger.LogDebug("Recomputed denormalized counts for {Count} entities after clean", recomputed);
             }
+
+            logger.LogInformation("Clean completed: removed {Videos} videos, {Images} images, {Galleries} galleries, {DanglingFiles} dangling files; recomputed {Recomputed} entity counts",
+                orphanVideoIds.Count, orphanImageIds.Count, orphanGalleryIds.Count, danglingFiles, recomputed);
         }, exclusive: false);
     }
 }

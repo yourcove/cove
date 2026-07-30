@@ -74,19 +74,9 @@ public class BackupService(
         {
             progress.Report(0.1, "Starting backup...");
 
-            try
-            {
-                progress.Report(0.3, "Running pg_dump...");
-                var backup = await CreateBackupAsync("manual", ct);
-
-                progress.Report(1.0, "Backup complete");
-                logger.LogInformation("Database backed up to {Path}", backup.BackupPath);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Backup failed");
-                throw;
-            }
+            progress.Report(0.3, "Running pg_dump...");
+            await CreateBackupAsync("manual", ct);
+            progress.Report(1.0, "Backup complete");
         }, exclusive: true);
     }
 
@@ -149,7 +139,7 @@ public class BackupService(
         var source = ConfigSourcePath;
         if (!File.Exists(source))
         {
-            logger.LogInformation("Config backup skipped: no config file at {Path}", source);
+            logger.LogDebug("Config backup skipped: no config file at {Path}", source);
             return Task.FromResult<ConfigBackupResultDto?>(null);
         }
 

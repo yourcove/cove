@@ -357,7 +357,10 @@ public class FingerprintService(
         }
 
         // Final fallback path: spawn ffmpeg once per timestamp and extract a single frame each time.
-        return await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
+        var processPhash = await ComputeVideoPhashViaProcessAsync(ffmpegPath, path, timestamps, ct);
+        if (string.IsNullOrWhiteSpace(processPhash))
+            logger.LogWarning("All video pHash extraction strategies failed for {Path}", path);
+        return processPhash;
     }
 
     private string? BuildSpritePhash(Image<Rgba32>[] frames)
@@ -544,7 +547,7 @@ public class FingerprintService(
                     else
                     {
                         Interlocked.Increment(ref failed);
-                        logger.LogWarning("No pHash produced for file {FileId}: {Path}", item.FileId, item.Path);
+                        logger.LogTrace("No pHash produced for file {FileId}: {Path}", item.FileId, item.Path);
                     }
 
                     var done = Interlocked.Increment(ref completed);

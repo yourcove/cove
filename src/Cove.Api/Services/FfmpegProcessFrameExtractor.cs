@@ -67,14 +67,14 @@ internal static class FfmpegProcessFrameExtractor
                     DisposeFrames(frames);
                     if (ct.IsCancellationRequested)
                         throw;
-                    logger.LogWarning("FFmpeg timed out extracting frame {Index} from {Path}", index, videoPath);
+                    logger.LogDebug("FFmpeg timed out extracting frame {Index} from {Path}", index, videoPath);
                     return null;
                 }
 
                 if (proc.ExitCode != 0 || !File.Exists(framePath))
                 {
                     var err = await stderrTask;
-                    logger.LogWarning("FFmpeg failed extracting frame {Index} from {Path}: {Error}", index, videoPath, err);
+                    logger.LogDebug("FFmpeg failed extracting frame {Index} from {Path}: {Error}", index, videoPath, err);
                     DisposeFrames(frames);
                     return null;
                 }
@@ -97,7 +97,7 @@ internal static class FfmpegProcessFrameExtractor
         catch (Exception ex)
         {
             DisposeFrames(frames);
-            logger.LogWarning(ex, "FFmpeg process frame extraction failed for {Path}", videoPath);
+            logger.LogDebug(ex, "FFmpeg process frame extraction failed for {Path}", videoPath);
             return null;
         }
         finally

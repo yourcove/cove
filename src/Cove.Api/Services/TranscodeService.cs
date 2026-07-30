@@ -71,7 +71,7 @@ public class TranscodeService : ITranscodeService
         try
         {
             var stream = await TrySpawnTranscodeAsync(
-                ffmpeg, BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, encoder, outputContainer), encoder, inputPath, ct);
+                ffmpeg, BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, encoder, outputContainer), encoder, inputPath, finalAttempt: encoder == "libx264", ct);
 
             // A hardware-encoder pipeline can fail at runtime even after probing OK — e.g. an NVENC
             // session-limit exhaustion (NV_ENC_ERR_OUT_OF_MEMORY) when previews are generating on the
@@ -79,9 +79,9 @@ public class TranscodeService : ITranscodeService
             // the cause, fall back to libx264 so playback still works instead of returning an error.
             if (stream == null && encoder != "libx264" && !ct.IsCancellationRequested)
             {
-                _logger.LogWarning("Live transcode with {Encoder} failed for {Input}; retrying with libx264.", encoder, inputPath);
+                _logger.LogDebug("Live transcode with {Encoder} failed for {Input}; retrying with libx264.", encoder, inputPath);
                 stream = await TrySpawnTranscodeAsync(
-                    ffmpeg, BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, "libx264", outputContainer), "libx264", inputPath, ct);
+                    ffmpeg, BuildEncodeArgs(ffmpeg, inputPath, resolution, startSeconds, "libx264", outputContainer), "libx264", inputPath, finalAttempt: true, ct);
             }
 
             if (stream != null)
@@ -111,7 +111,7 @@ public class TranscodeService : ITranscodeService
     /// on success, or null on failure — the caller decides whether to retry, release the semaphore, or
     /// surface the error. This method never releases the semaphore itself.
     /// </summary>
-    private async Task<Stream?> TrySpawnTranscodeAsync(string ffmpeg, string args, string encoder, string inputPath, CancellationToken ct)
+    private async Task<Stream?> TrySpawnTranscodeAsync(string ffmpeg, string args, string encoder, string inputPath, bool finalAttempt, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
@@ -157,9 +157,10 @@ public class TranscodeService : ITranscodeService
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 try { process.Kill(true); } catch { }
-                _logger.LogWarning(
-                    "Transcode produced no output within {Timeout}s for {Input} (encoder {Encoder}). ffmpeg: {Error}",
-                    FirstByteTimeout.TotalSeconds, inputPath, encoder, Tail(stderr));
+                if (finalAttempt)
+                    _logger.LogWarning("Transcode produced no output within {Timeout}s for {Input} (encoder {Encoder}). ffmpeg: {Error}", FirstByteTimeout.TotalSeconds, inputPath, encoder, Tail(stderr));
+                else if (_logger.IsEnabled(LogLevel.Debug))
+                    _logger.LogDebug("Transcode produced no output within {Timeout}s for {Input} (encoder {Encoder}); fallback may be attempted. ffmpeg: {Error}", FirstByteTimeout.TotalSeconds, inputPath, encoder, Tail(stderr));
                 return null;
             }
         }
@@ -168,9 +169,10 @@ public class TranscodeService : ITranscodeService
         {
             try { await process.WaitForExitAsync(ct); } catch { }
             var exit = process.HasExited ? process.ExitCode : -1;
-            _logger.LogWarning(
-                "Transcode failed (exit {Code}) for {Input} (encoder {Encoder}). ffmpeg: {Error}",
-                exit, inputPath, encoder, Tail(stderr));
+            if (finalAttempt)
+                _logger.LogWarning("Transcode failed (exit {Code}) for {Input} (encoder {Encoder}). ffmpeg: {Error}", exit, inputPath, encoder, Tail(stderr));
+            else if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug("Transcode failed (exit {Code}) for {Input} (encoder {Encoder}); fallback may be attempted. ffmpeg: {Error}", exit, inputPath, encoder, Tail(stderr));
             try { process.Kill(true); } catch { }
             return null;
         }

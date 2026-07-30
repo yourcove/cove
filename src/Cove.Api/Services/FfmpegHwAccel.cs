@@ -92,7 +92,7 @@ internal static class FfmpegHwAccel
                 if (!listed.Contains(enc, StringComparer.OrdinalIgnoreCase)) continue;
                 if (!ProbeEncoder(ffmpegPath, enc, out var probeError))
                 {
-                    logger.LogDebug("Skipping {Encoder} ({Accel}): probe failed ({Error})", enc, accel, probeError);
+                    logger.LogTrace("Skipping {Encoder} ({Accel}): probe failed ({Error})", enc, accel, probeError);
                     continue;
                 }
 
@@ -124,7 +124,7 @@ internal static class FfmpegHwAccel
                 if (ProbeEncoder(ffmpegPath, encoder, out var err))
                     available.Add(accel);
                 else
-                    logger.LogDebug("HW accelerator {Accel} ({Encoder}) present but test-encode failed: {Error}", accel, encoder, err);
+                    logger.LogTrace("HW accelerator {Accel} ({Encoder}) present but test-encode failed: {Error}", accel, encoder, err);
             }
         }
         catch (Exception ex)
