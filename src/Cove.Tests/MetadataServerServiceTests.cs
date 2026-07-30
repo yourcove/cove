@@ -8,6 +8,7 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
@@ -55,6 +56,73 @@ public sealed class MetadataServerServiceTests
         Assert.True(match.StudioCandidate.ExistsLocally);
         Assert.Contains(match.PerformerCandidates, candidate => candidate.Name == "Jane Doe" && candidate.ExistsLocally);
         Assert.Contains(match.TagCandidates, candidate => candidate.Name == "Action" && candidate.ExistsLocally);
+    }
+
+    [Fact]
+    public async Task NonStrictSearches_LogOneWarningOnlyWhenAllMetadataServersFail()
+    {
+        await using var context = CreateContext();
+        var logger = new RecordingLogger<MetadataServerService>();
+        using var httpClient = new HttpClient(new FailingMetadataServerHandler());
+        var configuration = new CoveConfiguration
+        {
+            Scraping = new ScrapingConfig
+            {
+                MetadataServers =
+                [
+                    new MetadataServerInstance { Endpoint = "https://one.example/graphql", ApiKey = ApiKey, Name = "One" },
+                    new MetadataServerInstance { Endpoint = "https://two.example/graphql", ApiKey = ApiKey, Name = "Two" },
+                ],
+            },
+        };
+        var service = CreateService(context, httpClient, configuration: configuration, logger: logger);
+        var video = new Video { Title = "Local Video" };
+
+        Assert.Empty(await service.SearchPerformersAsync("term", null, CancellationToken.None));
+        Assert.Empty(await service.SearchStudiosAsync("term", null, CancellationToken.None));
+        Assert.Empty(await service.SearchTagsAsync("term", null, CancellationToken.None));
+        Assert.Empty(await service.SearchVideosAsync(video, "term", null, CancellationToken.None));
+
+        Assert.Equal(8, logger.Entries.Count(entry => entry.Level == LogLevel.Debug));
+        Assert.Equal(4, logger.Entries.Count(entry => entry.Level == LogLevel.Warning));
+    }
+
+    [Fact]
+    public async Task StrictTagSearch_ReturnsEmptyAndLogsWarningWhenEndpointFails()
+    {
+        await using var context = CreateContext();
+        var logger = new RecordingLogger<MetadataServerService>();
+        using var httpClient = new HttpClient(new FailingMetadataServerHandler());
+        var service = CreateService(context, httpClient, logger: logger);
+
+        var matches = await service.SearchTagsAsync("term", Endpoint, CancellationToken.None);
+
+        Assert.Empty(matches);
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task NonStrictSearch_DoesNotLogAggregateWarningWhenAnotherEndpointSucceeds()
+    {
+        await using var context = CreateContext();
+        var logger = new RecordingLogger<MetadataServerService>();
+        using var httpClient = new HttpClient(new MixedMetadataServerHandler());
+        var configuration = new CoveConfiguration
+        {
+            Scraping = new ScrapingConfig
+            {
+                MetadataServers =
+                [
+                    new MetadataServerInstance { Endpoint = "https://one.example/graphql", ApiKey = ApiKey, Name = "One" },
+                    new MetadataServerInstance { Endpoint = "https://two.example/graphql", ApiKey = ApiKey, Name = "Two" },
+                ],
+            },
+        };
+        var service = CreateService(context, httpClient, configuration: configuration, logger: logger);
+
+        Assert.Empty(await service.SearchPerformersAsync("term", null, CancellationToken.None));
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Debug);
+        Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Warning);
     }
 
     [Fact]
@@ -308,10 +376,10 @@ public sealed class MetadataServerServiceTests
         Assert.Equal(121, fingerprint.GetProperty("duration").GetInt32());
     }
 
-    private static MetadataServerService CreateService(CoveContext context, HttpClient httpClient, IFieldProvenanceService? fieldProvenance = null, ITagProvenanceService? tagProvenance = null)
+    private static MetadataServerService CreateService(CoveContext context, HttpClient httpClient, IFieldProvenanceService? fieldProvenance = null, ITagProvenanceService? tagProvenance = null, CoveConfiguration? configuration = null, ILogger<MetadataServerService>? logger = null)
         => new(
             httpClient,
-            new CoveConfiguration
+            configuration ?? new CoveConfiguration
             {
                 Scraping = new ScrapingConfig
                 {
@@ -330,7 +398,7 @@ public sealed class MetadataServerServiceTests
             new NullBlobService(),
             new NullVideoCoverService(),
             tagProvenance ?? new TagProvenanceService(context),
-            NullLogger<MetadataServerService>.Instance,
+            logger ?? NullLogger<MetadataServerService>.Instance,
             fieldProvenance);
 
     private static CoveContext CreateContext()
@@ -443,6 +511,36 @@ public sealed class MetadataServerServiceTests
           "piercings": []
         }
         """;
+
+    private sealed class FailingMetadataServerHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => throw new HttpRequestException("Metadata server unavailable");
+    }
+
+    private sealed class MixedMetadataServerHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.Host == "one.example")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(GraphQlData("\"searchPerformer\": []"), Encoding.UTF8, "application/json"),
+                });
+
+            throw new HttpRequestException("Metadata server unavailable");
+        }
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+    }
 
     private sealed class FixtureMetadataServerHandler(Func<GraphQlRequestSnapshot, string> responseFactory) : HttpMessageHandler
     {

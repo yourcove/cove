@@ -68,6 +68,18 @@ public partial class ScraperService
         Message = "Scraper fetch completed with HTTP {StatusCode}; characters={ResponseCharacters}, attempt={Attempt}")]
     private partial void TraceFetchCompleted(int statusCode, int responseCharacters, int attempt);
 
+    [LoggerMessage(
+        EventId = 2204,
+        Level = LogLevel.Trace,
+        Message = "Auto scrape selected {CandidateCount} candidate(s) for {EntityType} URL {Url}")]
+    private partial void TraceAutoScrapeCandidates(int candidateCount, string entityType, string url);
+
+    [LoggerMessage(
+        EventId = 2205,
+        Level = LogLevel.Trace,
+        Message = "Auto scraper {ScraperId} {Outcome} for {EntityType} URL {Url}")]
+    private partial void TraceAutoScrapeAttempt(string scraperId, string outcome, string entityType, string url, Exception? exception = null);
+
     public ScraperService(CoveConfiguration config, ILogger<ScraperService> logger, IHttpClientFactory httpClientFactory, ExtensionManager extensionManager)
     {
         _config = config;
@@ -149,6 +161,7 @@ public partial class ScraperService
             return new AutoScrapeResult(null, null, []);
 
         var candidates = FindScrapersForUrl(url, entityType);
+        TraceAutoScrapeCandidates(candidates.Count, entityType, url);
         var attempts = new List<AutoScrapeAttemptResult>(candidates.Count);
         foreach (var candidate in candidates)
         {
@@ -158,15 +171,17 @@ public partial class ScraperService
                 if (result is { Count: > 0 })
                 {
                     attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, true, null));
+                    TraceAutoScrapeAttempt(candidate.Id, "returned results", entityType, url);
                     return new AutoScrapeResult(candidate.Id, result, attempts);
                 }
 
                 attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, false, null));
+                TraceAutoScrapeAttempt(candidate.Id, "returned no results", entityType, url);
             }
             catch (Exception ex)
             {
                 attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, false, ex.Message));
-                _logger.LogDebug(ex, "Auto scraper {ScraperId} failed for URL {Url}", candidate.Id, url);
+                TraceAutoScrapeAttempt(candidate.Id, "failed", entityType, url, ex);
             }
         }
 
@@ -695,7 +710,7 @@ public partial class ScraperService
 
         if (!_manifestCache.TryGetValue(baseId, out var manifest))
         {
-            _logger.LogWarning("Scraper {Id} not found", baseId);
+            _logger.LogDebug("Scraper {Id} not found", baseId);
             return null;
         }
 
@@ -715,7 +730,7 @@ public partial class ScraperService
         var matchingDef = urlDefs.FirstOrDefault(d => d.Url.Any(u => url.Contains(u, StringComparison.OrdinalIgnoreCase)));
         if (matchingDef == null)
         {
-            _logger.LogWarning("No URL match for {Url} in scraper {Id}", url, baseId);
+            _logger.LogTrace("No URL match for {Url} in scraper {Id}", url, baseId);
             return null;
         }
 
@@ -1303,7 +1318,7 @@ public partial class ScraperService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug("XPath selector error for field {Field}: {Error}", field, ex.Message);
+                    _logger.LogTrace("XPath selector error for field {Field}: {Error}", field, ex.Message);
                 }
             }
 
@@ -1371,7 +1386,7 @@ public partial class ScraperService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug("JSON selector error for field {Field}: {Error}", field, ex.Message);
+                    _logger.LogTrace("JSON selector error for field {Field}: {Error}", field, ex.Message);
                 }
             }
 

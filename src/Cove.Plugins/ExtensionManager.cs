@@ -241,7 +241,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                         var publicationGate = TryAcquireExtensionPublicationGate(manifestFile.Id);
                         if (publicationGate == null)
                         {
-                            _logger?.LogWarning("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
+                            _logger?.LogTrace("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
                             continue;
                         }
 
@@ -251,7 +251,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                             {
                                 if (_unloadOperations.ContainsKey(manifestFile.Id))
                                 {
-                                    _logger?.LogWarning("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
+                                    _logger?.LogTrace("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
                                     continue;
                                 }
 
@@ -275,7 +275,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                                 {
                                     if (_unloadOperations.ContainsKey(manifestFile.Id))
                                     {
-                                        _logger?.LogWarning("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
+                                        _logger?.LogTrace("Skipping extension manifest {Id} while it is being unloaded", manifestFile.Id);
                                         continue;
                                     }
 
@@ -355,7 +355,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                                     {
                                         if (_unloadOperations.ContainsKey(ext.Id))
                                         {
-                                            _logger?.LogWarning("Skipping extension {Id} while it is being unloaded", ext.Id);
+                                            _logger?.LogTrace("Skipping extension {Id} while it is being unloaded", ext.Id);
                                             continue;
                                         }
 

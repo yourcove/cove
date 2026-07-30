@@ -262,6 +262,7 @@ query Me {
         var boxes = ResolveBoxes(endpoint);
         var results = new List<MetadataServerPerformerMatchDto>();
         var strictEndpoint = !string.IsNullOrWhiteSpace(endpoint);
+        var failedEndpoints = 0;
 
         foreach (var box in boxes)
         {
@@ -272,9 +273,13 @@ query Me {
             }
             catch (Exception ex) when (!strictEndpoint)
             {
-                _logger.LogWarning(ex, "Skipping metadata-server performer search for {Endpoint}", box.Endpoint);
+                failedEndpoints++;
+                _logger.LogDebug(ex, "Skipping metadata-server performer search for {Endpoint}", box.Endpoint);
             }
         }
+
+        if (!strictEndpoint && results.Count == 0 && boxes.Count > 0 && failedEndpoints == boxes.Count)
+            _logger.LogWarning("Metadata-server performer search failed for all {EndpointCount} configured endpoint(s)", boxes.Count);
 
         return results
             .OrderByDescending(match => string.Equals(match.Name, term, StringComparison.OrdinalIgnoreCase))
@@ -349,6 +354,7 @@ query Me {
         var boxes = ResolveBoxes(endpoint);
         var results = new List<MetadataServerStudioMatchDto>();
         var strictEndpoint = !string.IsNullOrWhiteSpace(endpoint);
+        var failedEndpoints = 0;
 
         foreach (var box in boxes)
         {
@@ -359,9 +365,13 @@ query Me {
             }
             catch (Exception ex) when (!strictEndpoint)
             {
-                _logger.LogWarning(ex, "Skipping metadata-server studio search for {Endpoint}", box.Endpoint);
+                failedEndpoints++;
+                _logger.LogDebug(ex, "Skipping metadata-server studio search for {Endpoint}", box.Endpoint);
             }
         }
+
+        if (!strictEndpoint && results.Count == 0 && boxes.Count > 0 && failedEndpoints == boxes.Count)
+            _logger.LogWarning("Metadata-server studio search failed for all {EndpointCount} configured endpoint(s)", boxes.Count);
 
         return results
             .OrderByDescending(m => string.Equals(m.Name, term, StringComparison.OrdinalIgnoreCase))
@@ -467,20 +477,30 @@ query Me {
         var boxes = ResolveBoxes(endpoint);
         var strictEndpoint = !string.IsNullOrWhiteSpace(endpoint);
         var results = new List<MetadataServerTagMatchDto>();
+        var failedEndpoints = 0;
 
         foreach (var box in boxes)
         {
             try
             {
-                var tag = await GetRemoteTagAsync(box, tagId: null, tagName: term, ct);
+                var response = await SendQueryAsync<MetadataServerFindTagResponse>(box, FindTagQuery, new { id = (string?)null, name = term }, ct);
+                var tag = response.FindTag;
                 if (tag != null)
                     results.Add(ToTagMatchDto(box, tag));
             }
             catch (Exception ex) when (!strictEndpoint)
             {
-                _logger.LogWarning(ex, "Skipping metadata-server tag search for {Endpoint}", box.Endpoint);
+                failedEndpoints++;
+                _logger.LogDebug(ex, "Skipping metadata-server tag search for {Endpoint}", box.Endpoint);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch tag {TagIdOrName} from {Endpoint}", term, box.Endpoint);
             }
         }
+
+        if (!strictEndpoint && results.Count == 0 && boxes.Count > 0 && failedEndpoints == boxes.Count)
+            _logger.LogWarning("Metadata-server tag search failed for all {EndpointCount} configured endpoint(s)", boxes.Count);
 
         return results
             .OrderByDescending(match => string.Equals(match.Name, term, StringComparison.OrdinalIgnoreCase))
@@ -1007,6 +1027,7 @@ query Me {
         var boxes = ResolveBoxes(endpoint);
         var strictEndpoint = !string.IsNullOrWhiteSpace(endpoint);
         var results = new List<MetadataServerVideoMatchDto>();
+        var failedEndpoints = 0;
         var videoTitle = term ?? video.Title;
         var videoDuration = GetVideoDurationSeconds(video);
         var localFingerprints = video.Files.SelectMany(f => f.Fingerprints).ToList();
@@ -1088,9 +1109,13 @@ query Me {
             }
             catch (Exception ex) when (!strictEndpoint)
             {
-                _logger.LogWarning(ex, "Skipping metadata-server video search for {Endpoint}", box.Endpoint);
+                failedEndpoints++;
+                _logger.LogDebug(ex, "Skipping metadata-server video search for {Endpoint}", box.Endpoint);
             }
         }
+
+        if (!strictEndpoint && results.Count == 0 && boxes.Count > 0 && failedEndpoints == boxes.Count)
+            _logger.LogWarning("Metadata-server video search failed for all {EndpointCount} configured endpoint(s)", boxes.Count);
 
         return results
             .GroupBy(match => $"{match.Endpoint}::{match.Id}", StringComparer.OrdinalIgnoreCase)
