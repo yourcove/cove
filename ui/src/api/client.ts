@@ -1050,8 +1050,9 @@ export const system = {
     request<CoveConfig>("/system/config", { method: "PUT", body: JSON.stringify(config) }),
   getFfmpegCapabilities: (refresh = false) =>
     request<FfmpegCapabilities>(`/system/ffmpeg-capabilities${refresh ? "?refresh=true" : ""}`),
+  getLogLevel: () => request<RuntimeLogLevelStatus>("/system/log-level"),
   setLogLevel: (level: string) =>
-    request<{ level: string }>("/system/log-level", { method: "PATCH", body: JSON.stringify({ level }) }),
+    request<RuntimeLogLevelStatus>("/system/log-level", { method: "PATCH", body: JSON.stringify({ level }) }),
   uploadFavicon: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -1328,6 +1329,16 @@ export interface LogEntry {
   level: string;
   message: string;
   exception?: string;
+  category?: string;
+  jobId?: string;
+  jobType?: string;
+  operationId?: string;
+}
+
+export interface RuntimeLogLevelStatus {
+  level: string;
+  configuredLevel: string;
+  traceExpiresAt?: string;
 }
 
 export const logs = {

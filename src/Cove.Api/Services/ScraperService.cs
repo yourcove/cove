@@ -19,7 +19,7 @@ public sealed record AutoScrapeAttemptResult(string ScraperId, string ScraperNam
 
 public sealed record AutoScrapeResult(string? ScraperId, Dictionary<string, object>? Result, IReadOnlyList<AutoScrapeAttemptResult> Attempts);
 
-public class ScraperService
+public partial class ScraperService
 {
     private static readonly string[] SupportedExtensions = [".yml", ".yaml"];
     private const string ScraperPackKind = "scraper-pack";
@@ -40,6 +40,33 @@ public class ScraperService
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
+
+    [LoggerMessage(
+        EventId = 2201,
+        Level = LogLevel.Trace,
+        Message = "Scraper {ScraperId} name search for {EntityType} using term {SearchTerm} produced {CandidateCount} candidates")]
+    private partial void TraceNameSearchResult(
+        string scraperId,
+        string entityType,
+        string searchTerm,
+        int candidateCount);
+
+    [LoggerMessage(
+        EventId = 2202,
+        Level = LogLevel.Trace,
+        Message = "{ScraperKind} scraper {ScraperName} extracted {ProducedFieldCount} of {RequestedFieldCount} requested fields for {EntityType}")]
+    private partial void TraceExtractionCompleted(
+        string scraperKind,
+        string? scraperName,
+        string entityType,
+        int requestedFieldCount,
+        int producedFieldCount);
+
+    [LoggerMessage(
+        EventId = 2203,
+        Level = LogLevel.Trace,
+        Message = "Scraper fetch completed with HTTP {StatusCode}; characters={ResponseCharacters}, attempt={Attempt}")]
+    private partial void TraceFetchCompleted(int statusCode, int responseCharacters, int attempt);
 
     public ScraperService(CoveConfiguration config, ILogger<ScraperService> logger, IHttpClientFactory httpClientFactory, ExtensionManager extensionManager)
     {
@@ -909,6 +936,7 @@ public class ScraperService
             };
 
             var candidates = ExpandNameSearchResults(result);
+            TraceNameSearchResult(baseId, entityType, searchTerm, candidates?.Count ?? 0);
             if (candidates is { Count: > 0 })
                 return await EnrichNameSearchCandidatesAsync(scraperId, entityType, candidates, targetUrl, ct);
         }
@@ -1240,7 +1268,7 @@ public class ScraperService
 
         try
         {
-            _logger.LogDebug("Fetching URL for XPath scrape: {Url}", url);
+            _logger.LogTrace("Fetching URL for XPath scrape: {Url}", url);
             var html = await FetchContentAsync(manifest, url, ct, isNameSearch);
             if (html == null)
                 return null; // No match (e.g. 404 during a title search).
@@ -1279,6 +1307,7 @@ public class ScraperService
                 }
             }
 
+            TraceExtractionCompleted("XPath", scraperName, entityType, entitySelectors.Count, result.Count);
             return result.Count > 0 ? result : null;
         }
         catch (Exception ex)
@@ -1309,7 +1338,7 @@ public class ScraperService
 
         try
         {
-            _logger.LogDebug("Fetching URL for JSON scrape: {Url}", url);
+            _logger.LogTrace("Fetching URL for JSON scrape: {Url}", url);
             var jsonStr = await FetchContentAsync(manifest, url, ct, isNameSearch);
             if (jsonStr == null)
                 return null; // No match (e.g. 404 during a title search).
@@ -1346,6 +1375,7 @@ public class ScraperService
                 }
             }
 
+            TraceExtractionCompleted("JSON", scraperName, entityType, entitySelectors.Count, result.Count);
             return result.Count > 0 ? result : null;
         }
         catch (Exception ex)
@@ -1937,6 +1967,7 @@ public class ScraperService
 
                 using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 var content = await response.Content.ReadAsStringAsync(ct);
+                TraceFetchCompleted((int)response.StatusCode, content.Length, attempt);
 
                 if (!response.IsSuccessStatusCode)
                 {

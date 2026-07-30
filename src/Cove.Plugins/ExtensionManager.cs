@@ -2368,8 +2368,16 @@ public class ExtensionManager : IExtensionContributionRuntime
             if (!IsEnabled(ext.Id)) continue;
             try
             {
+                _logger?.LogTrace(
+                    "Dispatching event {EventType} to extension {Id}",
+                    evt.EventType,
+                    ext.Id);
                 var execution = CaptureExtensionExecution(ext);
                 await ExecuteExtensionAsync(execution, () => ext.OnEventAsync(evt, ct));
+                _logger?.LogTrace(
+                    "Extension {Id} handled event {EventType}",
+                    ext.Id,
+                    evt.EventType);
             }
             catch (Exception ex)
             {

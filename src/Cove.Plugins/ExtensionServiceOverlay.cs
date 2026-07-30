@@ -346,7 +346,7 @@ public sealed class ExtensionServiceOverlay : IDisposable
         if (dispose != null)
             TryDispose(dispose.Provider);
 
-        _logger?.LogDebug("Service container built for extension {Id}", extensionId);
+        _logger?.LogTrace("Service container built for extension {Id}", extensionId);
         return true;
     }
 
@@ -439,7 +439,7 @@ public sealed class ExtensionServiceOverlay : IDisposable
         // generics are supplied by the fresh logging/options/HTTP stacks above.
         if (type.IsGenericTypeDefinition)
         {
-            _logger?.LogDebug(
+            _logger?.LogTrace(
                 "Skipping open-generic host singleton {ServiceType} in extension container",
                 type);
             return;

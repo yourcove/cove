@@ -16,7 +16,7 @@ using ExtJobProgress = Cove.Plugins.IJobProgress;
 
 namespace Cove.Api.Services;
 
-public class ScanService(
+public partial class ScanService(
     IJobService jobService,
     IServiceScopeFactory scopeFactory,
     CoveConfiguration config,
@@ -428,6 +428,13 @@ public class ScanService(
                                 break;
                         }
 
+                        TraceKnownFileClassified(
+                            file.StoredPath,
+                            existingFile!.Kind,
+                            changeReason,
+                            existingFile.Size,
+                            file.Size);
+
                         var expectedKind = GetExpectedFileKind(
                             file.Extension,
                             videoExts,
@@ -453,6 +460,7 @@ public class ScanService(
                     else
                     {
                         newFileCount++;
+                        TraceNewFileClassified(file.StoredPath);
                     }
 
                     changedOrNewCount++;
@@ -579,6 +587,7 @@ public class ScanService(
                             try
                             {
                                 await workerDb.SaveChangesAsync(ct);
+                                TraceScanBatchCommitted(batchItems.Count);
                                 workerDb.ChangeTracker.Clear();
                                 foreach (var publish in batchEvents)
                                     publish();
@@ -1495,7 +1504,7 @@ public class ScanService(
 
             db.Galleries.Add(gallery);
             createdGalleries.Add(gallery);
-            logger.LogDebug("Created folder gallery for: {Path} with {Count} images", folder.Path, group.ImageIds.Count);
+            logger.LogTrace("Created folder gallery for: {Path} with {Count} images", folder.Path, group.ImageIds.Count);
         }
 
         await db.SaveChangesAsync(ct);
@@ -1864,7 +1873,7 @@ public class ScanService(
 
         await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir);
 
-        logger.LogDebug("Added video file for: {Path}", path);
+        logger.LogTrace("Added video file for: {Path}", path);
         return (videoFile, false);
     }
 
@@ -2210,7 +2219,7 @@ public class ScanService(
 
         await EnrichImageFileAsync(imageFile, path, ct);
 
-        logger.LogDebug("Added image for: {Path}", path);
+        logger.LogTrace("Added image for: {Path}", path);
         return (image, false);
     }
 
@@ -2256,7 +2265,7 @@ public class ScanService(
         // If gallery exists and already has images, skip re-processing
         if (existing?.Gallery?.ImageGalleries.Count > 0)
         {
-            logger.LogDebug("Gallery already processed with {Count} images: {Path}",
+            logger.LogTrace("Gallery already processed with {Count} images: {Path}",
                 existing.Gallery.ImageGalleries.Count, path);
             return existing.Gallery;
         }
@@ -2339,7 +2348,7 @@ public class ScanService(
                     imageEntries.Count - distinctEntries.Count,
                     path);
 
-            logger.LogDebug("Found {Count} images in gallery: {Path}", distinctEntries.Count, path);
+            logger.LogTrace("Found {Count} images in gallery: {Path}", distinctEntries.Count, path);
 
             // Create a virtual folder for this zip's contents
             // This ensures images from different zips don't conflict on the unique constraint (ParentFolderId + Basename)
@@ -2391,7 +2400,7 @@ public class ScanService(
             // Save all images and their gallery associations
             await db.SaveChangesAsync(ct);
 
-            logger.LogDebug("Added gallery with {Count} images: {Path}", distinctEntries.Count, path);
+            logger.LogTrace("Added gallery with {Count} images: {Path}", distinctEntries.Count, path);
         }
         catch (FileNotFoundException)
         {
@@ -2523,7 +2532,7 @@ public class ScanService(
         await EnrichAudioFileAsync(audio, audioFile, path, ct);
         RefreshAudioSummary(audio);
 
-        logger.LogDebug("Added audio for: {Path}", path);
+        logger.LogTrace("Added audio for: {Path}", path);
         return (audio, false);
     }
 
@@ -2636,7 +2645,7 @@ public class ScanService(
         await EnrichTextFileAsync(textDocument, textFile, path, ct);
         RefreshTextSummary(textDocument);
 
-        logger.LogDebug("Added text document for: {Path}", path);
+        logger.LogTrace("Added text document for: {Path}", path);
         return (textDocument, false);
     }
 
@@ -3550,6 +3559,29 @@ public class ScanService(
     }
 
     private static readonly string[] FolderIgnoreFileNames = [".coveignore", ".stashignore"];
+
+    [LoggerMessage(
+        EventId = 2101,
+        Level = LogLevel.Trace,
+        Message = "Classified known {MediaType} file {Path} as {Reason}; oldBytes={OldBytes}, newBytes={NewBytes}")]
+    private partial void TraceKnownFileClassified(
+        string path,
+        ExistingFileKind mediaType,
+        ScanFileChangeReason reason,
+        long oldBytes,
+        long newBytes);
+
+    [LoggerMessage(
+        EventId = 2102,
+        Level = LogLevel.Trace,
+        Message = "Classified file {Path} as new")]
+    private partial void TraceNewFileClassified(string path);
+
+    [LoggerMessage(
+        EventId = 2103,
+        Level = LogLevel.Trace,
+        Message = "Committed scan batch containing {FileCount} files")]
+    private partial void TraceScanBatchCommitted(int fileCount);
 
     private record CaptionSidecar(string Filename, string LanguageCode, string CaptionType);
 

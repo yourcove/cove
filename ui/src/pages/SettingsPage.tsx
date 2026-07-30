@@ -4175,29 +4175,42 @@ function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
   );
 }
 function LogsPanel() {
-  const { config } = useAppConfig();
   const { hasPermission } = useAuth();
   const canWriteSystemSettings = hasPermission("system.settings.write");
   const [clientFilter, setClientFilter] = useState("");
-  const [serverLogLevel, setServerLogLevel] = useState(config?.logLevel ?? "Info");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [serverLogLevel, setServerLogLevel] = useState("Info");
+  const [configuredLogLevel, setConfiguredLogLevel] = useState("Info");
+  const [traceExpiresAt, setTraceExpiresAt] = useState<string | null>(null);
   const [tailEntries, setTailEntries] = useState<LogEntry[]>([]);
   const [streamError, setStreamError] = useState<string | null>(null);
   const { data: initialLogEntries, isLoading } = useQuery({
     queryKey: ["logs", "tail"],
     queryFn: () => logsApi.recent(undefined, 200),
   });
+  const { data: logLevelStatus } = useQuery({
+    queryKey: ["logs", "level"],
+    queryFn: system.getLogLevel,
+    refetchInterval: 5_000,
+  });
 
   const setLogLevelMutation = useMutation({
     mutationFn: system.setLogLevel,
-    onSuccess: (result) => setServerLogLevel(result.level),
+    onSuccess: (result) => {
+      setServerLogLevel(result.level);
+      setConfiguredLogLevel(result.configuredLevel);
+      setTraceExpiresAt(result.traceExpiresAt ?? null);
+    },
     onError: (error: Error) => setStreamError(error.message),
   });
 
   useEffect(() => {
-    if (config?.logLevel) {
-      setServerLogLevel(config.logLevel);
+    if (logLevelStatus) {
+      setServerLogLevel(logLevelStatus.level);
+      setConfiguredLogLevel(logLevelStatus.configuredLevel);
+      setTraceExpiresAt(logLevelStatus.traceExpiresAt ?? null);
     }
-  }, [config?.logLevel]);
+  }, [logLevelStatus]);
 
   useEffect(() => {
     if (initialLogEntries) {
@@ -4224,9 +4237,21 @@ function LogsPanel() {
     };
   }, []);
 
-  const filteredLogEntries = clientFilter
-    ? tailEntries.filter((entry) => normalizeLogLevel(entry.level) === clientFilter)
-    : tailEntries;
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(
+      tailEntries
+        .map((entry) => entry.category)
+        .filter((category): category is string => Boolean(category))
+    ))
+      .sort()
+      .map((category) => ({ value: category, label: shortLogCategory(category) })),
+    [tailEntries]
+  );
+
+  const filteredLogEntries = tailEntries.filter((entry) =>
+    (!clientFilter || normalizeLogLevel(entry.level) === clientFilter)
+    && (!categoryFilter || entry.category === categoryFilter)
+  );
 
   const levelColor = (level: string) => {
     switch (level.toLowerCase()) {
@@ -4240,7 +4265,7 @@ function LogsPanel() {
 
   return (
     <SectionCard title="Logs" description="Live log tail from the server.">
-      <div className="mb-4 grid gap-3 md:grid-cols-2 md:items-end">
+      <div className="mb-4 grid gap-3 md:grid-cols-3 md:items-end">
         <SelectField
           label="Filter"
           description="Filter the log rows shown in this browser without changing what the server records."
@@ -4257,15 +4282,22 @@ function LogsPanel() {
           ]}
         />
         <SelectField
+          label="Component"
+          description="Filter this browser view by the component that emitted each log entry."
+          value={categoryFilter}
+          onChange={setCategoryFilter}
+          options={[{ value: "", label: "All components" }, ...categoryOptions]}
+        />
+        <SelectField
           label="Server log level"
-          description="Change the live server log verbosity and persist the selected level to config."
+          description="Trace runs for 15 minutes, then returns to the saved level. Other levels persist."
           value={serverLogLevel}
           onChange={(value) => {
             setServerLogLevel(value);
             setLogLevelMutation.mutate(value);
           }}
           options={[
-            { value: "Trace", label: "Trace" },
+            { value: "Trace", label: "Trace (15 minutes)" },
             { value: "Debug", label: "Debug" },
             { value: "Info", label: "Info" },
             { value: "Warning", label: "Warning" },
@@ -4275,6 +4307,12 @@ function LogsPanel() {
           disabled={!canWriteSystemSettings || setLogLevelMutation.isPending}
         />
       </div>
+      {traceExpiresAt ? (
+        <div className="mb-3 rounded border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-100">
+          Trace logging is temporarily enabled until {new Date(traceExpiresAt).toLocaleString()} and may include local paths,
+          URLs, and library metadata. Cove will then return to {configuredLogLevel}.
+        </div>
+      ) : null}
       {streamError ? <p className="mb-3 text-sm text-red-300">{streamError}</p> : null}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-secondary">
@@ -4283,10 +4321,19 @@ function LogsPanel() {
       ) : filteredLogEntries.length > 0 ? (
         <div className="max-h-[600px] overflow-y-auto rounded border border-border bg-background font-mono text-xs">
           {filteredLogEntries.map((entry, i) => (
-            <div key={i} className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3 border-b border-border/50 px-3 py-1.5 hover:bg-surface">
+            <div key={i} className="grid grid-cols-[auto_auto_auto_minmax(0,1fr)] items-start gap-3 border-b border-border/50 px-3 py-1.5 hover:bg-surface">
               <span className="whitespace-nowrap text-muted">{entry.timestamp}</span>
               <span className={`whitespace-nowrap font-semibold ${levelColor(entry.level)}`}>{entry.level}</span>
-              <span className="min-w-0 break-all text-foreground">{entry.message}</span>
+              <span className="whitespace-nowrap text-accent">{shortLogCategory(entry.category)}</span>
+              <span className="min-w-0 break-all text-foreground">
+                {(entry.jobId || entry.operationId) ? (
+                  <span className="mr-2 text-muted">
+                    [{entry.jobId ? `job=${entry.jobId}${entry.jobType ? `/${entry.jobType}` : ""}` : `operation=${entry.operationId}`}]
+                  </span>
+                ) : null}
+                {entry.message}
+                {entry.exception ? <span className="block text-red-300">{entry.exception}</span> : null}
+              </span>
             </div>
           ))}
         </div>
@@ -4295,6 +4342,11 @@ function LogsPanel() {
       )}
     </SectionCard>
   );
+}
+
+function shortLogCategory(category?: string) {
+  if (!category) return "Cove";
+  return category.split(".").at(-1) ?? category;
 }
 
 function normalizeLogLevel(level: string) {

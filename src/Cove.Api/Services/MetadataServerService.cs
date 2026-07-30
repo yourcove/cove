@@ -1034,7 +1034,7 @@ query Me {
                     if (fingerprintQueries.Count > 0)
                     {
                         var fingerprintCount = fingerprintQueries.Sum(batch => batch.Count);
-                        _logger.LogDebug("Querying metadata-server {Endpoint} with {BatchCount} fingerprint batches ({FingerprintCount} fingerprints) for video {VideoId}",
+                        _logger.LogTrace("Querying metadata-server {Endpoint} with {BatchCount} fingerprint batches ({FingerprintCount} fingerprints) for video {VideoId}",
                             box.Endpoint, fingerprintQueries.Count, fingerprintCount, video.Id);
 
                         var fingerprintResponse = await SendQueryAsync<MetadataServerFindVideosByFingerprintsResponse>(
@@ -1048,7 +1048,7 @@ query Me {
                             .GroupBy(remote => remote.Id, StringComparer.OrdinalIgnoreCase)
                             .Select(group => group.First())
                             .ToList();
-                        _logger.LogDebug("Metadata server returned {Count} unique fingerprint matches for video {VideoId}", remoteMatches.Count, video.Id);
+                        _logger.LogTrace("Metadata server returned {Count} unique fingerprint matches for video {VideoId}", remoteMatches.Count, video.Id);
 
                         foreach (var remote in remoteMatches)
                         {
@@ -1056,6 +1056,11 @@ query Me {
                         }
                         if (remoteMatches.Count > 0)
                             continue;
+
+                        _logger.LogTrace(
+                            "Fingerprint lookup returned no matches for video {VideoId}; falling back to {SearchTermCount} text search terms",
+                            video.Id,
+                            searchTerms.Count);
                     }
 
                     if (existingMatchAdded)
@@ -1068,6 +1073,10 @@ query Me {
                 foreach (var searchTerm in searchTerms)
                 {
                     var searchResponse = await SendQueryAsync<MetadataServerSearchVideoResponse>(box, SearchVideoQuery, new { term = searchTerm }, ct);
+                    _logger.LogTrace(
+                        "Metadata server text search returned {Count} matches for video {VideoId}",
+                        searchResponse.SearchVideo.Count,
+                        video.Id);
                     foreach (var remote in searchResponse.SearchVideo)
                     {
                         results.Add(await ToVideoMatchDtoAsync(box, remote, localFingerprints, ct));

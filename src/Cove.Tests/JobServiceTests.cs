@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
@@ -9,6 +10,37 @@ namespace Cove.Tests;
 
 public class JobServiceTests
 {
+    [Fact]
+    public async Task JobWork_RunsInsideCorrelationScope()
+    {
+        var logger = new ScopeRecordingLogger<JobService>();
+        var service = new JobService(new EventBus(), new FakeHubContext(), logger);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var capturedScope = new TaskCompletionSource<IReadOnlyDictionary<string, object?>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var jobId = service.Enqueue(
+                "scan",
+                "Scanning library",
+                (_, _) =>
+                {
+                    capturedScope.SetResult(logger.CurrentScope);
+                    return Task.CompletedTask;
+                });
+
+            var scope = await capturedScope.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(jobId, scope["JobId"]);
+            Assert.Equal("scan", scope["JobType"]);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     [Fact]
     public async Task ExclusiveJob_CompletesWithCompletedStatusAndTimestamp()
     {
@@ -193,5 +225,40 @@ public class JobServiceTests
 
         public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class ScopeRecordingLogger<T> : ILogger<T>
+    {
+        private readonly AsyncLocal<IReadOnlyDictionary<string, object?>?> _currentScope = new();
+
+        public IReadOnlyDictionary<string, object?> CurrentScope =>
+            _currentScope.Value ?? new Dictionary<string, object?>();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        {
+            var previous = _currentScope.Value;
+            _currentScope.Value = state as IReadOnlyDictionary<string, object?>
+                ?? (state as IEnumerable<KeyValuePair<string, object?>>)?.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value)
+                ?? new Dictionary<string, object?>();
+            return new ScopeLease(() => _currentScope.Value = previous);
+        }
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+        }
+
+        private sealed class ScopeLease(Action dispose) : IDisposable
+        {
+            public void Dispose() => dispose();
+        }
     }
 }

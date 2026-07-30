@@ -198,6 +198,7 @@ public class JobService : IJobService, IHostedService
             NotifyClients(entry);
 
             var progress = new JobProgress(entry, this);
+            using var logScope = BeginJobLogScope(entry);
 
             try
             {
@@ -240,6 +241,7 @@ public class JobService : IJobService, IHostedService
         NotifyClients(entry);
 
         var progress = new JobProgress(entry, this);
+        using var logScope = BeginJobLogScope(entry);
 
         try
         {
@@ -266,6 +268,13 @@ public class JobService : IJobService, IHostedService
         NotifyClients(entry);
         MoveToHistory(entry);
     }
+
+    private IDisposable? BeginJobLogScope(JobEntry entry) =>
+        _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["JobId"] = entry.Id,
+            ["JobType"] = entry.Type,
+        });
 
     private void MoveToHistory(JobEntry entry)
     {

@@ -10,7 +10,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
-using Serilog.Core;
 using Serilog.Events;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
@@ -210,8 +209,9 @@ try
     var isIntegrationStartupTest = builder.Environment.IsEnvironment("IntegrationStartup");
     var isTestHarness = isIntegrationTest || isIntegrationStartupTest;
 
-    var runtimeLogLevelSwitch = new LoggingLevelSwitch(ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")));
-    builder.Services.AddSingleton(runtimeLogLevelSwitch);
+    var runtimeLogLevelManager = new RuntimeLogLevelManager(
+        ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")));
+    builder.Services.AddSingleton(runtimeLogLevelManager);
 
     if (isTestHarness)
     {
@@ -233,7 +233,7 @@ try
             .ReadFrom.Configuration(context.Configuration)
             .ReadFrom.Services(services)
             .Enrich.FromLogContext()
-            .MinimumLevel.ControlledBy(services.GetRequiredService<LoggingLevelSwitch>())
+            .MinimumLevel.ControlledBy(services.GetRequiredService<RuntimeLogLevelManager>().LevelSwitch)
             .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
             .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
             .WriteTo.Console()
@@ -813,7 +813,7 @@ try
         CoveDefaultPaths.GetDataRoot(),
         coveCfgInstance.Postgres.Managed,
         coveCfgInstance.Auth.Enabled,
-        runtimeLogLevelSwitch.MinimumLevel);
+        runtimeLogLevelManager.LevelSwitch.MinimumLevel);
     await app.WaitForShutdownAsync();
 
     // Graceful shutdown for extensions

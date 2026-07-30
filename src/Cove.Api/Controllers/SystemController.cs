@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
-using Serilog.Core;
 using Serilog.Events;
 using Cove.Api.Middleware;
 using Cove.Api.Services;
@@ -27,7 +26,7 @@ public class SystemController(
     ICurrentPrincipalAccessor principalAccessor,
     IAuditService auditService,
     IHostApplicationLifetime applicationLifetime,
-    LoggingLevelSwitch loggingLevelSwitch,
+    RuntimeLogLevelManager runtimeLogLevelManager,
     ILogger<SystemController> logger) : ControllerBase
 {
     private static readonly Dictionary<string, string> UiAssetContentTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -269,13 +268,50 @@ public class SystemController(
         if (!TryParseLogLevel(request.Level, out var level, out var normalizedLevel))
             return BadRequest("Invalid log level. Expected Trace, Debug, Info, Warning, Error, or Critical.");
 
-        loggingLevelSwitch.MinimumLevel = level;
-        coveConfiguration.LogLevel = normalizedLevel;
-        await configService.SaveCurrentConfigAsync();
-        logger.LogInformation("Runtime log level changed to {LogLevel}", normalizedLevel);
+        RuntimeLogLevelState state;
+        if (level == LogEventLevel.Verbose)
+        {
+            state = runtimeLogLevelManager.StartTemporaryTrace();
+            logger.LogInformation(
+                "Temporary Trace logging enabled until {TraceExpiresAt}; it will return to {LogLevel}",
+                state.TraceExpiresAt,
+                NormalizeLogLevel(state.PersistedLevel));
+            logger.LogTrace(
+                "Trace logging session is active; detailed workflow decisions will be recorded until {TraceExpiresAt}",
+                state.TraceExpiresAt);
+        }
+        else
+        {
+            state = runtimeLogLevelManager.SetPersistentLevel(level);
+            coveConfiguration.LogLevel = normalizedLevel;
+            await configService.SaveCurrentConfigAsync();
+            logger.LogInformation("Runtime log level changed to {LogLevel}", normalizedLevel);
+        }
 
-        return Ok(new { level = normalizedLevel });
+        return Ok(ToLogLevelStatus(state));
     }
+
+    [HttpGet("log-level")]
+    [RequiresPermission(Permissions.SystemRead)]
+    public ActionResult<object> GetLogLevel() => Ok(ToLogLevelStatus(runtimeLogLevelManager.GetState()));
+
+    private static object ToLogLevelStatus(RuntimeLogLevelState state) => new
+    {
+        level = NormalizeLogLevel(state.EffectiveLevel),
+        configuredLevel = NormalizeLogLevel(state.PersistedLevel),
+        traceExpiresAt = state.TraceExpiresAt,
+    };
+
+    private static string NormalizeLogLevel(LogEventLevel level) => level switch
+    {
+        LogEventLevel.Verbose => "Trace",
+        LogEventLevel.Debug => "Debug",
+        LogEventLevel.Information => "Info",
+        LogEventLevel.Warning => "Warning",
+        LogEventLevel.Error => "Error",
+        LogEventLevel.Fatal => "Critical",
+        _ => "Info",
+    };
 
     private static bool TryParseLogLevel(string? value, out LogEventLevel level, out string normalizedLevel)
     {

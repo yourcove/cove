@@ -22,6 +22,11 @@ internal static class FfmpegProcessFrameExtractor
 
         var frames = new Image<Rgba32>?[timestamps.Count];
         var extracted = 0;
+        logger.LogTrace(
+            "FFmpeg frame extraction started for {Path}: frames={FrameCount}, scaleWidth={ScaleWidth}",
+            videoPath,
+            timestamps.Count,
+            scaleWidth);
 
         try
         {
@@ -78,6 +83,10 @@ internal static class FfmpegProcessFrameExtractor
                 extracted++;
             }
 
+            logger.LogTrace(
+                "FFmpeg frame extraction completed for {Path}: frames={FrameCount}",
+                videoPath,
+                extracted);
             return frames.Cast<Image<Rgba32>>().ToArray();
         }
         catch (OperationCanceledException)

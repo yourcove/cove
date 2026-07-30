@@ -47,6 +47,11 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
             EntityId: evt.EntityId,
             Data: evt.Entity != null ? new Dictionary<string, object?> { ["entity"] = evt.Entity } : null
         );
+        _logger.LogTrace(
+            "Queued extension event {EventType} for {EntityType} {EntityId}",
+            extensionEvent.EventType,
+            extensionEvent.EntityType,
+            extensionEvent.EntityId);
 
         // Fire-and-forget dispatch to extensions (don't block the publisher)
         _ = Task.Run(async () =>
@@ -54,6 +59,9 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
             try
             {
                 await _extensionManager.DispatchEventAsync(extensionEvent);
+                _logger.LogTrace(
+                    "Completed extension event dispatch for {EventType}",
+                    extensionEvent.EventType);
             }
             catch (Exception ex)
             {
@@ -96,4 +104,3 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
 
     public void Dispose() => _subscription?.Dispose();
 }
-

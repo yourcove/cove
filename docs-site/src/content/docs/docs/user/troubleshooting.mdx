@@ -8,7 +8,9 @@ Reproduce the narrowest failing action once, note the time, and inspect the matc
 
 ## Find the logs
 
-The same log view is available on every deployment at **Settings → System Info → Logs**. Use **Filter** to narrow the rows shown in the browser. Changing **Server log level** changes what Cove records; return it to its prior level after collecting a short reproduction.
+The same log view is available on every deployment at **Settings → System Info → Logs**. Use **Filter** and **Component** to narrow the rows shown in the browser. Changing **Server log level** changes what Cove records. **Trace** is a temporary 15-minute diagnostic session and then returns to the saved level automatically; other levels remain selected until changed.
+
+Trace records detailed per-item decisions and may include local paths, URLs, and library metadata. Enable it only long enough to reproduce the problem once. Cove never intentionally logs credentials, but review and sanitize a log excerpt before sharing it.
 
 On disk, Cove writes daily logs under `<COVE_HOME>/logs` and retains a rolling history:
 

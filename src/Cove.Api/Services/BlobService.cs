@@ -74,7 +74,7 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
             throw;
         }
 
-        logger.LogDebug("Stored blob {BlobId} at {Path}", blobId, path);
+        logger.LogTrace("Stored blob {BlobId} at {Path}", blobId, path);
         return blobId;
     }
 
@@ -121,7 +121,7 @@ public class BlobService(CoveConfiguration config, ILogger<BlobService> logger) 
         if (path != null)
         {
             File.Delete(path);
-            logger.LogDebug("Deleted blob {BlobId} at {Path}", blobId, path);
+            logger.LogTrace("Deleted blob {BlobId} at {Path}", blobId, path);
         }
 
         DeleteIfExists(GetMetadataPath(blobId));
