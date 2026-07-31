@@ -409,6 +409,11 @@ samp {
 .proof-card,
 .comparison-card,
 .setup-card {
+  /* These cards are grid items, and a grid item defaults to min-width: auto, so a long
+     unbreakable string inside one widens the whole page instead of scrolling within the
+     element that declares overflow. The Docker command on the download page pushed the
+     document to 692px on a 390px viewport. */
+  min-width: 0;
   border: 1px solid var(--cove-border);
   border-radius: 0.5rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
