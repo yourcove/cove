@@ -50,6 +50,7 @@ interface ExpectedPlayerContext {
 
 let actionContext: ExpectedPlayerContext | undefined;
 let overlayContext: ExpectedPlayerContext | undefined;
+const actionClickMock = vi.fn();
 
 class ResizeObserverMock {
   observe() {}
@@ -80,6 +81,7 @@ beforeAll(() => {
 beforeEach(() => {
   actionContext = undefined;
   overlayContext = undefined;
+  actionClickMock.mockClear();
   playMock.mockClear();
   pauseMock.mockClear();
   loadMock.mockClear();
@@ -117,7 +119,7 @@ function RegisteredPlayer({
       render: (context) => {
         if (crashActionRef.current) throw new Error("player action crashed");
         actionContext = context as ExpectedPlayerContext;
-        return <button data-testid="media-player-test-action">Extension action</button>;
+        return <button data-testid="media-player-test-action" onClick={actionClickMock}>Extension action</button>;
       },
     });
     const unregisterOverlay = registerSlot({
@@ -217,6 +219,63 @@ describe("VideoPlayer extension slots", () => {
         contentRect: { left: 0, top: 218.75, width: 1000, height: 562.5 },
       });
     });
+  });
+
+  it("moves player actions into the compact playback menu without mounting duplicates", async () => {
+    const originalMatchMedia = window.matchMedia;
+    const addListener = vi.fn();
+    const removeListener = vi.fn();
+    const mediaQuery = {
+      matches: true,
+      media: "(max-width: 767px)",
+      onchange: null,
+      addListener,
+      removeListener,
+      dispatchEvent: vi.fn(),
+    };
+    const matchMedia = vi.fn((query: string) => {
+      mediaQuery.media = query;
+      return mediaQuery;
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: matchMedia,
+    });
+
+    const rendered = renderPlayer();
+    try {
+      expect(matchMedia).toHaveBeenCalledWith("(max-width: 767px)");
+      expect(screen.queryByTestId("media-player-test-action")).not.toBeInTheDocument();
+      expect(addListener).toHaveBeenCalledOnce();
+
+      fireEvent.click(screen.getByRole("button", { name: "Playback options" }));
+
+      await waitFor(() => expect(screen.getByTestId("media-player-test-action")).toBeInTheDocument());
+      expect(screen.getAllByTestId("media-player-test-action")).toHaveLength(1);
+      expect(screen.getByText("Extension actions")).toBeInTheDocument();
+      expect(screen.getByTestId("media-player-test-action").closest('[role="dialog"]')).not.toBeNull();
+
+      fireEvent.click(screen.getByTestId("media-player-test-action"));
+
+      expect(actionClickMock).toHaveBeenCalledOnce();
+      expect(screen.queryByText("Extension actions")).not.toBeInTheDocument();
+
+      act(() => {
+        mediaQuery.matches = false;
+        const sync = addListener.mock.calls[0]?.[0] as (() => void) | undefined;
+        sync?.();
+      });
+
+      await waitFor(() => expect(screen.getByTestId("media-player-test-action")).toBeInTheDocument());
+      expect(screen.getAllByTestId("media-player-test-action")).toHaveLength(1);
+      expect(screen.getByTestId("media-player-test-action").closest('[role="dialog"]')).toBeNull();
+    } finally {
+      rendered.unmount();
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: originalMatchMedia,
+      });
+    }
   });
 
   it("lets extension controllers play, pause, and seek without exposing the video element", async () => {

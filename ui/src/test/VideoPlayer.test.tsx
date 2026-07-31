@@ -1,5 +1,5 @@
 import React from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayer, type VideoPlayerPlaybackControls } from "../components/VideoPlayer";
 
@@ -70,6 +70,104 @@ describe("VideoPlayer source lifecycle", () => {
     mockPlaybackTracker.setTarget.mockClear();
     mockPlaybackTracker.recordInterval.mockClear();
     mockPlaybackTracker.flush.mockClear();
+  });
+
+  it("allows mobile browsers to play video inline", () => {
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    expect(container.querySelector("video")).toHaveAttribute("playsinline");
+  });
+
+  it("uses native video fullscreen when container fullscreen is unavailable", () => {
+    const enterFullscreen = vi.fn();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    };
+    video.webkitEnterFullscreen = enterFullscreen;
+
+    const fullscreenButton = container.querySelector(
+      'button[aria-label="Enter fullscreen"]',
+    );
+    expect(fullscreenButton).toBeInstanceOf(HTMLButtonElement);
+    fireEvent.click(fullscreenButton as HTMLButtonElement);
+
+    expect(enterFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it("keeps controls compact below the md breakpoint and exposes secondary playback options", () => {
+    const { container, getByRole, getByText, queryByText } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    expect(container.querySelector('button[title="Back 10s"]')).toHaveClass("hidden", "md:inline-flex");
+    expect(container.querySelector('button[title="Forward 10s"]')).toHaveClass("hidden", "md:inline-flex");
+    expect(getByText("0:00 / 2:00")).toBeInTheDocument();
+
+    const optionsButton = getByRole("button", { name: "Playback options" });
+    expect(optionsButton.parentElement).toHaveClass("md:hidden");
+    vi.spyOn(optionsButton, "getBoundingClientRect").mockReturnValue({
+      x: 340,
+      y: 700,
+      top: 700,
+      right: 364,
+      bottom: 724,
+      left: 340,
+      width: 24,
+      height: 24,
+      toJSON: () => ({}),
+    });
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 740 });
+
+    fireEvent.click(optionsButton);
+
+    expect(getByRole("button", { name: "Direct" })).toBeInTheDocument();
+    expect(getByText("Playback speed")).toBeInTheDocument();
+    expect(getByText("Loop video")).toBeInTheDocument();
+    expect(getByText("Picture-in-Picture")).toBeInTheDocument();
+    const optionsMenu = getByRole("dialog", { name: "Playback options menu" });
+    expect(optionsMenu).toHaveStyle({
+      bottom: "48px",
+      maxHeight: "684px",
+    });
+
+    fireEvent.scroll(optionsMenu);
+    expect(getByText("Playback speed")).toBeInTheDocument();
+
+    fireEvent.scroll(window);
+    expect(queryByText("Playback speed")).not.toBeInTheDocument();
+
+    fireEvent.click(optionsButton);
+    fireEvent.pointerDown(document.body);
+
+    expect(queryByText("Playback speed")).not.toBeInTheDocument();
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
   });
 
   it("lets registered seeks preserve pause state when requested", async () => {

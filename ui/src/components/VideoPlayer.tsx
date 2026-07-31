@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
   Eye,
   EyeOff,
+  EllipsisVertical,
   Maximize,
   Minimize,
   Pause,
@@ -19,7 +21,7 @@ import { videos } from "../api/client";
 import type { Detection, Face, Segment } from "../api/types";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { useAppConfig } from "../state/AppConfigContext";
-import { ExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
+import { ExtensionSlot, useHasExtensionSlot, type SlotEntry } from "../router/RouteRegistry";
 import {
   EMPTY_MEDIA_PLAYER_INTERACTION,
   MEDIA_PLAYER_ACTIONS_SLOT,
@@ -50,6 +52,30 @@ const MUTED_KEY = "cove-video-player-muted";
 const FACE_OVERLAY_KEY = "cove.player.faceOverlay";
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const CLIP_BOUNDARY_TOLERANCE_SEC = 0.05;
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => (
+    typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia(query).matches
+  ));
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mediaQuery = window.matchMedia(query);
+    const sync = () => setMatches(mediaQuery.matches);
+    sync();
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", sync);
+      return () => mediaQuery.removeEventListener("change", sync);
+    }
+
+    mediaQuery.addListener(sync);
+    return () => mediaQuery.removeListener(sync);
+  }, [query]);
+
+  return matches;
+}
 
 function getVideoSourceMimeType(format?: string) {
   switch (format?.trim().toLowerCase()) {
@@ -223,10 +249,14 @@ export function VideoPlayer({
   const playerVideoStartPercent = config?.ui.playerVideoStartPercent ?? 0;
   const playerVideoStartMinDuration = config?.ui.playerVideoStartMinDuration ?? 0;
   const effectiveShowAbLoop = showAbLoop ?? config?.ui.showAbLoopControls ?? true;
+  const compactControls = useMediaQuery("(max-width: 767px)");
+  const hasMediaPlayerActions = useHasExtensionSlot(MEDIA_PLAYER_ACTIONS_SLOT);
   const effectiveResumeTime = config?.ui.alwaysResumeOnPlayback === false ? undefined : resumeTime;
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const volumeTrackRef = useRef<HTMLDivElement>(null);
+  const mobileOptionsButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileOptionsMenuRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurTime] = useState(0);
   const [buffered, setBuffered] = useState(0);
@@ -246,6 +276,41 @@ export function VideoPlayer({
   const [abLoop, setAbLoop] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
   const [showCaptions, setShowCaptions] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
+  const [showMobileOptions, setShowMobileOptions] = useState(false);
+  const [mobileOptionsPosition, setMobileOptionsPosition] = useState<{
+    top?: number;
+    bottom?: number;
+    right: number;
+    maxHeight: number;
+  }>({ top: 0, right: 0, maxHeight: 0 });
+  useEffect(() => {
+    if (!showMobileOptions) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (mobileOptionsButtonRef.current?.contains(target) || mobileOptionsMenuRef.current?.contains(target)) return;
+      setShowMobileOptions(false);
+    };
+
+    const close = () => setShowMobileOptions(false);
+    const closeOnPageScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && mobileOptionsMenuRef.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", closeOnPageScroll, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", closeOnPageScroll, true);
+    };
+  }, [showMobileOptions]);
+  useEffect(() => {
+    if (!compactControls) setShowMobileOptions(false);
+  }, [compactControls]);
   const [selectedQuality, setSelectedQuality] = useState<string>("Direct");
   const [transcodeStartSec, setTranscodeStartSec] = useState(0);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
@@ -1237,8 +1302,21 @@ export function VideoPlayer({
   const toggleFullscreen = () => {
     const nextFullscreen = !document.fullscreenElement;
     trackPlayerInteraction("fullscreen", { active: nextFullscreen, positionSec: currentTime });
-    if (document.fullscreenElement) document.exitFullscreen();
-    else containerRef.current?.requestFullscreen();
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    const container = containerRef.current;
+    if (typeof container?.requestFullscreen === "function") {
+      void container.requestFullscreen();
+      return;
+    }
+
+    const video = videoRef.current as (HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    }) | null;
+    video?.webkitEnterFullscreen?.();
   };
 
   const changeRate = useCallback((nextRate: number) => {
@@ -1537,6 +1615,7 @@ export function VideoPlayer({
         style={showCursor ? videoStyle : { ...videoStyle, cursor: "none" }}
         preload="metadata"
         poster={posterUrl}
+        playsInline
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
         onLoadedMetadata={handleVideoMetricsReady}
         onLoadedData={handleVideoMetricsReady}
@@ -1754,7 +1833,7 @@ export function VideoPlayer({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 text-white">
+        <div className="flex items-center gap-1 px-2 py-2 text-white md:gap-2 md:px-3">
           {onPrev && (
             <button onClick={onPrev} className="hover:text-accent p-1" title="Previous video">
               <SkipBack className="w-4 h-4 fill-current" />
@@ -1771,10 +1850,10 @@ export function VideoPlayer({
             </button>
           )}
 
-          <button onClick={() => seekToAbsoluteTime(currentTime - 10)} className="hover:text-accent p-1" title="Back 10s">
+          <button onClick={() => seekToAbsoluteTime(currentTime - 10)} className="hidden hover:text-accent p-1 md:inline-flex" title="Back 10s">
             <SkipBack className="w-4 h-4" />
           </button>
-          <button onClick={() => seekToAbsoluteTime(currentTime + 10)} className="hover:text-accent p-1" title="Forward 10s">
+          <button onClick={() => seekToAbsoluteTime(currentTime + 10)} className="hidden hover:text-accent p-1 md:inline-flex" title="Forward 10s">
             <SkipForward className="w-4 h-4" />
           </button>
 
@@ -1787,27 +1866,140 @@ export function VideoPlayer({
           }} className="hover:text-accent p-1">
             {muted || vol === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-          <div ref={volumeTrackRef} className="w-20 h-3 flex items-center cursor-pointer group/vol touch-none" onClick={changeVolume} onPointerDown={startVolumeDrag}>
+          <div ref={volumeTrackRef} className="hidden w-20 h-3 items-center cursor-pointer group/vol touch-none md:flex" onClick={changeVolume} onPointerDown={startVolumeDrag}>
             <div className="w-full h-1 bg-white/20 rounded-full relative">
               <div className="absolute top-0 left-0 h-full bg-white rounded-full" style={{ width: `${(muted ? 0 : vol) * 100}%` }} />
             </div>
           </div>
 
-          <span className="text-xs text-white/70 ml-1 select-none tabular-nums">
+          <span className="ml-1 whitespace-nowrap text-[11px] text-white/70 select-none tabular-nums md:text-xs">
             {fmtTime(visibleCurrentTime)} / {fmtTime(clip ? clipEnd - clipStart : duration)}
           </span>
 
-          <div className="ml-auto flex items-center gap-2">
-            {mediaPlayerExtensionContext ? (
-              <ExtensionSlot
-                slot={MEDIA_PLAYER_ACTIONS_SLOT}
-                context={mediaPlayerExtensionContext}
-                contextResetKey={mediaPlayerExtensionResetKey}
-                createEntryContext={createMediaPlayerEntryContext}
-                wrapperClassName="contents"
-              />
+          <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-2">
+            {!compactControls && mediaPlayerExtensionContext ? (
+              <>
+                <ExtensionSlot
+                  slot={MEDIA_PLAYER_ACTIONS_SLOT}
+                  context={mediaPlayerExtensionContext}
+                  contextResetKey={mediaPlayerExtensionResetKey}
+                  createEntryContext={createMediaPlayerEntryContext}
+                  wrapperClassName="contents"
+                />
+              </>
             ) : null}
-            <div className="relative">
+            <div className="relative md:hidden">
+              <button
+                ref={mobileOptionsButtonRef}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const spaceBelow = window.innerHeight - rect.bottom - 16;
+                  const spaceAbove = rect.top - 16;
+                  const openBelow = spaceBelow >= 240 || spaceBelow >= spaceAbove;
+                  setMobileOptionsPosition({
+                    ...(openBelow
+                      ? { top: rect.bottom + 8, bottom: undefined }
+                      : { top: undefined, bottom: window.innerHeight - rect.top + 8 }),
+                    right: Math.max(8, window.innerWidth - rect.right),
+                    maxHeight: Math.max(0, openBelow ? spaceBelow : spaceAbove),
+                  });
+                  setShowMobileOptions((visible) => !visible);
+                }}
+                className="p-1 hover:text-accent"
+                title="Playback options"
+                aria-label="Playback options"
+                aria-expanded={showMobileOptions}
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </button>
+              {showMobileOptions ? createPortal(
+                <div
+                  ref={mobileOptionsMenuRef}
+                  className="fixed z-[100] min-w-56 overflow-y-auto rounded border border-border bg-surface p-2 text-sm text-primary shadow-xl"
+                  style={{
+                    top: mobileOptionsPosition.top,
+                    bottom: mobileOptionsPosition.bottom,
+                    right: mobileOptionsPosition.right,
+                    maxHeight: mobileOptionsPosition.maxHeight,
+                  }}
+                  role="dialog"
+                  aria-label="Playback options menu"
+                >
+                  <div className="mb-2 px-2 text-xs text-secondary">Video quality</div>
+                  <div className="mb-2 grid grid-cols-2 gap-1">
+                    <button
+                      onClick={() => changeQuality("Direct")}
+                      className={`rounded px-2 py-1 hover:bg-card ${selectedQuality === "Direct" ? "bg-card text-accent" : ""}`}
+                    >
+                      Direct
+                    </button>
+                    {availableQualities.map((quality) => (
+                      <button
+                        key={quality}
+                        onClick={() => changeQuality(quality)}
+                        className={`rounded px-2 py-1 hover:bg-card ${selectedQuality === quality ? "bg-card text-accent" : ""}`}
+                      >
+                        {quality}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mb-2 px-2 text-xs text-secondary">Playback speed</div>
+                  <div className="mb-2 grid grid-cols-4 gap-1">
+                    {PLAYBACK_RATES.map((playbackRate) => (
+                      <button
+                        key={playbackRate}
+                        onClick={() => changeRate(playbackRate)}
+                        className={`rounded px-2 py-1 hover:bg-card ${playbackRate === rate ? "bg-card text-accent" : ""}`}
+                      >
+                        {playbackRate}x
+                      </button>
+                    ))}
+                  </div>
+                  {effectiveShowAbLoop ? (
+                    <button onClick={cycleAbLoop} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
+                      <Repeat className="h-4 w-4" />
+                      {abLoop.a == null ? "Set loop start" : abLoop.b == null ? "Set loop end" : "Clear A–B loop"}
+                    </button>
+                  ) : null}
+                  <button onClick={() => setLoop(!loop)} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
+                    <Repeat1 className="h-4 w-4" />
+                    {loop ? "Disable video loop" : "Loop video"}
+                  </button>
+                  <button onClick={togglePip} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
+                    <PictureInPicture2 className="h-4 w-4" />
+                    Picture-in-Picture
+                  </button>
+                  {captions && captions.length > 0 ? (
+                    <button onClick={() => setShowCaptions((visible) => !visible)} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
+                      <Subtitles className="h-4 w-4" />
+                      {showCaptions ? "Hide captions" : "Show captions"}
+                    </button>
+                  ) : null}
+                  {hasFaceDetections ? (
+                    <button onClick={() => setFaceOverlayEnabled((enabled) => !enabled)} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
+                      {faceOverlayEnabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                      X-ray
+                    </button>
+                  ) : null}
+                  {compactControls && hasMediaPlayerActions && mediaPlayerExtensionContext ? (
+                    <>
+                      <div className="my-2 border-t border-border pt-2 px-2 text-xs text-secondary">Extension actions</div>
+                      {/* Let an extension handle the action before its menu contribution is unmounted. */}
+                      <div onClick={() => setShowMobileOptions(false)}>
+                        <ExtensionSlot
+                          slot={MEDIA_PLAYER_ACTIONS_SLOT}
+                          context={mediaPlayerExtensionContext}
+                          contextResetKey={mediaPlayerExtensionResetKey}
+                          createEntryContext={createMediaPlayerEntryContext}
+                          wrapperClassName="[&_button]:flex [&_button]:w-full [&_button]:items-center [&_button]:gap-2 [&_button]:rounded [&_button]:px-2 [&_button]:py-2 [&_button]:hover:bg-card"
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              , document.body) : null}
+            </div>
+            <div className="relative hidden md:block">
               <button
                 onClick={() => setShowSpeed(!showSpeed)}
                 className={`hover:text-accent p-1 text-xs font-medium flex items-center gap-1 ${rate !== 1 ? "text-accent" : ""}`}
@@ -1832,7 +2024,7 @@ export function VideoPlayer({
             {effectiveShowAbLoop && (
               <button
                 onClick={cycleAbLoop}
-                className={`hover:text-accent p-1 text-xs font-medium flex items-center gap-1 ${abLoop.a != null ? "text-accent" : ""}`}
+                className={`hidden hover:text-accent p-1 text-xs font-medium items-center gap-1 md:flex ${abLoop.a != null ? "text-accent" : ""}`}
                 title={abLoop.a == null ? "Set loop start (A)" : abLoop.b == null ? "Set loop end (B)" : "Clear A-B loop"}
               >
                 <Repeat className="w-4 h-4" />
@@ -1842,7 +2034,7 @@ export function VideoPlayer({
             )}
 
             {availableQualities.length > 0 && (
-              <div className="relative">
+              <div className="relative hidden md:block">
                 <button
                   onClick={() => setShowQuality(!showQuality)}
                   className={`hover:text-accent p-1 text-xs font-medium ${selectedQuality !== "Direct" ? "text-accent" : ""}`}
@@ -1874,20 +2066,20 @@ export function VideoPlayer({
 
             <button
               onClick={() => setLoop(!loop)}
-              className={`hover:text-accent p-1 ${loop ? "text-accent" : ""}`}
+              className={`hidden hover:text-accent p-1 md:inline-flex ${loop ? "text-accent" : ""}`}
               title={loop ? "Disable loop" : "Loop video"}
             >
               <Repeat1 className="w-4 h-4" />
             </button>
 
-            <button onClick={togglePip} className={`hover:text-accent p-1 ${pip ? "text-accent" : ""}`} title="Picture-in-Picture">
+            <button onClick={togglePip} className={`hidden hover:text-accent p-1 md:inline-flex ${pip ? "text-accent" : ""}`} title="Picture-in-Picture">
               <PictureInPicture2 className="w-4 h-4" />
             </button>
 
             {captions && captions.length > 0 && (
               <button
                 onClick={() => setShowCaptions((prev) => !prev)}
-                className={`hover:text-accent p-1 ${showCaptions ? "text-accent" : ""}`}
+                className={`hidden hover:text-accent p-1 md:inline-flex ${showCaptions ? "text-accent" : ""}`}
                 title={showCaptions ? "Hide captions" : "Show captions"}
               >
                 <Subtitles className="w-4 h-4" />
@@ -1897,7 +2089,7 @@ export function VideoPlayer({
             {hasFaceDetections ? (
               <button
                 onClick={() => setFaceOverlayEnabled((previous) => !previous)}
-                className={`hover:text-accent p-1 ${faceOverlayEnabled ? "text-accent" : ""}`}
+                className={`hidden hover:text-accent p-1 md:inline-flex ${faceOverlayEnabled ? "text-accent" : ""}`}
                 title="X-ray"
                 aria-label="X-ray"
                 aria-pressed={faceOverlayEnabled}
@@ -1906,7 +2098,12 @@ export function VideoPlayer({
               </button>
             ) : null}
 
-            <button onClick={toggleFullscreen} className="hover:text-accent p-1">
+            <button
+              onClick={toggleFullscreen}
+              className="shrink-0 hover:text-accent p-1"
+              title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
               {fullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
           </div>
