@@ -2,12 +2,12 @@ import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
-import { isProductionDeployment, PREVIEW_ROBOTS, PRODUCTION_ROBOTS } from './src/lib/deployment.ts';
+import { isProductionDeployment, PREVIEW_ROBOTS, PRODUCTION_ROBOTS, resolveSiteUrl } from './src/lib/deployment.ts';
 import { COVE_REPO, COVE_SITE } from './src/lib/site.ts';
 import { DEFAULT_OG_IMAGE, SITE_DESCRIPTION, SITE_NAME, getAbsoluteUrl, getDocsSiteSchema } from './src/lib/seo.ts';
 
 const [, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
-const configuredSite = process.env.SITE_URL ?? COVE_SITE;
+const configuredSite = resolveSiteUrl(process.env.SITE_URL ?? COVE_SITE);
 const isProduction = isProductionDeployment();
 const site = isProduction ? configuredSite : undefined;
 const isGitHubPages = configuredSite.includes('github.io');
