@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA } from "../components/FilterDialog";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import type { CriterionModifier } from "../api/types";
 
 const { performersFind } = vi.hoisted(() => ({ performersFind: vi.fn() }));
@@ -22,6 +22,10 @@ function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) =
 }
 
 describe("FilterDialog", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   const metadataServiceModifiers: CriterionModifier[] = [
     "EQUALS",
     "NOT_EQUALS",
@@ -115,6 +119,23 @@ describe("FilterDialog", () => {
     expect(onApply).toHaveBeenCalledWith({
       hasSegmentsCriterion: { value: true },
     });
+  });
+
+  it("keeps filter pin controls visible and persists pinned criteria", () => {
+    const criteria: CriterionDefinition[] = [
+      { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
+    ];
+    render(<FilterDialog open onClose={vi.fn()} criteria={criteria} activeFilter={{}} onApply={vi.fn()} />);
+
+    const pinButton = screen.getByRole("button", { name: "Pin" });
+    expect(pinButton).not.toHaveClass("opacity-0");
+    expect(pinButton).toHaveClass("opacity-40", "hover:opacity-100", "focus-visible:opacity-100");
+    expect(pinButton.querySelector(".lucide-pin-off")).toBeInTheDocument();
+
+    fireEvent.click(pinButton);
+
+    expect(screen.getByRole("button", { name: "Unpin" }).querySelector(".lucide-pin")).toBeInTheDocument();
+    expect(localStorage.getItem("filter-pinned")).toBe(JSON.stringify(["title"]));
   });
 
   it.each(metadataServiceModifiers)("preserves selected metadata services for %s", (modifier) => {
