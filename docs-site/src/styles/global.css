@@ -690,12 +690,23 @@ samp {
   position: absolute;
   inset: 0;
   opacity: 0;
-  animation: theme-reel-swap var(--theme-reel-duration) step-end infinite;
-  animation-delay: calc(var(--theme-reel-index) * 0.85s);
 }
 
 .theme-reel-frame:first-child {
   opacity: 1;
+}
+
+/* Every frame sits in the same box, so all of them are inside the viewport at once
+   and loading="lazy" defers nothing. Frames past the first stay out of the layout
+   until the reel actually starts, which is what keeps the browser from fetching
+   fifteen screenshots to show one. */
+[data-theme-reel-state='running'] .theme-reel-frame {
+  animation: theme-reel-swap var(--theme-reel-duration) step-end infinite;
+  animation-delay: calc(var(--theme-reel-index) * var(--theme-reel-interval));
+}
+
+theme-reel:not([data-theme-reel-state='running']) .theme-reel-frame:not(:first-child) {
+  display: none;
 }
 
 .theme-reel-frame img {
@@ -898,7 +909,9 @@ samp {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .theme-reel-frame {
+  /* Specific enough to win over the running state, so a reader who turns the
+     preference on mid-visit stops the reel rather than keeping a started one. */
+  [data-theme-reel-state='running'] .theme-reel-frame {
     animation: none;
   }
 
