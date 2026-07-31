@@ -395,6 +395,17 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
                 video.Files.Add(videoFile);
             }
 
+            if (videoOrdinal % 3 == 0)
+            {
+                db.Segments.Add(new Segment
+                {
+                    HostType = SegmentHostType.Video,
+                    HostId = video.Id,
+                    StartSec = videoOrdinal,
+                    EndSec = videoOrdinal + 5,
+                    SourceKey = "performance",
+                });
+            }
         }
 
         var images = new List<Image>();

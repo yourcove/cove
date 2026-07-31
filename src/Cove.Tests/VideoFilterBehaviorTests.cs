@@ -879,6 +879,50 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task HasSegmentsCriterion_FiltersVideosByRawSegmentPresence()
+    {
+        await using var context = CreateContext();
+        var withSegments = CreateVideoWithFile("with-segments");
+        var withoutSegments = CreateVideoWithFile("without-segments");
+        context.Videos.AddRange(withSegments, withoutSegments);
+        await context.SaveChangesAsync();
+
+        context.Segments.AddRange(
+            new Segment
+            {
+                HostType = SegmentHostType.Video,
+                HostId = withSegments.Id,
+                StartSec = 1,
+                EndSec = 2,
+                SourceKey = "user",
+            },
+            new Segment
+            {
+                HostType = SegmentHostType.Image,
+                HostId = withoutSegments.Id,
+                StartSec = 1,
+                EndSec = 2,
+                SourceKey = "user",
+            });
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+
+        var (withSegmentItems, withSegmentCount) = await repository.FindAsync(
+            new VideoFilter { HasSegmentsCriterion = new BoolCriterion { Value = true } },
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+
+        var (withoutSegmentItems, withoutSegmentCount) = await repository.FindAsync(
+            new VideoFilter { HasSegmentsCriterion = new BoolCriterion { Value = false } },
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+
+        Assert.Equal(1, withSegmentCount);
+        Assert.Equal(["with-segments"], withSegmentItems.Select(video => video.Title ?? string.Empty).ToArray());
+        Assert.Equal(1, withoutSegmentCount);
+        Assert.Equal(["without-segments"], withoutSegmentItems.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task DuplicatedPhashCriterion_True_FindsVideosSharingAPhashAcrossVideos()
     {
         await using var context = CreateContext();

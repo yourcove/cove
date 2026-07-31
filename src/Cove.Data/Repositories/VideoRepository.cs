@@ -221,6 +221,16 @@ public class VideoRepository : IVideoRepository
             if (filter.IsVrCriterion != null)
                 query = query.Where(s => s.IsVr == filter.IsVrCriterion.Value);
 
+            if (filter.HasSegmentsCriterion != null)
+            {
+                var hasSegments = filter.HasSegmentsCriterion.Value;
+                query = hasSegments
+                    ? query.Where(video => _db.Segments.Any(segment =>
+                        segment.HostType == SegmentHostType.Video && segment.HostId == video.Id))
+                    : query.Where(video => !_db.Segments.Any(segment =>
+                        segment.HostType == SegmentHostType.Video && segment.HostId == video.Id));
+            }
+
             query = ApplyFingerprintCriterion(query, filter.FingerprintCriterion);
             query = ApplyFingerprintCriterion(query, filter.HashCriterion, "oshash");
             query = ApplyFingerprintCriterion(query, filter.ChecksumCriterion, "md5");

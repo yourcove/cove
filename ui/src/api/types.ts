@@ -2554,6 +2554,7 @@ export interface VideoFilterCriteria {
   groupsCriterion?: MultiIdCriterion;
   organizedCriterion?: BoolCriterion;
   isVrCriterion?: BoolCriterion;
+  hasSegmentsCriterion?: BoolCriterion;
   pathCriterion?: StringCriterion;
   fingerprintCriterion?: FingerprintCriterion;
   hashCriterion?: StringCriterion;

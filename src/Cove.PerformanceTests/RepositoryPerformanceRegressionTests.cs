@@ -43,6 +43,40 @@ public sealed class RepositoryPerformanceRegressionTests(PostgresPerformanceFixt
             })];
 
         yield return [new RepositoryPerformanceBudget(
+            Name: "video_find_has_segments",
+            MaxMeanMs: 140,
+            MaxP95Ms: 220,
+            Operation: static async (performanceFixture, ct) =>
+            {
+                await using var context = performanceFixture.CreateContext();
+                var repository = new VideoRepository(context);
+                _ = await repository.FindAsync(
+                    new VideoFilter
+                    {
+                        HasSegmentsCriterion = new BoolCriterion { Value = true },
+                    },
+                    Desc("date"),
+                    ct);
+            })];
+
+        yield return [new RepositoryPerformanceBudget(
+            Name: "video_find_without_segments",
+            MaxMeanMs: 140,
+            MaxP95Ms: 220,
+            Operation: static async (performanceFixture, ct) =>
+            {
+                await using var context = performanceFixture.CreateContext();
+                var repository = new VideoRepository(context);
+                _ = await repository.FindAsync(
+                    new VideoFilter
+                    {
+                        HasSegmentsCriterion = new BoolCriterion { Value = false },
+                    },
+                    Desc("date"),
+                    ct);
+            })];
+
+        yield return [new RepositoryPerformanceBudget(
             Name: "video_sort_path",
             MaxMeanMs: 130,
             MaxP95Ms: 210,
