@@ -135,7 +135,7 @@ export default defineConfig({
               label: 'Organize your library',
               items: [
                 { link: '/docs/user/library/organizing/', label: 'Tags and groups' },
-                { link: '/docs/user/library/dynamic-groups/', label: 'Dynamic groups' },
+                { link: '/docs/user/library/dynamic-groups/', label: 'When to use dynamic groups' },
                 { link: '/docs/user/library/segments-and-compilations/', label: 'Segments and compilations' },
               ],
             },

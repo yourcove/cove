@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && npm run test:technical && npm run test:links && astro build && npm run check:documentation-images-output && npm run check:navigation-output && npm run test:navigation-output && npm run test:deployment-output && npm run check:links",
+    "build": "astro check && npm run test:technical && npm run test:links && astro build && npm run check:documentation-images-output && npm run check:navigation-output && npm run test:navigation-output && npm run test:deployment-output && npm run check:links && npm run check:page-metadata",
     "preview": "astro preview",
     "check": "astro check",
     "check:documentation-images-output": "node scripts/check-documentation-images-output.mjs",
     "check:links": "node scripts/check-internal-links.mjs",
+    "check:page-metadata": "node scripts/check-page-metadata.mjs",
     "check:navigation-output": "node scripts/check-generated-navigation.mjs",
     "test:technical": "node --test scripts/check-code-samples.test.mjs",
     "test:links": "node --test scripts/check-internal-links.test.mjs",
