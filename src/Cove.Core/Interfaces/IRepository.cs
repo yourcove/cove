@@ -168,6 +168,7 @@ public class VideoFilter
     public MultiIdCriterion? GroupsCriterion { get; set; }
     public BoolCriterion? OrganizedCriterion { get; set; }
     public BoolCriterion? IsVrCriterion { get; set; }
+    public BoolCriterion? HasSegmentsCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
     public FingerprintCriterion? FingerprintCriterion { get; set; }
     public StringCriterion? HashCriterion { get; set; }

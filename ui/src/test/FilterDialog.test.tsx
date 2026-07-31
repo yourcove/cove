@@ -102,6 +102,21 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("applies the video segment-presence criterion", () => {
+    const onApply = vi.fn();
+    render(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Has Segments"));
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      hasSegmentsCriterion: { value: true },
+    });
+  });
+
   it.each(metadataServiceModifiers)("preserves selected metadata services for %s", (modifier) => {
     const onApply = vi.fn();
     render(

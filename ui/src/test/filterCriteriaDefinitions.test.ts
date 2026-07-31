@@ -55,6 +55,7 @@ describe("filter criteria definitions", () => {
     expect(videoCriteriaById.get("hash")?.filterKey).toBe("fingerprintCriterion");
     expect(videoCriteriaById.get("hash")?.options?.map((option) => option.value)).toEqual(["oshash", "md5", "phash"]);
     expect(videoCriteriaById.get("likeCounter")?.label).toBe("Likes");
+    expect(videoCriteriaById.get("hasSegments")?.filterKey).toBe("hasSegmentsCriterion");
     expect(videoCriteriaById.has("isMissing")).toBe(false);
     expect(videoCriteriaById.has("interactive")).toBe(false);
     expect(videoCriteriaById.has("interactiveSpeed")).toBe(false);
