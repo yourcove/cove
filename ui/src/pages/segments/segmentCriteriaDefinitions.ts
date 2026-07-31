@@ -107,6 +107,14 @@ export function readMultiIdCriterionIds(value: unknown) {
     : [];
 }
 
+export function readMultiIdCriterionDepth(value: unknown): -1 | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  return (value as Partial<MultiIdCriterion>).depth === -1 ? -1 : undefined;
+}
+
 export function readMinimumNumberCriterion(value: unknown) {
   if (!value || typeof value !== "object") {
     return undefined;

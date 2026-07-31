@@ -659,6 +659,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromBody] SegmentSpanSearchRequestDto request,
         CancellationToken ct)
     {
+        request = await ExpandSpanTagFilterAsync(request, ct);
         var page = Math.Max(1, request.Page ?? 1);
         var perPage = Math.Clamp(request.PerPage ?? 24, 1, 100);
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
@@ -736,6 +737,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromBody] SegmentSpanSearchRequestDto request,
         CancellationToken ct)
     {
+        request = await ExpandSpanTagFilterAsync(request, ct);
         var sort = (request.Sort ?? "updated_at").Trim().ToLowerInvariant();
         var descending = !string.Equals(request.Direction, "asc", StringComparison.OrdinalIgnoreCase);
 
@@ -753,6 +755,27 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var total = allItems.Count;
         memoryCache.Set(cacheKey, total, TimeSpan.FromMinutes(30));
         return Ok(new SegmentSpanCountResponseDto(total));
+    }
+
+    private async Task<SegmentSpanSearchRequestDto> ExpandSpanTagFilterAsync(
+        SegmentSpanSearchRequestDto request,
+        CancellationToken ct)
+    {
+        if (request.TagDepth != -1 || request.TagIds is not { Length: > 0 })
+            return request;
+
+        var expanded = await HierarchicalCriterionExpander.ExpandTagsAsync(db, new MultiIdCriterion
+        {
+            Value = request.TagIds.ToList(),
+            Modifier = CriterionModifier.Includes,
+            Depth = -1,
+        }, ct);
+
+        return request with
+        {
+            TagIds = expanded.Criterion.Value.ToArray(),
+            TagDepth = null,
+        };
     }
 
     private static SegmentSpanQueryRequestDto? BuildDerivedQueryRequest(SegmentSpanSearchRequestDto request, int profileId)

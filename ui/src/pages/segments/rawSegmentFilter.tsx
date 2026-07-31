@@ -20,6 +20,7 @@ export interface RawSegmentFilterValue {
   sourceKey?: string;
   kind?: string;
   tagIds: number[];
+  tagDepth?: -1;
   performerIds: number[];
   faceIds: number[];
   minConfidence?: number;

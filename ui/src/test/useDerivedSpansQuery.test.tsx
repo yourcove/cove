@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { segmentSpans } from "../api/client";
-import { useDerivedSpansQuery } from "../pages/segments/useDerivedSpansQuery";
+import { buildSpanSearchRequest, useDerivedSpansQuery } from "../pages/segments/useDerivedSpansQuery";
+import { readMultiIdCriterionDepth } from "../pages/segments/segmentCriteriaDefinitions";
 
 vi.mock("../api/client", () => ({
   segmentSpans: { search: vi.fn() },
@@ -12,6 +13,24 @@ vi.mock("../api/client", () => ({
 describe("useDerivedSpansQuery", () => {
   beforeEach(() => {
     vi.mocked(segmentSpans.search).mockReset().mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+  });
+
+  it("preserves the sub-tag depth in derived span requests", () => {
+    const tagDepth = readMultiIdCriterionDepth({ value: [94], modifier: "INCLUDES", depth: -1 });
+
+    expect(buildSpanSearchRequest({
+      activeProfileId: 1,
+      pageNumber: 1,
+      perPage: 24,
+      q: "",
+      videoTitle: "",
+      sort: "updated_at",
+      direction: "desc",
+      includeVideoIds: [],
+      excludeVideoIds: [],
+      appliedQuery: null,
+      rawFilter: { tagIds: [94], tagDepth, performerIds: [], faceIds: [] },
+    })).toEqual(expect.objectContaining({ tagIds: [94], tagDepth: -1 }));
   });
 
   it("refetches derived spans when the random seed changes", async () => {

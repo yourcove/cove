@@ -1309,6 +1309,62 @@ public class SegmentCoreControllerTests
     }
 
     [Fact]
+    public async Task SegmentsController_SearchSpans_IncludesDescendantTags()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video { Title = "Descendant span video" };
+        var parent = new Tag { Name = "Parent span tag" };
+        var child = new Tag { Name = "Child span tag" };
+        context.AddRange(video, parent, child);
+        await context.SaveChangesAsync();
+
+        context.Set<TagParent>().Add(new TagParent { ParentId = parent.Id, ChildId = child.Id });
+        var profile = new SegmentDisplayProfile
+        {
+            Name = "Descendant tag profile",
+            IsDefault = true,
+            Version = 1,
+        };
+        context.SegmentDisplayProfiles.Add(profile);
+        await context.SaveChangesAsync();
+        context.SegmentDisplayRules.Add(new SegmentDisplayRule
+        {
+            ProfileId = profile.Id,
+            SourceKey = "user",
+            Visible = true,
+            MergeGapSec = 0,
+        });
+        context.Segments.Add(new Segment
+        {
+            HostType = SegmentHostType.Video,
+            HostId = video.Id,
+            StartSec = 5,
+            EndSec = 10,
+            TagId = child.Id,
+            SourceKey = "user",
+        });
+        await context.SaveChangesAsync();
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+        var exactRequest = new SegmentSpanSearchRequestDto(
+            profile.Id, null, 1, 24, "updated_at", "desc", null, null, null, null,
+            TagIds: [parent.Id]);
+        var descendantRequest = exactRequest with { TagDepth = -1 };
+
+        var exactResult = await controller.SearchSpans(exactRequest, CancellationToken.None);
+        var exact = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(exactResult.Result).Value);
+        Assert.Empty(exact.Items);
+
+        var searchResult = await controller.SearchSpans(descendantRequest, CancellationToken.None);
+        var search = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(searchResult.Result).Value);
+        Assert.Single(search.Items);
+    }
+
+    [Fact]
     public async Task SegmentsController_SearchSpans_SortsSegmentUpdatedByLatestSegmentUpdate()
     {
         await using var scope = await CreateContextAsync();

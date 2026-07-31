@@ -24,6 +24,7 @@ import { readRawSegmentFilter } from "./segments/rawSegmentFilter";
 import {
   readRawSegmentIdsFromUrl,
   readMultiIdCriterionIds,
+  readMultiIdCriterionDepth,
   readNumberCriterion,
   readVideoSelectionCriterion,
   readSegmentsPageContentView,
@@ -178,6 +179,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     [objectFilter.rawSegmentFilters],
   );
   const rawTagIds = useMemo(() => readMultiIdCriterionIds(objectFilter.rawTagsCriterion), [objectFilter.rawTagsCriterion]);
+  const rawTagDepth = useMemo(() => readMultiIdCriterionDepth(objectFilter.rawTagsCriterion), [objectFilter.rawTagsCriterion]);
   const rawPerformerIds = useMemo(() => readMultiIdCriterionIds(objectFilter.rawPerformersCriterion), [objectFilter.rawPerformersCriterion]);
   const rawFaceIds = useMemo(() => readMultiIdCriterionIds(objectFilter.rawFacesCriterion), [objectFilter.rawFacesCriterion]);
   const rawKind = readStringCriterion(objectFilter.rawKindCriterion);
@@ -207,6 +209,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     startSecCriterion: rawStartSec,
     endSecCriterion: rawEndSec,
     tagIds: Array.from(new Set([...rawSegmentFilter.tagIds, ...rawTagIds])),
+    tagDepth: rawTagDepth,
     performerIds: Array.from(new Set([...rawSegmentFilter.performerIds, ...rawPerformerIds])),
     faceIds: Array.from(new Set([...rawSegmentFilter.faceIds, ...rawFaceIds])),
     kind: rawSegmentFilter.kind ?? (rawKind || undefined),
@@ -215,7 +218,7 @@ export function SegmentsPage({ onNavigate }: Props) {
     durationCriterion: rawDuration ?? rawSegmentFilter.durationCriterion,
     minConfidence: rawSegmentFilter.minConfidence,
     minDurationSec: rawSegmentFilter.minDurationSec,
-  }), [rawColorHint, rawConfidence, rawCreatedAt, rawDuration, rawEndSec, rawFaceIds, rawHasImage?.value, rawHasPayload?.value, rawHostType, rawKind, rawPerformerIds, rawSegmentFilter, rawSourceKey, rawSourceRun, rawStartSec, rawTagIds, rawTitle, rawUpdatedAt]);
+  }), [rawColorHint, rawConfidence, rawCreatedAt, rawDuration, rawEndSec, rawFaceIds, rawHasImage?.value, rawHasPayload?.value, rawHostType, rawKind, rawPerformerIds, rawSegmentFilter, rawSourceKey, rawSourceRun, rawStartSec, rawTagDepth, rawTagIds, rawTitle, rawUpdatedAt]);
   const derivedSpanQueryActive = isDerivedSpanQueryFilterActive(objectFilter.derivedSpanQuery);
   const q = filter.q?.trim() ?? "";
   const infinitePageSize = filter.perPage === 0;
@@ -388,6 +391,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds : undefined,
       excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds : undefined,
       tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds : undefined,
+      tagDepth: combinedRawSegmentFilter.tagDepth,
       kind: combinedRawSegmentFilter.kind,
       sourceKey: combinedRawSegmentFilter.sourceKey,
       sourceCategory: combinedRawSegmentFilter.sourceCategory,
