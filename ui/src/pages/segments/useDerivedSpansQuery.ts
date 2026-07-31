@@ -59,6 +59,7 @@ export function buildSpanSearchRequest(opts: {
     videoIds: includeVideoIds.length > 0 ? includeVideoIds : undefined,
     excludeVideoIds: excludeVideoIds.length > 0 ? excludeVideoIds : undefined,
     tagIds: rawFilter.tagIds.length > 0 ? rawFilter.tagIds : undefined,
+    tagDepth: rawFilter.tagDepth,
     kind: rawFilter.kind,
     sourceKey: rawFilter.sourceKey,
     sourceCategory: rawFilter.sourceCategory,

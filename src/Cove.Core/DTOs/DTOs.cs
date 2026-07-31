@@ -669,7 +669,8 @@ public record SegmentSpanSearchRequestDto(
     string? UpdatedAt = null,
     string? UpdatedAt2 = null,
     string? UpdatedAtModifier = null,
-    int? Seed = null);
+    int? Seed = null,
+    int? TagDepth = null);
 
 public record SegmentSpanSearchResultItemDto(
     ResolvedSpan Span,
