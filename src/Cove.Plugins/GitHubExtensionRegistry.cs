@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Cove.Core.Common;
 
 namespace Cove.Plugins;
 
@@ -151,7 +152,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         if (string.IsNullOrWhiteSpace(meta.SourceMinCoveVersion) || string.IsNullOrWhiteSpace(_coveVersion))
             return true;
 
-        return IsVersionAtLeast(_coveVersion, meta.SourceMinCoveVersion);
+        return CoveVersionCompatibility.IsAtLeast(_coveVersion, meta.SourceMinCoveVersion);
     }
 
     private static RegistryVersionInfo BuildSourcePackVersionInfo(RegistryExtensionMetadata meta) => new()
@@ -649,15 +650,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         if (string.IsNullOrWhiteSpace(version.MinCoveVersion) || string.IsNullOrWhiteSpace(_coveVersion))
             return true;
 
-        return IsVersionAtLeast(_coveVersion, version.MinCoveVersion);
-    }
-
-    private static bool IsVersionAtLeast(string current, string minimum)
-    {
-        if (!TryParseVersion(current, out var currentVersion) || !TryParseVersion(minimum, out var minimumVersion))
-            return true;
-
-        return currentVersion >= minimumVersion;
+        return CoveVersionCompatibility.IsAtLeast(_coveVersion, version.MinCoveVersion);
     }
 
     private static bool TryParseVersion(string value, out Version version)

@@ -7,13 +7,13 @@
       * Tagged release builds: CI passes -p:Version=0.0.36 -p:CoveCiVersion=true,
         so that exact version is baked into the assemblies.
       * Local / dev builds (no explicit version): the version is derived from git as
-        "<latest tag>-dev" (e.g. latest tag v0.0.35 => 0.0.35-dev). With no tags or no
-        git available it falls back to 0.0.0-dev.
+        "<latest tag>-dev.<commit distance>" (e.g. two commits after v0.0.35 =>
+        0.0.35-dev.2). With no tags or no git available it falls back to 0.0.0-dev.0.
 
     The numeric major.minor.patch (AssemblyVersion / FileVersion) never carries the
-    prerelease suffix, so extension minCoveVersion semver checks stay valid. The full
-    string (including -dev) is exposed through AssemblyInformationalVersion and is what
-    the About / Runtime Status pages display.
+    prerelease suffix. The full string (including -dev.N) is exposed through
+    AssemblyInformationalVersion and is used for display and extension host-compatibility
+    checks.
 
     This target is skipped when an explicit non-default Version is supplied (CI / Docker
     pass -p:Version=...), so it only affects local/dev builds.
@@ -23,7 +23,7 @@
           Condition=" '$(CoveCiVersion)' != 'true' and ( '$(Version)' == '' or '$(Version)' == '1.0.0' ) ">
 
     <!-- Exact tag on the current commit (a release checkout). -->
-    <Exec Command="git describe --tags --exact-match"
+    <Exec Command="git describe --tags --exact-match --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot;"
           ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true"
           StandardOutputImportance="low" StandardErrorImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_CoveExactTag" />
@@ -32,25 +32,36 @@
 
     <!-- Otherwise, the most recent tag reachable from HEAD (a dev checkout). -->
     <Exec Condition=" '$(_CoveExactExit)' != '0' "
-          Command="git describe --tags --abbrev=0"
+          Command="git describe --tags --abbrev=0 --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; --exclude &quot;*-*&quot;"
           ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true"
           StandardOutputImportance="low" StandardErrorImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_CoveLatestTag" />
       <Output TaskParameter="ExitCode" PropertyName="_CoveLatestExit" />
     </Exec>
 
+    <!-- A monotonically increasing identity within the line that follows the latest release. -->
+    <Exec Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' "
+          Command="git rev-list --count &quot;$(_CoveLatestTag)..HEAD&quot;"
+          ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true"
+          StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_CoveCommitDistance" />
+      <Output TaskParameter="ExitCode" PropertyName="_CoveCommitDistanceExit" />
+    </Exec>
+
     <PropertyGroup>
       <!-- Normalize: trim whitespace and a leading "v". -->
       <_CoveExactTag>$(_CoveExactTag.Trim().TrimStart('v'))</_CoveExactTag>
       <_CoveLatestTag>$(_CoveLatestTag.Trim().TrimStart('v'))</_CoveLatestTag>
+      <_CoveCommitDistance>$(_CoveCommitDistance.Trim())</_CoveCommitDistance>
 
       <Version Condition=" '$(_CoveExactExit)' == '0' and '$(_CoveExactTag)' != '' ">$(_CoveExactTag)</Version>
-      <Version Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' and '$(_CoveLatestTag)' != '' ">$(_CoveLatestTag)-dev</Version>
+      <Version Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' and '$(_CoveCommitDistanceExit)' == '0' and '$(_CoveLatestTag)' != '' and '$(_CoveCommitDistance)' != '' ">$(_CoveLatestTag)-dev.$(_CoveCommitDistance)</Version>
+      <Version Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' and '$(_CoveLatestTag)' != '' and '$(Version)' == '' ">$(_CoveLatestTag)-dev.0</Version>
     </PropertyGroup>
 
     <!-- Fallback when git / tags are unavailable. -->
     <PropertyGroup Condition=" ( '$(Version)' == '' ) ">
-      <Version>0.0.0-dev</Version>
+      <Version>0.0.0-dev.0</Version>
     </PropertyGroup>
 
     <!--

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Cove.Plugins;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.Interfaces;
 using Cove.Api.Services;
 using System.IO;
@@ -959,10 +960,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         if (string.IsNullOrWhiteSpace(minCoveVersion))
             return true;
 
-        if (!TryParseVersion(extensionManager.Context.CoveVersion, out var coveVersion) || !TryParseVersion(minCoveVersion, out var minimumVersion))
-            return true;
-
-        return coveVersion >= minimumVersion;
+        return CoveVersionCompatibility.IsAtLeast(extensionManager.Context.CoveVersion, minCoveVersion);
     }
 
     private static bool VersionSatisfies(string version, string? constraint)
