@@ -1,6 +1,7 @@
 ---
 interface Props {
   src: string;
+  originalSrc?: string;
   alt: string;
   caption?: string;
   variant?: 'default' | 'portrait';
@@ -8,6 +9,7 @@ interface Props {
 
 const {
   src,
+  originalSrc,
   alt,
   caption,
   variant = 'default',
@@ -15,6 +17,11 @@ const {
 ---
 
 <figure class="media-shot" data-variant={variant}>
-  <img src={src} alt={alt} loading="lazy" width="1700" height="1300" />
-  {caption ? <figcaption>{caption}</figcaption> : null}
+  <img src={src} alt={alt} loading="lazy" decoding="async" width="850" height="650" />
+  {caption || originalSrc ? (
+    <figcaption>
+      {caption}
+      {originalSrc ? <> <a href={originalSrc}>Open the full-size PNG.</a></> : null}
+    </figcaption>
+  ) : null}
 </figure>

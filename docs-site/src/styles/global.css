@@ -692,7 +692,8 @@ samp {
   opacity: 0;
 }
 
-.theme-reel-frame:first-child {
+.theme-reel-frame:first-child,
+.theme-reel-frame.is-active {
   opacity: 1;
 }
 
@@ -700,11 +701,6 @@ samp {
    and loading="lazy" defers nothing. Frames past the first stay out of the layout
    until the reel actually starts, which is what keeps the browser from fetching
    fifteen screenshots to show one. */
-[data-theme-reel-state='running'] .theme-reel-frame {
-  animation: theme-reel-swap var(--theme-reel-duration) step-end infinite;
-  animation-delay: calc(var(--theme-reel-index) * var(--theme-reel-interval));
-}
-
 theme-reel:not([data-theme-reel-state='running']) .theme-reel-frame:not(:first-child) {
   display: none;
 }
@@ -728,18 +724,6 @@ theme-reel:not([data-theme-reel-state='running']) .theme-reel-frame:not(:first-c
   font-size: 0.82rem;
   font-weight: 800;
   backdrop-filter: blur(14px);
-}
-
-@keyframes theme-reel-swap {
-  0%,
-  6.4% {
-    opacity: 1;
-  }
-
-  6.5%,
-  100% {
-    opacity: 0;
-  }
 }
 
 .feature-section {
@@ -909,12 +893,6 @@ theme-reel:not([data-theme-reel-state='running']) .theme-reel-frame:not(:first-c
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Specific enough to win over the running state, so a reader who turns the
-     preference on mid-visit stops the reel rather than keeping a started one. */
-  [data-theme-reel-state='running'] .theme-reel-frame {
-    animation: none;
-  }
-
   .theme-reel-frame:not(:first-child) {
     display: none;
   }
