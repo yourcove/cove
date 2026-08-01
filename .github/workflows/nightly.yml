@@ -1,0 +1,380 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-publication
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      previous_sha: ${{ steps.version.outputs.previous_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for unpublished changes and derive version
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]; then
+            echo "Nightlies can only be published from the default branch ($DEFAULT_BRANCH)." >&2
+            exit 1
+          fi
+
+          release_body="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/nightly" --jq '.body // ""' 2>/dev/null || true)"
+          previous_sha="$(printf '%s\n' "$release_body" | sed -nE 's/.*<!-- cove-nightly-sha:([0-9a-f]{40}) -->.*/\1/p' | tail -n 1)"
+          echo "previous_sha=$previous_sha" >> "$GITHUB_OUTPUT"
+
+          if [ "$previous_sha" = "$GITHUB_SHA" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No commits have landed since the last successful nightly publication." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          base_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' 2>/dev/null || true)"
+          if [ -z "$base_tag" ]; then
+            echo "A stable vMAJOR.MINOR.PATCH tag is required before publishing nightlies." >&2
+            exit 1
+          fi
+          if [[ ! "$base_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "The latest candidate base tag is not a stable vMAJOR.MINOR.PATCH tag: $base_tag" >&2
+            exit 1
+          fi
+
+          commit_distance="$(git rev-list --count "${base_tag}..HEAD")"
+          if [ "$commit_distance" -eq 0 ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "HEAD is the current stable release, so there is no development build to publish." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          version="${base_tag#v}-dev.${commit_distance}"
+          short_sha="${GITHUB_SHA:0:12}"
+          {
+            echo "publish=true"
+            echo "version=$version"
+            echo "short_sha=$short_sha"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "Publishing Cove nightly \`$version\`."
+            echo
+            echo "Source commit: \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-ui:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install and build frontend
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wwwroot
+          path: src/Cove.Api/wwwroot/
+          retention-days: 1
+
+  build-native:
+    needs: [prepare, build-ui]
+    if: needs.prepare.outputs.publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            artifact: cove-win-x64
+            ext: .zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact: cove-linux-x64
+            ext: .tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            artifact: cove-osx-arm64
+            ext: .tar.gz
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: wwwroot
+          path: src/Cove.Api/wwwroot/
+
+      - name: Publish self-contained app
+        run: >
+          dotnet publish src/Cove.Api/Cove.Api.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained
+          -p:PublishSingleFile=true
+          -p:PgvectorPayloadRepository=${{ github.repository }}
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=none
+          -p:DebugSymbols=false
+          -p:Version=${{ needs.prepare.outputs.version }}
+          -p:CoveCiVersion=true
+          -o publish/
+
+      - name: Publish native instance manager
+        run: >
+          dotnet publish src/Cove.InstanceManager/Cove.InstanceManager.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=none
+          -p:DebugSymbols=false
+          -p:Version=${{ needs.prepare.outputs.version }}
+          -p:CoveCiVersion=true
+          -o publish/
+
+      - name: Package Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $packageDir = "package"
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          $files = @("Cove.exe", "Cove.InstanceManager.exe")
+          foreach ($file in $files) {
+            $source = Join-Path "publish" $file
+            if (-not (Test-Path $source)) { throw "Missing native executable: $source" }
+            Copy-Item -Path $source -Destination $packageDir -Force
+          }
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath ${{ matrix.artifact }}${{ matrix.ext }}
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead("${{ matrix.artifact }}${{ matrix.ext }}")
+          try {
+            $entries = $zip.Entries | ForEach-Object { $_.FullName } | Sort-Object
+          }
+          finally {
+            $zip.Dispose()
+          }
+          $expected = $files | Sort-Object
+          $diff = Compare-Object -ReferenceObject $expected -DifferenceObject $entries
+          if ($diff) { throw "Unexpected archive contents: $($entries -join ', ')" }
+
+      - name: Package Linux or macOS build
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          for file in Cove Cove.InstanceManager; do
+            test -f "publish/$file" || { echo "Missing native executable: publish/$file" >&2; exit 1; }
+            cp "publish/$file" package/
+          done
+          tar -czf ${{ matrix.artifact }}${{ matrix.ext }} -C package Cove Cove.InstanceManager
+          entries="$(tar -tzf ${{ matrix.artifact }}${{ matrix.ext }} | sort)"
+          expected="$(printf 'Cove\nCove.InstanceManager')"
+          if [ "$entries" != "$expected" ]; then
+            echo "Unexpected archive contents:" >&2
+            printf '%s\n' "$entries" >&2
+            exit 1
+          fi
+
+      - name: Generate checksum
+        shell: bash
+        run: sha256sum ${{ matrix.artifact }}${{ matrix.ext }} > ${{ matrix.artifact }}${{ matrix.ext }}.sha256
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}${{ matrix.ext }}
+            ${{ matrix.artifact }}${{ matrix.ext }}.sha256
+          retention-days: 1
+
+  build-docker:
+    needs: [prepare, build-ui]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: docker/Dockerfile
+            suffix: ""
+          - dockerfile: docker/Dockerfile.app
+            suffix: "-app"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: wwwroot
+          path: src/Cove.Api/wwwroot/
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
+          tags: |
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=sha-${{ needs.prepare.outputs.short_sha }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            FFMPEG_MIRROR_BASE=https://github.com/${{ github.repository }}/releases/download/ffmpeg-payload
+
+  publish:
+    needs: [prepare, build-native, build-docker]
+    if: >-
+      needs.prepare.outputs.publish == 'true'
+      && needs.build-native.result == 'success'
+      && needs.build-docker.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts/
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect release files and write release notes
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          find artifacts/ -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -exec cp '{}' release-files/ \;
+          test "$(find release-files -type f | wc -l)" -eq 6
+
+          (
+            cd release-files
+            sha256sum *.zip *.tar.gz > checksums.txt
+          )
+
+          {
+            printf '%s\n\n' '> **Development build:** Back up Cove before upgrading. Nightlies may contain unfinished or incompatible changes.'
+            printf '**Version:** `%s`  \n' "$VERSION"
+            printf '**Commit:** [`%s`](https://github.com/%s/commit/%s)\n\n' "$SHORT_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf '%s\n\n' 'This rolling release contains the latest successfully published build from `main`. The assets and `nightly` container tag move only after every native package and container image succeeds.'
+            printf '%s\n\n' '## Native downloads'
+            printf '%s\n\n' 'Standalone Windows, Linux, and macOS packages and their SHA-256 checksums are attached below.'
+            printf '%s\n\n' '## Docker images'
+            printf '%s\n' '```bash'
+            printf 'docker pull %s/%s:nightly\n' "$REGISTRY" "$IMAGE_NAME"
+            printf 'docker pull %s/%s-app:nightly\n' "$REGISTRY" "$IMAGE_NAME"
+            printf '%s\n' '```'
+            printf '\nImmutable tags for this build: `%s` and `sha-%s`.\n' "$VERSION" "$SHORT_SHA"
+          } > nightly-body.md
+
+      - name: Update rolling nightly release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: nightly
+          target_commitish: ${{ github.sha }}
+          name: Cove Nightly
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          body_path: nightly-body.md
+          files: release-files/*
+
+      - name: Promote container images to the rolling tag
+        shell: bash
+        env:
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$REGISTRY/$IMAGE_NAME:nightly" \
+            "$REGISTRY/$IMAGE_NAME:sha-$SHORT_SHA"
+          docker buildx imagetools create \
+            --tag "$REGISTRY/$IMAGE_NAME-app:nightly" \
+            "$REGISTRY/$IMAGE_NAME-app:sha-$SHORT_SHA"
+
+      - name: Mark publication complete
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/git/refs/tags/nightly" \
+            --field sha="$GITHUB_SHA" \
+            --field force=true \
+            >/dev/null
+          printf '\n<!-- cove-nightly-sha:%s -->\n' "$GITHUB_SHA" >> nightly-body.md
+          gh release edit nightly --notes-file nightly-body.md
+          printf 'Published Cove nightly `%s` from `%s`.\n' '${{ needs.prepare.outputs.version }}' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
