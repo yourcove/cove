@@ -24,13 +24,15 @@ describe("useDerivedSpansQuery", () => {
       perPage: 24,
       q: "",
       videoTitle: "",
+      videoTagIds: [95],
+      videoTagDepth: -1,
       sort: "updated_at",
       direction: "desc",
       includeVideoIds: [],
       excludeVideoIds: [],
       appliedQuery: null,
       rawFilter: { tagIds: [94], tagDepth, performerIds: [], faceIds: [] },
-    })).toEqual(expect.objectContaining({ tagIds: [94], tagDepth: -1 }));
+    })).toEqual(expect.objectContaining({ tagIds: [94], tagDepth: -1, videoTagIds: [95], videoTagDepth: -1 }));
   });
 
   it("refetches derived spans when the random seed changes", async () => {
@@ -42,6 +44,7 @@ describe("useDerivedSpansQuery", () => {
       perPage: 24,
       q: "",
       videoTitle: "",
+      videoTagIds: [],
       sort: "random",
       direction: "asc" as const,
       seed: 111,

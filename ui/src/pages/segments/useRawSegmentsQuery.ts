@@ -8,6 +8,8 @@ interface UseRawSegmentsQueryOptions {
   perPage: number;
   q: string;
   videoTitle: string;
+  videoTagIds: number[];
+  videoTagDepth?: -1;
   sort: string;
   direction: "asc" | "desc";
   seed?: number;
@@ -25,6 +27,8 @@ export function buildRawSegmentListOptions({
   perPage,
   q,
   videoTitle,
+  videoTagIds,
+  videoTagDepth,
   sort,
   direction,
   seed,
@@ -39,6 +43,8 @@ export function buildRawSegmentListOptions({
     videoIds: includeVideoIds.length > 0 ? includeVideoIds.join(",") : undefined,
     excludeVideoIds: excludeVideoIds.length > 0 ? excludeVideoIds.join(",") : undefined,
     videoTitle: videoTitle || undefined,
+    videoTagIds: videoTagIds.length > 0 ? videoTagIds.join(",") : undefined,
+    videoTagDepth,
     tagIds: rawFilter.tagIds.length > 0 ? rawFilter.tagIds.join(",") : undefined,
     kind: rawFilter.kind,
     sourceKey: rawFilter.sourceKey,
@@ -87,6 +93,8 @@ export function useRawSegmentsQuery({
   perPage,
   q,
   videoTitle,
+  videoTagIds,
+  videoTagDepth,
   sort,
   direction,
   seed,
@@ -104,6 +112,8 @@ export function useRawSegmentsQuery({
       perPage,
       q,
       videoTitle,
+      videoTagIds.join(","),
+      videoTagDepth,
       sort,
       direction,
       seed,
@@ -118,6 +128,8 @@ export function useRawSegmentsQuery({
         perPage,
         q,
         videoTitle,
+        videoTagIds,
+        videoTagDepth,
         sort,
         direction,
         seed,

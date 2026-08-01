@@ -13,6 +13,7 @@ export interface SegmentCriteriaOptions {
 export const SEGMENT_CRITERIA: CriterionDefinition[] = [
   { id: "videoTitle", label: "Video Title", type: "string", filterKey: "videoTitleCriterion" },
   { id: "videos", label: "Videos", type: "multiId", entityType: "videos", filterKey: "videosCriterion" },
+  { id: "videoTags", label: "Video Tags", type: "multiId", entityType: "tags", filterKey: "videoTagsCriterion", modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS },
 ];
 
 export function createSegmentCriteria(options: SegmentCriteriaOptions = {}): CriterionDefinition[] {
