@@ -5,13 +5,29 @@ using Cove.Data;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Api.Services;
 
-public sealed class TagProvenanceService(CoveContext db, IServiceScopeFactory? scopeFactory = null) : ITagProvenanceService
+public sealed partial class TagProvenanceService(
+    CoveContext db,
+    IServiceScopeFactory? scopeFactory = null,
+    ILogger<TagProvenanceService>? logger = null) : ITagProvenanceService
 {
     private readonly CoveContext _db = db;
     private readonly IServiceScopeFactory? _scopeFactory = scopeFactory;
+    private readonly ILogger<TagProvenanceService> _logger = logger ?? NullLogger<TagProvenanceService>.Instance;
+
+    [LoggerMessage(
+        EventId = 2801,
+        Level = LogLevel.Trace,
+        Message = "Staged {SourceKey} tag changes for {HostType} {HostId}; added={AddedCount}, removed={RemovedCount}")]
+    private partial void TraceTagChangesStaged(
+        string sourceKey,
+        AffinityHostType hostType,
+        int hostId,
+        int addedCount,
+        int removedCount);
 
     public Task RecordAsync(
         AffinityHostType hostType,
@@ -89,10 +105,15 @@ public sealed class TagProvenanceService(CoveContext db, IServiceScopeFactory? s
             }
         }
 
+        var addedCount = 0;
         foreach (var tagId in current.Except(previous))
         {
             await RecordAsync(hostType, hostId, tagId, normalizedSourceKey, cancellationToken: cancellationToken);
+            addedCount++;
         }
+
+        if (addedCount > 0 || removedTagIds.Length > 0)
+            TraceTagChangesStaged(normalizedSourceKey, hostType, hostId, addedCount, removedTagIds.Length);
     }
 
     public async Task RemoveHostSourceApplicationsExceptAsync(

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Cove.Tests;
 
@@ -20,6 +21,7 @@ public sealed class TagProvenanceServiceTests
     public async Task SyncTagSetAsync_AddsUserRowsForNewTagsAndDeletesOnlyMatchingSourceProvenance()
     {
         await using var context = CreateContext();
+        var logger = new RecordingLogger<TagProvenanceService>();
 
         var video = new Video { Title = "Tagged Video" };
         var manualTag = new Tag { Name = "Manual" };
@@ -59,7 +61,7 @@ public sealed class TagProvenanceServiceTests
             });
         await context.SaveChangesAsync();
 
-        ITagProvenanceService service = new TagProvenanceService(context);
+        ITagProvenanceService service = new TagProvenanceService(context, logger: logger);
 
         await service.SyncTagSetAsync(
             AffinityHostType.Video,
@@ -79,6 +81,9 @@ public sealed class TagProvenanceServiceTests
         Assert.Contains(applications, application => application.TagId == keptTag.Id && application.SourceKey == "ext:ai.tagging");
         Assert.Contains(applications, application => application.TagId == addedTag.Id && application.SourceKey == "user");
         Assert.DoesNotContain(applications, application => application.TagId == keptTag.Id && application.SourceKey == "user");
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2801 }
+            && entry.Message.Contains($"Staged user tag changes for Video {video.Id}; added=1, removed=1", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -351,5 +356,19 @@ public sealed class TagProvenanceServiceTests
         public Task<bool> TryApplyRemoteCoverAsync(Video video, string? imageUrl, CancellationToken ct = default)
             => Task.FromResult(false);
     }
-}
 
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, EventId EventId, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, eventId, formatter(state, exception)));
+    }
+}

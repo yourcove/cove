@@ -5,13 +5,21 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using System.Text.Json;
 
 namespace Cove.Data.Services;
 
-public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAccessor principalAccessor, IEventBus? eventBus = null) : IUserEngagementService
+public sealed partial class UserEngagementService(
+    CoveContext db,
+    ICurrentPrincipalAccessor principalAccessor,
+    IEventBus? eventBus = null,
+    ILogger<UserEngagementService>? logger = null) : IUserEngagementService
 {
+    private readonly ILogger<UserEngagementService> _logger = logger ?? NullLogger<UserEngagementService>.Instance;
+
     // Publish a rating-changed event (best-effort) so extensions/recommenders can refresh derived state. The
     // Entity payload carries userId + aspect + value (value null = cleared) so a handler knows WHO and WHAT changed.
     private void PublishRatingEvent(EventType type, AffinityHostType hostType, int hostId, int userId, string aspect, int? value)
@@ -116,6 +124,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
 
         await MirrorLegacyFavoriteAsync(hostType, hostId, isFavorite, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        TraceFavoriteSet(hostType, hostId, isFavorite);
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
@@ -129,6 +138,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             affinity.IsBookmarked = saved;
 
         await db.SaveChangesAsync(cancellationToken);
+        TraceBookmarkSet(hostType, hostId, saved);
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
@@ -175,7 +185,10 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         }
         await db.SaveChangesAsync(cancellationToken);
         if (ratingEvent is { } evt && userId is { } uid)
+        {
+            TraceRatingChanged(evt, hostType, hostId, normalizedAspect, value.HasValue ? Math.Clamp(value.Value, 0, 100) : null);
             PublishRatingEvent(evt, hostType, hostId, uid, normalizedAspect, value);
+        }
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
@@ -219,6 +232,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         });
 
         await db.SaveChangesAsync(cancellationToken);
+        TraceInteractionRecorded(kind, hostType, normalizedHostId);
         return true;
     }
 
@@ -372,6 +386,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             });
         }
         await db.SaveChangesAsync(cancellationToken);
+        TraceLikeCountChanged(hostType, hostId, "incremented", affinity?.LikeCount ?? 0);
 
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
@@ -394,6 +409,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 db.Interactions.Remove(lastInteraction);
         }
         await db.SaveChangesAsync(cancellationToken);
+        TraceLikeCountChanged(hostType, hostId, "decremented", affinity?.LikeCount ?? 0);
 
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
@@ -414,6 +430,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             db.Interactions.RemoveRange(interactions);
         }
         await db.SaveChangesAsync(cancellationToken);
+        TraceLikeCountChanged(hostType, hostId, "reset", 0);
 
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
@@ -604,6 +621,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
 
         // Append new intervals (validate and clamp)
         var mediaDuration = dto.MediaDurationSec > 0 ? dto.MediaDurationSec : session.MediaDurationSec;
+        var acceptedIntervalCount = 0;
         foreach (var incoming in dto.Intervals)
         {
             var start = Math.Max(0d, incoming.StartSec);
@@ -633,6 +651,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 PlaybackRate = dto.PlaybackRate,
                 Context = CloneJsonDocument(dto.Context),
             });
+            acceptedIntervalCount++;
         }
 
         // Recompute TotalWatchedSec from the FULL merged interval set for this session
@@ -643,6 +662,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 .Select(e => e.Entity));
         var prevTotal = session.TotalWatchedSec;
         session.TotalWatchedSec = ComputeMergedWatchedSec(allIntervals);
+        var addedWatchedSeconds = Math.Max(0d, session.TotalWatchedSec - prevTotal);
         var (dwellLen, dwellStart) = ComputeMaxDwell(allIntervals);
 
         // Update session state fields
@@ -700,9 +720,8 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
             var affinity = await GetOrCreateAffinityAsync(affinityHostType, dto.HostId, cancellationToken);
             if (affinity != null)
             {
-                var delta = session.TotalWatchedSec - prevTotal;
-                if (delta > 0d)
-                    affinity.TotalConsumedSec = Math.Max(0d, affinity.TotalConsumedSec + delta);
+                if (addedWatchedSeconds > 0d)
+                    affinity.TotalConsumedSec = Math.Max(0d, affinity.TotalConsumedSec + addedWatchedSeconds);
 
                 // Track the user's deepest single dwell on this entity (longest contiguous watched run) and
                 // where it occurred — accumulated as the max across all their sessions on it.
@@ -717,7 +736,7 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
                 else if (hostType == InteractionHostType.Segment && dto.CurrentPositionSec >= 0)
                     affinity.LastPositionSec = Math.Max(0d, dto.CurrentPositionSec - (dto.ClipStartSec ?? 0d));
 
-                if (delta > 0d || countsAsView)
+                if (addedWatchedSeconds > 0d || countsAsView)
                     affinity.LastConsumedAt = now;
 
                 if (!wasCompleted && session.IsCompleted)
@@ -729,6 +748,17 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        TracePlaybackRecorded(
+            hostType,
+            dto.HostId,
+            state,
+            dto.Intervals.Count,
+            acceptedIntervalCount,
+            addedWatchedSeconds,
+            session.TotalWatchedSec,
+            session.Surface,
+            session.CountsAsView,
+            session.IsCompleted);
         return true;
     }
 
@@ -987,7 +1017,10 @@ public sealed class UserEngagementService(CoveContext db, ICurrentPrincipalAcces
         }
         await db.SaveChangesAsync(cancellationToken);
         if (ratingEvent is { } evt && userId is { } uid)
+        {
+            TraceRatingChanged(evt, AffinityHostType.Video, videoId, normalizedAspect, value.HasValue ? Math.Clamp(value.Value, 0, 100) : null);
             PublishRatingEvent(evt, AffinityHostType.Video, videoId, uid, normalizedAspect, value);
+        }
 
         return await BuildVideoSnapshotAsync(videoId, video, null, cancellationToken);
     }

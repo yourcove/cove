@@ -11,11 +11,79 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 namespace Cove.Tests;
 
 public class VideoEngagementControllerTests
 {
+    [Fact]
+    public async Task EngagementMutations_EmitTraceSummaries()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+
+        context.Videos.Add(new Video { Title = "Traceable Video" });
+        await context.SaveChangesAsync();
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+
+        principalAccessor.Set(CreatePrincipal(7));
+        var logger = new RecordingLogger<UserEngagementService>();
+        var service = new UserEngagementService(context, principalAccessor, logger: logger);
+
+        Assert.True(await service.RecordInteractionAsync(
+            InteractionHostType.Video,
+            videoId,
+            InteractionKind.OpenDetail,
+            cancellationToken: CancellationToken.None));
+        Assert.NotNull(await service.SetFavoriteAsync(
+            AffinityHostType.Video,
+            videoId,
+            true,
+            CancellationToken.None));
+        Assert.NotNull(await service.SetBookmarkedAsync(
+            AffinityHostType.Video,
+            videoId,
+            true,
+            CancellationToken.None));
+        Assert.NotNull(await service.IncrementVideoLikeAsync(videoId, CancellationToken.None));
+        Assert.NotNull(await service.SetVideoRatingAsync(
+            videoId,
+            80,
+            cancellationToken: CancellationToken.None));
+        Assert.True(await service.RecordPlaybackIntervalsAsync(new PlaybackIntervalsRequestDto(
+            "video",
+            videoId,
+            Guid.NewGuid(),
+            120,
+            12,
+            "paused",
+            [new PlaybackIntervalInputDto(5, 12)],
+            Surface: "videoDetail"), CancellationToken.None));
+
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2701 }
+            && entry.Message.Contains($"Recorded OpenDetail interaction for Video {videoId}", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2702 }
+            && entry.Message.Contains($"Set favorite for Video {videoId} to True", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2704 }
+            && entry.Message.Contains($"Updated like count for Video {videoId}; operation=incremented, count=1", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2705 }
+            && entry.Message.Contains($"Recorded playback for Video {videoId}; state=Paused, submittedIntervals=1, acceptedIntervals=1", StringComparison.Ordinal)
+            && entry.Message.Contains("addedWatchedSeconds=7", StringComparison.Ordinal)
+            && entry.Message.Contains("surface=videoDetail", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2703 }
+            && entry.Message.Contains($"Set bookmark for Video {videoId} to True", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry =>
+            entry is { Level: LogLevel.Trace, EventId.Id: 2706 }
+            && entry.Message.Contains($"Applied RatingCreated rating for Video {videoId}; aspect=overall, value=80", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task VideoActivityAndRating_AreScopedToCurrentUser()
     {
@@ -220,5 +288,20 @@ public class VideoEngagementControllerTests
             await Context.DisposeAsync();
             await connection.DisposeAsync();
         }
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, EventId EventId, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, eventId, formatter(state, exception)));
     }
 }
