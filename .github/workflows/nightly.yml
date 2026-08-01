@@ -58,7 +58,7 @@ jobs:
             echo "A stable vMAJOR.MINOR.PATCH tag is required before publishing nightlies." >&2
             exit 1
           fi
-          if [[ ! "$base_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$base_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "The latest candidate base tag is not a stable vMAJOR.MINOR.PATCH tag: $base_tag" >&2
             exit 1
           fi
@@ -70,7 +70,10 @@ jobs:
             exit 0
           fi
 
-          version="${base_tag#v}-dev.${commit_distance}"
+          base_version="${base_tag#v}"
+          IFS=. read -r major minor patch <<< "$base_version"
+          next_patch=$((patch + 1))
+          version="${major}.${minor}.${next_patch}-dev.${commit_distance}"
           short_sha="${GITHUB_SHA:0:12}"
           {
             echo "publish=true"

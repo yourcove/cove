@@ -23,24 +23,24 @@ The history of `main` is forward-only. Once a commit is merged, later work build
 
 ## Identify development builds without choosing the next release
 
-A release tag such as `v1.1.0` produces Cove version `1.1.0`. A non-tagged build derives its version from the latest reachable release tag and its commit distance:
+A stable release tag such as `v1.1.0` produces Cove version `1.1.0`. A non-tagged build derives its version from the latest reachable stable release tag and its commit distance:
 
 ```text
-<latest release>-dev.<commits since that release>
+<next patch after latest stable release>-dev.<commits since that release>
 ```
 
-For example, the second commit after `v1.1.0` is `1.1.0-dev.2`. This version says where the code came from; it does not predict whether the next release will be `1.1.1`, `1.2.0`, or `2.0.0`. A source tree without an available release tag reports `0.0.0-dev.0` and is not suitable for publication.
+For example, the second commit after `v1.1.0` is `1.1.1-dev.2`. The next patch number is a canonical development line, not a promise that the next release will be `1.1.1`; the eventual release may instead be `1.2.0` or `2.0.0`. A source tree without an available release tag reports `0.0.0-dev.0` and is not suitable for publication.
 
-Development-build ordering is a Cove host-compatibility rule:
+Development builds follow normal SemVer ordering:
 
 | Running Cove | Minimum required | Compatible | Reason |
 | --- | --- | --- | --- |
-| `1.1.0` | `1.1.0-dev.2` | No | The release predates the development change. |
-| `1.1.0-dev.2` | `1.1.0-dev.2` | Yes | It is the required build. |
-| `1.1.0-dev.8` | `1.1.0-dev.2` | Yes | It is later on the same development line. |
-| `1.1.1` | `1.1.0-dev.2` | Yes | A later release contains that `main` history. |
+| `1.1.0` | `1.1.1-dev.2` | No | The release predates the development change. |
+| `1.1.1-dev.2` | `1.1.1-dev.2` | Yes | It is the required build. |
+| `1.1.1-dev.8` | `1.1.1-dev.2` | Yes | It is later on the same development line. |
+| `1.1.1` | `1.1.1-dev.2` | Yes | The stable version follows its prereleases. |
 
-Unlike an ordinary SemVer prerelease, `-dev.N` sorts after its base release for this host check because it means “N commits after that release.” Other prerelease labels retain their normal position before the matching release.
+Because the development line uses the next patch number, `1.1.1-dev.N` naturally sorts after `1.1.0` and before `1.1.1`. A future `1.2.0` or `2.0.0` release also satisfies that floor.
 
 Release tags must point to commits in the forward `main` history. This keeps the compatibility rule true: a numerically later release contains the earlier development contract. Do not create a higher release from a maintenance branch that omits intervening `main` changes.
 
@@ -69,11 +69,11 @@ Review generated operations before merge. Pay particular attention to destructiv
 
 ## Set an extension floor for an unreleased feature
 
-An extension that requires a Cove feature already merged into `main` should use the earliest development build on which that complete contract was tested. If the feature first exists and works in `1.1.0-dev.42`, use:
+An extension that requires a Cove feature already merged into `main` should use the earliest development build on which that complete contract was tested. If the feature first exists and works in `1.1.1-dev.42`, use:
 
 ```json
 {
-  "minCoveVersion": "1.1.0-dev.42"
+  "minCoveVersion": "1.1.1-dev.42"
 }
 ```
 

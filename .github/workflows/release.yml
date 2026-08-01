@@ -183,10 +183,18 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           # Stable = vN.N.N (no alpha/beta/rc/dev suffix)
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "is_stable=true" >> $GITHUB_OUTPUT
-          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]] \
-            && [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev(\.|$) ]]; then
+          elif [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]] \
+            && [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-dev(\.|$) ]]; then
+            prerelease="${TAG#*-}"
+            IFS=. read -ra identifiers <<< "$prerelease"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^0[0-9]+$ ]]; then
+                echo "Numeric prerelease identifiers must not contain leading zeroes: $TAG" >&2
+                exit 1
+              fi
+            done
             echo "is_stable=false" >> $GITHUB_OUTPUT
           else
             echo "Release tags must be vMAJOR.MINOR.PATCH or a SemVer prerelease such as v1.2.0-rc.1." >&2

@@ -74,9 +74,10 @@ is still under review, but it must not be edited, removed, renamed, or combined 
 new migration for any follow-up schema change. Prefer one coherent migration per PR unless the
 change genuinely needs separate ordered checkpoints.
 
-Development builds use the latest release as their base without guessing the next release number.
-For example, the second commit after `v1.1.0` reports `1.1.0-dev.2`. An extension that first works
-with that build can declare `"minCoveVersion": "1.1.0-dev.2"`; `1.1.0` does not satisfy that floor,
+Development builds use the next patch number after the latest stable release as a canonical development
+line; this is an identifier, not a promise about the next release. For example, the second commit
+after `v1.1.0` reports `1.1.1-dev.2`. An extension that first works with that build can declare
+`"minCoveVersion": "1.1.1-dev.2"`; `1.1.0` does not satisfy that floor,
 while that development build, a later development build on the same line, and later Cove releases
 do.
 

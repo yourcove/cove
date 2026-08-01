@@ -39,7 +39,7 @@ public interface IExtension
     IReadOnlyList<string> Categories => [];
 
     /// <summary>
-    /// Minimum Cove host version this extension requires (e.g. "1.0.0" or "1.0.0-dev.12").
+    /// Minimum Cove host version this extension requires (e.g. "1.1.0" or "1.1.1-dev.12").
     /// Null means compatible with any version.
     /// </summary>
     string? MinCoveVersion => null;

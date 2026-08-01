@@ -7,8 +7,8 @@
       * Tagged release builds: CI passes -p:Version=0.0.36 -p:CoveCiVersion=true,
         so that exact version is baked into the assemblies.
       * Local / dev builds (no explicit version): the version is derived from git as
-        "<latest tag>-dev.<commit distance>" (e.g. two commits after v0.0.35 =>
-        0.0.35-dev.2). With no tags or no git available it falls back to 0.0.0-dev.0.
+        "<next patch>-dev.<commit distance>" (e.g. two commits after v0.0.35 =>
+        0.0.36-dev.2). With no tags or no git available it falls back to 0.0.0-dev.0.
 
     The numeric major.minor.patch (AssemblyVersion / FileVersion) never carries the
     prerelease suffix. The full string (including -dev.N) is exposed through
@@ -30,8 +30,14 @@
       <Output TaskParameter="ExitCode" PropertyName="_CoveExactExit" />
     </Exec>
 
+    <PropertyGroup>
+      <_CoveCoreTagPattern>v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)</_CoveCoreTagPattern>
+      <_CoveExactTag>$(_CoveExactTag.Trim())</_CoveExactTag>
+      <_CoveExactTagValid>$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CoveExactTag)', '^(?!$(_CoveCoreTagPattern)-dev(?:\.|$))(?!$(_CoveCoreTagPattern)-(?:[0-9A-Za-z-]+\.)*0[0-9]+(?:\.|$))$(_CoveCoreTagPattern)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'))</_CoveExactTagValid>
+    </PropertyGroup>
+
     <!-- Otherwise, the most recent tag reachable from HEAD (a dev checkout). -->
-    <Exec Condition=" '$(_CoveExactExit)' != '0' "
+    <Exec Condition=" '$(_CoveExactExit)' != '0' or '$(_CoveExactTagValid)' != 'true' "
           Command="git describe --tags --abbrev=0 --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; --exclude &quot;*-*&quot;"
           ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true"
           StandardOutputImportance="low" StandardErrorImportance="low">
@@ -39,8 +45,13 @@
       <Output TaskParameter="ExitCode" PropertyName="_CoveLatestExit" />
     </Exec>
 
-    <!-- A monotonically increasing identity within the line that follows the latest release. -->
-    <Exec Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' "
+    <PropertyGroup>
+      <_CoveLatestTag>$(_CoveLatestTag.Trim())</_CoveLatestTag>
+      <_CoveLatestTagValid>$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CoveLatestTag)', '^$(_CoveCoreTagPattern)$'))</_CoveLatestTagValid>
+    </PropertyGroup>
+
+    <!-- A monotonically increasing identity within the line that follows the latest stable release. -->
+    <Exec Condition=" ( '$(_CoveExactExit)' != '0' or '$(_CoveExactTagValid)' != 'true' ) and '$(_CoveLatestExit)' == '0' and '$(_CoveLatestTagValid)' == 'true' "
           Command="git rev-list --count &quot;$(_CoveLatestTag)..HEAD&quot;"
           ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true"
           StandardOutputImportance="low" StandardErrorImportance="low">
@@ -50,13 +61,17 @@
 
     <PropertyGroup>
       <!-- Normalize: trim whitespace and a leading "v". -->
-      <_CoveExactTag>$(_CoveExactTag.Trim().TrimStart('v'))</_CoveExactTag>
-      <_CoveLatestTag>$(_CoveLatestTag.Trim().TrimStart('v'))</_CoveLatestTag>
+      <_CoveExactVersion>$(_CoveExactTag.TrimStart('v'))</_CoveExactVersion>
+      <_CoveLatestVersion>$(_CoveLatestTag.TrimStart('v'))</_CoveLatestVersion>
       <_CoveCommitDistance>$(_CoveCommitDistance.Trim())</_CoveCommitDistance>
+      <_CoveLatestMajor Condition=" '$(_CoveLatestTagValid)' == 'true' ">$([System.Version]::Parse('$(_CoveLatestVersion)').Major)</_CoveLatestMajor>
+      <_CoveLatestMinor Condition=" '$(_CoveLatestTagValid)' == 'true' ">$([System.Version]::Parse('$(_CoveLatestVersion)').Minor)</_CoveLatestMinor>
+      <_CoveNextPatch Condition=" '$(_CoveLatestTagValid)' == 'true' ">$([MSBuild]::Add('$([System.Version]::Parse('$(_CoveLatestVersion)').Build)', '1'))</_CoveNextPatch>
+      <_CoveDevelopmentBase Condition=" '$(_CoveNextPatch)' != '' ">$(_CoveLatestMajor).$(_CoveLatestMinor).$(_CoveNextPatch)</_CoveDevelopmentBase>
 
-      <Version Condition=" '$(_CoveExactExit)' == '0' and '$(_CoveExactTag)' != '' ">$(_CoveExactTag)</Version>
-      <Version Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' and '$(_CoveCommitDistanceExit)' == '0' and '$(_CoveLatestTag)' != '' and '$(_CoveCommitDistance)' != '' ">$(_CoveLatestTag)-dev.$(_CoveCommitDistance)</Version>
-      <Version Condition=" '$(_CoveExactExit)' != '0' and '$(_CoveLatestExit)' == '0' and '$(_CoveLatestTag)' != '' and '$(Version)' == '' ">$(_CoveLatestTag)-dev.0</Version>
+      <Version Condition=" '$(_CoveExactExit)' == '0' and '$(_CoveExactTagValid)' == 'true' ">$(_CoveExactVersion)</Version>
+      <Version Condition=" ( '$(_CoveExactExit)' != '0' or '$(_CoveExactTagValid)' != 'true' ) and '$(_CoveLatestExit)' == '0' and '$(_CoveCommitDistanceExit)' == '0' and '$(_CoveDevelopmentBase)' != '' and '$(_CoveCommitDistance)' != '' ">$(_CoveDevelopmentBase)-dev.$(_CoveCommitDistance)</Version>
+      <Version Condition=" ( '$(_CoveExactExit)' != '0' or '$(_CoveExactTagValid)' != 'true' ) and '$(_CoveLatestExit)' == '0' and '$(_CoveDevelopmentBase)' != '' and '$(Version)' == '' ">$(_CoveDevelopmentBase)-dev.0</Version>
     </PropertyGroup>
 
     <!-- Fallback when git / tags are unavailable. -->

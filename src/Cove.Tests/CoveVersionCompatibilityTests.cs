@@ -9,18 +9,19 @@ public class CoveVersionCompatibilityTests
 {
     [Theory]
     [InlineData("1.1.0", "1.1.0", true)]
-    [InlineData("1.1.0-dev.1", "1.1.0", true)]
-    [InlineData("1.1.0-dev.2", "1.1.0-dev.2", true)]
-    [InlineData("1.1.0-dev.1", "1.1.0-dev.2", false)]
-    [InlineData("1.1.0", "1.1.0-dev.1", false)]
-    [InlineData("1.1.1", "1.1.0-dev.200", true)]
-    [InlineData("1.2.0", "1.1.0-dev.200", true)]
-    [InlineData("2.0.0", "1.9.9-dev.200", true)]
-    [InlineData("v1.1.0-dev.2+9a03e2ef", "1.1.0-dev.2", true)]
+    [InlineData("1.1.1-dev.1", "1.1.0", true)]
+    [InlineData("1.1.1-dev.2", "1.1.1-dev.2", true)]
+    [InlineData("1.1.1-dev.1", "1.1.1-dev.2", false)]
+    [InlineData("1.1.0", "1.1.1-dev.1", false)]
+    [InlineData("1.1.1", "1.1.1-dev.200", true)]
+    [InlineData("1.2.0", "1.1.1-dev.200", true)]
+    [InlineData("2.0.0", "1.9.10-dev.200", true)]
+    [InlineData("v1.1.1-dev.2+9a03e2ef", "1.1.1-dev.2", true)]
+    [InlineData("1.1.1-dev.99999999999999999999", "1.1.1-dev.100000000000000000000", false)]
     [InlineData("1.2.0-rc.2", "1.2.0-rc.1", true)]
     [InlineData("1.2.0-rc.2", "1.2.0", false)]
     [InlineData("1.2.0", "1.2.0-rc.2", true)]
-    public void IsAtLeast_orders_development_builds_after_their_base_release(
+    public void IsAtLeast_uses_semantic_version_ordering(
         string current,
         string minimum,
         bool expected)
@@ -31,8 +32,15 @@ public class CoveVersionCompatibilityTests
     [Theory]
     [InlineData("")]
     [InlineData("not-a-version")]
-    [InlineData("1.1.0-dev.nope")]
-    [InlineData("1.1.0-dev.1.2")]
+    [InlineData("1.1")]
+    [InlineData("1.1.1-dev..1")]
+    [InlineData("1.1.1-dev_1")]
+    [InlineData("01.1.1")]
+    [InlineData("1.01.1")]
+    [InlineData("1.1.01")]
+    [InlineData("1.1.1-dev.01")]
+    [InlineData("1.1.1+bad..metadata")]
+    [InlineData("1.1.1+bad+metadata")]
     public void TryParse_rejects_invalid_versions(string value)
     {
         Assert.False(CoveVersionCompatibility.TryParse(value, out _));
@@ -40,9 +48,9 @@ public class CoveVersionCompatibilityTests
 
     [Theory]
     [InlineData("1.1.0", false)]
-    [InlineData("1.1.0-dev.41", false)]
-    [InlineData("1.1.0-dev.42", true)]
-    [InlineData("1.1.0-dev.43", true)]
+    [InlineData("1.1.1-dev.41", false)]
+    [InlineData("1.1.1-dev.42", true)]
+    [InlineData("1.1.1-dev.43", true)]
     [InlineData("1.1.1", true)]
     public void Extension_dependency_validation_uses_the_development_build_floor(
         string runningVersion,
@@ -70,7 +78,7 @@ public class CoveVersionCompatibilityTests
         public string? Author => null;
         public string? Url => null;
         public string? IconUrl => null;
-        public string? MinCoveVersion => "1.1.0-dev.42";
+        public string? MinCoveVersion => "1.1.1-dev.42";
 
         public void ConfigureServices(IServiceCollection services, ExtensionContext context)
         {
