@@ -1951,7 +1951,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
   const [searchText, setSearchText] = useState("");
   const trimmedSearchText = searchText.trim();
 
-  const { data: entities, isPlaceholderData } = useQuery({
+  const { data: entities, isPlaceholderData, isFetching } = useQuery({
     queryKey: ["multi-id-selector", entityType, trimmedSearchText],
     queryFn: async () => {
       switch (entityType) {
@@ -1966,7 +1966,9 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
         default: return [];
       }
     },
-    placeholderData: (previousData) => previousData,
+    // Video libraries make a remote title search noticeably slower; clear their unrelated initial
+    // page while searching so a successful autocomplete does not look broken.
+    placeholderData: entityType === "videos" && trimmedSearchText ? undefined : (previousData) => previousData,
     staleTime: 60000,
   });
 
@@ -2143,7 +2145,10 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
           className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
         />
       </div>
-      <div className="max-h-32 overflow-y-auto border border-border rounded bg-input" aria-busy={isPlaceholderData || undefined}>
+      <div className="max-h-32 overflow-y-auto border border-border rounded bg-input" aria-busy={(isPlaceholderData || isFetching) || undefined}>
+        {!entities && trimmedSearchText && (
+          <div className="px-2 py-2 text-xs text-muted text-center">Searching…</div>
+        )}
         {entityType === "tags" ? (
           <GroupedTagOptionList
             tags={filteredEntities as any[]}
@@ -2208,7 +2213,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
             </div>
           );
         })}
-        {filteredEntities.length === 0 && (
+        {entities && filteredEntities.length === 0 && (
           <div className="px-2 py-2 text-xs text-muted text-center">No results</div>
         )}
       </div>
