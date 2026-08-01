@@ -189,6 +189,7 @@ export default defineConfig({
               label: 'Architecture and packaging',
               items: [
                 { link: '/docs/developer/extensions/overview/', label: 'Extension architecture' },
+                { link: '/docs/developer/architecture/logging/', label: 'Logging policy' },
                 { link: '/docs/developer/extensions/packaging/', label: 'Package an extension' },
                 { link: '/docs/developer/extensions/permissions/', label: 'Extension permissions' },
                 { link: '/docs/developer/extensions/extension-points/', label: 'Extension point catalog' },

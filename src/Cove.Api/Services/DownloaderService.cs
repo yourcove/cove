@@ -28,7 +28,7 @@ public sealed record DownloaderMetadataApplyOptions(
     bool CreateMissingStudio = false,
     bool MarkOrganized = false);
 
-public class DownloaderService(
+public partial class DownloaderService(
     ExtensionManager extensionManager,
     IHttpClientFactory httpClientFactory,
     ILoggerFactory loggerFactory,
@@ -41,6 +41,26 @@ public class DownloaderService(
     private readonly Lock _libraryMoveLock = new();
     private SemaphoreSlim? _downloadSlots;
     private int _downloadSlotCapacity;
+
+    [LoggerMessage(EventId = 2501, Level = LogLevel.Trace,
+        Message = "Starting downloader {DownloaderId} for {Entity} URL {Url}; quality={QualityId}")]
+    private partial void TraceDownloadStarted(string downloaderId, DownloaderEntity entity, string url, string? qualityId);
+
+    [LoggerMessage(EventId = 2502, Level = LogLevel.Trace,
+        Message = "Downloader {DownloaderId} completed for {Entity} URL {Url}; file={LocalPath}, originalFilename={OriginalFilename}")]
+    private partial void TraceDownloadCompleted(string downloaderId, DownloaderEntity entity, string url, string localPath, string? originalFilename);
+
+    [LoggerMessage(EventId = 2503, Level = LogLevel.Trace,
+        Message = "Imported {Entity} download from {Url} into entity {EntityId} using downloader {DownloaderId}")]
+    private partial void TraceDownloadImported(DownloaderEntity entity, string url, int entityId, string downloaderId);
+
+    [LoggerMessage(EventId = 2504, Level = LogLevel.Trace,
+        Message = "Downloader {DownloaderId} returned no result for {Entity} URL {Url}")]
+    private partial void TraceDownloadReturnedNoResult(string downloaderId, DownloaderEntity entity, string url);
+
+    [LoggerMessage(EventId = 2505, Level = LogLevel.Trace,
+        Message = "Moved download for {DownloaderId} {Entity} URL {Url} into library path {LibraryPath}")]
+    private partial void TraceDownloadMoved(string downloaderId, DownloaderEntity entity, string url, string libraryPath);
 
     public IReadOnlyList<DownloaderDescriptorDto> GetDownloaders()
     {
@@ -56,10 +76,18 @@ public class DownloaderService(
 
     public async Task<IReadOnlyList<DownloaderMatchDto>> MatchUrlAsync(string url, CancellationToken ct)
     {
-        return await MatchUrlAsync(url, ct, new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
+        var failures = new List<(string ProviderId, string Message)>();
+        var matches = await MatchUrlAsync(url, ct, new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0, failures);
+        if (failures.Count > 0)
+            logger.LogWarning("Downloader matching encountered {FailureCount} provider failure(s)", failures.Count);
+
+        if (matches.Count == 0 && failures.Count > 0)
+            throw new InvalidOperationException(BuildMatchFailureMessage(failures));
+
+        return matches;
     }
 
-    private async Task<IReadOnlyList<DownloaderMatchDto>> MatchUrlAsync(string url, CancellationToken ct, IReadOnlySet<string> excludedProviderIds, int diversionDepth)
+    private async Task<IReadOnlyList<DownloaderMatchDto>> MatchUrlAsync(string url, CancellationToken ct, IReadOnlySet<string> excludedProviderIds, int diversionDepth, List<(string ProviderId, string Message)> failures)
     {
         if (string.IsNullOrWhiteSpace(url))
             return [];
@@ -68,7 +96,6 @@ public class DownloaderService(
             return [];
 
         var results = new List<DownloaderMatchDto>();
-        var failures = new List<(string ProviderId, string Message)>();
         var providers = extensionManager.GetDownloaderProviders()
             .Where(provider => !excludedProviderIds.Contains(provider.Id))
             .ToList();
@@ -103,7 +130,7 @@ public class DownloaderService(
                         var nextExcludedProviderIds = excludedProviderIds
                             .Append(provider.Id)
                             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                        var divertedMatches = await MatchUrlAsync(match.NormalizedUrl, ct, nextExcludedProviderIds, diversionDepth + 1);
+                        var divertedMatches = await MatchUrlAsync(match.NormalizedUrl, ct, nextExcludedProviderIds, diversionDepth + 1, failures);
                         foreach (var divertedMatch in divertedMatches)
                         {
                             results.Add(divertedMatch with
@@ -118,7 +145,8 @@ public class DownloaderService(
 
                     if (!descriptorLookup.TryGetValue(match.DownloaderId, out var descriptor))
                     {
-                        logger.LogWarning("Downloader provider {ProviderId} returned unknown downloader id {DownloaderId}", provider.Id, match.DownloaderId);
+                        logger.LogDebug("Downloader provider {ProviderId} returned unknown downloader id {DownloaderId}", provider.Id, match.DownloaderId);
+                        failures.Add((provider.Id, $"Downloader provider returned unknown downloader id: {match.DownloaderId}"));
                         continue;
                     }
 
@@ -127,13 +155,10 @@ public class DownloaderService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Downloader provider {ProviderId} failed URL match for {Url}", provider.Id, url);
+                logger.LogDebug(ex, "Downloader provider {ProviderId} failed URL match for {Url}", provider.Id, url);
                 failures.Add((provider.Id, GetMatchFailureMessage(ex)));
             }
         }
-
-        if (results.Count == 0 && failures.Count > 0)
-            throw new InvalidOperationException(BuildMatchFailureMessage(failures));
 
         return results
             .OrderBy(result => result.DownloaderName, StringComparer.OrdinalIgnoreCase)
@@ -195,12 +220,7 @@ public class DownloaderService(
         var tempDirectory = Path.Combine(_tempRoot, SanitizePathSegment(registration.Descriptor.Id), Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(tempDirectory);
 
-        logger.LogInformation(
-            "Starting downloader {DownloaderId} for {Entity} URL {Url}. Quality: {QualityId}",
-            request.DownloaderId,
-            request.Entity,
-            request.Url,
-            request.QualityId);
+        TraceDownloadStarted(request.DownloaderId, request.Entity, request.Url, request.QualityId);
 
         var host = new DownloaderHost(tempDirectory, httpClientFactory, loggerFactory, progress);
         using var downloadSlotLease = await AcquireDownloadSlotAsync(progress, ct);
@@ -209,7 +229,7 @@ public class DownloaderService(
             () => registration.Provider.DownloadAsync(request, host, ct));
         if (result == null)
         {
-            logger.LogDebug("Downloader {DownloaderId} returned no result for {Entity} URL {Url}", request.DownloaderId, request.Entity, request.Url);
+            TraceDownloadReturnedNoResult(request.DownloaderId, request.Entity, request.Url);
             return null;
         }
 
@@ -220,13 +240,7 @@ public class DownloaderService(
         if (!File.Exists(localPath))
             throw new InvalidOperationException($"Downloader {registration.Descriptor.Id} completed without producing a file at {localPath}");
 
-        logger.LogDebug(
-            "Downloader {DownloaderId} completed for {Entity} URL {Url}. File: {LocalPath}. Original filename: {OriginalFilename}",
-            request.DownloaderId,
-            request.Entity,
-            request.Url,
-            localPath,
-            result.OriginalFilename);
+        TraceDownloadCompleted(request.DownloaderId, request.Entity, request.Url, localPath, result.OriginalFilename);
 
         return result with { LocalPath = localPath };
     }
@@ -248,12 +262,7 @@ public class DownloaderService(
             return (null, null);
 
         var libraryPath = MoveDownloadedFileToLibrary(result, request.Entity, request.DownloaderId, request.Url);
-        logger.LogDebug(
-            "Moved download for {DownloaderId} {Entity} URL {Url} into library path {LibraryPath}",
-            request.DownloaderId,
-            request.Entity,
-            request.Url,
-            libraryPath);
+        TraceDownloadMoved(request.DownloaderId, request.Entity, request.Url, libraryPath);
 
         using var scope = serviceScopeFactory.CreateScope();
         var scanService = scope.ServiceProvider.GetRequiredService<IScanService>();
@@ -277,12 +286,7 @@ public class DownloaderService(
                 await AttachDownloadedUrlAsync(request.Entity, importedEntityId.Value, request.SourceUrl, ct);
             }
 
-            logger.LogInformation(
-                "Imported {Entity} download from {Url} into entity {EntityId} using downloader {DownloaderId}",
-                request.Entity,
-                request.Url,
-                importedEntityId.Value,
-                request.DownloaderId);
+            TraceDownloadImported(request.Entity, request.Url, importedEntityId.Value, request.DownloaderId);
         }
 
         if (autoApplyMetadata && importedEntityId.HasValue)
@@ -314,6 +318,8 @@ public class DownloaderService(
         var succeeded = 0;
         var skipped = 0;
         var failed = 0;
+
+        logger.LogInformation("Starting batch download of {ItemCount} item(s); maxConcurrency={MaxConcurrency}", batchItems.Count, ResolveMaxConcurrentDownloads());
 
         progress?.Report(0d, $"Preparing {batchItems.Count} download{(batchItems.Count == 1 ? string.Empty : "s")}...");
 
@@ -373,7 +379,7 @@ public class DownloaderService(
                 {
                     Interlocked.Increment(ref failed);
                     issues.Enqueue($"{label}: {ex.Message}");
-                    logger.LogWarning(ex, "Batch download failed for {Label}", label);
+                    logger.LogDebug(ex, "Batch download failed for {Label}", label);
                 }
                 finally
                 {
@@ -395,6 +401,10 @@ public class DownloaderService(
             issues.ToArray());
 
         progress?.Report(1d, BuildBatchCompletionMessage(summary));
+        if (summary.FailedCount > 0)
+            logger.LogWarning("Batch download completed with failures; total={TotalCount}, succeeded={SucceededCount}, skipped={SkippedCount}, failed={FailedCount}", summary.TotalCount, summary.SucceededCount, summary.SkippedCount, summary.FailedCount);
+        else
+            logger.LogInformation("Batch download completed; total={TotalCount}, succeeded={SucceededCount}, skipped={SkippedCount}", summary.TotalCount, summary.SucceededCount, summary.SkippedCount);
         return summary;
     }
 

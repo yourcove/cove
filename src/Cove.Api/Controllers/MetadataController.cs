@@ -1126,6 +1126,7 @@ public class MetadataController(
             };
 
             var total = videos.Count;
+            var identifiedCount = 0;
             for (var i = 0; i < total; i++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -1155,7 +1156,7 @@ public class MetadataController(
                             matches = orderedMatches;
                         }
 
-                        logger.LogDebug(
+                        logger.LogTrace(
                             "Identify video {VideoId}: metadata servers returned {MatchCount} candidate match(es)",
                             video.Id, matches.Count);
 
@@ -1183,8 +1184,8 @@ public class MetadataController(
 
                             foreach (var candidate in evaluatedCandidates)
                             {
-                                logger.LogDebug(
-                                    "Identify video {VideoId}: candidate {CandidateId} '{CandidateTitle}' from {Endpoint} ({ServerName}) - matchCount={MatchCount}, durationDiff={DurationDiff}, phashDistance={PhashDistance} => {Result}{FailureSuffix}",
+                                logger.LogTrace(
+                                    "Identify video {VideoId}: candidate {CandidateId} '{CandidateTitle}' from {Endpoint} ({ServerName}) - matchCount={MatchCount}, durationDiff={DurationDiff}, phashDistance={PhashDistance} => {Result}; failureReason={FailureReason}",
                                     video.Id,
                                     candidate.Match.Id,
                                     candidate.Match.Title,
@@ -1194,7 +1195,7 @@ public class MetadataController(
                                     candidate.DurationDifferenceSeconds,
                                     candidate.PhashDistance,
                                     candidate.Passed ? "PASSED" : "FAILED",
-                                    candidate.Passed ? string.Empty : $" ({candidate.FailureReason})");
+                                    candidate.FailureReason);
                             }
 
                             var rankedMatches = evaluatedCandidates
@@ -1207,7 +1208,7 @@ public class MetadataController(
 
                             if (rankedMatches.Count == 0)
                             {
-                                logger.LogDebug(
+                                logger.LogTrace(
                                     "Identify video {VideoId}: {MatchCount} candidate(s) returned, 0 passed thresholds",
                                     video.Id, matches.Count);
                                 continue;
@@ -1217,7 +1218,7 @@ public class MetadataController(
                             // apply the top-ranked candidate rather than skipping the whole video.
                             if ((opts?.SkipMultipleMatches ?? false) && rankedMatches.Count > 1)
                             {
-                                logger.LogDebug(
+                                logger.LogTrace(
                                     "Identify video {VideoId}: skipping because {PassedCount} candidates passed thresholds and SkipMultipleMatches is enabled",
                                     video.Id, rankedMatches.Count);
                                 continue;
@@ -1225,7 +1226,7 @@ public class MetadataController(
 
                             var bestCandidate = rankedMatches[0];
                             var best = bestCandidate.Match;
-                            logger.LogInformation(
+                            logger.LogTrace(
                                 "Identify video {VideoId}: selected candidate {CandidateId} '{CandidateTitle}' from {Endpoint} ({ServerName}) - matchCount={MatchCount}, durationDiff={DurationDiff}, phashDistance={PhashDistance} (best of {PassedCount} passing of {TotalCount} returned)",
                                 video.Id,
                                 best.Id,
@@ -1257,17 +1258,31 @@ public class MetadataController(
                 {
                     try
                     {
-                        await TryScraperIdentifyVideoAsync(video, enabledScraperIds, opts, identifyDefaults, scraperSvc, scrapeAttemptSvc, ct);
+                        identified = await TryScraperIdentifyVideoAsync(
+                            video,
+                            enabledScraperIds,
+                            opts,
+                            identifyDefaults,
+                            scraperSvc,
+                            scrapeAttemptSvc,
+                            ct);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Scraper identify failed for video {VideoId}", video.Id);
                     }
                 }
+
+                if (identified)
+                    identifiedCount++;
             }
 
             await dbCtx.SaveChangesAsync(ct);
-            logger.LogInformation("Identify completed for {Count} videos", total);
+            logger.LogInformation(
+                "Identify completed: {Identified} identified, {Unmatched} unmatched of {Total} videos",
+                identifiedCount,
+                total - identifiedCount,
+                total);
         }, exclusive: false);
 
         return Ok(new { jobId });
@@ -1355,7 +1370,7 @@ public class MetadataController(
                     continue;
 
                 await scrapeAttemptSvc.ApplyAttemptAsync(attempt.Id, BuildScraperIdentifyApplyDto(opts, identifyDefaults), ct);
-                logger.LogInformation(
+                logger.LogTrace(
                     "Identify video {VideoId}: applied scraper {ScraperId} from URL {Url}",
                     video.Id, candidate.Id, url);
                 return true;
@@ -1644,4 +1659,3 @@ public class MetadataController(
         return Ok(new { jobId });
     }
 }
-

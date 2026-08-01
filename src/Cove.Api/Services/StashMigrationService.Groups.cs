@@ -112,7 +112,7 @@ public partial class StashMigrationService
     {
         if (!await TableExistsAsync(conn, "groups_tags", ct))
         {
-            _logger.LogInformation("No groups_tags table found, skipping group-tag relationships");
+            _logger.LogDebug("No groups_tags table found; skipping group-tag relationships");
             return 0;
         }
 
@@ -161,7 +161,7 @@ public partial class StashMigrationService
     {
         if (!await TableExistsAsync(conn, "groups_relations", ct))
         {
-            _logger.LogInformation("No groups_relations table found, skipping group relations");
+            _logger.LogDebug("No groups_relations table found; skipping group relations");
             return 0;
         }
 

@@ -79,7 +79,7 @@ public static unsafe class FfmpegInProcess
                 try
                 {
                     DynamicallyLoadedBindings.LibrariesPath = libraryPath ?? string.Empty;
-                    Logger?.LogDebug(
+                    Logger?.LogTrace(
                         string.IsNullOrEmpty(libraryPath)
                             ? "In-process FFmpeg: trying shared libraries from the default runtime loader paths"
                             : "In-process FFmpeg: trying shared libraries from {LibraryPath}",
@@ -112,7 +112,7 @@ public static unsafe class FfmpegInProcess
                 {
                     lastError = ex;
                     IsAvailable = false;
-                    Logger?.LogDebug(ex, "In-process FFmpeg initialization attempt failed for candidate path {LibraryPath}", libraryPath);
+                    Logger?.LogTrace(ex, "In-process FFmpeg initialization attempt failed for candidate path {LibraryPath}", libraryPath);
                 }
             }
 

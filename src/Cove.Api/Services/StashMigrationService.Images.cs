@@ -23,7 +23,7 @@ public partial class StashMigrationService
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var total = await CountAsync(conn, "images", ct);
-        _logger.LogInformation("Importing {Total} images...", total);
+        _logger.LogDebug("Preparing to import {Total} images", total);
 
         var imageTagMap = await ReadJunctionAsync(conn, "images_tags", "image_id", "tag_id", ct);
         var imagePerformerMap = await ReadJunctionAsync(conn, "performers_images", "image_id", "performer_id", ct);
@@ -147,6 +147,7 @@ public partial class StashMigrationService
                         if (!existingFileKeys.Add(fileKey))
                         {
                             skippedDuplicateFiles++;
+                            TraceSkippedDuplicateFile(_logger, "image", fd.Basename, coveFolderId);
                             continue;
                         }
 
@@ -181,7 +182,7 @@ public partial class StashMigrationService
             _db.ChangeTracker.Clear();
             ReportPhase(progress, startProgress, endProgress, idMap.Count, imageRows.Count, $"Importing images ({idMap.Count}/{imageRows.Count})");
 
-            _logger.LogInformation("Imported {Count}/{Total} images...", Math.Min(i + BatchSize, imageRows.Count), imageRows.Count);
+            _logger.LogDebug("Imported {Count}/{Total} images", Math.Min(i + BatchSize, imageRows.Count), imageRows.Count);
             _logger.LogDebug(
                 "[StashTiming] phase=images checkpoint=batch imported={Imported} total={Total} skippedDuplicateFiles={SkippedDuplicateFiles} elapsedMs={ElapsedMilliseconds:F0}",
                 idMap.Count,

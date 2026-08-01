@@ -64,13 +64,13 @@ public partial class StashMigrationService
                 else
                 {
                     missingCount++;
-                    _logger.LogDebug("Stash blob {Checksum} had no inline data and no matching blob file", checksum);
+                    TraceStashMissingBlobData(_logger, checksum);
                 }
             }
             catch (Exception ex)
             {
                 failedCount++;
-                _logger.LogWarning("Blob {Checksum} import failed: {Err}", checksum, ex.Message);
+                _logger.LogWarning(ex, "Blob {Checksum} import failed", checksum);
             }
 
             if (processed % 100 == 0 || processed == total)
@@ -384,7 +384,7 @@ WHERE files.zip_file_id IS NOT NULL";
             var (addedPaths, addedMetadataServers, updatedMetadataServers) = MergeStashConfigIntoCoveConfig(dto, stashConfig);
             if (addedPaths == 0 && addedMetadataServers == 0 && updatedMetadataServers == 0)
             {
-                _logger.LogInformation("No Stash config paths or metadata servers required importing");
+                _logger.LogDebug("No Stash config paths or metadata servers required importing");
                 return;
             }
 
@@ -565,7 +565,7 @@ WHERE files.zip_file_id IS NOT NULL";
                     // straight copy into Cove's screenshot path matches what the runtime serves.
                     sourceScreenshots++;
                     var srcScreenshotPath = Path.Combine(stashScreenshotsDir, $"{legacyScreenshotHash}.jpg");
-                    if (TryCopyGeneratedFile(srcScreenshotPath, GetCoveSceneThumbnailPath(coveSceneId)))
+                    if (TryCopyGeneratedFile(coveSceneId, "screenshot", srcScreenshotPath, GetCoveSceneThumbnailPath(coveSceneId)))
                         migratedScreenshots++;
                 }
 
@@ -574,7 +574,7 @@ WHERE files.zip_file_id IS NOT NULL";
                 {
                     sourcePreviews++;
                     var srcPreviewPath = Path.Combine(stashScreenshotsDir, $"{previewHash}.mp4");
-                    if (TryCopyGeneratedFile(srcPreviewPath, GetCoveScenePreviewPath(coveSceneId)))
+                    if (TryCopyGeneratedFile(coveSceneId, "preview", srcPreviewPath, GetCoveScenePreviewPath(coveSceneId)))
                         migratedPreviews++;
                 }
 
@@ -583,7 +583,7 @@ WHERE files.zip_file_id IS NOT NULL";
                 {
                     sourceSprites++;
                     var srcSpritePath = Path.Combine(stashVttDir, $"{spriteHash}_sprite.jpg");
-                    if (TryCopyGeneratedFile(srcSpritePath, GetCoveSceneSpritePath(coveSceneId)))
+                    if (TryCopyGeneratedFile(coveSceneId, "sprite", srcSpritePath, GetCoveSceneSpritePath(coveSceneId)))
                         migratedSprites++;
                 }
 
@@ -592,7 +592,7 @@ WHERE files.zip_file_id IS NOT NULL";
                 {
                     sourceVtts++;
                     var srcVttPath = Path.Combine(stashVttDir, $"{vttHash}_thumbs.vtt");
-                    if (TryCopyGeneratedFile(srcVttPath, GetCoveSceneSpriteVttPath(coveSceneId)))
+                    if (TryCopyGeneratedFile(coveSceneId, "VTT", srcVttPath, GetCoveSceneSpriteVttPath(coveSceneId)))
                         migratedVtts++;
                 }
 
@@ -610,6 +610,20 @@ WHERE files.zip_file_id IS NOT NULL";
                 sourceSprites,
                 migratedVtts,
                 sourceVtts);
+
+            var failedScreenshots = sourceScreenshots - migratedScreenshots;
+            var failedPreviews = sourcePreviews - migratedPreviews;
+            var failedSprites = sourceSprites - migratedSprites;
+            var failedVtts = sourceVtts - migratedVtts;
+            if (failedScreenshots + failedPreviews + failedSprites + failedVtts > 0)
+            {
+                _logger.LogWarning(
+                    "Generated asset migration was incomplete: screenshots {FailedScreenshots}, previews {FailedPreviews}, sprites {FailedSprites}, VTTs {FailedVtts} could not be migrated",
+                    failedScreenshots,
+                    failedPreviews,
+                    failedSprites,
+                    failedVtts);
+            }
 
             progress.Report(endProgress, "Generated scene assets copied");
         }
@@ -645,13 +659,28 @@ WHERE files.zip_file_id IS NOT NULL";
         yield return generatedData.Md5;
     }
 
-    private bool TryCopyGeneratedFile(string sourcePath, string destinationPath)
+    private bool TryCopyGeneratedFile(int sceneId, string assetType, string sourcePath, string destinationPath)
     {
-        if (!File.Exists(sourcePath)) return false;
+        if (!File.Exists(sourcePath))
+        {
+            TraceGeneratedAssetMigrationFailure(_logger, null, assetType, sceneId, sourcePath);
+            return false;
+        }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-        File.Copy(sourcePath, destinationPath, overwrite: true);
-        return File.Exists(destinationPath);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+            var copied = File.Exists(destinationPath);
+            if (!copied)
+                TraceGeneratedAssetMigrationFailure(_logger, null, assetType, sceneId, sourcePath);
+            return copied;
+        }
+        catch (Exception ex)
+        {
+            TraceGeneratedAssetMigrationFailure(_logger, ex, assetType, sceneId, sourcePath);
+            throw;
+        }
     }
 
     private async Task<bool> TryWriteSceneScreenshotAsync(int sceneId, string blobId, CancellationToken ct)
@@ -659,7 +688,11 @@ WHERE files.zip_file_id IS NOT NULL";
         try
         {
             var blob = await _blobService.GetBlobAsync(blobId, ct);
-            if (blob == null) return false;
+            if (blob == null)
+            {
+                TraceSceneScreenshotMigrationFailure(_logger, null, sceneId, blobId);
+                return false;
+            }
 
             await using var blobStream = blob.Value.Stream;
             var destinationPath = GetCoveSceneThumbnailPath(sceneId);
@@ -669,7 +702,10 @@ WHERE files.zip_file_id IS NOT NULL";
             {
                 await using var jpegOutput = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
                 await blobStream.CopyToAsync(jpegOutput, ct);
-                return File.Exists(destinationPath);
+                var written = File.Exists(destinationPath);
+                if (!written)
+                    TraceSceneScreenshotMigrationFailure(_logger, null, sceneId, blobId);
+                return written;
             }
 
             await using var buffered = new MemoryStream();
@@ -679,7 +715,10 @@ WHERE files.zip_file_id IS NOT NULL";
             using var image = await SixLabors.ImageSharp.Image.LoadAsync(buffered, ct);
             await using var convertedOutput = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
             await image.SaveAsync(convertedOutput, new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 85 }, ct);
-            return File.Exists(destinationPath);
+            var converted = File.Exists(destinationPath);
+            if (!converted)
+                TraceSceneScreenshotMigrationFailure(_logger, null, sceneId, blobId);
+            return converted;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -687,12 +726,12 @@ WHERE files.zip_file_id IS NOT NULL";
         }
         catch (SixLabors.ImageSharp.InvalidImageContentException ex)
         {
-            _logger.LogWarning("Skipping corrupt scene screenshot for scene {SceneId} from blob {BlobId}: {Message}", sceneId, blobId, ex.Message);
+            TraceSceneScreenshotMigrationFailure(_logger, ex, sceneId, blobId);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to migrate scene screenshot for scene {SceneId} from blob {BlobId}", sceneId, blobId);
+            TraceSceneScreenshotMigrationFailure(_logger, ex, sceneId, blobId);
             return false;
         }
     }

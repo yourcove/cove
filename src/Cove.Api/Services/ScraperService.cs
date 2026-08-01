@@ -19,7 +19,7 @@ public sealed record AutoScrapeAttemptResult(string ScraperId, string ScraperNam
 
 public sealed record AutoScrapeResult(string? ScraperId, Dictionary<string, object>? Result, IReadOnlyList<AutoScrapeAttemptResult> Attempts);
 
-public class ScraperService
+public partial class ScraperService
 {
     private static readonly string[] SupportedExtensions = [".yml", ".yaml"];
     private const string ScraperPackKind = "scraper-pack";
@@ -40,6 +40,45 @@ public class ScraperService
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
+
+    [LoggerMessage(
+        EventId = 2201,
+        Level = LogLevel.Trace,
+        Message = "Scraper {ScraperId} name search for {EntityType} using term {SearchTerm} produced {CandidateCount} candidates")]
+    private partial void TraceNameSearchResult(
+        string scraperId,
+        string entityType,
+        string searchTerm,
+        int candidateCount);
+
+    [LoggerMessage(
+        EventId = 2202,
+        Level = LogLevel.Trace,
+        Message = "{ScraperKind} scraper {ScraperName} extracted {ProducedFieldCount} of {RequestedFieldCount} requested fields for {EntityType}")]
+    private partial void TraceExtractionCompleted(
+        string scraperKind,
+        string? scraperName,
+        string entityType,
+        int requestedFieldCount,
+        int producedFieldCount);
+
+    [LoggerMessage(
+        EventId = 2203,
+        Level = LogLevel.Trace,
+        Message = "Scraper fetch completed with HTTP {StatusCode}; characters={ResponseCharacters}, attempt={Attempt}")]
+    private partial void TraceFetchCompleted(int statusCode, int responseCharacters, int attempt);
+
+    [LoggerMessage(
+        EventId = 2204,
+        Level = LogLevel.Trace,
+        Message = "Auto scrape selected {CandidateCount} candidate(s) for {EntityType} URL {Url}")]
+    private partial void TraceAutoScrapeCandidates(int candidateCount, string entityType, string url);
+
+    [LoggerMessage(
+        EventId = 2205,
+        Level = LogLevel.Trace,
+        Message = "Auto scraper {ScraperId} {Outcome} for {EntityType} URL {Url}")]
+    private partial void TraceAutoScrapeAttempt(string scraperId, string outcome, string entityType, string url, Exception? exception = null);
 
     public ScraperService(CoveConfiguration config, ILogger<ScraperService> logger, IHttpClientFactory httpClientFactory, ExtensionManager extensionManager)
     {
@@ -122,6 +161,7 @@ public class ScraperService
             return new AutoScrapeResult(null, null, []);
 
         var candidates = FindScrapersForUrl(url, entityType);
+        TraceAutoScrapeCandidates(candidates.Count, entityType, url);
         var attempts = new List<AutoScrapeAttemptResult>(candidates.Count);
         foreach (var candidate in candidates)
         {
@@ -131,15 +171,17 @@ public class ScraperService
                 if (result is { Count: > 0 })
                 {
                     attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, true, null));
+                    TraceAutoScrapeAttempt(candidate.Id, "returned results", entityType, url);
                     return new AutoScrapeResult(candidate.Id, result, attempts);
                 }
 
                 attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, false, null));
+                TraceAutoScrapeAttempt(candidate.Id, "returned no results", entityType, url);
             }
             catch (Exception ex)
             {
                 attempts.Add(new AutoScrapeAttemptResult(candidate.Id, candidate.Name, false, ex.Message));
-                _logger.LogDebug(ex, "Auto scraper {ScraperId} failed for URL {Url}", candidate.Id, url);
+                TraceAutoScrapeAttempt(candidate.Id, "failed", entityType, url, ex);
             }
         }
 
@@ -668,7 +710,7 @@ public class ScraperService
 
         if (!_manifestCache.TryGetValue(baseId, out var manifest))
         {
-            _logger.LogWarning("Scraper {Id} not found", baseId);
+            _logger.LogDebug("Scraper {Id} not found", baseId);
             return null;
         }
 
@@ -688,7 +730,7 @@ public class ScraperService
         var matchingDef = urlDefs.FirstOrDefault(d => d.Url.Any(u => url.Contains(u, StringComparison.OrdinalIgnoreCase)));
         if (matchingDef == null)
         {
-            _logger.LogWarning("No URL match for {Url} in scraper {Id}", url, baseId);
+            _logger.LogTrace("No URL match for {Url} in scraper {Id}", url, baseId);
             return null;
         }
 
@@ -909,6 +951,7 @@ public class ScraperService
             };
 
             var candidates = ExpandNameSearchResults(result);
+            TraceNameSearchResult(baseId, entityType, searchTerm, candidates?.Count ?? 0);
             if (candidates is { Count: > 0 })
                 return await EnrichNameSearchCandidatesAsync(scraperId, entityType, candidates, targetUrl, ct);
         }
@@ -1240,7 +1283,7 @@ public class ScraperService
 
         try
         {
-            _logger.LogDebug("Fetching URL for XPath scrape: {Url}", url);
+            _logger.LogTrace("Fetching URL for XPath scrape: {Url}", url);
             var html = await FetchContentAsync(manifest, url, ct, isNameSearch);
             if (html == null)
                 return null; // No match (e.g. 404 during a title search).
@@ -1275,10 +1318,11 @@ public class ScraperService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug("XPath selector error for field {Field}: {Error}", field, ex.Message);
+                    _logger.LogTrace("XPath selector error for field {Field}: {Error}", field, ex.Message);
                 }
             }
 
+            TraceExtractionCompleted("XPath", scraperName, entityType, entitySelectors.Count, result.Count);
             return result.Count > 0 ? result : null;
         }
         catch (Exception ex)
@@ -1309,7 +1353,7 @@ public class ScraperService
 
         try
         {
-            _logger.LogDebug("Fetching URL for JSON scrape: {Url}", url);
+            _logger.LogTrace("Fetching URL for JSON scrape: {Url}", url);
             var jsonStr = await FetchContentAsync(manifest, url, ct, isNameSearch);
             if (jsonStr == null)
                 return null; // No match (e.g. 404 during a title search).
@@ -1342,10 +1386,11 @@ public class ScraperService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug("JSON selector error for field {Field}: {Error}", field, ex.Message);
+                    _logger.LogTrace("JSON selector error for field {Field}: {Error}", field, ex.Message);
                 }
             }
 
+            TraceExtractionCompleted("JSON", scraperName, entityType, entitySelectors.Count, result.Count);
             return result.Count > 0 ? result : null;
         }
         catch (Exception ex)
@@ -1937,6 +1982,7 @@ public class ScraperService
 
                 using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 var content = await response.Content.ReadAsStringAsync(ct);
+                TraceFetchCompleted((int)response.StatusCode, content.Length, attempt);
 
                 if (!response.IsSuccessStatusCode)
                 {

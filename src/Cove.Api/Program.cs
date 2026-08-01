@@ -10,7 +10,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
-using Serilog.Core;
 using Serilog.Events;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
@@ -210,8 +209,14 @@ try
     var isIntegrationStartupTest = builder.Environment.IsEnvironment("IntegrationStartup");
     var isTestHarness = isIntegrationTest || isIntegrationStartupTest;
 
-    var runtimeLogLevelSwitch = new LoggingLevelSwitch(ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")));
-    builder.Services.AddSingleton(runtimeLogLevelSwitch);
+    var runtimeLogLevelManager = new RuntimeLogLevelManager(
+        ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")),
+        traceExpired: restoredLevel => Log
+            .ForContext<RuntimeLogLevelManager>()
+            .Information(
+                "Temporary Trace logging expired; restored {LogLevel}",
+                restoredLevel));
+    builder.Services.AddSingleton(runtimeLogLevelManager);
 
     if (isTestHarness)
     {
@@ -224,8 +229,8 @@ try
         EnsureDataRootWriteable();
 
         Log.Logger = new LoggerConfiguration()
-            .WriteTo.Console()
-            .WriteTo.File(GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
+            .WriteTo.Console(CoveTextLogFormatter.Instance)
+            .WriteTo.File(CoveTextLogFormatter.Instance, GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
             .CreateBootstrapLogger();
 
         // Serilog
@@ -233,11 +238,11 @@ try
             .ReadFrom.Configuration(context.Configuration)
             .ReadFrom.Services(services)
             .Enrich.FromLogContext()
-            .MinimumLevel.ControlledBy(services.GetRequiredService<LoggingLevelSwitch>())
+            .MinimumLevel.ControlledBy(services.GetRequiredService<RuntimeLogLevelManager>().LevelSwitch)
             .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
             .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
-            .WriteTo.Console()
-                .WriteTo.File(GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
+            .WriteTo.Console(CoveTextLogFormatter.Instance)
+            .WriteTo.File(CoveTextLogFormatter.Instance, GetApplicationLogFilePath(), rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30, shared: true)
             .WriteTo.Sink(new SignalRLogSink()));
     }
 
@@ -538,6 +543,7 @@ try
 
     // Middleware pipeline
     // UseSerilogRequestLogging removed â€” adds 3-5ms per request overhead
+    app.UseMiddleware<Cove.Api.Middleware.OperationLogContextMiddleware>();
     app.UseMiddleware<Cove.Api.Middleware.DatabaseUnavailableMiddleware>();
 
     if (app.Environment.IsDevelopment())
@@ -813,7 +819,7 @@ try
         CoveDefaultPaths.GetDataRoot(),
         coveCfgInstance.Postgres.Managed,
         coveCfgInstance.Auth.Enabled,
-        runtimeLogLevelSwitch.MinimumLevel);
+        runtimeLogLevelManager.LevelSwitch.MinimumLevel);
     await app.WaitForShutdownAsync();
 
     // Graceful shutdown for extensions

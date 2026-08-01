@@ -1,0 +1,92 @@
+---
+title: Logging policy
+description: Choose Cove log levels and add structured diagnostics without polluting operational code.
+---
+
+Cove logs should record operational decisions and outcomes, not provide a transcript of method calls. A useful event answers what Cove decided, what operation it affected, and why the result matters.
+
+## Choose the least verbose useful level
+
+- **Critical** records a failure that prevents Cove or a core service from continuing safely.
+- **Error** records an operation that failed and could not produce its intended outcome.
+- **Warning** records an unexpected or degraded condition from which the operation can recover.
+- **Information** records user-visible lifecycle events and outcomes.
+- **Debug** records phase summaries, timings, retries, fallbacks, and configuration choices.
+- **Trace** records high-volume per-item decisions and external-boundary results during a short diagnostic session.
+
+Trace is temporary diagnostic output. Assume it will be enabled only while someone investigates a specific operation, and that its volume would be unsuitable for normal use.
+
+## Log decisions at orchestration boundaries
+
+Add events where code chooses a branch, crosses an external boundary, or performs a side effect. Good Trace candidates include:
+
+- why an item was included, skipped, or classified;
+- the result of a scraper, metadata provider, or extension call;
+- cache hits, misses, and invalidations;
+- retry and fallback decisions;
+- file, blob, and media-processing operations.
+
+Keep pure parsing, mapping, formatting, and DTO-construction helpers log-free. Prefer one event at the caller that owns the decision over several events inside the helpers that prepared its data.
+
+## Keep logging structured and cheap
+
+Pass values already used by the operation through structured message-template properties:
+
+```csharp
+logger.LogTrace(
+    "Skipped candidate {Path} because its detected type was {MediaType}",
+    candidate.Path,
+    mediaType);
+```
+
+Do not serialize objects, join collections, or construct alternate representations solely for logging.
+
+### Use the `LoggerMessage` attribute for repeated events
+
+For events in loops or other frequently executed paths, declare a source-generated logging method. The containing class and the logging method must both be `partial`:
+
+```csharp
+public partial class ScanService
+{
+    [LoggerMessage(
+        EventId = 2101,
+        Level = LogLevel.Trace,
+        Message = "Classified {Path} as {MediaType} because {Reason}")]
+    private partial void TraceFileClassified(
+        string path,
+        string mediaType,
+        string reason);
+
+    private void ProcessCandidate(Candidate candidate)
+    {
+        // Classification logic...
+        TraceFileClassified(candidate.Path, mediaType, reason);
+    }
+}
+```
+
+The attribute keeps the event definition, severity, stable event ID, and structured property names together. The generated implementation performs the level check and avoids the parsing and boxing associated with the general-purpose logging extension methods. The operational call site stays short and passes values it already has.
+
+Name the method for its level and event, keep related event IDs grouped when practical, and preserve an event ID once it has shipped. Every message-template placeholder should have a corresponding method parameter.
+
+Arguments are evaluated before the generated method runs. If a diagnostic value is genuinely expensive to obtain, guard its construction:
+
+```csharp
+if (logger.IsEnabled(LogLevel.Trace))
+{
+    logger.LogTrace(
+        "Resolved {CandidateCount} candidates: {CandidatePaths}",
+        candidates.Count,
+        candidates.Select(candidate => candidate.Path).ToArray());
+}
+```
+
+When an operation spans multiple components, add stable correlation values such as a job or operation identifier to a logging scope. The individual events can then describe local decisions without repeating correlation fields in every message.
+
+## Protect sensitive data
+
+Never log credentials, authentication headers, cookies, API tokens, or raw request and response bodies. Trace may include local paths, URLs, and library metadata when those values are necessary to diagnose the operation, but it does not relax the rule against secrets.
+
+## Why `LoggerMessage` requires partial classes
+
+The `[LoggerMessage]` attribute uses a compile-time source generator. Cove declares a `partial` logging method, and the generator writes its efficient implementation into another generated part of the containing class. C# can combine the declaration and generated implementation only when both the method and its class are marked `partial`; the generator cannot modify the original source file directly. Partial classes are not required for ordinary logging, so use this pattern selectively for repeated or high-volume events and continue using the regular `ILogger` extension methods for occasional events.

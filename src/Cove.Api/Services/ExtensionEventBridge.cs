@@ -8,12 +8,20 @@ namespace Cove.Api.Services;
 /// Subscribes to all EntityEvent publications and dispatches them
 /// as ExtensionEvents to all IEventExtension instances.
 /// </summary>
-public sealed class ExtensionEventBridge : IHostedService, IDisposable
+public sealed partial class ExtensionEventBridge : IHostedService, IDisposable
 {
     private readonly IEventBus _eventBus;
     private readonly ExtensionManager _extensionManager;
     private readonly ILogger<ExtensionEventBridge> _logger;
     private IDisposable? _subscription;
+
+    [LoggerMessage(EventId = 2401, Level = LogLevel.Trace,
+        Message = "Queued extension event {EventType} for {EntityType} {EntityId}")]
+    private partial void TraceEventQueued(string eventType, string entityType, int entityId);
+
+    [LoggerMessage(EventId = 2402, Level = LogLevel.Trace,
+        Message = "Completed extension event dispatch for {EventType}")]
+    private partial void TraceEventDispatchCompleted(string eventType);
 
     public ExtensionEventBridge(
         IEventBus eventBus,
@@ -47,6 +55,7 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
             EntityId: evt.EntityId,
             Data: evt.Entity != null ? new Dictionary<string, object?> { ["entity"] = evt.Entity } : null
         );
+        TraceEventQueued(extensionEvent.EventType, extensionEvent.EntityType, extensionEvent.EntityId);
 
         // Fire-and-forget dispatch to extensions (don't block the publisher)
         _ = Task.Run(async () =>
@@ -54,6 +63,7 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
             try
             {
                 await _extensionManager.DispatchEventAsync(extensionEvent);
+                TraceEventDispatchCompleted(extensionEvent.EventType);
             }
             catch (Exception ex)
             {
@@ -96,4 +106,3 @@ public sealed class ExtensionEventBridge : IHostedService, IDisposable
 
     public void Dispose() => _subscription?.Dispose();
 }
-

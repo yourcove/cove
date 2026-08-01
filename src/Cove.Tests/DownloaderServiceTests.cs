@@ -8,6 +8,7 @@ using Cove.Plugins;
 using Cove.Data;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.EntityFrameworkCore;
 
@@ -123,6 +124,32 @@ public class DownloaderServiceTests
                 Assert.Equal(sourceUrl, match.SourceUrl);
                 Assert.Equal("Forum post title (2)", match.Label);
             });
+    }
+
+    [Fact]
+    public async Task MatchUrlAsync_DiversionRetainsNestedProviderFailuresAndLogsOneWarning()
+    {
+        var logger = new RecordingLogger<DownloaderService>();
+        var service = CreateService(out _, out var downloaderProvider, includeForumProvider: true, logger: logger);
+        downloaderProvider.MatchFailureUrl = "https://audio.example.net/track/one";
+
+        var matches = await service.MatchUrlAsync("https://forum.example.net/topics/abc/example-post", CancellationToken.None);
+
+        var match = Assert.Single(matches);
+        Assert.Equal("https://audio.example.net/track/two", match.NormalizedUrl);
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning && entry.Message.StartsWith("Downloader matching encountered", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MatchUrlAsync_TotalProviderFailureLogsOneWarningAndThrows()
+    {
+        var logger = new RecordingLogger<DownloaderService>();
+        var service = CreateService(out _, out var downloaderProvider, logger: logger);
+        downloaderProvider.MatchFailureUrl = "https://example.com/watch/failure";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.MatchUrlAsync("https://example.com/watch/failure", CancellationToken.None));
+
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning && entry.Message.StartsWith("Downloader matching encountered", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -734,6 +761,7 @@ public class DownloaderServiceTests
 
         var scanService = new FakeScanService();
         var metadataApplyService = new FakeVideoMetadataApplyService();
+        var logger = new RecordingLogger<DownloaderService>();
         var service = CreateService(
             out var services,
             new CoveConfiguration
@@ -742,7 +770,8 @@ public class DownloaderServiceTests
                 MaxConcurrentDownloads = 2,
             },
             scanService,
-            metadataApplyService);
+            metadataApplyService,
+            logger: logger);
 
         try
         {
@@ -786,6 +815,9 @@ public class DownloaderServiceTests
             Assert.Equal(0, summary.SkippedCount);
             Assert.Equal(0, summary.FailedCount);
             Assert.Equal("job-1", summary.FollowUpJobId);
+            var completion = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Message.StartsWith("Batch download completed;", StringComparison.Ordinal));
+            Assert.Contains("total=2", completion.Message);
+            Assert.Contains("succeeded=2", completion.Message);
             Assert.NotNull(scanService.StartedScanOptions);
             Assert.True(scanService.StartedScanOptions!.GenerateCovers);
             Assert.True(scanService.StartedScanOptions.GeneratePreviews);
@@ -1181,9 +1213,10 @@ public class DownloaderServiceTests
         IScanService? scanService = null,
         IVideoMetadataApplyService? videoMetadataApplyService = null,
         Action<CoveContext>? seedDatabase = null,
-        bool includeForumProvider = false)
+        bool includeForumProvider = false,
+        ILogger<DownloaderService>? logger = null)
     {
-        return CreateService(out services, out _, config, scanService, videoMetadataApplyService, seedDatabase, includeForumProvider);
+        return CreateService(out services, out _, config, scanService, videoMetadataApplyService, seedDatabase, includeForumProvider, logger);
     }
 
     private static DownloaderService CreateService(
@@ -1193,7 +1226,8 @@ public class DownloaderServiceTests
         IScanService? scanService = null,
         IVideoMetadataApplyService? videoMetadataApplyService = null,
         Action<CoveContext>? seedDatabase = null,
-        bool includeForumProvider = false)
+        bool includeForumProvider = false,
+        ILogger<DownloaderService>? logger = null)
     {
         var serviceCollection = new ServiceCollection();
         var databaseName = $"cove-downloader-tests-{Guid.NewGuid():N}";
@@ -1239,7 +1273,7 @@ public class DownloaderServiceTests
             NullLoggerFactory.Instance,
             effectiveConfig,
             services.GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<DownloaderService>.Instance);
+            logger ?? NullLogger<DownloaderService>.Instance);
     }
 
     private sealed class FakeScanService : IScanService
@@ -1307,6 +1341,7 @@ public class DownloaderServiceTests
         public string? IconUrl => null;
         public IReadOnlyList<string> Categories => [ExtensionCategories.Downloader];
         public ConcurrentBag<DownloaderRequest> Requests { get; } = [];
+        public string? MatchFailureUrl { get; set; }
 
         public void ConfigureServices(IServiceCollection services, ExtensionContext context)
         {
@@ -1333,6 +1368,9 @@ public class DownloaderServiceTests
 
         public Task<IReadOnlyList<DownloaderUrlMatch>> MatchAllAsync(string url, CancellationToken ct)
         {
+            if (string.Equals(url, MatchFailureUrl, StringComparison.OrdinalIgnoreCase))
+                throw new HttpRequestException("Test downloader match failure");
+
             if (url.Contains("audio.example.net", StringComparison.OrdinalIgnoreCase))
                 return Task.FromResult<IReadOnlyList<DownloaderUrlMatch>>([new DownloaderUrlMatch("tests.fake-downloader/audio", url, null, "Linked audio")]);
 
@@ -1513,5 +1551,14 @@ public class DownloaderServiceTests
             return Task.FromResult(true);
         }
     }
-}
 
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+    }
+}

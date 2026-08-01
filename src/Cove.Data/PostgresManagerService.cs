@@ -72,7 +72,7 @@ public class PostgresManagerService : IHostedService
             var systemPgCtl = await FindSystemPgCtlAsync(ct);
             if (systemPgCtl != null && !File.Exists(Exe("pg_ctl")))
             {
-                _logger.LogInformation("Found system PostgreSQL at {Path} — symlinking to managed bin dir", systemPgCtl);
+                _logger.LogDebug("Found system PostgreSQL at {Path} — symlinking to managed bin dir", systemPgCtl);
                 LinkSystemPostgresBinDir(systemPgCtl);
             }
         }
@@ -85,7 +85,7 @@ public class PostgresManagerService : IHostedService
         }
         else
         {
-            _logger.LogInformation("PostgreSQL binaries found at {BinDir}", BinDir);
+            _logger.LogDebug("PostgreSQL binaries found at {BinDir}", BinDir);
         }
 
         // 2. Check if a stale instance exists from a previous crash
@@ -197,7 +197,7 @@ public class PostgresManagerService : IHostedService
 
         await DownloadFileAsync(url, archivePath, ct);
 
-        _logger.LogInformation("Extracting PostgreSQL binaries to {BinDir}", BinDir);
+        _logger.LogDebug("Extracting PostgreSQL binaries to {BinDir}", BinDir);
 
         if (ext == ".zip")
         {
@@ -438,7 +438,7 @@ public class PostgresManagerService : IHostedService
             // Extract .deb packages
             foreach (var debFile in Directory.GetFiles(tempDir, "*.deb"))
             {
-                _logger.LogDebug("Extracting {File}", Path.GetFileName(debFile));
+                _logger.LogTrace("Extracting {File}", Path.GetFileName(debFile));
                 var exitCode = await RunAsync("/usr/bin/dpkg-deb", $"-x \"{debFile}\" \"{extractDir}\"", tempDir, ct);
                 if (exitCode != 0)
                 {
@@ -763,7 +763,7 @@ public class PostgresManagerService : IHostedService
     private async Task DownloadFileAsync(string url, string destPath, CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        _logger.LogInformation("Downloading {Url}", url);
+        _logger.LogInformation("Downloading managed PostgreSQL component");
 
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
@@ -786,7 +786,7 @@ public class PostgresManagerService : IHostedService
                 int pct = (int)(totalRead * 100 / totalBytes);
                 if (pct / 10 > lastPct / 10)
                 {
-                    _logger.LogInformation("Download progress: {Pct}% ({MB:F0} MB)",
+                    _logger.LogDebug("Managed PostgreSQL download progress: {Pct}% ({MB:F0} MB)",
                         pct, totalRead / 1048576.0);
                     lastPct = pct;
                 }
@@ -794,7 +794,7 @@ public class PostgresManagerService : IHostedService
         }
         await fileStream.FlushAsync(ct);
         fileStream.Close();
-        _logger.LogInformation("Download complete ({MB:F1} MB)", totalRead / 1048576.0);
+        _logger.LogInformation("Managed PostgreSQL download complete ({MB:F1} MB)", totalRead / 1048576.0);
     }
 
     // ─── Init / Start / Stop helpers ────────────────────────────────
@@ -894,7 +894,7 @@ public class PostgresManagerService : IHostedService
             return;
 
         await File.WriteAllLinesAsync(configPath, lines, ct);
-        _logger.LogInformation("Updated managed PostgreSQL configuration at {ConfigPath}", configPath);
+        _logger.LogDebug("Updated managed PostgreSQL configuration at {ConfigPath}", configPath);
     }
 
     private static bool IsSettingLine(string trimmedLine, string settingName)
@@ -982,7 +982,7 @@ public class PostgresManagerService : IHostedService
                 $"-h 127.0.0.1 -p {_config.Port} -U postgres", BinDir, ct);
             if (exitCode == 0)
             {
-                _logger.LogDebug("PostgreSQL is accepting connections");
+                _logger.LogTrace("PostgreSQL is accepting connections");
                 return;
             }
             await Task.Delay(500, ct);
