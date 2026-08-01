@@ -11,17 +11,115 @@ interface Props {
 }
 
 const { frames, caption } = Astro.props;
-const duration = `${frames.length * 0.85}s`;
+// Single source of truth for the cadence: the keyframe duration, the per-frame delay,
+// and the script that fetches the next screenshot all derive from this value.
+const frameSeconds = 0.85;
+const duration = `${frames.length * frameSeconds}s`;
+// A frame the reel has not claimed yet still needs a src, because an img without one is
+// invalid HTML. This transparent placeholder declares the same intrinsic size as the
+// screenshots, so replacing it with the real file changes nothing about the layout.
+// Decodes to <svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1300"/>.
+const PLACEHOLDER_FRAME =
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNzAwIiBoZWlnaHQ9IjEzMDAiLz4=';
 ---
 
-<figure class="media-shot theme-reel" style={`--theme-reel-duration: ${duration}; --theme-reel-count: ${frames.length};`}>
-  <div class="theme-reel-stage">
-    {frames.map((frame, index) => (
-      <div class="theme-reel-frame" style={`--theme-reel-index: ${index};`}>
-        <img src={frame.src} alt={frame.alt} loading={index === 0 ? 'eager' : 'lazy'} width="1700" height="1300" />
-        <span>{frame.label}</span>
-      </div>
-    ))}
-  </div>
-  {caption ? <figcaption>{caption}</figcaption> : null}
-</figure>
+<theme-reel>
+  <figure
+    class="media-shot theme-reel"
+    style={`--theme-reel-duration: ${duration}; --theme-reel-count: ${frames.length}; --theme-reel-interval: ${frameSeconds}s;`}
+  >
+    <div class="theme-reel-stage">
+      {frames.map((frame, index) => (
+        <div class="theme-reel-frame" style={`--theme-reel-index: ${index};`}>
+          <img
+            src={index === 0 ? frame.src : PLACEHOLDER_FRAME}
+            data-theme-reel-src={index === 0 ? undefined : frame.src}
+            alt={frame.alt}
+            loading={index === 0 ? 'eager' : 'lazy'}
+            decoding="async"
+            width="1700"
+            height="1300"
+          />
+          <span>{frame.label}</span>
+        </div>
+      ))}
+    </div>
+    {caption ? <figcaption>{caption}</figcaption> : null}
+  </figure>
+</theme-reel>
+
+<script>
+  class ThemeReel extends HTMLElement {
+    connectedCallback() {
+      const reel = this.querySelector<HTMLElement>('.theme-reel');
+      if (!reel || this.dataset.themeReelState) return;
+
+      // A reader who asked for less motion sees the first frame only, and is spared
+      // the download of every other screenshot along with the animation.
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          observer.disconnect();
+          this.start(reel);
+        },
+        { rootMargin: '200px' },
+      );
+
+      // The host element is display: contents so it stays out of the grid it sits in,
+      // which also means it generates no box for the observer to measure. Watch the
+      // figure instead.
+      observer.observe(reel);
+
+      // The first observation can be delivered before the reel has been laid out, and
+      // an element that was already in view never reports a change afterwards. Check
+      // the geometry once the page has settled so a reel above the fold still starts.
+      const recheck = () => {
+        if (this.dataset.themeReelState) return;
+        const { top, bottom } = reel.getBoundingClientRect();
+        if (bottom <= 0 || top >= window.innerHeight) return;
+        observer.disconnect();
+        this.start(reel);
+      };
+
+      if (document.readyState === 'complete') recheck();
+      else window.addEventListener('load', recheck, { once: true });
+    }
+
+    start(reel: HTMLElement) {
+      const pending = [...this.querySelectorAll<HTMLImageElement>('img[data-theme-reel-src]')];
+      const intervalSeconds =
+        Number.parseFloat(getComputedStyle(reel).getPropertyValue('--theme-reel-interval')) || 0.85;
+
+      const loadNext = (count = 1) => {
+        for (const image of pending.splice(0, count)) {
+          image.src = image.dataset.themeReelSrc ?? '';
+          delete image.dataset.themeReelSrc;
+        }
+      };
+
+      // Two frames of lead time, then one per turn, so a frame is requested well
+      // before the animation reaches it without every screenshot landing at once.
+      loadNext(2);
+      this.dataset.themeReelState = 'running';
+
+      if (pending.length === 0) return;
+
+      const timer = setInterval(() => {
+        loadNext();
+        if (pending.length === 0) clearInterval(timer);
+      }, intervalSeconds * 1000);
+    }
+  }
+
+  if (!customElements.get('theme-reel')) {
+    customElements.define('theme-reel', ThemeReel);
+  }
+</script>
+
+<style>
+  theme-reel {
+    display: contents;
+  }
+</style>

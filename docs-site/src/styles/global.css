@@ -272,6 +272,9 @@ samp {
 .eyebrow,
 .eyebrow-small,
 .section-kicker {
+  /* Matches the paragraph default these labels started from, so a kicker that names
+     its section can be promoted to a heading without moving. */
+  margin: 1em 0;
   color: var(--cove-teal);
   font-size: 0.82rem;
   font-weight: 700;
@@ -433,15 +436,23 @@ samp {
     linear-gradient(180deg, rgba(13, 24, 36, 0.95), rgba(21, 35, 52, 0.96));
 }
 
-.feature-card h3,
-.panel h3,
-.doc-track-card h3,
-.info-card h3,
-.audience-card h3,
-.proof-card h3,
-.comparison-card h3,
-.setup-card h3 {
+/* Card headings size themselves from the class, not from the heading level, so a
+   section can sit at the level its position in the outline calls for. 1.17em and
+   the 1em bottom margin are the browser defaults these cards used while they were
+   all h3, kept explicit so the rendering does not shift. */
+:is(
+  .feature-card,
+  .panel,
+  .doc-track-card,
+  .info-card,
+  .audience-card,
+  .proof-card,
+  .comparison-card,
+  .setup-card
+) :is(h2, h3):not(.section-heading) {
   margin-top: 0;
+  margin-bottom: 1em;
+  font-size: 1.17em;
 }
 
 .feature-card a,
@@ -559,7 +570,7 @@ samp {
   counter-reset: setup-step;
 }
 
-.step-card h3::before {
+.step-card :is(h2, h3)::before {
   content: counter(setup-step) ". ";
   color: var(--cove-teal);
 }
@@ -606,10 +617,9 @@ samp {
   gap: 0.9rem;
 }
 
-.lane-card h3,
-.feature-section h3,
-.expectation-card h3 {
+:is(.lane-card, .feature-section, .expectation-card) :is(h2, h3):not(.section-heading) {
   margin: 0;
+  font-size: 1.17em;
 }
 
 .lane-label {
@@ -680,12 +690,23 @@ samp {
   position: absolute;
   inset: 0;
   opacity: 0;
-  animation: theme-reel-swap var(--theme-reel-duration) step-end infinite;
-  animation-delay: calc(var(--theme-reel-index) * 0.85s);
 }
 
 .theme-reel-frame:first-child {
   opacity: 1;
+}
+
+/* Every frame sits in the same box, so all of them are inside the viewport at once
+   and loading="lazy" defers nothing. Frames past the first stay out of the layout
+   until the reel actually starts, which is what keeps the browser from fetching
+   fifteen screenshots to show one. */
+[data-theme-reel-state='running'] .theme-reel-frame {
+  animation: theme-reel-swap var(--theme-reel-duration) step-end infinite;
+  animation-delay: calc(var(--theme-reel-index) * var(--theme-reel-interval));
+}
+
+theme-reel:not([data-theme-reel-state='running']) .theme-reel-frame:not(:first-child) {
+  display: none;
 }
 
 .theme-reel-frame img {
@@ -888,7 +909,9 @@ samp {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .theme-reel-frame {
+  /* Specific enough to win over the running state, so a reader who turns the
+     preference on mid-visit stops the reel rather than keeping a started one. */
+  [data-theme-reel-state='running'] .theme-reel-frame {
     animation: none;
   }
 

@@ -209,6 +209,53 @@ test('production output remains indexable with canonical and sitemap metadata', 
   }
 });
 
+test('production output is published over https even when the deployment reports http', async () => {
+  const { fixtureRoot, outputDirectory } = await buildSite({
+    COVE_DOCS_DEPLOYMENT: 'production',
+    SITE_URL: 'http://yourcove.net',
+  });
+
+  try {
+    for (const route of ['/', '/docs/']) {
+      const { document, html } = await readPage(outputDirectory, route);
+      assertCanonical(document, `${productionOrigin}${route}`);
+      assertSitemapLink(document, `${productionOrigin}/sitemap-index.xml`);
+
+      const openGraphUrl = findElements(document, 'meta', { property: 'og:url' });
+      for (const element of openGraphUrl) {
+        assert.equal(getAttribute(element, 'content'), `${productionOrigin}${route}`);
+      }
+
+      assert.doesNotMatch(
+        html,
+        /http:\/\/yourcove\.net/,
+        `${route} must not advertise the site over http`,
+      );
+    }
+
+    const robots = await readFile(path.join(outputDirectory, 'robots.txt'), 'utf8');
+    assert.equal(
+      robots,
+      `User-agent: *\nAllow: /\n\nSitemap: ${productionOrigin}/sitemap-index.xml\n`,
+    );
+
+    const sitemapIndex = await readFile(path.join(outputDirectory, 'sitemap-index.xml'), 'utf8');
+    for (const [, location] of sitemapIndex.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+      assert.equal(new URL(location).protocol, 'https:');
+
+      const sitemap = await readFile(
+        path.join(outputDirectory, path.basename(new URL(location).pathname)),
+        'utf8',
+      );
+      for (const [, contentLocation] of sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+        assert.equal(new URL(contentLocation).protocol, 'https:');
+      }
+    }
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test('production crawler URLs preserve a GitHub Pages repository base', async () => {
   const siteUrl = 'https://example.github.io/repository';
   const { fixtureRoot, outputDirectory } = await buildSite({
