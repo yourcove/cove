@@ -66,7 +66,7 @@ public record PerformerDto(
     List<PerformerRemoteIdDto> RemoteIds,
     int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount,
     string? ImagePath, Dictionary<string, object>? CustomFields, string CreatedAt, string UpdatedAt,
-    List<FieldProvenanceDto>? FieldProvenance = null, int FaceCount = 0);
+    List<FieldProvenanceDto>? FieldProvenance = null, int FaceCount = 0, int LikeCount = 0);
 
 public record PerformerRemoteIdDto(string Endpoint, string RemoteId);
 

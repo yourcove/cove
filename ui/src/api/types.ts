@@ -109,6 +109,7 @@ export interface Performer {
   audioCount: number;
   textCount: number;
   faceCount?: number;
+  likeCount?: number;
   customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

@@ -1060,6 +1060,7 @@ interface PerformerTileEntity {
   audioCount?: number;
   textCount?: number;
   groupCount?: number;
+  likeCount?: number;
 }
 
 interface PerformerTileProps {
@@ -1080,8 +1081,9 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
   const audioCount = performer.audioCount ?? 0;
   const textCount = performer.textCount ?? 0;
   const groupCount = performer.groupCount ?? 0;
+  const likeCount = performer.likeCount ?? 0;
   const performerImageUrl = performer.imagePath || null;
-  const hasFooter = (performer.tags?.length ?? 0) > 0 || videoCount > 0 || imageCount > 0 || galleryCount > 0 || audioCount > 0 || textCount > 0 || groupCount > 0;
+  const hasFooter = (performer.tags?.length ?? 0) > 0 || videoCount > 0 || imageCount > 0 || galleryCount > 0 || audioCount > 0 || textCount > 0 || groupCount > 0 || likeCount > 0;
 
   return (
     <EntityTileFrame
@@ -1171,6 +1173,7 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
               </PopoverButton>
             )}
             {groupCount > 0 ? <span className="flex items-center gap-0.5 text-xs text-muted px-1" title="Groups"><Layers className="w-3 h-3" /> {groupCount}</span> : null}
+            {likeCount > 0 ? <LikeCounter count={likeCount} /> : null}
         </>
       ) : null}
       extensionClassName="px-2 py-2"
