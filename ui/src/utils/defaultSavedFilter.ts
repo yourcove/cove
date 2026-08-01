@@ -1,4 +1,4 @@
-import type { FindFilter } from "../api/types";
+import type { FindFilter, SavedFilterUIOptions } from "../api/types";
 import { readAuthenticatedUserDefaultFilter } from "./userUiPreferences";
 
 const DEFAULT_SORT_BY_MODE: Record<string, string> = {
@@ -28,11 +28,22 @@ export function normalizeSavedFindFilter(mode: string, findFilter: FindFilter | 
  * Get the default filter for a mode. Prefers the user's account-stored default (follows them across
  * browsers); falls back to the browser-local value for signed-out use and migration.
  */
-export function getDefaultFilter(mode: string): { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; uiOptions?: Record<string, unknown> } | null {
+export function getDefaultFilter(mode: string): { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; uiOptions?: SavedFilterUIOptions } | null {
   try {
     const raw = readAuthenticatedUserDefaultFilter(mode) ?? localStorage.getItem(`cove-default-filter-${mode}`);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; uiOptions?: Record<string, unknown> };
+    const parsed = JSON.parse(raw) as { findFilter?: FindFilter; objectFilter?: Record<string, unknown>; uiOptions?: SavedFilterUIOptions };
     return { ...parsed, findFilter: normalizeSavedFindFilter(mode, parsed.findFilter) };
   } catch { return null; }
+}
+
+export function resolveSavedDisplayMode<TDisplayMode extends string>(
+  uiOptions: SavedFilterUIOptions | undefined,
+  allowedDisplayModes: readonly TDisplayMode[],
+  fallback: TDisplayMode,
+): TDisplayMode {
+  const displayMode = uiOptions?.displayMode;
+  return typeof displayMode === "string" && allowedDisplayModes.includes(displayMode as TDisplayMode)
+    ? displayMode as TDisplayMode
+    : fallback;
 }

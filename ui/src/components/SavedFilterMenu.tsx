@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { savedFilters } from "../api/client";
-import type { FindFilter } from "../api/types";
+import type { FindFilter, SavedFilterUIOptions } from "../api/types";
 import { Bookmark, ChevronDown, Save, Trash2, Loader2, Star } from "lucide-react";
 import { getDefaultFilter, normalizeSavedFindFilter } from "../utils/defaultSavedFilter";
 import { updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 
-export { getDefaultFilter } from "../utils/defaultSavedFilter";
+export { getDefaultFilter, resolveSavedDisplayMode } from "../utils/defaultSavedFilter";
 
 // Random sort seeds are intentionally not persisted: a saved/default filter using random sort
 // should re-shuffle on every load rather than reproduce the same order. Drop the seed on save.
@@ -29,7 +29,7 @@ export function useDefaultSavedFilterOnMount(
   apply: (
     findFilter: FindFilter | undefined,
     objectFilter: Record<string, unknown> | undefined,
-    uiOptions: Record<string, unknown> | undefined,
+    uiOptions: SavedFilterUIOptions | undefined,
   ) => void,
 ) {
   const appliedRef = useRef(false);
@@ -44,7 +44,7 @@ export function useDefaultSavedFilterOnMount(
 }
 
 /** Set the default filter for a mode (account-backed when signed in, plus a browser-local fallback). */
-function setDefaultFilter(mode: string, findFilter: FindFilter, objectFilter?: Record<string, unknown>, uiOptions?: Record<string, unknown>) {
+function setDefaultFilter(mode: string, findFilter: FindFilter, objectFilter?: Record<string, unknown>, uiOptions?: SavedFilterUIOptions) {
   const json = JSON.stringify({ findFilter: stripRandomSeed(findFilter), objectFilter, uiOptions });
   const key = mode.trim().toLowerCase();
   localStorage.setItem(`cove-default-filter-${mode}`, json);
@@ -76,10 +76,10 @@ interface SavedFilterMenuProps {
   defaultFilterKey?: string;
   currentFilter: FindFilter;
   currentObjectFilter?: Record<string, unknown>;
-  currentUIOptions?: Record<string, unknown>;
+  currentUIOptions?: SavedFilterUIOptions;
   onApplyFilter: (filter: FindFilter) => void;
   onApplyObjectFilter?: (filter: Record<string, unknown>) => void;
-  onApplyUIOptions?: (options: Record<string, unknown>) => void;
+  onApplyUIOptions?: (options: SavedFilterUIOptions) => void;
 }
 
 export function SavedFilterMenu({
@@ -181,7 +181,7 @@ export function SavedFilterMenu({
 
     if (onApplyUIOptions && uiOptionsJson) {
       try {
-        onApplyUIOptions(JSON.parse(uiOptionsJson) as Record<string, unknown>);
+        onApplyUIOptions(JSON.parse(uiOptionsJson) as SavedFilterUIOptions);
       } catch {
         // ignore invalid JSON
       }

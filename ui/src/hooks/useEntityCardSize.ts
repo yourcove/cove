@@ -69,6 +69,12 @@ export function clampEntityCardSizeLevel(entityType: string | undefined, value: 
   return Math.min(getEntityCardMaxLevel(entityType), Math.max(MIN_CARD_SIZE_LEVEL, value));
 }
 
+export function parseEntityCardSizeLevel(entityType: string | undefined, value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? clampEntityCardSizeLevel(entityType, value)
+    : undefined;
+}
+
 export function getEntityCardMinWidthPx(entityType: string | undefined, level: number) {
   const profile = getEntityCardSizeProfile(entityType);
   return Math.round(profile.baseWidthPx + clampEntityCardSizeLevel(entityType, level) * profile.stepPx);

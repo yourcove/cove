@@ -12,7 +12,7 @@ import { GalleryTile, PopoverButton, VideosPopoverContent, ImagesPopoverContent,
 import { GALLERY_CRITERIA } from "../components/FilterDialog";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { BulkEditDialog, GALLERY_BULK_FIELDS } from "../components/BulkEditDialog";
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { CardSelectionToggle } from "../components/RouteCardLinkOverlay";
@@ -49,7 +49,7 @@ export function GalleriesPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "wall", "tagger"] as const, "grid") as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({

@@ -13,7 +13,7 @@ import { IMAGE_CRITERIA } from "../components/FilterDialog";
 import { BulkEditDialog, IMAGE_BULK_FIELDS } from "../components/BulkEditDialog";
 import { ImageTile } from "../components/EntityCards";
 import type { LightboxImage } from "../components/Lightbox";
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
@@ -54,7 +54,7 @@ export function ImagesPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "wall", "tagger", "feed"] as const, "grid") as DisplayMode,
     };
   }, []);
   const visualSimilarity = useVisualSimilarityApi();

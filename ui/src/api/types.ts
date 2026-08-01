@@ -2096,6 +2096,12 @@ export interface SavedFilter {
   uiOptions?: string;
 }
 
+export interface SavedFilterUIOptions {
+  displayMode?: string;
+  zoomLevel?: number;
+  [key: string]: unknown;
+}
+
 export interface SavedFilterCreate {
   mode: string;
   name: string;

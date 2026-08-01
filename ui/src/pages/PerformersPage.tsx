@@ -14,7 +14,7 @@ import { Users, Heart, Merge, User } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
 import { PerformerTagger } from "../components/PerformerTagger";
 import { PerformerTile, CardExtensionSlot } from "../components/EntityCards";
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useAuth } from "../auth/AuthContext";
@@ -48,7 +48,7 @@ export function PerformersPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "latest_video_date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "wall", "tagger"] as const, "grid") as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({

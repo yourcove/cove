@@ -16,7 +16,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FaceTile } from "../components/EntityCards";
 import { useListPageCardSizeContext } from "../components/ListPageCardSizeContext";
 import { formatDate } from "../components/shared";
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
@@ -329,7 +329,7 @@ export function FacesPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter,
       objectFilter: savedFilter?.objectFilter ?? { linkedCriterion: { value: false } },
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list"] as const, "grid") as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({

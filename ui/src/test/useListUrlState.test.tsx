@@ -33,6 +33,17 @@ function DefaultSearchProbe() {
   return <div data-testid="search-query">{filter.q ?? "undefined"}</div>;
 }
 
+function SavedDisplayDefaultProbe() {
+  const { displayMode } = useListUrlState({
+    resetKey: "videos",
+    defaultFilter: { page: 1, perPage: 40 },
+    defaultDisplayMode: "list" as const,
+    allowedDisplayModes: ["grid", "list"] as const,
+  });
+
+  return <div data-testid="display-mode">{displayMode}</div>;
+}
+
 describe("useListUrlState", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/videos?view=wall&perPage=infinite&page=2&viewMode=vertical");
@@ -73,5 +84,22 @@ describe("useListUrlState", () => {
       expect(screen.getByTestId("search-query")).toBeEmptyDOMElement();
       expect(window.location.search).toBe("?q=");
     });
+  });
+
+  it("preserves an explicit display override relative to a saved display default", async () => {
+    window.history.replaceState(null, "", "/videos?view=grid");
+
+    const firstMount = render(<SavedDisplayDefaultProbe />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("display-mode")).toHaveTextContent("grid");
+      expect(window.location.search).toBe("?view=grid");
+    });
+
+    firstMount.unmount();
+    render(<SavedDisplayDefaultProbe />);
+
+    expect(screen.getByTestId("display-mode")).toHaveTextContent("grid");
+    expect(window.location.search).toBe("?view=grid");
   });
 });

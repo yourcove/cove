@@ -20,6 +20,7 @@ const storage = new Map<string, string>();
 
 beforeEach(() => {
   storage.clear();
+  window.history.replaceState(null, "", "/");
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: {
@@ -283,6 +284,181 @@ describe("ListPage active filter chips", () => {
     });
 
     expect(screen.getByRole("slider")).toHaveValue("2");
+  });
+
+  it("applies saved-filter display and zoom options from the page default", async () => {
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onDisplayModeChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filterMode="videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            displayMode="grid"
+            onDisplayModeChange={onDisplayModeChange}
+            availableDisplayModes={["grid", "list"]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("5.25"));
+    expect(onDisplayModeChange).toHaveBeenCalledWith("list");
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("5.25");
+  });
+
+  it("applies each saved default zoom when a reused page changes filter modes", async () => {
+    localStorage.setItem("cove-default-filter-segments", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { zoomLevel: 2.75 },
+    }));
+    localStorage.setItem("cove-default-filter-rawsegments", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { zoomLevel: 8 },
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const commonProps = {
+      title: "Segments",
+      pageKey: "segments",
+      filter: { page: 1, perPage: 40 },
+      onFilterChange: vi.fn(),
+      totalCount: 0,
+      isLoading: false,
+      displayMode: "grid" as const,
+    };
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage {...commonProps} filterMode="segments"><div>content</div></ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("2.75"));
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage {...commonProps} filterMode="rawsegments"><div>content</div></ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("8"));
+    expect(localStorage.getItem("cove.cardSize.rawsegments")).toBe("8");
+  });
+
+  it("ignores invalid saved-filter UI options", async () => {
+    localStorage.setItem("cove.cardSize.video", "2");
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { displayMode: "vertical", zoomLevel: "large" },
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onDisplayModeChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filterMode="videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            displayMode="grid"
+            onDisplayModeChange={onDisplayModeChange}
+            availableDisplayModes={["grid", "list"]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("2"));
+    expect(onDisplayModeChange).not.toHaveBeenCalled();
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("2");
+  });
+
+  it("clamps a saved-filter zoom level to the entity card-size range", async () => {
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { zoomLevel: 99 },
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filterMode="videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            displayMode="grid"
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("8"));
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("8");
+  });
+
+  it("keeps an explicit URL display mode while applying the default zoom", async () => {
+    window.history.replaceState(null, "", "/videos?view=grid");
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onDisplayModeChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filterMode="videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            displayMode="grid"
+            onDisplayModeChange={onDisplayModeChange}
+            availableDisplayModes={["grid", "list"]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("5.25"));
+    expect(onDisplayModeChange).not.toHaveBeenCalled();
   });
 
   it("allows the global images card-size slider to grow larger than the default max", () => {

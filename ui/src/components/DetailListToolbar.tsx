@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
 import type { FindFilter } from "../api/types";
 import { isValidElement, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, useEntityCardSize } from "../hooks/useEntityCardSize";
+import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
@@ -172,11 +172,17 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
   useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter, defaultUIOptions) => {
-    if (!filterMode || defaultFilterResolved) return;
-    if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
-    if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
-    const defaultDisplayMode = typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
-    if (defaultDisplayMode) onDisplayModeChange?.(defaultDisplayMode as DetailListDisplayMode);
+    if (!filterMode) return;
+    if (!defaultFilterResolved) {
+      if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
+      if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
+      const defaultDisplayMode = typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
+      if (defaultDisplayMode && displayModes.includes(defaultDisplayMode as DetailListDisplayMode)) {
+        onDisplayModeChange?.(defaultDisplayMode as DetailListDisplayMode);
+      }
+    }
+    const defaultZoomLevel = parseEntityCardSizeLevel(inferredCardSizeEntityType, defaultUIOptions?.zoomLevel);
+    if (defaultZoomLevel != null) handleZoomChange(defaultZoomLevel);
   });
 
   return (
@@ -235,12 +241,16 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             defaultFilterKey={filterDefaultKey}
             currentFilter={filter}
             currentObjectFilter={activeObjectFilter}
-            currentUIOptions={displayMode ? { displayMode } : undefined}
+            currentUIOptions={{ displayMode, zoomLevel: effectiveZoomLevel }}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, { ...nextFilter, page: 1 }))}
             onApplyObjectFilter={onObjectFilterChange}
             onApplyUIOptions={(options) => {
               const nextDisplayMode = typeof options.displayMode === "string" ? options.displayMode : undefined;
-              if (nextDisplayMode) onDisplayModeChange?.(nextDisplayMode as DetailListDisplayMode);
+              if (nextDisplayMode && displayModes.includes(nextDisplayMode as DetailListDisplayMode)) {
+                onDisplayModeChange?.(nextDisplayMode as DetailListDisplayMode);
+              }
+              const nextZoomLevel = parseEntityCardSizeLevel(inferredCardSizeEntityType, options.zoomLevel);
+              if (nextZoomLevel != null) handleZoomChange(nextZoomLevel);
             }}
           />
         ) : null}
