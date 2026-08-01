@@ -1,4 +1,5 @@
 using Cove.Api.Controllers;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
@@ -15,7 +16,16 @@ public class EntityDetailCountControllerTests
     [Fact]
     public async Task PerformerDetail_UsesLiveUsageCountsInsteadOfStoredCounters()
     {
-        await using var context = CreateContext();
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "performer-count-user",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { "*" },
+            Roles = new HashSet<string>(),
+        });
+        await using var context = CreateContext(principalAccessor);
 
         var performer = new Performer { Name = "Performer" };
         var video = new Video { Title = "Video" };
@@ -27,6 +37,8 @@ public class EntityDetailCountControllerTests
 
         context.AddRange(
             new VideoPerformer { VideoId = video.Id, PerformerId = performer.Id },
+            new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Video, HostId = video.Id, LikeCount = 3 },
+            new UserEntityAffinity { UserId = 2, HostType = AffinityHostType.Video, HostId = video.Id, LikeCount = 7 },
             new ImagePerformer { ImageId = image.Id, PerformerId = performer.Id },
             new GalleryPerformer { GalleryId = gallery.Id, PerformerId = performer.Id },
             new GroupItem
@@ -60,6 +72,11 @@ public class EntityDetailCountControllerTests
         Assert.Equal(1, detail.ImageCount);
         Assert.Equal(1, detail.GalleryCount);
         Assert.Equal(1, detail.GroupCount);
+        Assert.Equal(3, detail.LikeCount);
+
+        var listResult = await controller.Find(null, page: 1, perPage: 10, ct: CancellationToken.None);
+        var list = Assert.IsType<PaginatedResponse<PerformerDto>>(Assert.IsType<OkObjectResult>(listResult.Result).Value);
+        Assert.Equal(3, Assert.Single(list.Items).LikeCount);
     }
 
     [Fact]
@@ -210,16 +227,16 @@ public class EntityDetailCountControllerTests
         Assert.NotNull(detail.CoverPath);
     }
 
-    private static CoveContext CreateContext()
+    private static CoveContext CreateContext(ICurrentPrincipalAccessor? principalAccessor = null)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseInMemoryDatabase($"entity-detail-counts-{Guid.NewGuid():N}")
             .Options;
 
-        return new TestCoveContext(options);
+        return new TestCoveContext(options, principalAccessor);
     }
 
-    private sealed class TestCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
+    private sealed class TestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null) : CoveContext(options, principalAccessor)
     {
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

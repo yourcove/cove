@@ -17,7 +17,7 @@ namespace Cove.Api.Controllers;
 [RequiresPermission(Permissions.PerformersRead)]
 public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
-    private sealed record PerformerUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount);
+    private sealed record PerformerUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount, int LikeCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
 
     [HttpGet]
@@ -605,7 +605,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         customFieldValues,
         p.CreatedAt.ToString("o"), p.UpdatedAt.ToString("o"),
         fieldProvenance,
-        faceCount
+        faceCount,
+        usageCounts?.LikeCount ?? 0
     );
 
     private static Dictionary<string, object>? GetCustomFields(IReadOnlyDictionary<int, Dictionary<string, object>> lookup, int id)
@@ -659,6 +660,19 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             .GroupBy(textPerformer => textPerformer.PerformerId)
             .Select(group => new { group.Key, Count = group.Select(textPerformer => textPerformer.TextDocumentId).Distinct().Count() })
             .ToDictionaryAsync(item => item.Key, item => item.Count, ct);
+        var currentUserId = Data.Repositories.EngagementQueryHelpers.CurrentUserId(db);
+        var likeCounts = currentUserId is int selectedUserId
+            ? await (
+                from videoPerformer in db.Set<VideoPerformer>().AsNoTracking()
+                join affinity in db.UserEntityAffinities.AsNoTracking()
+                    on videoPerformer.VideoId equals affinity.HostId
+                where ids.Contains(videoPerformer.PerformerId)
+                    && affinity.UserId == selectedUserId
+                    && affinity.HostType == AffinityHostType.Video
+                group affinity by videoPerformer.PerformerId into performerLikes
+                select new { PerformerId = performerLikes.Key, Count = performerLikes.Sum(affinity => affinity.LikeCount) }
+            ).ToDictionaryAsync(item => item.PerformerId, item => item.Count, ct)
+            : [];
 
         var directGroupRows = await db.GroupItems
             .AsNoTracking()
@@ -685,7 +699,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
                 galleryCounts.GetValueOrDefault(id),
                 groupCounts.GetValueOrDefault(id),
                 audioCounts.GetValueOrDefault(id),
-                textCounts.GetValueOrDefault(id)));
+                textCounts.GetValueOrDefault(id),
+                likeCounts.GetValueOrDefault(id)));
     }
 
     private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;

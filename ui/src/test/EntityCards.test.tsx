@@ -262,6 +262,17 @@ describe("PerformerTile", () => {
     expect(screen.getByRole("link", { name: /Open performer No Photo Performer/i })).toHaveAttribute("href", "/performer/7");
     expect(container.querySelector("img")).not.toBeInTheDocument();
   });
+
+  it("shows the performer likes count", () => {
+    render(
+      <PerformerTile
+        performer={{ id: 7, name: "Liked Performer", tags: [], likeCount: 4 }}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTitle("Likes: 4")).toBeInTheDocument();
+  });
 });
 
 describe("GalleryTile", () => {

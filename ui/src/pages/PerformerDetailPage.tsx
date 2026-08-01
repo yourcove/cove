@@ -2,7 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { audios, faces, galleries, groups, images, performers, videos, texts, entityImages } from "../api/client";
 import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, Trash2, Users, UserRound } from "lucide-react";
+import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, ThumbsUp, Trash2, Users, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -260,6 +260,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         favorite={performerFavorite}
         onFavoriteToggle={canEngagePerformer ? () => setPerformerFavorite(!performerFavorite) : undefined}
         counts={[
+          { key: "likes", label: "Likes", value: performer.likeCount ?? 0, icon: <ThumbsUp className={`h-4 w-4 ${(performer.likeCount ?? 0) > 0 ? "fill-accent text-accent" : ""}`} /> },
           { key: "videos", label: "Videos", value: performer.videoCount, icon: <Film className="h-4 w-4" /> },
           { key: "galleries", label: "Galleries", value: performer.galleryCount, icon: <FolderOpen className="h-4 w-4" /> },
           { key: "images", label: "Images", value: performer.imageCount, icon: <ImageIcon className="h-4 w-4" /> },
