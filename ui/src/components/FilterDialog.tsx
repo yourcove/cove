@@ -1099,9 +1099,8 @@ function CriterionRow({
         {!isSupported && <span className="rounded border border-border px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted">Unsupported</span>}
         <button
           onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-          className={`p-0.5 rounded hover:bg-card ${pinned ? "text-accent" : "text-muted opacity-0 group-hover:opacity-100"}`}
+          className={`p-0.5 rounded hover:bg-card ${pinned ? "text-accent" : "text-muted opacity-40 hover:opacity-100 focus-visible:opacity-100"}`}
           title={pinned ? "Unpin" : "Pin"}
-          style={{ opacity: pinned ? 1 : undefined }}
         >
           {pinned ? <Pin className="w-3 h-3" /> : <PinOff className="w-3 h-3" />}
         </button>
