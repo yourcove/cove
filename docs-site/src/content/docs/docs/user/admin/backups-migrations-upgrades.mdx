@@ -46,7 +46,7 @@ Keep the compose file and the same `COVE_DATA_DIR` value you used to create the 
    ```
 
    Use `docker-compose.yml` instead when that is the compose file for your deployment.
-4. Wait for startup and automatic database migrations to finish before starting scans or imports.
+4. If Cove shows **Database Update Required**, review the pending migrations and select **Run Migration** once. Cove creates one pre-migration database backup and applies the complete pending sequence before opening the library.
 5. Keep the old backups until the upgraded instance passes verification.
 
 Do not run `docker compose down --volumes` as an upgrade step. The provided bind mounts are persistent, but deleting volumes is unnecessary and can remove data in customized deployments.
@@ -56,7 +56,7 @@ Do not run `docker compose down --volumes` as an upgrade step. The provided bind
 1. Read the release notes and create both built-in backups.
 2. Stop the instance with Cove Instance Manager.
 3. Install the new package from the [latest release](https://github.com/yourcove/cove/releases/latest).
-4. Start the same instance and allow startup migrations to complete.
+4. Start the same instance. If Cove shows **Database Update Required**, review the pending migrations and select **Run Migration** once. Cove backs up the database and applies the complete pending sequence before opening the library.
 5. Verify the instance before deleting the previous installer or backup.
 
 ## Restore an existing installation

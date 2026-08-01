@@ -175,6 +175,7 @@ export default defineConfig({
               label: 'Develop Cove locally',
               items: [
                 { link: '/docs/developer/getting-started/local-development/', label: 'Run Cove locally' },
+                { link: '/docs/developer/contributing/core-development/', label: 'Core contribution policy' },
               ],
             },
             {
