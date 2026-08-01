@@ -1,0 +1,93 @@
+---
+title: Core contribution and version policy
+description: Keep main releasable while managing development versions, database migrations, and extension compatibility.
+---
+
+Cove treats every commit on `main` as a possible build and release boundary. This policy explains what that means for pull requests, versions, database migrations, and extensions that adopt an unreleased host feature.
+
+## Treat main as releasable
+
+A merged change can appear in a development build immediately and can be included in a production release without a separate stabilization commit. A pull request should therefore leave Cove in a state that the author and reviewers are prepared to ship.
+
+Before merge, make sure the change is complete within its declared scope:
+
+- exercise the user-visible path and relevant failure paths
+- add focused automated coverage for behavior that can regress
+- include required configuration, schema migrations, and documentation
+- keep backward compatibility or describe the intentional break and its migration path
+- place incomplete work behind a boundary that leaves it inactive and safe
+
+Do not merge a partial implementation on the assumption that another pull request will make it robust. Follow-up improvements are normal; follow-up work required for correctness or data safety means the first change is not ready.
+
+The history of `main` is forward-only. Once a commit is merged, later work builds on it instead of rewriting it. This makes every published development build reproducible and gives schema migrations a stable chronological order.
+
+## Identify development builds without choosing the next release
+
+A stable release tag such as `v1.1.0` produces Cove version `1.1.0`. A non-tagged build derives its version from the latest reachable stable release tag and its commit distance:
+
+```text
+<next patch after latest stable release>-dev.<commits since that release>
+```
+
+For example, the second commit after `v1.1.0` is `1.1.1-dev.2`. The next patch number is a canonical development line, not a promise that the next release will be `1.1.1`; the eventual release may instead be `1.2.0` or `2.0.0`. A source tree without an available release tag reports `0.0.0-dev.0` and is not suitable for publication.
+
+Development builds follow normal SemVer ordering:
+
+| Running Cove | Minimum required | Compatible | Reason |
+| --- | --- | --- | --- |
+| `1.1.0` | `1.1.1-dev.2` | No | The release predates the development change. |
+| `1.1.1-dev.2` | `1.1.1-dev.2` | Yes | It is the required build. |
+| `1.1.1-dev.8` | `1.1.1-dev.2` | Yes | It is later on the same development line. |
+| `1.1.1` | `1.1.1-dev.2` | Yes | The stable version follows its prereleases. |
+
+Because the development line uses the next patch number, `1.1.1-dev.N` naturally sorts after `1.1.0` and before `1.1.1`. A future `1.2.0` or `2.0.0` release also satisfies that floor.
+
+Release tags must point to commits in the forward `main` history. This keeps the compatibility rule true: a numerically later release contains the earlier development contract. Do not create a higher release from a maintenance branch that omits intervening `main` changes.
+
+Published development artifacts should also retain the source commit SHA in their metadata or immutable artifact tag. The version is useful to people and extension manifests; the SHA is the exact source identity.
+
+The nightly workflow checks the source commit recorded by the last successful publication before starting expensive builds. If `main` has not changed, the run finishes without publishing. A successful run updates the rolling `nightly` release and container tag for discovery while retaining versioned and SHA-based container tags for reproducibility. The rolling artifacts are development builds, not stable releases; create a backup and expect migrations or other compatibility changes before testing an upgrade.
+
+Native packages are available from the [rolling Cove nightly release](https://github.com/yourcove/cove/releases/tag/nightly). Container users can pull `ghcr.io/yourcove/cove:nightly` or `ghcr.io/yourcove/cove-app:nightly`; use the versioned or `sha-...` tag shown in the release when a test must remain pinned to one build. Applying a nightly migration can make the database incompatible with the previous stable build, so rollback means restoring the pre-migration backup rather than starting an older binary against the upgraded database.
+
+## Preserve core migration history
+
+Commit a core EF migration with the schema change that needs it. While a pull request is unmerged, revise that migration and the model snapshot until they represent the final reviewed schema. Prefer one coherent migration per pull request unless the change genuinely needs multiple ordered checkpoints.
+
+After merge, do not edit, rename, remove, or combine that migration. If a later commit changes the schema again, add a new forward migration. Release preparation only assigns the release version; it does not squash the migrations accumulated on `main`.
+
+This rule applies even when the original migration has not appeared in a tagged release. A development user may already have applied it, so replacing it would make their migration history disagree with the repository.
+
+Cove presents all pending core migrations in one database-update gate. One approval creates one pre-migration backup and applies the pending sequence in order. The number of migration files is normally less important than the work each migration performs, but each migration should still avoid unnecessary table rewrites and data backfills.
+
+For a schema pull request, verify both paths:
+
+1. Create a fresh database and confirm the current schema can be created.
+2. Start from the oldest supported or otherwise relevant schema, apply every pending migration in one upgrade, and verify the resulting data and application behavior.
+
+Review generated operations before merge. Pay particular attention to destructive column changes, large-table rewrites, required defaults, long-running backfills, and whether a failed operation can be retried safely.
+
+## Set an extension floor for an unreleased feature
+
+An extension that requires a Cove feature already merged into `main` should use the earliest development build on which that complete contract was tested. If the feature first exists and works in `1.1.1-dev.42`, use:
+
+```json
+{
+  "minCoveVersion": "1.1.1-dev.42"
+}
+```
+
+The latest tagged `1.1.0` release is then rejected, matching reality. The required development build, later builds on that line, and a future higher Cove release satisfy the floor. There is no need to guess the future release number or lower the floor when that release is tagged.
+
+Build against Cove.Sdk and host contracts from the development build you test. `minCoveVersion` describes the running host floor; the extension's own `version` and its Cove.Sdk package reference answer different questions. See [Extension overview](../../extensions/overview/) and [Package an extension](../../extensions/packaging/) for the complete contract.
+
+## Review before merge
+
+A reviewer should be able to answer these questions from the pull request and its verification:
+
+- Can this exact commit run as a development build?
+- Could this exact commit be included in a production release?
+- Does an existing database upgrade without rewriting any merged migration?
+- Can a fresh database reach the same schema?
+- Do extensions have a concrete host version to require when a contract changes?
+- Can the source commit behind any published artifact be identified?

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json;
+using Cove.Core.Common;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -445,7 +446,8 @@ public class ExtensionManager : IExtensionContributionRuntime
         foreach (var ext in registry.Extensions)
         {
             // Check core version requirement
-            if (ext.MinCoveVersion != null && !SemverSatisfies(_context.CoveVersion, $">={ext.MinCoveVersion}"))
+            if (ext.MinCoveVersion != null
+                && !CoveVersionCompatibility.IsAtLeast(_context.CoveVersion, ext.MinCoveVersion))
             {
                 problems.Add(new DependencyProblem(ext.Id, null, $"Requires Cove >={ext.MinCoveVersion} but running {_context.CoveVersion}"));
             }

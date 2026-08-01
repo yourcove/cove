@@ -62,6 +62,28 @@ for more detail.
 4. Open a PR and fill out the [pull request template](.github/pull_request_template.md).
 5. A maintainer reviews and merges or may ask questions or for changes.
 
+### Treat `main` as releasable
+
+Every commit merged into `main` may be published as a development build or included in a
+production release. Submit complete, robust changes: do not rely on a later PR to add required
+tests, finish a migration, or make the feature safe to release. Use a feature boundary when work
+must land incrementally without becoming active yet.
+
+History on `main` is forward-only. In particular, a database migration may be revised while its PR
+is still under review, but it must not be edited, removed, renamed, or combined after merge. Add a
+new migration for any follow-up schema change. Prefer one coherent migration per PR unless the
+change genuinely needs separate ordered checkpoints.
+
+Development builds use the next patch number after the latest stable release as a canonical development
+line; this is an identifier, not a promise about the next release. For example, the second commit
+after `v1.1.0` reports `1.1.1-dev.2`. An extension that first works with that build can declare
+`"minCoveVersion": "1.1.1-dev.2"`; `1.1.0` does not satisfy that floor,
+while that development build, a later development build on the same line, and later Cove releases
+do.
+
+See [Core contribution and version policy](https://yourcove.net/docs/developer/contributing/core-development/)
+for the full version, migration, and verification practices.
+
 ## AI policy
 
 Using AI tools to help write code is allowed and encouraged. AI is a tool, not a

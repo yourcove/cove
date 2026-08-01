@@ -15,6 +15,7 @@ env:
 jobs:
   # ── Build frontend once, share via artifact ─────────────────────
   build-ui:
+    needs: check-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -162,22 +163,50 @@ jobs:
     outputs:
       is_stable: ${{ steps.check.outputs.is_stable }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify release is in the main history
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch origin "$DEFAULT_BRANCH" --no-tags
+          RELEASE_COMMIT="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          if ! git merge-base --is-ancestor "$RELEASE_COMMIT" FETCH_HEAD; then
+            echo "Release tags must point to a commit in $DEFAULT_BRANCH." >&2
+            exit 1
+          fi
+
       - name: Check if stable release
         id: check
         run: |
           TAG="${GITHUB_REF_NAME}"
           # Stable = vN.N.N (no alpha/beta/rc/dev suffix)
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "is_stable=true" >> $GITHUB_OUTPUT
-          else
+          elif [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]] \
+            && [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-dev(\.|$) ]]; then
+            prerelease="${TAG#*-}"
+            IFS=. read -ra identifiers <<< "$prerelease"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^0[0-9]+$ ]]; then
+                echo "Numeric prerelease identifiers must not contain leading zeroes: $TAG" >&2
+                exit 1
+              fi
+            done
             echo "is_stable=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release tags must be vMAJOR.MINOR.PATCH or a SemVer prerelease such as v1.2.0-rc.1." >&2
+            echo "The -dev.N form is reserved for builds derived from main." >&2
+            exit 1
           fi
 
   # ── Build Docker images (stable releases only) ───────────────────
   build-docker:
     needs: [build-ui, check-version]
     # Only publish Docker images for stable semver tags (v1.0.0, v2.1.3)
-    # Skip for alpha (v1.0.0a1), beta (v1.0.0b2), rc (v1.0.0rc1), dev tags
+    # Skip for prerelease tags such as v1.0.0-alpha.1, v1.0.0-beta.2, or v1.0.0-rc.1
     if: needs.check-version.outputs.is_stable == 'true'
     runs-on: ubuntu-latest
     strategy:

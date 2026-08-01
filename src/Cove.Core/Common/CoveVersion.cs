@@ -5,21 +5,24 @@ namespace Cove.Core.Common;
 /// <summary>
 /// Single runtime source of truth for the Cove version. The value is baked into the
 /// assembly at build time from the git tag (see Directory.Build.targets), so a tagged
-/// release (e.g. v0.0.36) reports "0.0.36" and local/dev builds report "&lt;tag&gt;-dev".
+/// release (e.g. v0.0.36) reports "0.0.36" and local/dev builds report
+/// "&lt;next patch&gt;-dev.&lt;commit distance&gt;".
 /// </summary>
 public static class CoveVersion
 {
     private static readonly Lazy<(string Display, string Numeric)> Resolved = new(Resolve);
 
     /// <summary>
-    /// Full version string for display, including any prerelease suffix (e.g. "0.0.35-dev").
+    /// Full version string for display, including any prerelease suffix (e.g. "0.0.36-dev.12"
+    /// after release "0.0.35").
     /// Shown on the About / Runtime Status pages.
     /// </summary>
     public static string Display => Resolved.Value.Display;
 
     /// <summary>
-    /// Numeric major.minor.patch version for semver comparisons such as extension
-    /// minCoveVersion checks (e.g. "0.0.35"). Never carries a prerelease suffix.
+    /// Numeric major.minor.patch assembly version (e.g. "0.0.35"). Never carries a
+    /// prerelease suffix. Host compatibility checks must use <see cref="Display"/> so
+    /// development-build floors remain distinguishable from their base release.
     /// </summary>
     public static string Numeric => Resolved.Value.Numeric;
 

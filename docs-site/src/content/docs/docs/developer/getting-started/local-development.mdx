@@ -5,6 +5,8 @@ description: Set up and run Cove locally in developer mode.
 
 This guide is for developers working on Cove itself, not for ordinary user installs.
 
+Before preparing a Cove pull request, read the [core contribution and version policy](../../contributing/core-development/). A local build reports its position after the latest release, and the same version can be used as an extension compatibility floor.
+
 ## What you need
 
 - .NET 10 SDK
@@ -59,3 +61,5 @@ After the app starts:
 5. make a small backend change and confirm the app still serves correctly
 
 If that works, your local loop is ready for feature work.
+
+The backend build output also reports the derived Cove version. On a commit two steps after `v1.1.0`, expect `1.1.1-dev.2`; an exact release-tag checkout reports `1.1.0`.
