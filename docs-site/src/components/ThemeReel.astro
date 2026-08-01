@@ -11,10 +11,7 @@ interface Props {
 }
 
 const { frames, caption } = Astro.props;
-// Single source of truth for the cadence: the keyframe duration, the per-frame delay,
-// and the script that fetches the next screenshot all derive from this value.
-const frameSeconds = 0.85;
-const duration = `${frames.length * frameSeconds}s`;
+const frameMilliseconds = 850;
 // A frame the reel has not claimed yet still needs a src, because an img without one is
 // invalid HTML. This transparent placeholder declares the same intrinsic size as the
 // screenshots, so replacing it with the real file changes nothing about the layout.
@@ -26,11 +23,11 @@ const PLACEHOLDER_FRAME =
 <theme-reel>
   <figure
     class="media-shot theme-reel"
-    style={`--theme-reel-duration: ${duration}; --theme-reel-count: ${frames.length}; --theme-reel-interval: ${frameSeconds}s;`}
+    data-theme-reel-interval={frameMilliseconds}
   >
     <div class="theme-reel-stage">
       {frames.map((frame, index) => (
-        <div class="theme-reel-frame" style={`--theme-reel-index: ${index};`}>
+        <div class:list={['theme-reel-frame', { 'is-active': index === 0 }]}>
           <img
             src={index === 0 ? frame.src : PLACEHOLDER_FRAME}
             data-theme-reel-src={index === 0 ? undefined : frame.src}
@@ -88,28 +85,54 @@ const PLACEHOLDER_FRAME =
     }
 
     start(reel: HTMLElement) {
-      const pending = [...this.querySelectorAll<HTMLImageElement>('img[data-theme-reel-src]')];
-      const intervalSeconds =
-        Number.parseFloat(getComputedStyle(reel).getPropertyValue('--theme-reel-interval')) || 0.85;
+      const frames = [...this.querySelectorAll<HTMLElement>('.theme-reel-frame')];
+      if (frames.length < 2) return;
 
-      const loadNext = (count = 1) => {
-        for (const image of pending.splice(0, count)) {
-          image.src = image.dataset.themeReelSrc ?? '';
-          delete image.dataset.themeReelSrc;
-        }
-      };
-
-      // Two frames of lead time, then one per turn, so a frame is requested well
-      // before the animation reaches it without every screenshot landing at once.
-      loadNext(2);
+      const interval = Number.parseFloat(reel.dataset.themeReelInterval ?? '') || 850;
+      let currentIndex = 0;
       this.dataset.themeReelState = 'running';
 
-      if (pending.length === 0) return;
+      const advance = async () => {
+        const startedAt = performance.now();
+        const nextIndex = (currentIndex + 1) % frames.length;
+        const nextFrame = frames[nextIndex];
+        const image = nextFrame.querySelector<HTMLImageElement>('img');
 
-      const timer = setInterval(() => {
-        loadNext();
-        if (pending.length === 0) clearInterval(timer);
-      }, intervalSeconds * 1000);
+        if (!image) return;
+
+        const source = image.dataset.themeReelSrc;
+        if (source) {
+          const placeholder = image.src;
+          image.src = source;
+          delete image.dataset.themeReelSrc;
+
+          try {
+            await image.decode();
+          } catch {
+            // Keep the current frame visible and retry this frame on the next turn.
+            image.dataset.themeReelSrc = source;
+            image.src = placeholder;
+          }
+        }
+
+        const remaining = interval - (performance.now() - startedAt);
+        if (remaining > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, remaining));
+        }
+
+        if (!this.isConnected) return;
+        if (image.dataset.themeReelSrc) {
+          void advance();
+          return;
+        }
+
+        frames[currentIndex].classList.remove('is-active');
+        nextFrame.classList.add('is-active');
+        currentIndex = nextIndex;
+        void advance();
+      };
+
+      void advance();
     }
   }
 
