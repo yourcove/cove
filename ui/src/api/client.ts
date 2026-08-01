@@ -456,6 +456,8 @@ export const segmentLibrary = {
     videoId?: number;
     videoIds?: string;
     videoTitle?: string;
+    videoTagIds?: string;
+    videoTagDepth?: number;
     tagId?: number;
     tagIds?: string;
     tagDepth?: number;

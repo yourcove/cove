@@ -914,6 +914,55 @@ public class SegmentCoreControllerTests
     }
 
     [Fact]
+    public async Task SegmentsController_FiltersRawAndDerivedSegmentsByVideoTags()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var matchingVideo = new Video { Title = "Matching host" };
+        var otherVideo = new Video { Title = "Other host" };
+        var videoTag = new Tag { Name = "Host tag" };
+        context.AddRange(matchingVideo, otherVideo, videoTag);
+        await context.SaveChangesAsync();
+        context.TagApplications.Add(new TagApplication
+        {
+            HostType = AffinityHostType.Video,
+            HostId = matchingVideo.Id,
+            TagId = videoTag.Id,
+            SourceKey = "test",
+        });
+
+        var profile = new SegmentDisplayProfile { Name = "Video tag profile", IsDefault = true, Version = 1 };
+        context.SegmentDisplayProfiles.Add(profile);
+        await context.SaveChangesAsync();
+        context.SegmentDisplayRules.Add(new SegmentDisplayRule { ProfileId = profile.Id, SourceKey = "user", Visible = true, MergeGapSec = 0 });
+        context.Segments.AddRange(
+            new Segment { HostType = SegmentHostType.Video, HostId = matchingVideo.Id, StartSec = 1, EndSec = 3, SourceKey = "user", Title = "matching" },
+            new Segment { HostType = SegmentHostType.Video, HostId = otherVideo.Id, StartSec = 1, EndSec = 3, SourceKey = "user", Title = "other" });
+        await context.SaveChangesAsync();
+
+        var controller = new SegmentsController(
+            context,
+            new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()));
+
+        var rawResult = await controller.List(
+            q: null, ids: null, videoId: null, videoIds: null, videoTitle: null,
+            tagId: null, tagIds: null, kind: null, sourceKey: null, sourceCategory: null,
+            refIds: null, performerIds: null, tagged: null, minConfidence: null,
+            minDurationSec: null, confidence: null, confidence2: null, confidenceModifier: null,
+            durationSec: null, durationSec2: null, durationModifier: null, sort: null, direction: null,
+            videoTagIds: videoTag.Id.ToString(), cancellationToken: CancellationToken.None);
+        var rawPage = Assert.IsType<PaginatedResponse<SegmentRecordDto>>(Assert.IsType<OkObjectResult>(rawResult.Result).Value);
+        Assert.Equal("matching", Assert.Single(rawPage.Items).Title);
+
+        var spanResult = await controller.SearchSpans(new SegmentSpanSearchRequestDto(
+            profile.Id, null, 1, 24, "updated_at", "desc", null, null, null, null,
+            VideoTagIds: [videoTag.Id]), CancellationToken.None);
+        var spanPage = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(spanResult.Result).Value);
+        Assert.Equal(matchingVideo.Id, Assert.Single(spanPage.Items).VideoId);
+    }
+
+    [Fact]
     public async Task SegmentsController_ListSupportsFocusedFiltersAndSorting()
     {
         await using var scope = await CreateContextAsync();

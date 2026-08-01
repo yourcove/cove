@@ -1185,6 +1185,8 @@ export interface SegmentSpanSearchRequest {
   seed?: number;
   q?: string;
   videoTitle?: string;
+  videoTagIds?: number[];
+  videoTagDepth?: -1;
   videoIds?: number[];
   excludeVideoIds?: number[];
   tagIds?: number[];
