@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { readSettingsTabFromUrl, resolveVisibleSettingsTab } from "../pages/SettingsPage";
+import {
+  logFilterLevelOptions,
+  readSettingsTabFromUrl,
+  resolveVisibleSettingsTab,
+  serverLogLevelOptions,
+} from "../pages/SettingsPage";
 import { isLimitedPrimarySettingsTabVisible } from "../pages/settings/tabVisibility";
 
 describe("resolveVisibleSettingsTab", () => {
@@ -61,5 +66,30 @@ describe("isLimitedPrimarySettingsTabVisible", () => {
   it("keeps display profiles gated by segment access", () => {
     expect(isLimitedPrimarySettingsTabVisible("library-display-profiles", false)).toBe(false);
     expect(isLimitedPrimarySettingsTabVisible("library-display-profiles", true)).toBe(true);
+  });
+});
+
+describe("log level option ordering", () => {
+  it("orders server levels from Critical down to Trace", () => {
+    expect(serverLogLevelOptions.map((option) => option.label)).toEqual([
+      "Critical",
+      "Error",
+      "Warning",
+      "Info",
+      "Debug",
+      "Trace (15 minutes)",
+    ]);
+  });
+
+  it("keeps All first and orders filter levels from Critical down to Trace", () => {
+    expect(logFilterLevelOptions.map((option) => option.label)).toEqual([
+      "All",
+      "Critical",
+      "Error",
+      "Warning",
+      "Info",
+      "Debug",
+      "Trace",
+    ]);
   });
 });

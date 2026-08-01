@@ -4174,6 +4174,25 @@ function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
     </div>
   );
 }
+export const logFilterLevelOptions = [
+  { value: "", label: "All" },
+  { value: "Fatal", label: "Critical" },
+  { value: "Error", label: "Error" },
+  { value: "Warning", label: "Warning" },
+  { value: "Information", label: "Info" },
+  { value: "Debug", label: "Debug" },
+  { value: "Verbose", label: "Trace" },
+];
+
+export const serverLogLevelOptions = [
+  { value: "Critical", label: "Critical" },
+  { value: "Error", label: "Error" },
+  { value: "Warning", label: "Warning" },
+  { value: "Info", label: "Info" },
+  { value: "Debug", label: "Debug" },
+  { value: "Trace", label: "Trace (15 minutes)" },
+];
+
 function LogsPanel() {
   const { hasPermission } = useAuth();
   const canWriteSystemSettings = hasPermission("system.settings.write");
@@ -4271,15 +4290,7 @@ function LogsPanel() {
           description="Filter the log rows shown in this browser without changing what the server records."
           value={clientFilter}
           onChange={setClientFilter}
-          options={[
-            { value: "", label: "All" },
-            { value: "Verbose", label: "Trace" },
-            { value: "Debug", label: "Debug" },
-            { value: "Information", label: "Info" },
-            { value: "Warning", label: "Warning" },
-            { value: "Error", label: "Error" },
-            { value: "Fatal", label: "Critical" },
-          ]}
+          options={logFilterLevelOptions}
         />
         <SelectField
           label="Component"
@@ -4296,14 +4307,7 @@ function LogsPanel() {
             setServerLogLevel(value);
             setLogLevelMutation.mutate(value);
           }}
-          options={[
-            { value: "Trace", label: "Trace (15 minutes)" },
-            { value: "Debug", label: "Debug" },
-            { value: "Info", label: "Info" },
-            { value: "Warning", label: "Warning" },
-            { value: "Error", label: "Error" },
-            { value: "Critical", label: "Critical" },
-          ]}
+          options={serverLogLevelOptions}
           disabled={!canWriteSystemSettings || setLogLevelMutation.isPending}
         />
       </div>
