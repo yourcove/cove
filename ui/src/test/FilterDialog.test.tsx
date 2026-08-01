@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import type { CriterionModifier } from "../api/types";
 
 const { performersFind } = vi.hoisted(() => ({ performersFind: vi.fn() }));
+const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
@@ -24,6 +25,11 @@ function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) =
 describe("FilterDialog", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    if (scrollIntoViewDescriptor) Object.defineProperty(Element.prototype, "scrollIntoView", scrollIntoViewDescriptor);
+    else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
   });
 
   const metadataServiceModifiers: CriterionModifier[] = [
@@ -136,6 +142,45 @@ describe("FilterDialog", () => {
 
     expect(screen.getByRole("button", { name: "Unpin" }).querySelector(".lucide-pin")).toBeInTheDocument();
     expect(localStorage.getItem("filter-pinned")).toBe(JSON.stringify(["title"]));
+  });
+
+  it("scrolls a preselected criterion into view when the dialog opens", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ titleCriterion: { value: "example", modifier: "EQUALS" } }}
+        onApply={vi.fn()}
+        preselectCriterion="title"
+      />,
+    );
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" }));
+    expect(screen.getByPlaceholderText("Value...")).toHaveValue("example");
+  });
+
+  it("clears a stale criterion search before scrolling to a preselected criterion", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const props = {
+      onClose: vi.fn(),
+      criteria: VIDEO_CRITERIA,
+      activeFilter: { titleCriterion: { value: "example", modifier: "EQUALS" } },
+      onApply: vi.fn(),
+    };
+    const { rerender } = render(<FilterDialog open {...props} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Search criteria..."), { target: { value: "Audio Codec" } });
+    rerender(<FilterDialog open={false} {...props} />);
+    rerender(<FilterDialog open preselectCriterion="title" {...props} />);
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Search criteria...")).toHaveValue(""));
+    expect(screen.getByPlaceholderText("Value...")).toHaveValue("example");
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" });
   });
 
   it.each(metadataServiceModifiers)("preserves selected metadata services for %s", (modifier) => {

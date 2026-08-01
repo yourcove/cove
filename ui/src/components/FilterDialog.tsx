@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode, type Ref } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus, Star } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi } from "../api/client";
@@ -719,6 +719,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
+  const preselectedCriterionRef = useRef<HTMLDivElement>(null);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
   const [lastSyncedFilterSignature, setLastSyncedFilterSignature] = useState(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
@@ -758,9 +759,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   // Auto-expand preselected criterion when dialog opens
   useEffect(() => {
     if (open && preselectCriterion) {
+      setSearch("");
       setExpandedCriterion(preselectCriterion);
     }
   }, [open, preselectCriterion]);
+
+  useEffect(() => {
+    if (open && preselectCriterion && expandedCriterion === preselectCriterion && search === "") {
+      preselectedCriterionRef.current?.scrollIntoView?.({ block: "center", inline: "nearest" });
+    }
+  }, [expandedCriterion, open, preselectCriterion, search]);
 
   useEffect(() => {
     if (open) {
@@ -936,7 +944,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             const isExpanded = expandedCriterion === section.id;
 
             return (
-              <div key={section.id} className={`rounded mb-0.5 ${isActive ? "bg-accent/5 border border-accent/20" : ""}`}>
+              <div ref={section.id === preselectCriterion ? preselectedCriterionRef : undefined} key={section.id} className={`rounded mb-0.5 ${isActive ? "bg-accent/5 border border-accent/20" : ""}`}>
                 <div
                   className="flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-card/50 rounded"
                   onClick={() => setExpandedCriterion(isExpanded ? null : section.id)}
@@ -996,6 +1004,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 .map((criterion) => (
                   <CriterionRow
                     key={criterion.id}
+                    rowRef={criterion.id === preselectCriterion ? preselectedCriterionRef : undefined}
                     criterion={criterion}
                     value={getCriterionFilterValue(editFilter, criterion)}
                     auxiliaryToggleChecked={criterion.auxiliaryToggleKey ? Boolean(editFilter[criterion.auxiliaryToggleKey]) : undefined}
@@ -1016,6 +1025,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             .map((criterion) => (
               <CriterionRow
                 key={criterion.id}
+                rowRef={criterion.id === preselectCriterion ? preselectedCriterionRef : undefined}
                 criterion={criterion}
                 value={getCriterionFilterValue(editFilter, criterion)}
                 auxiliaryToggleChecked={criterion.auxiliaryToggleKey ? Boolean(editFilter[criterion.auxiliaryToggleKey]) : undefined}
@@ -1055,6 +1065,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 // ===== Criterion Row =====
 
 function CriterionRow({
+  rowRef,
   criterion,
   value,
   auxiliaryToggleChecked,
@@ -1066,6 +1077,7 @@ function CriterionRow({
   pinned,
   onTogglePin,
 }: {
+  rowRef?: Ref<HTMLDivElement>;
   criterion: CriterionDefinition;
   value: unknown;
   auxiliaryToggleChecked?: boolean;
@@ -1082,7 +1094,7 @@ function CriterionRow({
   const isActive = isCriterionValueValid(value, criterion);
 
   return (
-    <div className={`rounded mb-0.5 ${isActive ? "bg-accent/5 border border-accent/20" : ""}`}>
+    <div ref={rowRef} className={`rounded mb-0.5 ${isActive ? "bg-accent/5 border border-accent/20" : ""}`}>
       <div
         className={`flex items-center gap-1 px-2 py-1.5 rounded ${isSupported ? "cursor-pointer hover:bg-card/50" : "cursor-not-allowed opacity-60"}`}
         onClick={isSupported ? onToggleExpand : undefined}

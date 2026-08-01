@@ -1091,6 +1091,12 @@ export function ListPage({
           criteriaDefinitions={mergedCriteriaDefinitions}
           objectFilter={editorObjectFilter}
           customFilterSections={mergedCustomFilterSections}
+          onEdit={(key) => {
+            const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.auxiliaryToggleKey === key);
+            const customSection = mergedCustomFilterSections?.find((section) => section.filterKey === key);
+            setFilterDialogPreselect(customSection?.id ?? criterion?.id ?? key);
+            setFilterDialogOpen(true);
+          }}
           onRemove={(key) => {
             if (pageKey) {
               trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", criteriaKeys: [key] } });

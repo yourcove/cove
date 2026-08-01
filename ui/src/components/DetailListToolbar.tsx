@@ -130,6 +130,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (clampedPage - 1) * effectivePerPage + 1) : 0;
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
   const sortedSortOptions = useMemo(
     () => [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)),
     [sortOptions]
@@ -293,6 +294,11 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           criteriaDefinitions={criteriaDefinitions}
           objectFilter={activeObjectFilter}
           className="mb-2"
+          onEdit={(key) => {
+            const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.auxiliaryToggleKey === key);
+            setFilterDialogPreselect(criterion?.id ?? key);
+            setFilterDialogOpen(true);
+          }}
           onRemove={(key) => {
             const next = { ...activeObjectFilter };
             delete next[key];
@@ -333,13 +339,14 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
       {criteriaDefinitions && onObjectFilterChange ? (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => setFilterDialogOpen(false)}
+          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); }}
           criteria={criteriaDefinitions}
           activeFilter={activeObjectFilter}
           onApply={(nextFilter) => {
             onObjectFilterChange(nextFilter);
             onFilterChange({ ...filter, page: 1 });
           }}
+          preselectCriterion={filterDialogPreselect}
         />
       ) : null}
     </>
