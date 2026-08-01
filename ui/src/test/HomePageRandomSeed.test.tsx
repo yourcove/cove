@@ -111,7 +111,26 @@ describe("HomePage random rows", () => {
     });
   });
 
+  it("opens a premade row with its configured sort", async () => {
+    const onNavigate = vi.fn();
+    mockHomePageContent.value = JSON.stringify([
+      { type: "custom", mode: "videos", sortBy: "created_at", direction: "desc", header: "Recently Added Videos" },
+    ]);
+    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 101, title: "Recent result" }], totalCount: 1 });
+
+    renderHomePage(onNavigate);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View All" }));
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: "videos",
+      listFilter: { q: "", page: 1, sort: "created_at", direction: "desc" },
+      listObjectFilter: {},
+    });
+  });
+
   it("requests only the Continue Watching items shown on the home page", async () => {
+    const onNavigate = vi.fn();
     mockHomePageContent.value = JSON.stringify([{ type: "continueWatching" }]);
     mocks.groupsFind.mockResolvedValueOnce({
       items: [{ id: 3, querySourceKey: "continue-watching" }],
@@ -126,13 +145,16 @@ describe("HomePage random rows", () => {
       perPage: 12,
     });
 
-    renderHomePage();
+    renderHomePage(onNavigate);
 
     await waitFor(() => {
       expect(mocks.groupItemsPage).toHaveBeenCalledWith(3, { page: 1, perPage: 12 });
     });
     expect(mocks.groupItemsList).not.toHaveBeenCalled();
     expect(await screen.findByText("Resume item")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View All" }));
+    expect(onNavigate).toHaveBeenCalledWith({ page: "group", id: 3 });
   });
 
   it("generates a new custom row seed for each front-page mount", async () => {

@@ -185,7 +185,7 @@ function ContinueWatchingRow({ onNavigate }: { onNavigate: (r: any) => void }) {
   if (!isLoading && playableItems.length === 0) return null;
 
   return (
-    <RecommendationRowShell header="Continue Watching" viewAllPage="groups" onNavigate={onNavigate} loading={isLoading} count={playableItems.length}>
+    <RecommendationRowShell header="Continue Watching" viewAllPage="group" viewAllId={continueGroup!.id} onNavigate={onNavigate} loading={isLoading} count={playableItems.length}>
       {playableItems.map((item) => (
         <ContinueWatchingCard key={`${item.groupId}-${item.id}`} item={item} onNavigate={onNavigate} />
       ))}
@@ -279,6 +279,8 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
     <RecommendationRowShell
       header={filter.header}
       viewAllPage={filter.mode}
+      viewAllFilter={{ q: "", page: 1, sort: filter.sortBy, direction: filter.direction }}
+      viewAllObjectFilter={{}}
       onNavigate={onNavigate}
       loading={isLoading}
       count={items.length}
@@ -367,6 +369,7 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
 function RecommendationRowShell({
   header,
   viewAllPage,
+  viewAllId,
   viewAllFilter,
   viewAllObjectFilter,
   viewAllView,
@@ -377,6 +380,7 @@ function RecommendationRowShell({
 }: {
   header: string;
   viewAllPage: string;
+  viewAllId?: number;
   viewAllFilter?: FindFilter;
   viewAllObjectFilter?: Record<string, unknown>;
   viewAllView?: string;
@@ -430,6 +434,7 @@ function RecommendationRowShell({
         <button
           onClick={() => onNavigate({
             page: viewAllPage,
+            ...(viewAllId !== undefined ? { id: viewAllId } : {}),
             ...(viewAllFilter ? { listFilter: viewAllFilter } : {}),
             ...(viewAllObjectFilter !== undefined ? { listObjectFilter: viewAllObjectFilter } : {}),
             ...(viewAllView ? { listView: viewAllView } : {}),
