@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ListPage } from "../components/ListPage";
-import { VIDEO_CRITERIA } from "../components/FilterDialog";
+import { TAG_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { RouteRegistryProvider } from "../router/RouteRegistry";
@@ -102,12 +102,75 @@ describe("ListPage active filter chips", () => {
       </QueryClientProvider>
     );
 
-    expect(screen.getByRole("button", { name: /rating:/i })).toHaveTextContent("Rating:");
-    expect(screen.getByRole("button", { name: /rating:/i })).toHaveTextContent("> 80");
+    expect(screen.getByRole("button", { name: "Edit filter: Rating" })).toHaveTextContent("Rating:");
+    expect(screen.getByRole("button", { name: "Edit filter: Rating" })).toHaveTextContent("> 80");
 
-    expect(screen.getByRole("button", { name: /tags:/i })).toHaveTextContent("Tags:");
-    expect(screen.getByRole("button", { name: /tags:/i })).toHaveTextContent("Includes All Tag One, Tag Two");
-    expect(screen.getByRole("button", { name: /tags:/i })).toHaveTextContent("with sub-tags");
+    expect(screen.getByRole("button", { name: "Edit filter: Tags" })).toHaveTextContent("Tags:");
+    expect(screen.getByRole("button", { name: "Edit filter: Tags" })).toHaveTextContent("Includes All Tag One, Tag Two");
+    expect(screen.getByRole("button", { name: "Edit filter: Tags" })).toHaveTextContent("with sub-tags");
+  });
+
+  it("opens the filter dialog at the clicked applied criterion without removing it", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onFilterChange = vi.fn();
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 3, perPage: 40 }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ titleCriterion: { value: "example", modifier: "EQUALS" } }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit filter: Title" }));
+
+    expect(screen.getByRole("heading", { name: "Edit Filter" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Value...")).toHaveValue("example");
+    expect(onObjectFilterChange).not.toHaveBeenCalled();
+    expect(onFilterChange).not.toHaveBeenCalled();
+  });
+
+  it("opens an auxiliary filter chip at its owning criterion", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Tags"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={TAG_CRITERIA}
+            objectFilter={{ videoCountIncludesChildren: true }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const chip = screen.getByRole("button", { name: "Edit filter: Count videos from child tags" });
+    expect(chip).toHaveTextContent("Yes");
+    await user.click(chip);
+
+    expect(screen.getByText("Count videos from child tags")).toBeInTheDocument();
   });
 
   it("formats tag duration chips with tag names and time values", () => {
@@ -143,9 +206,9 @@ describe("ListPage active filter chips", () => {
       </QueryClientProvider>
     );
 
-    expect(screen.getByRole("button", { name: /tag duration:/i })).toHaveTextContent("Tag Duration:");
-    expect(screen.getByRole("button", { name: /tag duration:/i })).toHaveTextContent("Tag One");
-    expect(screen.getByRole("button", { name: /tag duration:/i })).toHaveTextContent("> 1:30");
+    expect(screen.getByRole("button", { name: "Edit filter: Tag Duration" })).toHaveTextContent("Tag Duration:");
+    expect(screen.getByRole("button", { name: "Edit filter: Tag Duration" })).toHaveTextContent("Tag One");
+    expect(screen.getByRole("button", { name: "Edit filter: Tag Duration" })).toHaveTextContent("> 1:30");
   });
 
   it("sorts sort options alphabetically in the toolbar", () => {

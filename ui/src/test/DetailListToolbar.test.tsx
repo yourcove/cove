@@ -187,7 +187,7 @@ describe("DetailListToolbar", () => {
     expect(onFilterChange).not.toHaveBeenCalled();
   });
 
-  it("shows and removes applied object-filter parameters", async () => {
+  it("opens an applied object-filter parameter for editing and only removes it from the remove button", async () => {
     const user = userEvent.setup();
     const onFilterChange = vi.fn();
     const onObjectFilterChange = vi.fn();
@@ -210,12 +210,21 @@ describe("DetailListToolbar", () => {
       />,
     );
 
-    const chip = screen.getByRole("button", { name: /tags:/i });
+    const chip = screen.getByRole("button", { name: "Edit filter: Tags" });
     expect(chip).toHaveTextContent("Tags:");
     expect(chip).toHaveTextContent("Includes All Facial");
-    expect(chip.parentElement).toHaveClass("mb-2");
+    expect(chip.parentElement?.parentElement).toHaveClass("mb-2");
+    onFilterChange.mockClear();
 
     await user.click(chip);
+
+    expect(screen.getByRole("heading", { name: "Edit Filter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Includes All" })).toBeInTheDocument();
+    expect(onObjectFilterChange).not.toHaveBeenCalled();
+    expect(onFilterChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove filter: Tags" }));
 
     expect(onObjectFilterChange).toHaveBeenCalledWith({});
     expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 24 });
