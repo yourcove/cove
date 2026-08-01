@@ -52,7 +52,7 @@ import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { getLoadError } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
 
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 
 const VideoDownloadDialog = lazy(() => import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })));
 const BatchDownloadOptionsDialog = lazy(() => import("../components/BatchDownloadOptionsDialog").then((module) => ({ default: module.BatchDownloadOptionsDialog })));
@@ -104,7 +104,7 @@ export function VideosPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "wall", "tagger", "feed", "vertical"] as const, "grid") as DisplayMode,
     };
   }, []);
   const visualSimilarity = useVisualSimilarityApi();

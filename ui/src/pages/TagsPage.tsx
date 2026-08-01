@@ -9,7 +9,7 @@ import { CreateModalActions, EditModal, Field, NumberInput, SelectInput, TextInp
 import { Merge, Layers, Tag as TagIcon } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
 import { TagTile } from "../components/EntityCards";
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { TAG_CRITERIA } from "../components/FilterDialog";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
@@ -61,7 +61,7 @@ export function TagsPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "latest_video_date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "graph", "tagger"] as const, "grid") as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({

@@ -15,7 +15,7 @@ import { canWriteEntity } from "../auth/visibility";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
-import { getDefaultFilter } from "../components/SavedFilterMenu";
+import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
 import { StudioSelector } from "../components/StudioSelector";
@@ -61,7 +61,7 @@ export function TextsPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: "grid" as DisplayMode,
+      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "tagger"] as const, "grid") as DisplayMode,
     };
   }, []);
 

@@ -22,7 +22,7 @@ function renderMenu() {
         mode="videos"
         currentFilter={{ page: 2, sort: "title", direction: "asc" }}
         currentObjectFilter={{ favorite: true }}
-        currentUIOptions={{ view: "list" }}
+        currentUIOptions={{ displayMode: "list", zoomLevel: 5.25 }}
         onApplyFilter={vi.fn()}
       />
     </QueryClientProvider>,
@@ -103,9 +103,40 @@ describe("SavedFilterMenu", () => {
     await waitFor(() => expect(savedFilters.update).toHaveBeenCalledWith(2, {
       findFilter: JSON.stringify({ page: 2, sort: "title", direction: "asc" }),
       objectFilter: JSON.stringify({ favorite: true }),
-      uiOptions: JSON.stringify({ view: "list" }),
+      uiOptions: JSON.stringify({ displayMode: "list", zoomLevel: 5.25 }),
     }));
     await waitFor(() => expect(screen.queryByText("Saved Filters")).not.toBeInTheDocument());
+  });
+
+  it("applies saved display and zoom options", async () => {
+    vi.mocked(savedFilters.list).mockResolvedValue([
+      {
+        id: 1,
+        mode: "videos",
+        name: "Large wall",
+        findFilter: "{}",
+        uiOptions: JSON.stringify({ displayMode: "wall", zoomLevel: 5.25 }),
+      },
+    ]);
+    const onApplyUIOptions = vi.fn();
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SavedFilterMenu
+          mode="videos"
+          currentFilter={{ page: 1 }}
+          onApplyFilter={vi.fn()}
+          onApplyUIOptions={onApplyUIOptions}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByTitle("Saved filters"));
+    await user.click(await screen.findByRole("button", { name: "Large wall" }));
+
+    expect(onApplyUIOptions).toHaveBeenCalledWith({ displayMode: "wall", zoomLevel: 5.25 });
   });
 
   it("keeps the menu open and reports an update failure", async () => {

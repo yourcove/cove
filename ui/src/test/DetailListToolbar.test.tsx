@@ -30,6 +30,67 @@ afterEach(() => {
 });
 
 describe("DetailListToolbar", () => {
+  it("applies the default saved filter's zoom to an embedded list", async () => {
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 24 },
+      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+    }));
+    const onZoomChange = vi.fn();
+    const onDisplayModeChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={0}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        zoomLevel={1}
+        onZoomChange={onZoomChange}
+        cardSizeEntityType="videos"
+        displayMode="grid"
+        onDisplayModeChange={onDisplayModeChange}
+        availableDisplayModes={["grid", "list"]}
+        filterMode="videos"
+      />,
+    );
+
+    await waitFor(() => expect(onZoomChange).toHaveBeenCalledWith(5.25));
+    expect(onDisplayModeChange).toHaveBeenCalledWith("list");
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("5.25");
+  });
+
+  it("applies default zoom when the embedded list filter was resolved from the URL", async () => {
+    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 24 },
+      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+    }));
+    const onFilterChange = vi.fn();
+    const onZoomChange = vi.fn();
+    const onDisplayModeChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 3, perPage: 48 }}
+        onFilterChange={onFilterChange}
+        totalCount={0}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        zoomLevel={1}
+        onZoomChange={onZoomChange}
+        cardSizeEntityType="videos"
+        displayMode="grid"
+        onDisplayModeChange={onDisplayModeChange}
+        availableDisplayModes={["grid", "list"]}
+        filterMode="videos"
+        defaultFilterResolved
+      />,
+    );
+
+    await waitFor(() => expect(onZoomChange).toHaveBeenCalledWith(5.25));
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("5.25");
+    expect(onFilterChange).not.toHaveBeenCalled();
+    expect(onDisplayModeChange).not.toHaveBeenCalled();
+  });
+
   it("applies search text after a short delay without requiring Enter", async () => {
     const user = userEvent.setup();
     const onFilterChange = vi.fn();

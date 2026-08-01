@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
 import type { CriterionModifier, CustomFieldCriterion, CustomFieldDefinition, CustomFieldEntityType, CustomFieldType, ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
-import { SavedFilterMenu } from "./SavedFilterMenu";
+import { getDefaultFilter, SavedFilterMenu } from "./SavedFilterMenu";
 import { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
 import { IsoDateInput } from "./IsoDateInput";
 import { FilterDialog, FilterButton, type CriterionDefinition, type CriterionType, type EntityType, type FilterDialogCustomSection } from "./FilterDialog";
@@ -12,7 +12,7 @@ import { useKeySequence } from "../hooks/useKeySequence";
 import { resolveKeybinding } from "../keyboard/keybindings";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
-import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, useEntityCardSize } from "../hooks/useEntityCardSize";
+import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { trackInteraction } from "../utils/interactionTracking";
@@ -585,6 +585,7 @@ export function ListPage({
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(120);
   const [autoScrollControlsAwake, setAutoScrollControlsAwake] = useState(true);
+  const defaultUIOptionsModeRef = useRef<string | undefined>(undefined);
   const restoredPrefsRef = useRef(false);
   const { config } = useAppConfig();
   const { getListFiltersForEntity, getListSortsForEntity } = useExtensions();
@@ -600,6 +601,27 @@ export function ListPage({
     () => unavailableExtensionCriterionDefinitions(objectFilter ?? {}, extensionFilterContributions),
     [extensionFilterContributions, objectFilter],
   );
+
+  const applySavedFilterUIOptions = useCallback((options: Record<string, unknown>, applyDisplayMode = true) => {
+    const nextDisplayMode = typeof options.displayMode === "string" ? options.displayMode as DisplayMode : undefined;
+    if (applyDisplayMode && nextDisplayMode && onDisplayModeChange && (!availableDisplayModes || availableDisplayModes.includes(nextDisplayMode))) {
+      onDisplayModeChange(nextDisplayMode);
+    }
+    const nextZoomLevel = parseEntityCardSizeLevel(cardSizeEntityType, options.zoomLevel);
+    if (nextZoomLevel != null) setZoomLevel(nextZoomLevel);
+    onApplySavedFilterUIOptions?.(options);
+  }, [availableDisplayModes, cardSizeEntityType, onApplySavedFilterUIOptions, onDisplayModeChange, setZoomLevel]);
+
+  useEffect(() => {
+    if (!filterMode || defaultUIOptionsModeRef.current === filterMode) return;
+    defaultUIOptionsModeRef.current = filterMode;
+    const options = getDefaultFilter(filterMode)?.uiOptions;
+    if (!options) return;
+    const explicitDisplayMode = new URLSearchParams(window.location.search).get("view");
+    const hasSupportedExplicitDisplayMode = explicitDisplayMode != null
+      && (!availableDisplayModes || availableDisplayModes.includes(explicitDisplayMode as DisplayMode));
+    applySavedFilterUIOptions(options, !hasSupportedExplicitDisplayMode);
+  }, [applySavedFilterUIOptions, availableDisplayModes, filterMode]);
   const mergedCriteriaDefinitions = useMemo(() => {
     const merged = [...(criteriaDefinitions ?? []), ...extensionCriteriaDefinitions, ...unavailableExtensionCriteria];
     return merged.length > 0 ? merged : undefined;
@@ -881,14 +903,10 @@ export function ListPage({
             mode={filterMode}
             currentFilter={filter}
             currentObjectFilter={objectFilter}
-            currentUIOptions={{ displayMode, ...savedFilterUIOptions }}
+            currentUIOptions={{ ...savedFilterUIOptions, displayMode, zoomLevel }}
             onApplyFilter={(nextFilter) => onFilterChange(withSeededRandomSort(filter, nextFilter))}
             onApplyObjectFilter={onObjectFilterChange}
-            onApplyUIOptions={(options) => {
-              const mode = typeof options.displayMode === "string" ? options.displayMode : undefined;
-              if (mode && onDisplayModeChange) onDisplayModeChange(mode as DisplayMode);
-              onApplySavedFilterUIOptions?.(options);
-            }}
+            onApplyUIOptions={applySavedFilterUIOptions}
           />
         )}
 
