@@ -1,14 +1,10 @@
-using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using Cove.Core.Auth;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
@@ -27,7 +23,6 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
     private static readonly object ServerStartEnvironmentLock = new();
 
     private readonly string _environmentName;
-    private readonly int _port = ReserveLoopbackPort();
     private readonly string _connectionString = $"Data Source=file:cove-{Guid.NewGuid():N}?mode=memory&cache=shared";
     private readonly SqliteConnection _connection;
     private bool _serverStarted;
@@ -36,8 +31,7 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
     {
         _environmentName = environmentName;
         _connection = CreateOpenConnection(_connectionString);
-        UseKestrel(_port);
-        ClientOptions.BaseAddress = new Uri($"http://127.0.0.1:{_port}");
+        UseKestrel(0);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -134,13 +128,6 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
         return connection;
     }
 
-    private static int ReserveLoopbackPort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
     private void EnsureServerStarted()
     {
         if (_serverStarted)
@@ -165,14 +152,6 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
                 Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousAspNetEnvironment);
                 Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", previousDotNetEnvironment);
             }
-
-            var addresses = Services.GetRequiredService<IServer>()
-                .Features
-                .Get<IServerAddressesFeature>()?
-                .Addresses;
-            var address = addresses?.LastOrDefault();
-            if (!string.IsNullOrWhiteSpace(address))
-                ClientOptions.BaseAddress = new Uri(address);
 
             _serverStarted = true;
         }
