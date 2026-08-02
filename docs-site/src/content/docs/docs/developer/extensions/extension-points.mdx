@@ -87,7 +87,7 @@ Lifecycle methods and `GetUIManifest()` default to no work. Override `ConfigureS
 script and its name receipt in one transaction, runs that transaction inside the configured database
 retry strategy, and verifies the receipt before replaying an ambiguous attempt.
 
-`EventExtensionBase` calls `RegisterHandlers()` from its constructor. Register exact event strings with `On`, or use `OnCreated`, `OnUpdated`, and `OnDeleted`. Handlers receive the event and cancellation token.
+`EventExtensionBase` calls `RegisterHandlers()` from its constructor. Register canonical event names with `On`, or use `OnCreated`, `OnUpdated`, and `OnDeleted`. Handlers receive the event and cancellation token. See [Extension events](../events/) for the supported names, payloads, and delivery guarantees.
 
 `JobExtensionBase` calls `DefineJobs()` from its constructor. `Job(...)` binds an id and label to a handler and can declare parameters, description, and `showInTaskList`. Do not rely on derived-class fields that have not initialized yet from either constructor-time registration method.
 
@@ -159,7 +159,7 @@ Implement only the interfaces your extension needs.
 | `IMiddlewareExtension` | Inspect, transform, or short-circuit every HTTP request and response. Call `next` to continue the pipeline. |
 | `IJobExtension` | Declare named jobs and run them with parameters, cancellation, and progress reporting. `ShowInTaskList` can expose a job in Cove's task UI. |
 | `IBackgroundExtension` | Run a host-managed long-lived worker until its cancellation token is signaled. |
-| `IEventExtension` | Receive entity lifecycle events such as `video.created`, `performer.updated`, or `tag.deleted`. |
+| `IEventExtension` | Receive post-persistence entity lifecycle events such as `video.created`, `performer.updated`, or `tag.deleted`. See [Extension events](../events/) for exact coverage and delivery behavior. |
 | `IScanParticipant` | Join a core library scan, receive resolved scan paths and exclusions, and report progress within the scan job. |
 | `IStatefulExtension` | Receive an extension-scoped `IExtensionStore` for persistent string key/value data. |
 | `IDataExtension` | Add extension-owned EF Core model configuration and ordered, forward-only SQL migrations. Do not drop core tables or columns. |

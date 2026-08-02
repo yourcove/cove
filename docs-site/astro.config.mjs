@@ -194,6 +194,7 @@ export default defineConfig({
                 { link: '/docs/developer/extensions/packaging/', label: 'Package an extension' },
                 { link: '/docs/developer/extensions/permissions/', label: 'Extension permissions' },
                 { link: '/docs/developer/extensions/extension-points/', label: 'Extension point catalog' },
+                { link: '/docs/developer/extensions/events/', label: 'Extension events' },
                 { link: '/docs/developer/extensions/ui-extension-points/', label: 'UI extension points' },
                 { link: '/docs/developer/extensions/frontend-runtime/', label: 'Frontend runtime API' },
               ],
@@ -265,6 +266,9 @@ export default defineConfig({
               items: [
                 { link: '/docs/reference/extensions/', label: 'Extensions' },
                 { link: '/docs/reference/extension-points/', label: 'Extension points' },
+                { link: '/docs/reference/extension-events/', label: 'Extension event envelope' },
+                { link: '/docs/reference/entity-lifecycle-event-payloads/', label: 'Lifecycle event payloads' },
+                { link: '/docs/reference/rating-event-payloads/', label: 'Rating event payloads' },
                 { link: '/docs/reference/contributions/', label: 'Contributions' },
                 { link: '/docs/reference/manifests/', label: 'Manifests' },
                 { link: '/docs/reference/ui-extensions/', label: 'UI extensions' },

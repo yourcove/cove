@@ -1,0 +1,168 @@
+---
+title: Extension events
+description: Event names, payloads, delivery guarantees, and mutation coverage for Cove extensions.
+---
+
+Implement `IEventExtension` when an extension needs to react after Cove successfully processes a top-level library mutation. Cove delivers these notifications in process after the mutation has persisted. They are invalidation signals: read the entity again when you need its current state instead of treating the event as a complete change record.
+
+`EventExtensionBase` and `FullExtensionBase` route handlers by the canonical names in this reference. Implementations that consume `ExtensionEvent` directly should route on `CanonicalEventType`. `EventType` remains available as the original wire name for compatibility.
+
+## Event shape
+
+Every extension event contains the following values:
+
+| Property | Meaning |
+| --- | --- |
+| `CanonicalEventType` | Stable `noun.verb` name to use for new handlers. |
+| `EventType` | Compatibility wire name. It normally matches `CanonicalEventType`; legacy audio and text events are the exceptions listed below. |
+| `EntityType` | Lowercase entity kind such as `video`, `performer`, or `audio`. |
+| `EntityId` | Cove database identifier of the affected entity. |
+| `Data` | Optional event-specific data. Ordinary lifecycle events omit it. |
+
+The SDK helpers `OnCreated(entityType, ...)`, `OnUpdated(entityType, ...)`, and `OnDeleted(entityType, ...)` construct the canonical lifecycle names. `On(eventType, ...)` and `OnEvent(eventType, ...)` register any other canonical name.
+
+## Example payloads
+
+Extensions receive an `ExtensionEvent` object in process rather than an HTTP request. The examples below show the same property values in JSON form.
+
+A typical lifecycle notification has no event-specific data:
+
+```json
+{
+  "eventType": "video.updated",
+  "canonicalEventType": "video.updated",
+  "entityType": "video",
+  "entityId": 42,
+  "data": null
+}
+```
+
+Create and delete notifications have the same shape; only the event names change to `video.created` or `video.deleted`. The entity kind and identifier change for the other lifecycle events.
+
+Legacy audio and text notifications demonstrate why new handlers should use `CanonicalEventType`:
+
+```json
+{
+  "eventType": "audioupdated",
+  "canonicalEventType": "audio.updated",
+  "entityType": "audio",
+  "entityId": 42,
+  "data": null
+}
+```
+
+A rating notification includes the user, normalized rating aspect, and new value under `data.entity`:
+
+```json
+{
+  "eventType": "rating.updated",
+  "canonicalEventType": "rating.updated",
+  "entityType": "video",
+  "entityId": 42,
+  "data": {
+    "entity": {
+      "userId": 7,
+      "aspect": "overall",
+      "value": 4
+    }
+  }
+}
+```
+
+Clearing that rating produces `rating.deleted` and a `null` value:
+
+```json
+{
+  "eventType": "rating.deleted",
+  "canonicalEventType": "rating.deleted",
+  "entityType": "video",
+  "entityId": 42,
+  "data": {
+    "entity": {
+      "userId": 7,
+      "aspect": "overall",
+      "value": null
+    }
+  }
+}
+```
+
+## Entity lifecycle events
+
+Cove publishes one lifecycle event for each top-level entity successfully processed by a supported create, update, or delete mutation. An accepted update can publish even when the submitted values already match persisted state. A bulk request publishes one event per entity found and successfully processed; missing identifiers, duplicate identifiers, rejected requests, and skipped filesystem operations do not produce events.
+
+| Entity | Created | Updated | Deleted | Compatibility wire name |
+| --- | --- | --- | --- | --- |
+| Video | `video.created` | `video.updated` | `video.deleted` | Same as canonical |
+| Performer | `performer.created` | `performer.updated` | `performer.deleted` | Same as canonical |
+| Studio | `studio.created` | `studio.updated` | `studio.deleted` | Same as canonical |
+| Tag | `tag.created` | `tag.updated` | `tag.deleted` | Same as canonical |
+| Gallery | `gallery.created` | `gallery.updated` | `gallery.deleted` | Same as canonical |
+| Image | `image.created` | `image.updated` | `image.deleted` | Same as canonical |
+| Group | `group.created` | `group.updated` | `group.deleted` | Same as canonical |
+| Audio | `audio.created` | `audio.updated` | `audio.deleted` | `audiocreated`, `audioupdated`, `audiodeleted` |
+| Text | `text.created` | `text.updated` | `text.deleted` | `textcreated`, `textupdated`, `textdeleted` |
+
+The compatibility spellings for audio and text predate this documented contract. Cove keeps them in `EventType` so existing direct implementations continue to work; the SDK routes their `CanonicalEventType` through the normal lifecycle helpers.
+
+Create, update, and delete include the corresponding single-entity API operations and library scan intake. Update also covers scraper and metadata-server application, successful metadata-server batch-tag items, merges into a surviving target, file ownership or path changes, gallery membership and chapter changes, and group query, item, order, snapshot, and subgroup changes. A merge publishes an update for the surviving target and a delete for each source that was removed.
+
+## Rating events
+
+Ratings have their own lifecycle because they are scoped to the current user and rating aspect:
+
+| Canonical name | When Cove publishes it |
+| --- | --- |
+| `rating.created` | The current user adds a rating for an aspect that did not have one. |
+| `rating.updated` | The current user changes an existing rating aspect. |
+| `rating.deleted` | The current user clears an existing rating aspect. |
+
+`EntityType` and `EntityId` identify the rated entity. `Data["entity"]` contains `userId`, the normalized `aspect`, and `value`; the deletion value is `null`. Clearing an aspect that has no rating is a no-op and does not publish an event.
+
+## Delivery behavior
+
+Extension events are best-effort process-local notifications. Cove does not persist, replay, retry, or globally order them. The host queues each event independently after publication so an extension handler does not block the mutation request. Multiple handlers or events—including events from one bulk request—can therefore run concurrently. A host shutdown or process failure can lose an event that has already been published but not dispatched.
+
+Handlers should be idempotent, tolerate a missing entity after an update notification, and use `EntityId` to fetch current state when needed. Do not use events as an audit log or as the only copy of durable extension data.
+
+Only `EntityEvent` reaches `IEventExtension`. Internal `JobEvent` and system `CoveEvent` values—including scan progress and server lifecycle values—are not part of the extension event contract.
+
+## Register handlers
+
+Use a narrow SDK base when event routing is the extension's main responsibility:
+
+```csharp
+public sealed class LibraryObserver : EventExtensionBase
+{
+    public override string Id => "example.library-observer";
+    public override string Name => "Library observer";
+    public override string Version => "1.0.0";
+
+    protected override void RegisterHandlers()
+    {
+        OnCreated("video", HandleVideoCreatedAsync);
+        OnUpdated("audio", HandleAudioUpdatedAsync);
+        On("rating.deleted", HandleRatingDeletedAsync);
+    }
+
+    private static Task HandleVideoCreatedAsync(ExtensionEvent evt, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    private static Task HandleAudioUpdatedAsync(ExtensionEvent evt, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    private static Task HandleRatingDeletedAsync(ExtensionEvent evt, CancellationToken ct) =>
+        Task.CompletedTask;
+}
+```
+
+Use `FullExtensionBase.DefineEventHandlers()` when the same package also contributes jobs, APIs, data, or UI. A direct `IEventExtension` implementation receives every extension event and owns its own filtering.
+
+## Related guidance
+
+- [Extension event envelope](../../../reference/extension-events/) for the exact runtime fields
+- [Entity lifecycle payloads](../../../reference/entity-lifecycle-event-payloads/) for every created, updated, and deleted variant
+- [Rating event payloads](../../../reference/rating-event-payloads/) for nested rating data
+- [Extension-point catalog](../extension-points/) for the complete backend capability surface
+- [Extension architecture](../overview/) for version and compatibility boundaries
+- [Package an extension](../packaging/) for host-version requirements and release packaging
