@@ -249,18 +249,30 @@ const docsHomeHref = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/docs/`;
     text-decoration: none;
   }
 
-  .docs-home:hover,
-  .docs-home[aria-current='page'] {
+  .docs-home:hover {
     color: var(--sl-color-white);
   }
 
+  /* --sl-color-text-invert is the foreground Starlight pairs with --sl-color-text-accent
+     whenever the accent is used as a fill, including the current-page entries in
+     SidebarSublist. --sl-color-white is a page-background polarity token instead, and it
+     resolves to near-black in the light theme, which left this pill at 2.4:1. */
   .docs-home[aria-current='page'] {
+    color: var(--sl-color-text-invert);
     background-color: var(--sl-color-text-accent);
   }
 
   @media (forced-colors: active) {
     .section-tabs a[aria-selected='true'] {
       border-color: CanvasText;
+    }
+
+    /* The accent fill is flattened away here, which would leave the current entry
+       looking exactly like every other link. An outline survives and keeps the
+       layout untouched. */
+    .docs-home[aria-current='page'] {
+      outline: 2px solid CanvasText;
+      outline-offset: -2px;
     }
   }
 </style>
