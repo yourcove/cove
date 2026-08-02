@@ -199,6 +199,30 @@ describe("HomePage random rows", () => {
     });
   });
 
+  it("preserves the saved random row seed when opening View All", async () => {
+    const onNavigate = vi.fn();
+    const expectedSeed = 302;
+    vi.spyOn(Math, "random").mockReturnValue(randomValueForSeed(expectedSeed));
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 7 }]);
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 7,
+      mode: "videos",
+      name: "Saved Random Videos",
+      findFilter: JSON.stringify({ sort: "random", direction: "desc" }),
+    });
+    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 101, title: "Random result" }], totalCount: 1 });
+
+    renderHomePage(onNavigate);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View All" }));
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: "videos",
+      listFilter: { q: "", page: 1, sort: "random", direction: "desc", seed: expectedSeed },
+      listObjectFilter: {},
+    });
+  });
+
   it("keeps object filters when saved random tag rows are loaded", async () => {
     const expectedSeed = 401;
     vi.spyOn(Math, "random").mockReturnValue(randomValueForSeed(expectedSeed));
