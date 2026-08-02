@@ -66,9 +66,15 @@ public abstract class FullExtensionBase : CoveExtensionBase,
         => OnEvent($"{entityType}.deleted", handler);
 
     public Task OnEventAsync(ExtensionEvent evt, CancellationToken ct = default)
-        => _eventHandlers.TryGetValue(evt.EventType, out var handler)
-            ? handler(evt, ct)
-            : Task.CompletedTask;
+    {
+        if (_eventHandlers.TryGetValue(evt.CanonicalEventType, out var canonicalHandler))
+            return canonicalHandler(evt, ct);
+
+        return !string.Equals(evt.CanonicalEventType, evt.EventType, StringComparison.OrdinalIgnoreCase)
+            && _eventHandlers.TryGetValue(evt.EventType, out var legacyHandler)
+                ? legacyHandler(evt, ct)
+                : Task.CompletedTask;
+    }
 
     // ── IJobExtension ────────────────────────────────────────────────
     public IReadOnlyList<ExtensionJobDefinition> Jobs => _jobs;

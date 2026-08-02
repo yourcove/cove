@@ -1,6 +1,7 @@
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Cove.Plugins;
@@ -49,6 +50,7 @@ public sealed class Phase10TagProvenanceTests
             null!,
             new NoOpUserEngagementService(),
             new CustomFieldService(context),
+            new EventBus(),
             new TagProvenanceService(context));
 
         var result = await controller.GetById(video.Id, CancellationToken.None);

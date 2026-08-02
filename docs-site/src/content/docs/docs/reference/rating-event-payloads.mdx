@@ -1,0 +1,102 @@
+---
+title: Rating event payloads
+description: Payload reference for rating.created, rating.updated, and rating.deleted extension events.
+---
+
+Rating events describe a rating record for one user, entity, and normalized aspect. They use the common [`ExtensionEvent` envelope](../extension-events/) and add a nested value under `Data["entity"]`.
+
+## Nested data shape
+
+| C# lookup | JSON notation | Runtime type | Contract |
+| --- | --- | --- | --- |
+| `Data["entity"]` | `data.entity` | `Dictionary<string, object?>` | Rating-specific payload object. |
+| `Data["entity"]["userId"]` | `data.entity.userId` | `int` | Cove user identifier that owns the rating. |
+| `Data["entity"]["aspect"]` | `data.entity.aspect` | `string` | Normalized rating aspect; the default is `overall`. |
+| `Data["entity"]["value"]` | `data.entity.value` | `int?` | Written rating value, or `null` when deleted. |
+
+`EntityType` identifies the rated entity kind and `EntityId` identifies that entity. Currently supported rating mutations can publish `video`, `image`, `gallery`, `performer`, `studio`, `group`, or `tag` as `EntityType`.
+
+## Event catalog
+
+| `CanonicalEventType` | `EventType` | Published when | `value` |
+| --- | --- | --- | --- |
+| `rating.created` | `rating.created` | A user writes an aspect that has no existing rating record. | `int` |
+| `rating.updated` | `rating.updated` | A user writes an aspect that already has a rating record. | `int` |
+| `rating.deleted` | `rating.deleted` | A user clears an aspect that has a rating record. | `null` |
+
+Clearing an aspect without an existing rating is a no-op and does not publish an event.
+
+## `rating.created` payload
+
+```json
+{
+  "eventType": "rating.created",
+  "canonicalEventType": "rating.created",
+  "entityType": "video",
+  "entityId": 42,
+  "data": {
+    "entity": {
+      "userId": 7,
+      "aspect": "overall",
+      "value": 4
+    }
+  }
+}
+```
+
+## `rating.updated` payload
+
+```json
+{
+  "eventType": "rating.updated",
+  "canonicalEventType": "rating.updated",
+  "entityType": "video",
+  "entityId": 42,
+  "data": {
+    "entity": {
+      "userId": 7,
+      "aspect": "overall",
+      "value": 5
+    }
+  }
+}
+```
+
+## `rating.deleted` payload
+
+```json
+{
+  "eventType": "rating.deleted",
+  "canonicalEventType": "rating.deleted",
+  "entityType": "video",
+  "entityId": 42,
+  "data": {
+    "entity": {
+      "userId": 7,
+      "aspect": "overall",
+      "value": null
+    }
+  }
+}
+```
+
+## Reading the nested values
+
+The nested runtime value is an object, so a direct `IEventExtension` implementation should validate its type and fields:
+
+```csharp
+if (evt.Data?.GetValueOrDefault("entity") is Dictionary<string, object?> rating)
+{
+    var userId = rating.GetValueOrDefault("userId");
+    var aspect = rating.GetValueOrDefault("aspect");
+    var value = rating.GetValueOrDefault("value");
+}
+```
+
+Handlers should use the user and aspect together when maintaining derived rating state. `EntityId` alone is not a unique rating identity.
+
+## Related reference
+
+- [Extension event envelope](../extension-events/)
+- [Entity lifecycle event payloads](../entity-lifecycle-event-payloads/)
+- [Developer event guide](../../developer/extensions/events/)

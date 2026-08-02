@@ -1,0 +1,106 @@
+---
+title: Entity lifecycle event payloads
+description: Payload reference for every created, updated, and deleted extension event.
+---
+
+Entity lifecycle events notify extensions that a top-level library entity was created, updated, or deleted. Every event in this family uses the common [`ExtensionEvent` envelope](../extension-events/) and has `Data = null`.
+
+## Shared payload shape
+
+```json
+{
+  "eventType": "video.updated",
+  "canonicalEventType": "video.updated",
+  "entityType": "video",
+  "entityId": 42,
+  "data": null
+}
+```
+
+The event names and entity kind vary as listed below; the field types and `data` value do not.
+
+## Complete event catalog
+
+| `CanonicalEventType` | `EventType` | `EntityType` | `EntityId` identifies | `Data` |
+| --- | --- | --- | --- | --- |
+| `video.created` | `video.created` | `video` | Created video | `null` |
+| `video.updated` | `video.updated` | `video` | Updated video | `null` |
+| `video.deleted` | `video.deleted` | `video` | Deleted video | `null` |
+| `performer.created` | `performer.created` | `performer` | Created performer | `null` |
+| `performer.updated` | `performer.updated` | `performer` | Updated performer | `null` |
+| `performer.deleted` | `performer.deleted` | `performer` | Deleted performer | `null` |
+| `studio.created` | `studio.created` | `studio` | Created studio | `null` |
+| `studio.updated` | `studio.updated` | `studio` | Updated studio | `null` |
+| `studio.deleted` | `studio.deleted` | `studio` | Deleted studio | `null` |
+| `tag.created` | `tag.created` | `tag` | Created tag | `null` |
+| `tag.updated` | `tag.updated` | `tag` | Updated tag | `null` |
+| `tag.deleted` | `tag.deleted` | `tag` | Deleted tag | `null` |
+| `gallery.created` | `gallery.created` | `gallery` | Created gallery | `null` |
+| `gallery.updated` | `gallery.updated` | `gallery` | Updated gallery | `null` |
+| `gallery.deleted` | `gallery.deleted` | `gallery` | Deleted gallery | `null` |
+| `image.created` | `image.created` | `image` | Created image | `null` |
+| `image.updated` | `image.updated` | `image` | Updated image | `null` |
+| `image.deleted` | `image.deleted` | `image` | Deleted image | `null` |
+| `group.created` | `group.created` | `group` | Created group | `null` |
+| `group.updated` | `group.updated` | `group` | Updated group | `null` |
+| `group.deleted` | `group.deleted` | `group` | Deleted group | `null` |
+| `audio.created` | `audiocreated` | `audio` | Created audio | `null` |
+| `audio.updated` | `audioupdated` | `audio` | Updated audio | `null` |
+| `audio.deleted` | `audiodeleted` | `audio` | Deleted audio | `null` |
+| `text.created` | `textcreated` | `text` | Created text document | `null` |
+| `text.updated` | `textupdated` | `text` | Updated text document | `null` |
+| `text.deleted` | `textdeleted` | `text` | Deleted text document | `null` |
+
+The audio and text `EventType` values are compatibility spellings. SDK lifecycle helpers route on the dotted `CanonicalEventType` values.
+
+## Created payload
+
+A created payload identifies an entity that has persisted and can normally be fetched immediately:
+
+```json
+{
+  "eventType": "performer.created",
+  "canonicalEventType": "performer.created",
+  "entityType": "performer",
+  "entityId": 42,
+  "data": null
+}
+```
+
+## Updated payload
+
+An updated payload identifies the current entity state. The notification does not say which fields or relationships changed, and an accepted no-op write can still publish it:
+
+```json
+{
+  "eventType": "gallery.updated",
+  "canonicalEventType": "gallery.updated",
+  "entityType": "gallery",
+  "entityId": 42,
+  "data": null
+}
+```
+
+Updates include supported metadata application, file changes, gallery membership and chapters, and group queries, items, ordering, snapshots, and subgroups. A bulk mutation emits one payload per entity found and accepted for mutation.
+
+## Deleted payload
+
+A deleted payload carries the former identifier. The entity is normally unavailable when the handler receives it:
+
+```json
+{
+  "eventType": "tag.deleted",
+  "canonicalEventType": "tag.deleted",
+  "entityType": "tag",
+  "entityId": 42,
+  "data": null
+}
+```
+
+A merge emits an updated payload for the surviving target and a deleted payload for each source that was actually removed. Missing source identifiers do not produce payloads.
+
+## Related reference
+
+- [Extension event envelope](../extension-events/)
+- [Rating event payloads](../rating-event-payloads/)
+- [Developer event guide](../../developer/extensions/events/)

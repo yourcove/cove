@@ -49,9 +49,12 @@ public abstract class EventExtensionBase : CoveExtensionBase, IEventExtension
 
     public Task OnEventAsync(ExtensionEvent evt, CancellationToken ct = default)
     {
-        return _handlers.TryGetValue(evt.EventType, out var handler)
-            ? handler(evt, ct)
-            : Task.CompletedTask;
+        if (_handlers.TryGetValue(evt.CanonicalEventType, out var canonicalHandler))
+            return canonicalHandler(evt, ct);
+
+        return !string.Equals(evt.CanonicalEventType, evt.EventType, StringComparison.OrdinalIgnoreCase)
+            && _handlers.TryGetValue(evt.EventType, out var legacyHandler)
+                ? legacyHandler(evt, ct)
+                : Task.CompletedTask;
     }
 }
-

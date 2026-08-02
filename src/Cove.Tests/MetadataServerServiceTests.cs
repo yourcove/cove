@@ -5,6 +5,7 @@ using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
@@ -253,7 +254,10 @@ public sealed class MetadataServerServiceTests
                 """);
         }));
 
-        var service = CreateService(context, httpClient, fieldProvenance: new FieldProvenanceService(context));
+        var eventBus = new EventBus();
+        var publishedEvents = new List<EntityEvent>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(publishedEvents.Add);
+        var service = CreateService(context, httpClient, fieldProvenance: new FieldProvenanceService(context), eventBus: eventBus);
 
         var result = await service.BatchTagPerformersAsync(
             Endpoint,
@@ -268,6 +272,9 @@ public sealed class MetadataServerServiceTests
         var item = Assert.Single(result.Items);
         Assert.Equal("updated", item.Outcome);
         Assert.Equal("remote-performer-1", item.RemoteId);
+        var publishedEvent = Assert.Single(publishedEvents);
+        Assert.Equal(EventType.PerformerUpdated, publishedEvent.Type);
+        Assert.Equal(performer.Id, publishedEvent.EntityId);
 
         var updated = await context.Performers.Include(item => item.Urls).SingleAsync();
         Assert.Equal("Local Jane", updated.Name);
@@ -376,7 +383,7 @@ public sealed class MetadataServerServiceTests
         Assert.Equal(121, fingerprint.GetProperty("duration").GetInt32());
     }
 
-    private static MetadataServerService CreateService(CoveContext context, HttpClient httpClient, IFieldProvenanceService? fieldProvenance = null, ITagProvenanceService? tagProvenance = null, CoveConfiguration? configuration = null, ILogger<MetadataServerService>? logger = null)
+    private static MetadataServerService CreateService(CoveContext context, HttpClient httpClient, IFieldProvenanceService? fieldProvenance = null, ITagProvenanceService? tagProvenance = null, CoveConfiguration? configuration = null, ILogger<MetadataServerService>? logger = null, IEventBus? eventBus = null)
         => new(
             httpClient,
             configuration ?? new CoveConfiguration
@@ -399,7 +406,8 @@ public sealed class MetadataServerServiceTests
             new NullVideoCoverService(),
             tagProvenance ?? new TagProvenanceService(context),
             logger ?? NullLogger<MetadataServerService>.Instance,
-            fieldProvenance);
+            fieldProvenance,
+            eventBus);
 
     private static CoveContext CreateContext()
     {

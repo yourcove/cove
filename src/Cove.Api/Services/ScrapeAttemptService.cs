@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
@@ -9,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
 
-public class ScrapeAttemptService(CoveContext db, ScraperService scraperService, IVideoCoverService videoCoverService, PerformerScrapeService performerScrapeService, ITagProvenanceService tagProvenanceService, IGroupMetadataApplyService groupMetadataApplyService, ILogger<ScrapeAttemptService> logger, IFieldProvenanceService? fieldProvenanceService = null)
+public class ScrapeAttemptService(CoveContext db, ScraperService scraperService, IVideoCoverService videoCoverService, PerformerScrapeService performerScrapeService, ITagProvenanceService tagProvenanceService, IGroupMetadataApplyService groupMetadataApplyService, IEventBus eventBus, ILogger<ScrapeAttemptService> logger, IFieldProvenanceService? fieldProvenanceService = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -271,6 +272,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         attempt.Status = DetermineApplyStatus(availableFields, replaceFields, collectionModes, dto);
 
         await db.SaveChangesAsync(ct);
+        eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));
         return MapAttempt(attempt);
     }
 
@@ -541,6 +543,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         await db.SaveChangesAsync(ct);
         await RefreshAudioArraysAsync(audio, ct);
+        eventBus.Publish(new EntityEvent(EventType.AudioUpdated, "Audio", audio.Id));
         return MapAttempt(attempt);
     }
 
@@ -617,6 +620,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         await db.SaveChangesAsync(ct);
         await RefreshTextArraysAsync(textDocument, ct);
+        eventBus.Publish(new EntityEvent(EventType.TextUpdated, "Text", textDocument.Id));
         return MapAttempt(attempt);
     }
 
@@ -700,6 +704,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         await db.SaveChangesAsync(ct);
         await RefreshImageArraysAsync(image, ct);
+        eventBus.Publish(new EntityEvent(EventType.ImageUpdated, "Image", image.Id));
         return MapAttempt(attempt);
     }
 
@@ -783,6 +788,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
 
         await db.SaveChangesAsync(ct);
         await RefreshGalleryArraysAsync(gallery, ct);
+        eventBus.Publish(new EntityEvent(EventType.GalleryUpdated, "Gallery", gallery.Id));
         return MapAttempt(attempt);
     }
 

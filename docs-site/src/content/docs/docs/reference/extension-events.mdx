@@ -1,0 +1,68 @@
+---
+title: Extension event envelope
+description: Reference for the ExtensionEvent envelope shared by Cove extension notifications.
+---
+
+`ExtensionEvent` is the in-process payload delivered to an extension that implements `IEventExtension`. Every extension event uses the same envelope; the event name determines whether `Data` has an event-specific shape.
+
+## Runtime shape
+
+```csharp
+public record ExtensionEvent(
+    string EventType,
+    string EntityType,
+    int EntityId,
+    Dictionary<string, object?>? Data = null)
+{
+    public string CanonicalEventType { get; init; } = EventType;
+}
+```
+
+The following JSON shows the equivalent property values for reference. Cove passes the C# object directly and does not serialize an HTTP request.
+
+```json
+{
+  "eventType": "video.updated",
+  "canonicalEventType": "video.updated",
+  "entityType": "video",
+  "entityId": 42,
+  "data": null
+}
+```
+
+## Envelope fields
+
+| C# property | JSON notation | Runtime type | Contract |
+| --- | --- | --- | --- |
+| `CanonicalEventType` | `canonicalEventType` | `string` | Stable canonical name. Route new handlers on this value. |
+| `EventType` | `eventType` | `string` | Compatibility event name. It can retain a legacy spelling. |
+| `EntityType` | `entityType` | `string` | Lowercase kind of the affected entity. |
+| `EntityId` | `entityId` | `int` | Cove database identifier of the affected entity. |
+| `Data` | `data` | `Dictionary<string, object?>?` | Event-specific values, or `null` when the event has no additional payload. |
+
+`CanonicalEventType` and `EventType` normally match. Audio and text lifecycle notifications retain dotless compatibility names in `EventType`, while `CanonicalEventType` uses the documented `noun.verb` form.
+
+## Payload families
+
+| Family | Canonical names | `Data` shape |
+| --- | --- | --- |
+| [Entity lifecycle](../entity-lifecycle-event-payloads/) | `<entity>.created`, `<entity>.updated`, `<entity>.deleted` | `null` |
+| [Ratings](../rating-event-payloads/) | `rating.created`, `rating.updated`, `rating.deleted` | `{ "entity": { "userId", "aspect", "value" } }` |
+
+Only `EntityEvent` values cross this extension boundary. Internal job progress and server lifecycle events are not `ExtensionEvent` payloads.
+
+## Handler rules
+
+- Route on `CanonicalEventType` unless maintaining a handler for a legacy `EventType` value.
+- Treat the payload as an invalidation signal and fetch current entity state when needed.
+- Expect a deleted entity to be unavailable by the time its handler runs.
+- Make handlers idempotent because delivery is best effort and is not an audit log.
+- Make handlers safe for concurrent execution; independently queued events can overlap.
+- Do not assume replay, retry, or global ordering.
+
+## Related reference
+
+- [Entity lifecycle event payloads](../entity-lifecycle-event-payloads/)
+- [Rating event payloads](../rating-event-payloads/)
+- [Extension points](../extension-points/)
+- [Developer event guide](../../developer/extensions/events/)

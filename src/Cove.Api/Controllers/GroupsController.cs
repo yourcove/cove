@@ -8,6 +8,7 @@ using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 
 namespace Cove.Api.Controllers;
@@ -15,7 +16,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.GroupsRead)]
-public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, DynamicGroupResolver? dynamicGroups = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, DynamicGroupResolver? dynamicGroups = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
 {
     private static readonly string[] DefaultAllowedHostTypes = ["video", "image", "audio", "text", "group", "performer", "studio", "tag", "gallery", "face", "segment"];
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -222,7 +223,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             foreach (var group in groups)
                 await engagementService.SetRatingAsync(AffinityHostType.Group, group.Id, dto.Rating, cancellationToken: ct);
         }
-        return Ok(new { updated = groups.Count });
+        return Ok(new BulkUpdateResult(groups.Select(group => group.Id).ToList()));
     }
 
     [HttpDelete("bulk")]
@@ -231,7 +232,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new { deleted = 0 });
+        if (ids.Length == 0) return Ok(new BulkDeleteWithSkippedResult([], 0));
 
         var groups = await db.Groups.Where(group => ids.Contains(group.Id)).ToListAsync(ct);
         var deletable = groups.Where(group => !DynamicGroupResolver.IsProtectedBuiltInGroup(group.QuerySourceKey)).ToList();
@@ -240,7 +241,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Group, group.Id, ct);
         db.Groups.RemoveRange(deletable);
         await db.SaveChangesAsync(ct);
-        return Ok(new { deleted = deletable.Count, skipped });
+        return Ok(new BulkDeleteWithSkippedResult(deletable.Select(group => group.Id).ToList(), skipped));
     }
 
     [HttpPut("reorder")]
@@ -268,6 +269,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         }
 
         await db.SaveChangesAsync(ct);
+        foreach (var id in ids)
+            PublishGroupUpdate(id);
         return Ok();
     }
 
@@ -293,6 +296,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         group.LastResolvedAt = null;
         group.CachedItemCount = null;
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(group.Id);
         return Ok();
     }
 
@@ -302,7 +306,10 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     public async Task<IActionResult> Snapshot(int id, CancellationToken ct)
     {
         if (dynamicGroups is null) return NotFound();
+        var wasDynamic = await db.Groups.AsNoTracking().AnyAsync(group => group.Id == id && group.Kind != GroupKind.Static, ct);
         await dynamicGroups.SnapshotAsync(id, ct);
+        if (wasDynamic)
+            PublishGroupUpdate(id);
         return Ok();
     }
 
@@ -385,6 +392,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             Description = dto.Description,
         });
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(id);
         return Ok();
     }
 
@@ -399,6 +407,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         if (relation == null) return NotFound();
         db.Set<GroupRelation>().Remove(relation);
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(id);
         return NoContent();
     }
 
@@ -418,8 +427,13 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             if (rel != null) rel.OrderIndex = i;
         }
         await db.SaveChangesAsync(ct);
+        if (relations.Count > 0)
+            PublishGroupUpdate(id);
         return Ok();
     }
+
+    private void PublishGroupUpdate(int id)
+        => eventBus?.Publish(new EntityEvent(EventType.GroupUpdated, "Group", id));
 
     private async Task<GroupDto> MapToDetailDtoAsync(Group group, CancellationToken ct)
     {

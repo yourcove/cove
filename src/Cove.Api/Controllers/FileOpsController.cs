@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Data;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -12,7 +13,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/files")]
 [RequiresPermission(Permissions.FilesRead)]
-public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger) : ControllerBase
+public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileOpsController> logger) : ControllerBase
 {
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
@@ -28,6 +29,7 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
             .ToListAsync(ct);
 
         var movedCount = 0;
+        var movedFiles = new List<BaseFileEntity>();
         foreach (var file in files)
         {
             var oldPath = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
@@ -57,10 +59,32 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
             }
             file.ParentFolderId = newFolder.Id;
             movedCount++;
+            movedFiles.Add(file);
         }
 
         await db.SaveChangesAsync(ct);
+        PublishOwnerUpdates(movedFiles);
         return Ok(new { moved = movedCount, total = files.Count });
+    }
+
+    private void PublishOwnerUpdates(IEnumerable<BaseFileEntity> files)
+    {
+        var owners = files
+            .Select(file => file switch
+            {
+                VideoFile { VideoId: int id } => (EventType.VideoUpdated, EntityType: "Video", Id: id),
+                ImageFile { ImageId: int id } => (EventType.ImageUpdated, EntityType: "Image", Id: id),
+                GalleryFile { GalleryId: int id } => (EventType.GalleryUpdated, EntityType: "Gallery", Id: id),
+                AudioFile { AudioId: int id } => (EventType.AudioUpdated, EntityType: "Audio", Id: id),
+                TextFile { TextDocumentId: int id } => (EventType.TextUpdated, EntityType: "Text", Id: id),
+                _ => ((EventType Type, string EntityType, int Id)?)null,
+            })
+            .Where(owner => owner.HasValue)
+            .Select(owner => owner!.Value)
+            .Distinct();
+
+        foreach (var (type, entityType, id) in owners)
+            eventBus.Publish(new EntityEvent(type, entityType, id));
     }
 
     [HttpPost("delete")]
@@ -93,6 +117,7 @@ public class FileOpsController(CoveContext db, ILogger<FileOpsController> logger
         }
 
         await db.SaveChangesAsync(ct);
+        PublishOwnerUpdates(files);
         logger.LogInformation("Deleted {Count} file record(s) ({DiskCount} also removed from disk)", deletedCount, deletedFromDisk);
         return Ok(new { deleted = deletedCount });
     }

@@ -284,7 +284,7 @@ public record ExtensionJobDefinition(
 }
 
 /// <summary>
-/// Extension that subscribes to entity lifecycle events (pre/post CRUD).
+/// Extension that subscribes to post-persistence entity lifecycle and rating events.
 /// </summary>
 public interface IEventExtension : IExtension
 {
@@ -294,10 +294,17 @@ public interface IEventExtension : IExtension
 /// <summary>An entity lifecycle event dispatched to extensions.</summary>
 public record ExtensionEvent(
     string EventType,  // "video.created", "performer.updated", "tag.deleted", etc.
-    string EntityType, // "video", "performer", "studio", "tag", "gallery", "image", "group"
+    string EntityType, // "video", "performer", "studio", "tag", "gallery", "image", "group", "audio", "text"
     int EntityId,
     Dictionary<string, object?>? Data = null
-);
+)
+{
+    /// <summary>
+    /// Stable noun.verb name used by new handlers. <see cref="EventType"/> keeps the original wire name
+    /// when changing it would break an existing extension.
+    /// </summary>
+    public string CanonicalEventType { get; init; } = EventType;
+}
 
 /// <summary>
 /// Extension that contributes its own database tables via EF Core migrations.
