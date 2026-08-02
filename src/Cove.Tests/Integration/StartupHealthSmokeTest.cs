@@ -7,6 +7,22 @@ namespace Cove.Tests.Integration;
 public sealed class StartupHealthSmokeTests
 {
     [Fact]
+    public async Task DirectClient_UsesDynamicallySelectedKestrelPort()
+    {
+        using var factory = new CoveWebApplicationFactory("IntegrationStartup");
+        var configuredBaseAddress = factory.ClientOptions.BaseAddress;
+        using var client = factory.CreateClient();
+
+        await WaitForStartupDatabaseAsync(factory);
+
+        var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotEqual(configuredBaseAddress, client.BaseAddress);
+        Assert.NotEqual(80, client.BaseAddress?.Port);
+    }
+
+    [Fact]
     public async Task HealthEndpoint_ReturnsOk_AfterStartup()
     {
         using var factory = new CoveWebApplicationFactory("IntegrationStartup");
