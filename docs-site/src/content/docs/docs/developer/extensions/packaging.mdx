@@ -9,7 +9,7 @@ For a first working package, follow [Create an extension](../create-extension/).
 
 ## Accepted archive layouts
 
-The portable layout puts the manifest at the archive root. A manifest at the archive root works with all installation workflows, including registry installation, **Install from URL**, and local extension-directory discovery. A registry release ZIP must therefore contain its manifest at the archive root.
+The portable layout puts the manifest at the archive root. A manifest at the archive root works with all installation workflows, including registry installation, **Install from ZIP**, **Install from URL**, and local extension-directory discovery. A registry release ZIP must therefore contain its manifest at the archive root.
 
 ```text
 com.example.reports.zip
@@ -22,7 +22,7 @@ com.example.reports.zip
     └── ui.css
 ```
 
-A single wrapper has narrower support. Exactly one top-level wrapper is accepted only by **Install from URL**:
+A single wrapper has narrower support. Exactly one top-level wrapper is accepted by **Install from ZIP** and **Install from URL**:
 
 ```text
 com.example.reports.zip
@@ -34,9 +34,9 @@ com.example.reports.zip
         └── ui.css
 ```
 
-After validating a URL-installed archive, Cove flattens the wrapper by moving that directory to the final extension directory. Do not publish this layout as a registry release: the registry extracts archive paths directly into the extension directory, and normal discovery looks for `extension.json` directly in that directory.
+After validating a directly installed archive, Cove flattens the wrapper by moving that directory to the final extension directory. Do not publish this layout as a registry release: the registry extracts archive paths directly into the extension directory, and normal discovery looks for `extension.json` directly in that directory.
 
-For **Install from URL**, a manifest at `release/com.example.reports/extension.json` is too deep, and manifests in two top-level directories make the package root ambiguous. The URL installer also rejects ZIP entries that attempt path traversal outside its temporary extraction directory.
+For **Install from ZIP** and **Install from URL**, a manifest at `release/com.example.reports/extension.json` is too deep, and manifests in two top-level directories make the package root ambiguous. Both installers reject ZIP entries that attempt path traversal outside the temporary extraction directory.
 
 List the finished archive before publishing it:
 
@@ -53,7 +53,7 @@ JSON property matching is case-insensitive, but use the camel-case names shown h
 
 | Field | Required or default | Meaning |
 | --- | --- | --- |
-| `id` | Required | Stable extension identity. A reverse-domain value is recommended. The URL installer rejects empty ids, rooted paths, `..`, and platform-invalid filename characters. |
+| `id` | Required | Stable extension identity. A reverse-domain value is recommended. Direct ZIP and URL installers reject empty ids, rooted paths, `..`, and platform-invalid filename characters. |
 | `name` | Required | Human-readable name shown in extension management. |
 | `version` | Required | Installed extension version. Use a numeric semantic version such as `1.2.0`. |
 | `description` | Optional | Short user-facing purpose. |
@@ -62,7 +62,7 @@ JSON property matching is case-insensitive, but use the camel-case names shown h
 | `iconUrl` | Optional | Extension icon URL. |
 | `kind` | `extension` | `extension` for compiled code; `bundle` and `scraper-pack` are manifest-only kinds. |
 | `categories` | `[]` | Labels used for registry and installed-extension filtering. Prefer Cove's well-known category strings where they fit. |
-| `minCoveVersion` | Any Cove version | Declared minimum running Cove version. **Install from URL** rejects an incompatible package, and registry selection excludes or rejects incompatible versions. See the startup-discovery limitation below. |
+| `minCoveVersion` | Any Cove version | Declared minimum running Cove version. **Install from ZIP** and **Install from URL** reject an incompatible package, and registry selection excludes or rejects incompatible versions. See the startup-discovery limitation below. |
 | `dependencies` | `{}` | Map of extension id to one supported semantic-version range: exact, `=`, `>`, `>=`, `<`, or `<=` followed by a version. Cove uses it for dependency validation and initialization order. |
 | `externalDependencies` | `[]` | User-visible tools, runtimes, services, executables, environment variables, or configuration requirements. These describe requirements; the extension remains responsible for probing what it uses. |
 | `settings` | `[]` | Generic settings shown in the Extensions settings UI. Each item names the setting and type and can include a display name, description, and applicable extension ids. |
@@ -73,9 +73,9 @@ JSON property matching is case-insensitive, but use the camel-case names shown h
 | `cssBundle` | Optional | Relative path to the frontend stylesheet for a loaded `IUIExtension`. |
 | `permissions` | Empty permission lists | Declarative `network`, `scraperRuntime`, and `downloaderRuntime` string lists. See [Extension permissions](../permissions/) for their current runtime boundary. |
 | `checksum` | Optional legacy; read if present | Retained in the manifest schema for compatibility. The package checksum used to verify a registry download lives in external registry metadata, not this field. |
-| `registryUrl` | Optional legacy; read if present | Retained for legacy source inference. Current URL and registry installation source is persisted separately in Cove's installation state. |
+| `registryUrl` | Optional legacy; read if present | Retained for legacy source inference. Current upload, URL, and registry installation source is persisted separately in Cove's installation state. |
 
-Current installers do not write or populate either legacy field in `extension.json`. Leave both out of newly built packages. Registry release metadata supplies each version's SHA-256 checksum, and Cove records a successful install's source as `registry` or `url` in its separate installation state.
+Current installers do not write or populate either legacy field in `extension.json`. Leave both out of newly built packages. Registry release metadata supplies each version's SHA-256 checksum, and Cove records a successful install's source as `registry`, `upload`, or `url` in its separate installation state.
 
 ### Complete compiled example
 
@@ -160,23 +160,22 @@ Cove orders installed dependencies before dependents and reports missing extensi
 
 `minCoveVersion` compares the **running Cove version** with the minimum in the package. It is not a comparison between the extension's own `version` and `minCoveVersion`. Use the oldest Cove version against which the built binary and its public host contracts were actually tested. This may be a tagged release or a development build such as `1.1.1-dev.42` after the `1.1.0` release when the extension requires an unreleased contract from `main`; see the [core contribution and version policy](../../contributing/core-development/).
 
-Supported installers enforce `minCoveVersion`: the **Install from URL** endpoint rejects a package whose parsed floor is above the running host version, while registry version selection filters incompatible candidates and rejects an explicitly requested incompatible version. Startup discovery of a compiled extension already placed on disk is less strict: dependency validation reports the mismatch, but the current initialization order does not exclude that extension solely for the Cove-version mismatch, so it may still initialize. Manifest-only `bundle` and `scraper-pack` packages are not added to the compiled extension set checked by dependency validation, so startup does not report their Cove-version mismatch. Do not use direct filesystem placement to bypass the supported installers or to claim compatibility.
+Supported installers enforce `minCoveVersion`: the **Install from ZIP** and **Install from URL** endpoints reject a package whose parsed floor is above the running host version, while registry version selection filters incompatible candidates and rejects an explicitly requested incompatible version. Startup discovery of a compiled extension already placed on disk is less strict: dependency validation reports the mismatch, but the current initialization order does not exclude that extension solely for the Cove-version mismatch, so it may still initialize. Manifest-only `bundle` and `scraper-pack` packages are not added to the compiled extension set checked by dependency validation, so startup does not report their Cove-version mismatch. Do not use direct filesystem placement to bypass the supported installers or to claim compatibility.
 
 ## Install-time validation and failures
 
-For an **Install from URL** package, Cove performs these checks before replacing the installed directory:
+For an **Install from ZIP** or **Install from URL** package, Cove performs these checks before replacing the installed directory:
 
-1. Explicit trust confirmation is present and the URL is absolute HTTP or HTTPS.
-2. The download succeeds.
-3. Every ZIP entry remains inside the temporary extraction directory.
-4. Exactly one accepted package root contains `extension.json`.
-5. The manifest parses, has a valid `id`, and does not require a newer Cove version.
+1. Explicit trust confirmation is present. URL installs also require an absolute HTTP or HTTPS URL and a successful download; ZIP installs require a non-empty uploaded file.
+2. Every ZIP entry remains inside the temporary extraction directory.
+3. Exactly one accepted package root contains `extension.json`.
+4. The manifest parses, has a valid `id`, and does not require a newer Cove version.
 
 After those validations, replacement is not transactional. Cove unloads the existing same-id extension, deletes its directory, moves the new package into place, discovers it, and initializes it. Endpoint registration, installation-source persistence, and scraper reload happen only after initialization succeeds.
 
-The installer returns `400` for an invalid URL, unsafe or ambiguous archive, invalid manifest id, or incompatible Cove version. It returns `409` if the existing directory cannot be deleted because files remain locked. If discovery or initialization fails, it returns `500`; by then the old extension has already been removed, and the new package files can remain installed while the extension is disabled or not loaded.
+The installers return `400` for a missing upload, invalid URL, unsafe or ambiguous archive, invalid manifest id, or incompatible Cove version. They return `409` if the existing directory cannot be deleted because files remain locked. If discovery or initialization fails, they return `500`; by then the old extension has already been removed, and the new package files can remain installed while the extension is disabled or not loaded.
 
-Review the Cove logs for discovery, assembly-load, dependency, and initialization details. Correct the archive and install the same URL again, or reinstall a known-good package with the same `id` to recover from a failed replacement.
+Review the Cove logs for discovery, assembly-load, dependency, and initialization details. Correct the archive and upload it or install the same URL again, or reinstall a known-good package with the same `id` to recover from a failed replacement.
 
 ## Release workflow
 

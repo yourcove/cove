@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   logFilterLevelOptions,
+  isUnverifiedExtensionInstallSource,
   readSettingsTabFromUrl,
   resolveVisibleSettingsTab,
   serverLogLevelOptions,
@@ -91,5 +92,13 @@ describe("log level option ordering", () => {
       "Debug",
       "Trace",
     ]);
+  });
+});
+
+describe("extension installation trust badges", () => {
+  it("marks direct URL and ZIP uploads as unverified", () => {
+    expect(isUnverifiedExtensionInstallSource("url")).toBe(true);
+    expect(isUnverifiedExtensionInstallSource("upload")).toBe(true);
+    expect(isUnverifiedExtensionInstallSource("registry")).toBe(false);
   });
 });

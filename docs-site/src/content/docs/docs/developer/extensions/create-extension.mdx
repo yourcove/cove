@@ -173,6 +173,19 @@ http://127.0.0.1:4174/com.example.hello-cove-dev.zip
 
 For a containerized or remote Cove server, replace `127.0.0.1` with a host name or address that is reachable from that server. Confirm reachability from the Cove host environment; opening the URL only in your desktop browser does not test the path Cove uses.
 
+## Install the ZIP directly
+
+For the quickest local development loop, upload the built archive without starting an HTTP server:
+
+1. In Cove, open **Settings → Extensions → Discover**.
+2. Select **More extension actions** (the three-dot button).
+3. Select **Install from ZIP...** and choose the built `.zip` file.
+4. Select **Install**.
+5. Read the **Install Unverified Extension** warning. If you trust this package you just built, select **Install** to confirm.
+6. Open **Settings → Extensions → Installed Extensions**.
+
+Use **Install from URL...** instead when the package is already hosted somewhere the Cove server can reach. URL installation follows the same archive validation, replacement, and initialization pipeline.
+
 ## Install from the URL
 
 1. In Cove, open **Settings → Extensions → Discover**.
@@ -190,18 +203,18 @@ For a containerized or remote Cove server, replace `127.0.0.1` with a host name 
   caption="The URL field opens beneath the registry filters; the Cove server must be able to reach the entered address."
 />
 
-The list should contain **Hello Cove**, version `0.1.0`, with **Unverified** and an **Enabled** control. URL-installed development packages are unverified because they do not come from Cove's registry. That is the expected observable result for this backend-only example.
+The list should contain **Hello Cove**, version `0.1.0`, with **Unverified** and an **Enabled** control. Direct ZIP and URL development packages are unverified because they do not come from Cove's registry. That is the expected observable result for this backend-only example.
 
 ## Make a change and reload
 
-To reload the extension during development, rebuild the package and install the same URL again:
+To reload the extension during development, rebuild the package and upload the new ZIP again (or install the same URL again):
 
 1. Change the C# code or manifest. Increase `version` when the package represents a new release.
 2. Run the publish and archive commands again.
-3. Install the same development URL again. Cove replaces the installed package and reloads that extension.
+3. Upload the rebuilt ZIP again, or install the same development URL again. Cove replaces the installed package and reloads that extension.
 4. Refresh **Installed Extensions** and verify the displayed metadata and enabled state.
 
-Keep the archive URL stable for this local loop. For a release, update `.github/workflows/build.yml` with your extension id and project path, then push a tag whose name matches the manifest version, such as `v0.1.0`.
+When using URL installation, keep the archive URL stable for this local loop. For a release, update `.github/workflows/build.yml` with your extension id and project path, then push a tag whose name matches the manifest version, such as `v0.1.0`.
 
 ## Troubleshooting
 
@@ -223,6 +236,6 @@ Run `dotnet publish` again instead of copying only your extension DLL. Private d
 
 ### Cove rejects the compatibility requirement
 
-**Install from URL** rejects the package when the running Cove version is lower than `minCoveVersion`; registry installation also filters or rejects incompatible versions. Upgrade Cove or lower the requirement only if you have built and tested against that older host contract. A package copied directly into the extension directory can report the mismatch during startup validation yet still initialize in the current host, so manual placement is not a compatibility bypass or a supported verification result.
+**Install from ZIP** and **Install from URL** reject the package when the running Cove version is lower than `minCoveVersion`; registry installation also filters or rejects incompatible versions. Upgrade Cove or lower the requirement only if you have built and tested against that older host contract. A package copied directly into the extension directory can report the mismatch during startup validation yet still initialize in the current host, so manual placement is not a compatibility bypass or a supported verification result.
 
 Once this minimal package works, add a frontend contribution only when the feature needs one. See [UI extension points](../ui-extension-points/) for bundle and component registration.
