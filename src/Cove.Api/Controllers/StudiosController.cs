@@ -7,6 +7,7 @@ using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
@@ -16,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StudiosRead)]
-public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
 {
     private sealed record StudioUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int PerformerCount, int ChildStudioCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -191,7 +192,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             foreach (var studio in studios)
                 await engagementService.SetRatingAsync(AffinityHostType.Studio, studio.Id, dto.Rating, cancellationToken: ct);
         }
-        return Ok(new { updated = studios.Count });
+        return Ok(new BulkUpdateResult(studios.Select(studio => studio.Id).ToList()));
     }
 
     [HttpDelete("bulk")]
@@ -200,14 +201,14 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new { deleted = 0 });
+        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
 
         var studios = await db.Studios.Where(s => ids.Contains(s.Id)).ToListAsync(ct);
         foreach (var studio in studios)
             await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Studio, studio.Id, ct);
         db.Studios.RemoveRange(studios);
         await db.SaveChangesAsync(ct);
-        return Ok(new { deleted = studios.Count });
+        return Ok(new BulkDeleteResult(studios.Select(studio => studio.Id).ToList()));
     }
 
     // ===== Merge =====
@@ -391,7 +392,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             .Include(s => s.Galleries)
             .Include(s => s.Images)
             .Include(s => s.Groups)
-            .Where(s => dto.SourceIds.Contains(s.Id))
+            .Where(s => dto.SourceIds.Contains(s.Id) && s.Id != target.Id)
             .ToListAsync(ct);
 
         foreach (var source in sources)
@@ -419,6 +420,12 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         }
 
         await db.SaveChangesAsync(ct);
+        if (sources.Count > 0)
+        {
+            eventBus?.Publish(new EntityEvent(EventType.StudioUpdated, "Studio", target.Id));
+            foreach (var source in sources)
+                eventBus?.Publish(new EntityEvent(EventType.StudioDeleted, "Studio", source.Id));
+        }
         var result = await studioRepo.GetByIdWithRelationsAsync(target.Id, ct);
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }
@@ -479,6 +486,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         if (!imported) return NotFound();
 
         await db.SaveChangesAsync(ct);
+        eventBus?.Publish(new EntityEvent(EventType.StudioUpdated, "Studio", studio.Id));
         var updated = await studioRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }

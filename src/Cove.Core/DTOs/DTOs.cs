@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Cove.Core.Enums;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -2085,6 +2086,28 @@ public record ReorderSubGroupsDto(List<int> SubGroupIds);
 
 // ===== BATCH/BULK DTOs =====
 public record BatchDeleteDto(List<int> Ids, bool DeleteFiles = false, bool DeleteGenerated = false);
+
+public interface IEntityMutationResult
+{
+    IReadOnlyList<int> EntityIds { get; }
+}
+
+public sealed record BulkUpdateResult([property: JsonIgnore] IReadOnlyList<int> EntityIds) : IEntityMutationResult
+{
+    public int Updated => EntityIds.Count;
+}
+
+public sealed record BulkDeleteResult([property: JsonIgnore] IReadOnlyList<int> EntityIds) : IEntityMutationResult
+{
+    public int Deleted => EntityIds.Count;
+}
+
+public sealed record BulkDeleteWithSkippedResult(
+    [property: JsonIgnore] IReadOnlyList<int> EntityIds,
+    int Skipped) : IEntityMutationResult
+{
+    public int Deleted => EntityIds.Count;
+}
 
 // ===== FILE OPERATION DTOs =====
 public record MoveFilesDto(List<int> FileIds, string DestinationPath);

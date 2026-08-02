@@ -1,4 +1,5 @@
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 
 using Microsoft.EntityFrameworkCore;
@@ -14,9 +15,10 @@ namespace Cove.Data.Services;
 /// The denormalized Video/Image/Gallery PerformerIds arrays are rebuilt automatically by
 /// <see cref="CoveContext"/> on save, so this service only manages the join rows.
 /// </summary>
-public sealed class PerformerMergeService(CoveContext db) : IPerformerMergeService
+public sealed class PerformerMergeService(CoveContext db, IEventBus eventBus) : IPerformerMergeService
 {
     private readonly CoveContext _db = db;
+    private readonly IEventBus _eventBus = eventBus;
 
     public async Task<Performer?> MergeAsync(int targetId, IReadOnlyCollection<int> sourceIds, CancellationToken ct = default)
     {
@@ -60,6 +62,12 @@ public sealed class PerformerMergeService(CoveContext db) : IPerformerMergeServi
         }
 
         await _db.SaveChangesAsync(ct);
+        if (sources.Count > 0)
+        {
+            _eventBus.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", target.Id));
+            foreach (var source in sources)
+                _eventBus.Publish(new EntityEvent(EventType.PerformerDeleted, "Performer", source.Id));
+        }
         return await LoadWithRelationsAsync(targetId, ct);
     }
 

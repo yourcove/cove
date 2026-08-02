@@ -5,6 +5,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using System.Net.Http;
@@ -25,6 +26,7 @@ public class MetadataController(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     CoveConfiguration config,
+    IEventBus eventBus,
     ILogger<MetadataController> logger) : ControllerBase
 {
     private static readonly JsonSerializerOptions MetadataExportJsonOptions = new(CoveJson.Default)
@@ -1239,9 +1241,13 @@ public class MetadataController(
                                 rankedMatches.Count,
                                 matches.Count);
 
-                            await metadataServerSvc.MergeVideoAsync(video, best.Endpoint, best.Id, importConfig, ct);
-                            await dbCtx.SaveChangesAsync(ct);
-                            identified = true;
+                            var imported = await metadataServerSvc.MergeVideoAsync(video, best.Endpoint, best.Id, importConfig, ct);
+                            if (imported)
+                            {
+                                await dbCtx.SaveChangesAsync(ct);
+                                eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));
+                                identified = true;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -1369,7 +1375,10 @@ public class MetadataController(
                 if (attempt.Status != ScrapeAttemptStatuses.Success)
                     continue;
 
-                await scrapeAttemptSvc.ApplyAttemptAsync(attempt.Id, BuildScraperIdentifyApplyDto(opts, identifyDefaults), ct);
+                var applied = await scrapeAttemptSvc.ApplyAttemptAsync(attempt.Id, BuildScraperIdentifyApplyDto(opts, identifyDefaults), ct);
+                if (applied == null)
+                    continue;
+
                 logger.LogTrace(
                     "Identify video {VideoId}: applied scraper {ScraperId} from URL {Url}",
                     video.Id, candidate.Id, url);

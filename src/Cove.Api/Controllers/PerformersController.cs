@@ -7,6 +7,7 @@ using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
@@ -16,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.PerformersRead)]
-public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class PerformersController(IPerformerRepository performerRepo, MetadataServerService metadataServerService, PerformerScrapeService performerScrapeService, Data.CoveContext db, IUserEngagementService engagementService, IPerformerMergeService performerMergeService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
 {
     private sealed record PerformerUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int AudioCount, int TextCount, int LikeCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -336,6 +337,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
 
         await performerScrapeService.ApplyAsync(performer, resolvedScrape.Scraped!, dto.CreateMissingTags, ct: ct);
         await performerRepo.UpdateAsync(performer, ct);
+        eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
 
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
@@ -367,6 +369,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
 
         await performerScrapeService.ApplyAsync(performer, dto.Scraped, dto.CreateMissingTags, dto.ReplaceFields, dto.CollectionModes, ct);
         await performerRepo.UpdateAsync(performer, ct);
+        eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
 
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
@@ -458,6 +461,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             return NotFound();
 
         await performerRepo.UpdateAsync(performer, ct);
+        eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }
@@ -784,7 +788,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
             foreach (var performer in performers)
                 await engagementService.SetRatingAsync(AffinityHostType.Performer, performer.Id, dto.Rating, cancellationToken: ct);
         }
-        return Ok(new { updated = performers.Count });
+        return Ok(new BulkUpdateResult(performers.Select(performer => performer.Id).ToList()));
     }
 
     [HttpDelete("bulk")]
@@ -793,14 +797,14 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new { deleted = 0 });
+        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
 
         var performers = await db.Performers.Where(performer => ids.Contains(performer.Id)).ToListAsync(ct);
         foreach (var performer in performers)
             await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Performer, performer.Id, ct);
         db.Performers.RemoveRange(performers);
         await db.SaveChangesAsync(ct);
-        return Ok(new { deleted = performers.Count });
+        return Ok(new BulkDeleteResult(performers.Select(performer => performer.Id).ToList()));
     }
 
     // ===== Merge =====

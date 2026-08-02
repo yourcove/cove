@@ -60,6 +60,9 @@ public class ScrapeAttemptServiceTests
         db.ScrapeAttempts.Add(attempt);
         await db.SaveChangesAsync();
 
+        var eventBus = new EventBus();
+        var publishedEvents = new List<EntityEvent>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(publishedEvents.Add);
         var service = new ScrapeAttemptService(
             db,
             null!,
@@ -67,6 +70,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            eventBus,
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ApplyAttemptAsync(
@@ -98,6 +102,9 @@ public class ScrapeAttemptServiceTests
             .SingleAsync(item => item.Id == audio.Id);
 
         Assert.Equal("Scraped Title", updatedAudio.Title);
+        var publishedEvent = Assert.Single(publishedEvents);
+        Assert.Equal(EventType.AudioUpdated, publishedEvent.Type);
+        Assert.Equal(audio.Id, publishedEvent.EntityId);
         Assert.True(updatedAudio.Organized);
         Assert.Equal("Scraped Studio", updatedAudio.Studio?.Name);
         Assert.Equal(
@@ -151,6 +158,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ApplyAttemptAsync(
@@ -196,6 +204,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ResolveRelationsAsync(
@@ -235,6 +244,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ResolveRelationsAsync(
@@ -274,6 +284,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ResolveRelationsAsync(
@@ -334,6 +345,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ApplyAttemptAsync(
@@ -418,6 +430,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         await service.ApplyAttemptAsync(
@@ -491,6 +504,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new TagProvenanceService(db),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         await service.ApplyAttemptAsync(
@@ -566,6 +580,7 @@ public class ScrapeAttemptServiceTests
             null!,
             tagProvenanceService,
             groupApplyService,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance);
 
         var result = await service.ApplyAttemptAsync(
@@ -661,6 +676,7 @@ public class ScrapeAttemptServiceTests
             null!,
             new NoOpTagProvenanceService(),
             null!,
+            new EventBus(),
             NullLogger<ScrapeAttemptService>.Instance,
             new FieldProvenanceService(db));
 

@@ -3,6 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -65,6 +66,7 @@ public class VideoSubVideoCreationTests
             null!,
             new NoOpUserEngagementService(),
             new CustomFieldService(context),
+            new EventBus(),
             null,
             principalAccessor);
 

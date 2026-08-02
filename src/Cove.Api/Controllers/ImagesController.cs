@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
+using Cove.Api.Http;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Common;
@@ -358,7 +359,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return NoContent();
+        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
 
         var idsToDelete = ids.ToHashSet();
         var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -379,7 +380,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         await RemoveImageGroupItemsAsync(idsToDelete, ct);
         db.Images.RemoveRange(images);
         await db.SaveChangesAsync(ct);
-        return NoContent();
+        return new EntityMutationNoContentResult(images.Select(image => image.Id).ToList());
     }
 
     [HttpPost("bulk")]
@@ -477,7 +478,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             foreach (var image in images)
                 await engagementService.SetRatingAsync(AffinityHostType.Image, image.Id, dto.Rating, cancellationToken: ct);
         }
-        return Ok(new { updated = images.Count });
+        return Ok(new BulkUpdateResult(images.Select(image => image.Id).ToList()));
     }
 
     private async Task DeleteImageArtifactsAsync(Image image, IReadOnlySet<int> idsToDelete, HashSet<string> deletedPaths, bool deleteFiles, bool deleteGenerated, CancellationToken ct)

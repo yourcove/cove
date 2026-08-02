@@ -9,6 +9,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Helpers;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 
 namespace Cove.Api.Controllers;
@@ -16,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.GalleriesRead)]
-public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContext db, IUserEngagementService engagementService, IScanService scanService, ITagProvenanceService? tagProvenanceService = null, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContext db, IUserEngagementService engagementService, IScanService scanService, ITagProvenanceService? tagProvenanceService = null, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
 {
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
     private sealed record GalleryRelationshipCounts(IReadOnlyDictionary<int, int> ImageCounts, IReadOnlyDictionary<int, int> VideoCounts);
@@ -428,11 +429,14 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (gallery == null) return NotFound();
 
         var existing = gallery.ImageGalleries.Select(ig => ig.ImageId).ToHashSet();
-        foreach (var imageId in dto.ImageIds.Where(iid => !existing.Contains(iid)))
+        var addedIds = dto.ImageIds.Where(existing.Add).Distinct().ToList();
+        foreach (var imageId in addedIds)
             gallery.ImageGalleries.Add(new ImageGallery { ImageId = imageId, GalleryId = id });
 
         await db.SaveChangesAsync(ct);
-        return Ok(new { added = dto.ImageIds.Count });
+        if (addedIds.Count > 0)
+            PublishGalleryUpdate(id);
+        return Ok(new { added = addedIds.Count });
     }
 
     [HttpDelete("{id:int}/images")]
@@ -446,6 +450,8 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
         db.Set<ImageGallery>().RemoveRange(toRemove);
         await db.SaveChangesAsync(ct);
+        if (toRemove.Count > 0)
+            PublishGalleryUpdate(id);
         return Ok(new { removed = toRemove.Count });
     }
 
@@ -475,6 +481,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var chapter = new GalleryChapter { Title = dto.Title, ImageIndex = dto.ImageIndex, GalleryId = id };
         db.GalleryChapters.Add(chapter);
         await db.SaveChangesAsync(ct);
+        PublishGalleryUpdate(id);
         return CreatedAtAction(nameof(GetChapters), new { id }, new GalleryChapterDto(chapter.Id, chapter.Title, chapter.ImageIndex, chapter.GalleryId, chapter.CreatedAt.ToString("o"), chapter.UpdatedAt.ToString("o")));
     }
 
@@ -489,6 +496,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (dto.Title != null) chapter.Title = dto.Title;
         if (dto.ImageIndex.HasValue) chapter.ImageIndex = dto.ImageIndex.Value;
         await db.SaveChangesAsync(ct);
+        PublishGalleryUpdate(galleryId);
         return Ok(new GalleryChapterDto(chapter.Id, chapter.Title, chapter.ImageIndex, chapter.GalleryId, chapter.CreatedAt.ToString("o"), chapter.UpdatedAt.ToString("o")));
     }
 
@@ -501,8 +509,12 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (chapter == null) return NotFound();
         db.GalleryChapters.Remove(chapter);
         await db.SaveChangesAsync(ct);
+        PublishGalleryUpdate(galleryId);
         return NoContent();
     }
+
+    private void PublishGalleryUpdate(int id)
+        => eventBus?.Publish(new EntityEvent(EventType.GalleryUpdated, "Gallery", id));
 
     // ===== Bulk Operations =====
 
@@ -572,7 +584,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             foreach (var gallery in galleries)
                 await engagementService.SetRatingAsync(AffinityHostType.Gallery, gallery.Id, dto.Rating, cancellationToken: ct);
         }
-        return Ok(new { updated = galleries.Count });
+        return Ok(new BulkUpdateResult(galleries.Select(gallery => gallery.Id).ToList()));
     }
 
     [HttpDelete("bulk")]
@@ -581,7 +593,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new { deleted = 0 });
+        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
 
         var galleries = await db.Galleries.Where(g => ids.Contains(g.Id)).ToListAsync(ct);
         foreach (var gallery in galleries)
@@ -592,6 +604,6 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         }
         db.Galleries.RemoveRange(galleries);
         await db.SaveChangesAsync(ct);
-        return Ok(new { deleted = galleries.Count });
+        return Ok(new BulkDeleteResult(galleries.Select(gallery => gallery.Id).ToList()));
     }
 }

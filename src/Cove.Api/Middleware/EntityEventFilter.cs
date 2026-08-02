@@ -1,6 +1,8 @@
 using Cove.Core.Events;
+using Cove.Core.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 
 namespace Cove.Api.Middleware;
 
@@ -20,14 +22,16 @@ public sealed class EntityEventFilter : IAsyncActionFilter
         ["Galleries"] = "gallery",
         ["Images"] = "image",
         ["Groups"] = "group",
+        ["Audios"] = "audio",
+        ["Texts"] = "text",
     };
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         var result = await next();
 
-        // Only publish events for successful mutations
-        if (result.Exception != null || result.Canceled) return;
+        // An action can complete without throwing and still reject the mutation with a 4xx/5xx result.
+        if (result.Exception != null || result.Canceled || !IsSuccessful(result.Result)) return;
 
         var controllerName = context.RouteData.Values["controller"]?.ToString();
         if (controllerName == null || !ControllerEntityMap.TryGetValue(controllerName, out var entityType))
@@ -42,7 +46,40 @@ public sealed class EntityEventFilter : IAsyncActionFilter
         var (eventType, entityId) = DetermineEvent(actionName, entityType, context, result);
         if (eventType == null) return;
 
+        if (actionName is "bulkupdate" or "bulkdelete" or "destroybatch")
+        {
+            var ids = result.Result switch
+            {
+                ObjectResult { Value: IEntityMutationResult mutationResult } => mutationResult.EntityIds,
+                IEntityMutationResult mutationResult => mutationResult.EntityIds,
+                _ => ExtractBulkIds(context),
+            };
+            foreach (var id in ids.Where(id => id > 0).Distinct())
+                eventBus.Publish(new EntityEvent(eventType.Value, entityType, id));
+            return;
+        }
+
         eventBus.Publish(new EntityEvent(eventType.Value, entityType, entityId));
+    }
+
+    private static bool IsSuccessful(IActionResult? result) => result switch
+    {
+        IStatusCodeActionResult { StatusCode: int statusCode } => statusCode is >= 200 and < 300,
+        _ => true,
+    };
+
+    private static IReadOnlyList<int> ExtractBulkIds(ActionExecutingContext context)
+    {
+        foreach (var argument in context.ActionArguments.Values)
+        {
+            if (argument == null) continue;
+
+            var idsProperty = argument.GetType().GetProperty("Ids");
+            if (idsProperty?.GetValue(argument) is IEnumerable<int> ids)
+                return ids.ToList();
+        }
+
+        return [];
     }
 
     private static (EventType? eventType, int entityId) DetermineEvent(
@@ -56,6 +93,7 @@ public sealed class EntityEventFilter : IAsyncActionFilter
             "update" => (GetEventType(entityType, "updated"), entityId),
             "delete" => (GetEventType(entityType, "deleted"), entityId),
             "bulkupdate" => (GetEventType(entityType, "updated"), 0), // bulk = id 0
+            "bulkdelete" or "destroybatch" => (GetEventType(entityType, "deleted"), 0),
             _ => (null, 0),
         };
     }
@@ -101,7 +139,12 @@ public sealed class EntityEventFilter : IAsyncActionFilter
             ("group", "created") => EventType.GroupCreated,
             ("group", "updated") => EventType.GroupUpdated,
             ("group", "deleted") => EventType.GroupDeleted,
+            ("audio", "created") => EventType.AudioCreated,
+            ("audio", "updated") => EventType.AudioUpdated,
+            ("audio", "deleted") => EventType.AudioDeleted,
+            ("text", "created") => EventType.TextCreated,
+            ("text", "updated") => EventType.TextUpdated,
+            ("text", "deleted") => EventType.TextDeleted,
             _ => null,
         };
 }
-

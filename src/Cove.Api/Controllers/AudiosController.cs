@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
+using Cove.Api.Http;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -411,7 +412,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         }
 
         await db.SaveChangesAsync(ct);
-        return Ok(new { updated = items.Count });
+        return Ok(new BulkUpdateResult(items.Select(audio => audio.Id).ToList()));
     }
 
     [HttpDelete("bulk")]
@@ -420,7 +421,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return NoContent();
+        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
 
         var idsToDelete = ids.ToHashSet();
         var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -442,7 +443,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         }
         db.Audios.RemoveRange(items);
         await db.SaveChangesAsync(ct);
-        return NoContent();
+        return new EntityMutationNoContentResult(items.Select(item => item.Id).ToList());
     }
 
     [HttpDelete("{id:int}")]

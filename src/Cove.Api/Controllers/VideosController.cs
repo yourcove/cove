@@ -9,6 +9,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
@@ -19,7 +20,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -438,7 +439,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
     public async Task<IActionResult> DestroyBatch([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var deletedCount = 0;
+        var deletedIds = new List<int>();
         var idsToDelete = dto.Ids.ToHashSet();
         var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in dto.Ids)
@@ -452,10 +453,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, id, ct);
                 await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Video, id, ct);
                 await videoRepo.DeleteAsync(id, ct);
-                deletedCount++;
+                deletedIds.Add(id);
             }
         }
-        return Ok(new { deleted = deletedCount });
+        return Ok(new BulkDeleteResult(deletedIds));
     }
 
     private async Task DeleteVideoArtifactsAsync(Video video, IReadOnlySet<int> idsToDelete, HashSet<string> deletedPaths, bool deleteFiles, bool deleteGenerated, CancellationToken ct)
@@ -529,6 +530,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (!imported) return NotFound();
 
         await db.SaveChangesAsync(ct);
+        PublishVideoEvent(EventType.VideoUpdated, id);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct));
     }
@@ -615,6 +617,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (!string.IsNullOrWhiteSpace(existingVideo.ImageBlobId))
             await blobService.DeleteBlobAsync(existingVideo.ImageBlobId, CancellationToken.None);
 
+        PublishVideoEvent(EventType.VideoUpdated, id);
         return Ok(new { success = true });
     }
 
@@ -1419,7 +1422,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             foreach (var video in videos)
                 await engagementService.SetVideoRatingAsync(video.Id, dto.Rating, cancellationToken: ct);
         }
-        return Ok(new { updated = videos.Count });
+        return Ok(new BulkUpdateResult(videos.Select(video => video.Id).ToList()));
     }
 
     private static List<GroupSummaryDto> MapWholeVideoGroups(Video video)
@@ -1474,7 +1477,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .Include(s => s.VideoPerformers)
             .Include(s => s.VideoGalleries)
             .Include(s => s.Urls)
-            .Where(s => dto.SourceIds.Contains(s.Id))
+            .Where(s => dto.SourceIds.Contains(s.Id) && s.Id != target.Id)
+            .OrderBy(s => s.Id)
             .ToListAsync(ct);
 
         var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
@@ -1497,6 +1501,13 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
 
         await db.SaveChangesAsync(ct);
+        if (sources.Count > 0)
+        {
+            PublishVideoEvent(EventType.VideoUpdated, target.Id);
+            foreach (var source in sources)
+                PublishVideoEvent(EventType.VideoDeleted, source.Id);
+        }
+
         var result = await videoRepo.GetByIdWithRelationsAsync(target.Id, ct);
         var engagement = (await engagementService.GetVideoSnapshotsAsync([target.Id], ct)).GetValueOrDefault(target.Id);
         return Ok(await MapToDtoWithProvenanceAsync(result!, engagement, HasUserScopedEngagement, ct));
@@ -1518,6 +1529,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(video => video.UpdatedAt, DateTime.UtcNow),
                 ct);
+        PublishVideoEvent(EventType.VideoUpdated, id);
         return Ok(new { success = true });
     }
 
@@ -1557,11 +1569,19 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var file = await db.Set<VideoFile>().FirstOrDefaultAsync(f => f.Id == dto.FileId, ct);
         if (file == null) return NotFound("File not found");
+        if (file.VideoId == id) return Ok();
 
+        var previousOwnerId = file.VideoId;
         file.VideoId = id;
         await db.SaveChangesAsync(ct);
+        if (previousOwnerId is int previousId && previousId != id)
+            PublishVideoEvent(EventType.VideoUpdated, previousId);
+        PublishVideoEvent(EventType.VideoUpdated, id);
         return Ok();
     }
+
+    private void PublishVideoEvent(EventType type, int id)
+        => eventBus.Publish(new EntityEvent(type, "Video", id));
 
     private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 }

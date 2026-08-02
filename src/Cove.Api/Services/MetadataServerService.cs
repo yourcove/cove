@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 
@@ -213,6 +214,7 @@ query Me {
     private readonly IVideoCoverService _videoCoverService;
     private readonly ITagProvenanceService _tagProvenanceService;
     private readonly IFieldProvenanceService? _fieldProvenanceService;
+    private readonly IEventBus? _eventBus;
     private readonly ILogger<MetadataServerService> _logger;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -220,7 +222,7 @@ query Me {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public MetadataServerService(HttpClient httpClient, CoveConfiguration config, CoveContext db, IBlobService blobService, IVideoCoverService videoCoverService, ITagProvenanceService tagProvenanceService, ILogger<MetadataServerService> logger, IFieldProvenanceService? fieldProvenanceService = null)
+    public MetadataServerService(HttpClient httpClient, CoveConfiguration config, CoveContext db, IBlobService blobService, IVideoCoverService videoCoverService, ITagProvenanceService tagProvenanceService, ILogger<MetadataServerService> logger, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null)
     {
         _httpClient = httpClient;
         _config = config;
@@ -229,6 +231,7 @@ query Me {
         _videoCoverService = videoCoverService;
         _tagProvenanceService = tagProvenanceService;
         _fieldProvenanceService = fieldProvenanceService;
+        _eventBus = eventBus;
         _logger = logger;
     }
 
@@ -566,6 +569,7 @@ query Me {
 
                 await RestoreExcludedPerformerFieldsAsync(performer, snapshot, normalizedExcludeFields, ct);
                 await _db.SaveChangesAsync(ct);
+                _eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
                 return new MetadataServerBatchTagItemResultDto(performer.Id, performer.Name, "updated", match.Id);
             },
             ct);
@@ -605,6 +609,7 @@ query Me {
 
                 await RestoreExcludedStudioFieldsAsync(studio, snapshot, normalizedExcludeFields, ct);
                 await _db.SaveChangesAsync(ct);
+                _eventBus?.Publish(new EntityEvent(EventType.StudioUpdated, "Studio", studio.Id));
                 return new MetadataServerBatchTagItemResultDto(studio.Id, studio.Name, "updated", match.Id);
             },
             ct);
@@ -642,6 +647,7 @@ query Me {
 
                 await RestoreExcludedTagFieldsAsync(tag, snapshot, normalizedExcludeFields);
                 await _db.SaveChangesAsync(ct);
+                _eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", tag.Id));
                 return new MetadataServerBatchTagItemResultDto(tag.Id, tag.Name, "updated", match.Id);
             },
             ct);

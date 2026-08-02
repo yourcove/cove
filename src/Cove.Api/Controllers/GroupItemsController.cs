@@ -4,6 +4,7 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
@@ -16,7 +17,7 @@ namespace Cove.Api.Controllers;
 [Route("api/groups/{groupId:int}")]
 [RequiresPermission(Permissions.GroupsRead)]
 [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = "groupId")]
-public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolver, DynamicGroupResolver? dynamicGroups = null) : ControllerBase
+public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolver, DynamicGroupResolver? dynamicGroups = null, IEventBus? eventBus = null) : ControllerBase
 {
     [HttpGet("items")]
     public async Task<ActionResult<IReadOnlyList<GroupItemDto>>> List(int groupId, CancellationToken ct)
@@ -168,6 +169,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
 
         db.GroupItems.Add(item);
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(groupId);
         await LoadItemReferencesAsync(item, ct);
 
         return CreatedAtAction(nameof(List), new { groupId }, MapItem(item));
@@ -208,6 +210,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         item.Notes = NormalizeOptionalText(dto.Notes);
 
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(groupId);
         return Ok(MapItem(item));
     }
 
@@ -229,6 +232,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         db.GroupItems.Remove(item);
         await ReindexItemsAsync(groupId, ct);
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(groupId);
         return NoContent();
     }
 
@@ -258,6 +262,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         db.GroupItems.RemoveRange(items);
         await ReindexItemsAsync(groupId, ct);
         await db.SaveChangesAsync(ct);
+        PublishGroupUpdate(groupId);
         return Ok(new { removed = items.Count });
     }
 
@@ -307,6 +312,8 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
             orderedItems[index].OrderIndex = index;
 
         await db.SaveChangesAsync(ct);
+        if (items.Count > 0)
+            PublishGroupUpdate(groupId);
         return Ok();
     }
 
@@ -439,12 +446,17 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
 
         db.GroupItems.AddRange(createdItems);
         await db.SaveChangesAsync(ct);
+        if (createdItems.Count > 0)
+            PublishGroupUpdate(groupId);
 
         foreach (var item in createdItems)
             await LoadItemReferencesAsync(item, ct);
 
         return Ok(createdItems.Select(MapItem).ToList());
     }
+
+    private void PublishGroupUpdate(int groupId)
+        => eventBus?.Publish(new EntityEvent(EventType.GroupUpdated, "Group", groupId));
 
     [HttpGet("playback-manifest")]
     [RequiresPermission(Permissions.StreamRead)]

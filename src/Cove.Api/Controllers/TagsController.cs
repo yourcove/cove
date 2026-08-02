@@ -6,6 +6,7 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
 using Cove.Data.Services;
@@ -24,7 +25,8 @@ public class TagsController(
     SegmentSpanResolver? spanResolver = null,
     IFieldProvenanceService? fieldProvenanceService = null,
     ExtensionEntityFilterService? extensionFilters = null,
-    ICurrentPrincipalAccessor? principalAccessor = null) : ControllerBase
+    ICurrentPrincipalAccessor? principalAccessor = null,
+    IEventBus? eventBus = null) : ControllerBase
 {
     private const int ExtensionFilterCandidateLimit = 5_000;
 
@@ -512,6 +514,7 @@ public class TagsController(
             return NotFound();
 
         await tagRepo.UpdateAsync(tag, ct);
+        eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", tag.Id));
         var updated = await tagRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
     }
@@ -983,7 +986,7 @@ public class TagsController(
                 await engagementService.SetRatingAsync(AffinityHostType.Tag, tag.Id, dto.Rating, cancellationToken: ct);
 
         await EvictSegmentSpanCachesForTagsAsync(tags.Select(tag => tag.Id), ct);
-        return Ok(new { updated = tags.Count });
+        return Ok(new BulkUpdateResult(tags.Select(tag => tag.Id).ToList()));
     }
 
     [HttpDelete("bulk")]
@@ -992,13 +995,13 @@ public class TagsController(
     {
         var tags = await db.Tags.Where(t => dto.Ids.Contains(t.Id)).ToListAsync(ct);
         if (tags.Count == 0)
-            return Ok(new { deleted = 0 });
+            return Ok(new BulkDeleteResult([]));
 
         db.Tags.RemoveRange(tags);
         foreach (var tag in tags)
             await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, tag.Id, ct);
         await db.SaveChangesAsync(ct);
-        return Ok(new { deleted = tags.Count });
+        return Ok(new BulkDeleteResult(tags.Select(tag => tag.Id).ToList()));
     }
 
     // ===== Merge =====
@@ -1074,6 +1077,12 @@ public class TagsController(
         }
 
         await db.SaveChangesAsync(ct);
+        if (sources.Count > 0)
+        {
+            eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", target.Id));
+            foreach (var source in sources)
+                eventBus?.Publish(new EntityEvent(EventType.TagDeleted, "Tag", source.Id));
+        }
         var result = await tagRepo.GetByIdWithRelationsAsync(target.Id, ct);
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }

@@ -3,6 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Events;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -950,7 +951,7 @@ public class VideoFilterBehaviorTests
         var repository = new CapturingVideoRepository();
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         await using var context = CreateContext();
-        var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context));
+        var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
 
         await controller.Find(q: null, page: 1, perPage: 25, sort: "random", direction: "desc", seed: 12345, ct: default);
 
@@ -1263,13 +1264,13 @@ public class VideoFilterBehaviorTests
     private static VideosController CreateVideosController(CoveContext context)
     {
         var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        return new VideosController(new CapturingVideoRepository(), context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context));
+        return new VideosController(new CapturingVideoRepository(), context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
     }
 
     private static VideosController CreateVideosControllerWithRepository(CoveContext context)
     {
         var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        return new VideosController(new VideoRepository(context), context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context));
+        return new VideosController(new VideoRepository(context), context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
     }
 
     private static List<List<VideoDto>> GetDuplicateGroups(ActionResult<List<List<VideoDto>>> response)
