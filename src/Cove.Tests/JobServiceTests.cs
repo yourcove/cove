@@ -96,6 +96,11 @@ public class JobServiceTests
             var job = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
             Assert.NotNull(job);
 
+            await WaitForLogEntryAsync(
+                logger,
+                entry => entry.Message.Contains("completed with status", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5));
+
             var completion = Assert.Single(
                 logger.Entries,
                 entry => entry.Message.Contains("completed with status", StringComparison.Ordinal));
@@ -129,6 +134,11 @@ public class JobServiceTests
 
             var job = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
             Assert.NotNull(job);
+
+            await WaitForLogEntryAsync(
+                logger,
+                entry => entry.Message.Contains("completed with status", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5));
 
             var completion = Assert.Single(
                 logger.Entries,
@@ -252,6 +262,21 @@ public class JobServiceTests
         }
 
         return service.GetJob(jobId);
+    }
+
+    private static async Task WaitForLogEntryAsync(
+        ScopeRecordingLogger<JobService> logger,
+        Func<ScopeRecordingLogger<JobService>.RecordedLog, bool> predicate,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (logger.Entries.Any(predicate))
+                return;
+
+            await Task.Delay(25);
+        }
     }
 
     private sealed class FakeHubContext : IHubContext<JobHub>
