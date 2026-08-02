@@ -378,7 +378,7 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "data-sources-downloader-paths": "Downloader save-path overrides.",
   "data-sources-ai-data": "Inspect and safely purge AI-produced embeddings, detections, segments, tag sources, and face-owned data.",
   "extensions-installed": "Manage extensions loaded into this instance.",
-  "extensions-registry": "Browse and install extensions from the official catalog or a URL package.",
+  "extensions-registry": "Browse and install extensions from the official catalog, a URL, or a local ZIP package.",
   "extensions-customizations": "Inject custom CSS and JavaScript into the application.",
   "security-authentication": "Authentication requirements and anonymous share-link access.",
   users: "Manage local user accounts and their role assignments.",
@@ -552,6 +552,10 @@ export function resolveVisibleSettingsTab(
   }
 
   return visibleTabs[0]?.key ?? fallback;
+}
+
+export function isUnverifiedExtensionInstallSource(source: string | null | undefined): boolean {
+  return source === "url" || source === "upload";
 }
 
 function loadStoredTaskOptions<T extends object>(key: string, fallback: T): T {
@@ -6496,7 +6500,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                             Bundle
                           </span>
                         )}
-                        {ext.installSource === "url" && (
+                        {isUnverifiedExtensionInstallSource(ext.installSource) && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300 border border-yellow-500/25">
                             Unverified
                           </span>
@@ -6594,6 +6598,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
                       )}
                       {isBundle && <> · <span className="text-sky-300">Bundle package</span></>}
                       {ext.installSource === "url" && <> · <span className="text-yellow-300">Installed from URL</span></>}
+                      {ext.installSource === "upload" && <> · <span className="text-yellow-300">Installed from uploaded ZIP</span></>}
                       {ext.source === "legacy" && <> · <span className="text-yellow-500">Python extension</span></>}
                     </div>
 
@@ -6716,7 +6721,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
 }
 
 // ===== Find and Install Extensions =====
-function FindAndInstallExtensions() {
+export function FindAndInstallExtensions() {
   const queryClient = useQueryClient();
   const { manifest, refreshManifest } = useExtensions();
   const [searchQuery, setSearchQuery] = useState("");
@@ -6730,8 +6735,11 @@ function FindAndInstallExtensions() {
   const [extensionToUninstall, setExtensionToUninstall] = useState<PendingExtensionUninstall | null>(null);
   const [showMoreActions, setShowMoreActions] = useState(false);
   const [showUrlInstallForm, setShowUrlInstallForm] = useState(false);
+  const [showZipInstallForm, setShowZipInstallForm] = useState(false);
   const [urlInstallUrl, setUrlInstallUrl] = useState("");
+  const [zipInstallFile, setZipInstallFile] = useState<File | null>(null);
   const [confirmUrlInstall, setConfirmUrlInstall] = useState(false);
+  const [confirmZipInstall, setConfirmZipInstall] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   // Just-installed extension that ships a setup guide, surfaced as a post-install CTA (we don't auto-open it).
   const [justInstalledSetup, setJustInstalledSetup] = useState<{ name: string; topicId: string } | null>(null);
@@ -6848,6 +6856,33 @@ function FindAndInstallExtensions() {
     onError: (error) => setInstallError(error instanceof Error ? error.message : "Extension install failed."),
   });
 
+  const zipInstallMut = useMutation({
+    mutationFn: () => {
+      if (!zipInstallFile) throw new Error("Select an extension ZIP file to install.");
+      return import("../api/client").then(m => m.extensions.installFromZip(zipInstallFile, true));
+    },
+    onSuccess: (data) => {
+      setInstallError(null);
+      setConfirmZipInstall(false);
+      setShowZipInstallForm(false);
+      setZipInstallFile(null);
+      queryClient.invalidateQueries({ queryKey: ["extensions-list"] });
+      queryClient.invalidateQueries({ queryKey: ["registry-search"] });
+      queryClient.invalidateQueries({ queryKey: ["registry-updates"] });
+
+      const installedId = data?.extensionId;
+      if (installedId) {
+        void refreshManifest().then((fresh) => {
+          const setupTopicId = findSetupTopicId(fresh?.tutorialTopics, installedId);
+          if (setupTopicId) {
+            void resolveExtensionName(installedId).then((name) => setJustInstalledSetup({ name, topicId: setupTopicId }));
+          }
+        });
+      }
+    },
+    onError: (error) => setInstallError(error instanceof Error ? error.message : "Extension install failed."),
+  });
+
   const uninstallMut = useMutation({
     mutationFn: (target: PendingExtensionUninstall) =>
       import("../api/client").then(m => m.extensions.registryUninstall(target.id, target.confirmedDependents || target.dependents.length > 0)),
@@ -6934,7 +6969,7 @@ function FindAndInstallExtensions() {
         </div>
       )}
 
-      {installError && !confirmUrlInstall && !selectedExtension && (
+      {installError && !confirmUrlInstall && !confirmZipInstall && !selectedExtension && (
         <div className="mb-4 rounded border border-red-700 bg-red-950/60 px-3 py-2 text-sm text-red-200">
           {installError}
         </div>
@@ -6952,6 +6987,22 @@ function FindAndInstallExtensions() {
         onCancel={() => {
           if (urlInstallMut.isPending) return;
           setConfirmUrlInstall(false);
+          setInstallError(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmZipInstall}
+        title="Install Unverified Extension"
+        message="Extensions installed from an uploaded ZIP are unsafe unless you trust the author and this exact package. Cove cannot verify this source."
+        confirmLabel="Install"
+        destructive
+        isPending={zipInstallMut.isPending}
+        errorMessage={installError}
+        onConfirm={() => zipInstallMut.mutate()}
+        onCancel={() => {
+          if (zipInstallMut.isPending) return;
+          setConfirmZipInstall(false);
           setInstallError(null);
         }}
       />
@@ -7058,12 +7109,28 @@ function FindAndInstallExtensions() {
                 onClick={() => {
                   setShowMoreActions(false);
                   setShowUrlInstallForm(true);
+                  setShowZipInstallForm(false);
+                  setZipInstallFile(null);
                   setInstallError(null);
                 }}
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-secondary hover:bg-card hover:text-foreground"
               >
                 <Shield className="h-3.5 w-3.5" />
                 Install from URL...
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMoreActions(false);
+                  setShowZipInstallForm(true);
+                  setShowUrlInstallForm(false);
+                  setUrlInstallUrl("");
+                  setInstallError(null);
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-secondary hover:bg-card hover:text-foreground"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Install from ZIP...
               </button>
             </div>
           )}
@@ -7110,6 +7177,54 @@ function FindAndInstallExtensions() {
               className="inline-flex min-h-10 items-center justify-center gap-1 rounded bg-card-hover px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-xs"
             >
               {urlInstallMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+              Install
+            </button>
+          </div>
+        </form>
+      )}
+
+      {showZipInstallForm && (
+        <form
+          className="mb-4 rounded border border-border bg-card/60 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setInstallError(null);
+            if (zipInstallFile) setConfirmZipInstall(true);
+          }}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-secondary">
+              <Upload className="h-4 w-4" /> Install from ZIP
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowZipInstallForm(false);
+                setZipInstallFile(null);
+                setInstallError(null);
+              }}
+              disabled={zipInstallMut.isPending}
+              className="text-secondary hover:text-foreground disabled:opacity-50"
+              aria-label="Close ZIP installer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(event) => setZipInstallFile(event.target.files?.[0] ?? null)}
+              disabled={zipInstallMut.isPending}
+              aria-label="Extension ZIP file"
+              className="min-h-10 min-w-0 rounded border border-border bg-card px-3 py-1.5 text-sm text-foreground file:mr-3 file:rounded file:border-0 file:bg-card-hover file:px-2 file:py-1 file:text-xs file:text-foreground disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={!zipInstallFile || zipInstallMut.isPending}
+              className="inline-flex min-h-10 items-center justify-center gap-1 rounded bg-card-hover px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-xs"
+            >
+              {zipInstallMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
               Install
             </button>
           </div>

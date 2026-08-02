@@ -195,12 +195,13 @@ const CRITERION_MODIFIER_MAP: Record<string, string> = {
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers);
+  if (!(options?.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const res = await authedFetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+    headers,
   });
   if (!res.ok) {
     const text = await res.text();
@@ -1436,6 +1437,16 @@ export const extensions = {
       method: "POST",
       body: JSON.stringify({ url, trustUnverified }),
     }),
+  /** Install an extension package from an uploaded ZIP. */
+  installFromZip: (file: File, trustUnverified = false) => {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("trustUnverified", String(trustUnverified));
+    return request<{ message: string; extensionId: string; version: string; path: string }>("/extensions/install-from-zip", {
+      method: "POST",
+      body,
+    });
+  },
   /** Registry: resolve dependencies for an extension. */
   registryResolveDependencies: (extensionId: string) =>
     request<DependencyInfo[]>(`/extensions/registry/${extensionId}/dependencies`),

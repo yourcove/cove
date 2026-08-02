@@ -461,25 +461,51 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         if (!Uri.TryCreate(request.Url?.Trim(), UriKind.Absolute, out var packageUri) || packageUri.Scheme is not ("http" or "https"))
             return BadRequest("Extension package URL must be an absolute http or https URL.");
 
-        var extensionsDir = Path.Combine(extensionManager.Context.DataDirectory, "..", "extensions");
-        extensionsDir = Path.GetFullPath(extensionsDir);
+        var http = httpClientFactory.CreateClient("ExtensionRegistry");
+        using var response = await http.GetAsync(packageUri, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            return BadRequest($"Extension package download failed with HTTP {(int)response.StatusCode}.");
+
+        await using var input = await response.Content.ReadAsStreamAsync(ct);
+        return await InstallPackageAsync(input, "url", "URL", ct);
+    }
+
+    /// <summary>Install an uploaded extension ZIP after explicit trust confirmation.</summary>
+    [HttpPost("install-from-zip")]
+    [RequiresPermission(Permissions.ExtensionsInstall)]
+    public async Task<IActionResult> InstallFromZip(
+        [FromForm] IFormFile? file,
+        [FromForm] bool trustUnverified,
+        CancellationToken ct)
+    {
+        if (!trustUnverified)
+            return BadRequest("Installing an extension from a ZIP requires explicit trust confirmation.");
+
+        if (file == null || file.Length == 0)
+            return BadRequest("An extension ZIP file is required.");
+
+        await using var input = file.OpenReadStream();
+        return await InstallPackageAsync(input, "upload", "uploaded ZIP", ct);
+    }
+
+    private async Task<IActionResult> InstallPackageAsync(
+        Stream packageStream,
+        string installationSource,
+        string sourceLabel,
+        CancellationToken ct)
+    {
+        var extensionsDir = Path.GetFullPath(Path.Combine(extensionManager.Context.DataDirectory, "..", "extensions"));
         Directory.CreateDirectory(extensionsDir);
 
-        var tempRoot = Path.Combine(extensionsDir, $".url-install-{Guid.NewGuid():N}");
+        var tempRoot = Path.Combine(extensionsDir, $".{installationSource}-install-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            var http = httpClientFactory.CreateClient("ExtensionRegistry");
-            using var response = await http.GetAsync(packageUri, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!response.IsSuccessStatusCode)
-                return BadRequest($"Extension package download failed with HTTP {(int)response.StatusCode}.");
-
             var zipPath = Path.Combine(tempRoot, "package.zip");
             await using (var zipFile = System.IO.File.Create(zipPath))
-            await using (var input = await response.Content.ReadAsStreamAsync(ct))
             {
-                await input.CopyToAsync(zipFile, ct);
+                await packageStream.CopyToAsync(zipFile, ct);
             }
 
             var extractDir = Path.Combine(tempRoot, "extract");
@@ -502,7 +528,16 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
             var manifestPath = Path.Combine(packageRoot, "extension.json");
             var manifestJson = await System.IO.File.ReadAllTextAsync(manifestPath, ct);
-            var manifest = JsonSerializer.Deserialize<ExtensionManifestFile>(manifestJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            ExtensionManifestFile? manifest;
+            try
+            {
+                manifest = JsonSerializer.Deserialize<ExtensionManifestFile>(manifestJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException ex)
+            {
+                return BadRequest($"The package extension.json manifest is invalid: {ex.Message}");
+            }
+
             if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id))
                 return BadRequest("The package extension.json manifest is missing a valid id.");
 
@@ -512,7 +547,9 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             if (!IsCoveVersionCompatible(manifest.MinCoveVersion))
                 return BadRequest($"Extension '{manifest.Id}' requires Cove >= {manifest.MinCoveVersion}; this instance is {extensionManager.Context.CoveVersion}.");
 
-            var extensionDir = Path.Combine(extensionsDir, manifest.Id);
+            var extensionDir = Path.GetFullPath(Path.Combine(extensionsDir, manifest.Id));
+            if (!IsPathInsideDirectory(extensionsDir, extensionDir))
+                return BadRequest("The package extension id resolves outside the extensions directory.");
             if (Directory.Exists(extensionDir))
             {
                 await extensionManager.UnloadExtensionAsync(manifest.Id, HttpContext.RequestServices, ct);
@@ -526,14 +563,17 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             extensionManager.DiscoverExtensions(extensionsDir);
             var initialized = await extensionManager.InitializeExtensionAsync(manifest.Id, HttpContext.RequestServices, ct);
             if (!initialized)
-                return StatusCode(500, new { message = $"Extension '{manifest.Id}' was downloaded but failed to initialize.", path = extensionDir });
+            {
+                var action = installationSource == "url" ? "downloaded" : "uploaded";
+                return StatusCode(500, new { message = $"Extension '{manifest.Id}' was {action} but failed to initialize.", path = extensionDir });
+            }
 
-            await extensionManager.SetInstallationSourceAsync(manifest.Id, "url", ct);
+            await extensionManager.SetInstallationSourceAsync(manifest.Id, installationSource, ct);
             scraperService.ReloadScrapers();
 
             return Ok(new
             {
-                message = $"Extension '{manifest.Id}' v{manifest.Version} installed from URL.",
+                message = $"Extension '{manifest.Id}' v{manifest.Version} installed from {sourceLabel}.",
                 extensionId = manifest.Id,
                 version = manifest.Version,
                 path = extensionDir,
@@ -1078,7 +1118,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
 
     private static bool IsSafeExtensionId(string id)
     {
-        if (string.IsNullOrWhiteSpace(id) || Path.IsPathRooted(id) || id.Contains("..", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(id) || id == "." || Path.IsPathRooted(id) || id.Contains("..", StringComparison.Ordinal))
             return false;
 
         return id.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
