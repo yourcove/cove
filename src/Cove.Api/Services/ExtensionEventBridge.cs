@@ -54,7 +54,10 @@ public sealed partial class ExtensionEventBridge : IHostedService, IDisposable
             EntityType: evt.EntityType.ToLowerInvariant(),
             EntityId: evt.EntityId,
             Data: evt.Entity != null ? new Dictionary<string, object?> { ["entity"] = evt.Entity } : null
-        );
+        )
+        {
+            CanonicalEventType = MapCanonicalEventType(evt.Type),
+        };
         TraceEventQueued(extensionEvent.EventType, extensionEvent.EntityType, extensionEvent.EntityId);
 
         // Fire-and-forget dispatch to extensions (don't block the publisher)
@@ -72,7 +75,7 @@ public sealed partial class ExtensionEventBridge : IHostedService, IDisposable
         });
     }
 
-    private static string MapEventType(EventType type) => type switch
+    internal static string MapEventType(EventType type) => type switch
     {
         EventType.VideoCreated => "video.created",
         EventType.VideoUpdated => "video.updated",
@@ -102,6 +105,17 @@ public sealed partial class ExtensionEventBridge : IHostedService, IDisposable
         EventType.ScanStarted => "scan.started",
         EventType.ScanCompleted => "scan.completed",
         _ => type.ToString().ToLowerInvariant(),
+    };
+
+    internal static string MapCanonicalEventType(EventType type) => type switch
+    {
+        EventType.AudioCreated => "audio.created",
+        EventType.AudioUpdated => "audio.updated",
+        EventType.AudioDeleted => "audio.deleted",
+        EventType.TextCreated => "text.created",
+        EventType.TextUpdated => "text.updated",
+        EventType.TextDeleted => "text.deleted",
+        _ => MapEventType(type),
     };
 
     public void Dispose() => _subscription?.Dispose();
