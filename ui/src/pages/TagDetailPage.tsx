@@ -41,51 +41,21 @@ import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDetailBooleanUrlState, useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { createSegmentCriteria } from "./segments/segmentCriteriaDefinitions";
 import { readRawSegmentListFilter } from "./segments/rawSegmentFilter";
+import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
+import { AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
+import { TEXT_SORT_OPTIONS } from "../components/textSortOptions";
+import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
+import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
+import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
-const IMAGE_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "rating", label: "Rating" },
-  { value: "random", label: "Random" },
-];
+const IMAGE_SORT = IMAGE_SORT_OPTIONS;
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
-const STUDIO_SORT = [
-  { value: "name", label: "Name" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "random", label: "Random" },
-];
-const GROUP_SORT = [
-  { value: "name", label: "Name" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "random", label: "Random" },
-];
-const AUDIO_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "duration", label: "Duration" },
-];
-const TEXT_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "words", label: "Word Count" },
-  { value: "pages", label: "Page Count" },
-];
-const SEGMENT_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "start_sec", label: "Start Time" },
-  { value: "duration", label: "Duration" },
-  { value: "confidence", label: "Confidence" },
-];
+const STUDIO_SORT = STUDIO_SORT_OPTIONS;
+const GROUP_SORT = GROUP_SORT_OPTIONS;
+const AUDIO_SORT = AUDIO_SORT_OPTIONS;
+const TEXT_SORT = TEXT_SORT_OPTIONS;
+const SEGMENT_SORT = RAW_SEGMENT_SORT_OPTIONS;
 
 interface Props {
   id: number;
@@ -693,6 +663,7 @@ function TagSegmentsPanel({ tagId, includeSubTags, onNavigate }: { tagId: number
       minDurationSec: rawFilter.minDurationSec,
       sort: nextFilter.sort,
       direction: nextFilter.direction as "asc" | "desc" | undefined,
+      seed: nextFilter.seed,
       page: nextFilter.page,
       perPage: nextFilter.perPage,
     }),

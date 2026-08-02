@@ -29,28 +29,9 @@ import { AUDIO_CRITERIA } from "../components/FilterDialog";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
+import { AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
 
-const SORT_OPTIONS = [
-  { value: "updatedAt", label: "Updated At" },
-  { value: "createdAt", label: "Created At" },
-  { value: "date", label: "Date" },
-  { value: "duration", label: "Duration" },
-  { value: "rating", label: "Rating" },
-  { value: "play_count", label: "Play Count" },
-  { value: "like_counter", label: "Likes" },
-  { value: "last_played_at", label: "Last Played" },
-  { value: "file_size", label: "File Size" },
-  { value: "file_mod_time", label: "File Modified" },
-  { value: "file_count", label: "File Count" },
-  { value: "path", label: "Path" },
-  { value: "bitrate", label: "Bitrate" },
-  { value: "has_video_files", label: "Has Video Track" },
-  { value: "track_count", label: "Track Count" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "performer_count", label: "Performer Count" },
-  { value: "title", label: "Title" },
-  { value: "random", label: "Random" },
-];
+const SORT_OPTIONS = AUDIO_SORT_OPTIONS;
 
 interface Props {
   onNavigate: (route: any) => void;

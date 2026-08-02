@@ -40,6 +40,7 @@ type FaceAppearanceListItem = FaceAppearance & { id: string | number };
 const EMPTY_APPEARANCES_PAGE: PaginatedResponse<FaceAppearanceListItem> = { items: [], totalCount: 0, page: 1, perPage: 24 };
 const EMPTY_SIMILAR_PAGE: PaginatedResponse<FaceSimilar> = { items: [], totalCount: 0, page: 1, perPage: 18 };
 const APPEARANCE_SORT_OPTIONS = [
+  { value: "random", label: "Random" },
   { value: "last_seen", label: "Last Seen" },
   { value: "first_seen", label: "First Seen" },
   { value: "sample_count", label: "Frame Samples" },
@@ -48,6 +49,7 @@ const APPEARANCE_SORT_OPTIONS = [
   { value: "title", label: "Title" },
 ];
 const SIMILAR_SORT_OPTIONS = [
+  { value: "random", label: "Random" },
   { value: "distance", label: "Closest Match" },
   { value: "appearance_count", label: "Most Appearances" },
   { value: "video_count", label: "Most Videos" },
@@ -102,6 +104,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
       q: nextFilter.q?.trim() || undefined,
       sort: nextFilter.sort,
       direction: nextFilter.direction,
+      seed: nextFilter.seed,
       page: nextFilter.page ?? 1,
       perPage: nextFilter.perPage ?? 18,
       k: 250,
@@ -116,6 +119,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         q: nextFilter.q?.trim() || undefined,
         sort: nextFilter.sort,
         direction: nextFilter.direction,
+        seed: nextFilter.seed,
         page: nextFilter.page ?? 1,
         perPage: nextFilter.perPage ?? 24,
       });

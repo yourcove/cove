@@ -48,6 +48,7 @@ import type {
 } from "./segments/types";
 import { LOCATION_CHANGE_EVENT, buildCurrentUrl, navigateToUrl } from "../router/location";
 import { getLoadError } from "../utils/queryLoadState";
+import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -74,23 +75,6 @@ const DERIVED_SPAN_SORT_OPTIONS = [
   { value: "host_type", label: "Host Type" },
   { value: "host_id", label: "Host ID" },
   { value: "segment_count", label: "Segment Count" },
-];
-
-const RAW_SEGMENT_SORT_OPTIONS = [
-  { value: "random", label: "Random" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Label" },
-  { value: "video_title", label: "Video Title" },
-  { value: "start_sec", label: "Start Time" },
-  { value: "end_sec", label: "End Time" },
-  { value: "duration", label: "Duration" },
-  { value: "confidence", label: "Confidence" },
-  { value: "kind", label: "Kind" },
-  { value: "source_key", label: "Source" },
-  { value: "tag_name", label: "Tag" },
-  { value: "performer", label: "Performer" },
-  { value: "ref", label: "Face/Reference" },
 ];
 
 const DEFAULT_SEGMENT_FILTER: FindFilter = { page: 1, perPage: 24, sort: "updated_at", direction: "desc" };

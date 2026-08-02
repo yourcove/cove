@@ -2560,13 +2560,16 @@ public class GroupRepository : IGroupRepository
             query = FilterHelpers.ApplyInt(query, filter.ContainingGroupCountCriterion, g => g.ContainingGroupRelations.Count);
             query = FilterHelpers.ApplyInt(query, filter.TagCountCriterion, g => g.GroupTags.Count);
 
-            // Performers criterion (performers in videos belonging to this group)
+            // Performers criterion (direct performer items or performers in videos belonging to this group)
             query = FilterHelpers.ApplyMultiId(
                 query,
                 filter.PerformersCriterion,
                 g => g.GroupItems
                     .Where(item => item.Video != null)
-                    .SelectMany(item => item.Video!.VideoPerformers.Select(videoPerformer => videoPerformer.PerformerId)));
+                    .SelectMany(item => item.Video!.VideoPerformers.Select(videoPerformer => videoPerformer.PerformerId))
+                    .Concat(g.GroupItems
+                        .Where(item => item.HostType == "performer" || item.Kind == GroupItemKind.Performer)
+                        .Select(item => item.HostId)));
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Group, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
         }

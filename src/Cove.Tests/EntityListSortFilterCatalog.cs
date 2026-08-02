@@ -262,6 +262,7 @@ public static class EntityListSortFilterCatalog
         new("faces", "video_count", "Video Count"),
         new("faces", "image_count", "Image Count"),
         new("faces", "cover_present", "Has Cover"),
+        new("faces", "random", "Random"),
     ];
 
     public static IReadOnlyList<EntityListFilterDefinition> Filters { get; } = BuildFilters();
