@@ -27,6 +27,11 @@ import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFO
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
+import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
+import { AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
+import { TEXT_SORT_OPTIONS } from "../components/textSortOptions";
+import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
+import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
@@ -39,47 +44,12 @@ import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import { useDetailBooleanUrlState, useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
-const IMAGE_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "rating", label: "Rating" },
-  { value: "random", label: "Random" },
-];
+const IMAGE_SORT = IMAGE_SORT_OPTIONS;
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
-const STUDIO_SORT = [
-  { value: "name", label: "Name" },
-  { value: "rating", label: "Rating" },
-  { value: "video_count", label: "Video Count" },
-  { value: "gallery_count", label: "Gallery Count" },
-  { value: "image_count", label: "Image Count" },
-  { value: "child_count", label: "Substudios Count" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "random", label: "Random" },
-];
-const GROUP_SORT = [
-  { value: "name", label: "Name" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "random", label: "Random" },
-];
-const AUDIO_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "duration", label: "Duration" },
-];
-const TEXT_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "words", label: "Word Count" },
-  { value: "pages", label: "Page Count" },
-];
+const STUDIO_SORT = STUDIO_SORT_OPTIONS;
+const GROUP_SORT = GROUP_SORT_OPTIONS;
+const AUDIO_SORT = AUDIO_SORT_OPTIONS;
+const TEXT_SORT = TEXT_SORT_OPTIONS;
 
 function formatUrlHost(url: string) {
   try {

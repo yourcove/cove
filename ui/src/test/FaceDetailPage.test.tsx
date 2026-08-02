@@ -139,6 +139,7 @@ describe("FaceDetailPage", () => {
     expect(screen.getByRole("navigation", { name: "Pagination above results" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Pagination" })).toBeInTheDocument();
     expect(mockFaces.similar).toHaveBeenCalledWith(7, expect.objectContaining({ k: 250 }));
+    expect(screen.getByRole("option", { name: "Random" })).toBeInTheDocument();
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(2);
 
     fireEvent.click(screen.getByRole("link", { name: "Open face Similar Jane" }));

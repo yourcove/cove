@@ -1,13 +1,16 @@
-export const SEGMENT_SORT_OPTIONS: { value: string; label: string }[] = [
+export const RAW_SEGMENT_SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "random", label: "Random" },
   { value: "updated_at", label: "Updated At" },
   { value: "created_at", label: "Created At" },
+  { value: "title", label: "Label" },
+  { value: "video_title", label: "Video Title" },
   { value: "start_sec", label: "Start Time" },
   { value: "end_sec", label: "End Time" },
   { value: "duration", label: "Duration" },
   { value: "confidence", label: "Confidence" },
-  { value: "title", label: "Title" },
-  { value: "video_title", label: "Video Title" },
   { value: "kind", label: "Kind" },
-  { value: "source_key", label: "Source Key" },
-  { value: "tag_name", label: "Tag Name" },
+  { value: "source_key", label: "Source" },
+  { value: "tag_name", label: "Tag" },
+  { value: "performer", label: "Performer" },
+  { value: "ref", label: "Face/Reference" },
 ];

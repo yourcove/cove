@@ -908,7 +908,7 @@ public class DynamicGroupsAndBookmarksTests
         var targetOnly = new Group
         {
             Name = "Target only",
-            GroupItems = [new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = targetVideo.Id, VideoId = targetVideo.Id }],
+            GroupItems = [new GroupItem { Kind = GroupItemKind.Performer, HostType = "performer", HostId = target.Id }],
         };
         var savedOnly = new Group
         {
@@ -920,7 +920,7 @@ public class DynamicGroupsAndBookmarksTests
             Name = "Both",
             GroupItems =
             [
-                new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = targetVideo.Id, VideoId = targetVideo.Id },
+                new GroupItem { Kind = GroupItemKind.Performer, HostType = "performer", HostId = target.Id },
                 new GroupItem { Kind = GroupItemKind.Video, HostType = "video", HostId = savedVideo.Id, VideoId = savedVideo.Id },
             ],
         };

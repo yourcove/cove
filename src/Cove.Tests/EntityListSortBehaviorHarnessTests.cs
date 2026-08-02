@@ -922,6 +922,7 @@ public class EntityListSortBehaviorHarnessTests
             "video_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.VideoCount, descending),
             "image_count" => OrderWithDirectionalIdTieBreaker(faces, face => face.ImageCount, descending),
             "cover_present" => OrderWithDirectionalIdTieBreaker(faces, face => !string.IsNullOrEmpty(face.CoverBlobId), descending),
+            "random" => OrderSeededRandom(faces, face => face.Id, descending),
             _ => throw new InvalidOperationException($"No face sort projection configured for '{sortKey}'."),
         };
     }

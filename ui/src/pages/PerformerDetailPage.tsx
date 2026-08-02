@@ -26,6 +26,10 @@ import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, VIDEO_CRITERIA, TEXT_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
+import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
+import { AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
+import { TEXT_SORT_OPTIONS } from "../components/textSortOptions";
+import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { PerformerMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
@@ -38,6 +42,7 @@ import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { getLoadError } from "../utils/queryLoadState";
+import { sortSeededRandom } from "../utils/seededRandomSort";
 
 interface Props {
   id: number;
@@ -46,35 +51,11 @@ interface Props {
 
 type TabKey = "videos" | "galleries" | "images" | "audios" | "texts" | "groups" | "faces" | "appearsWith" | "similar" | (string & {});
 
-const IMAGE_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "rating", label: "Rating" },
-  { value: "random", label: "Random" },
-];
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
-const GROUP_SORT = [
-  { value: "name", label: "Name" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "random", label: "Random" },
-];
-const AUDIO_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "duration", label: "Duration" },
-];
-const TEXT_SORT = [
-  { value: "updated_at", label: "Updated At" },
-  { value: "created_at", label: "Created At" },
-  { value: "title", label: "Title" },
-  { value: "date", label: "Date" },
-  { value: "words", label: "Word Count" },
-  { value: "pages", label: "Page Count" },
-];
+const IMAGE_SORT = IMAGE_SORT_OPTIONS;
+const GROUP_SORT = GROUP_SORT_OPTIONS;
+const AUDIO_SORT = AUDIO_SORT_OPTIONS;
+const TEXT_SORT = TEXT_SORT_OPTIONS;
 
 export function PerformerDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
@@ -785,6 +766,7 @@ const FACE_SORT_OPTIONS = [
   { value: "images", label: "Images" },
   { value: "updated_at", label: "Updated At" },
   { value: "created_at", label: "Created At" },
+  { value: "random", label: "Random" },
 ];
 
 function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { performerId: number; canReadFaces: boolean; onNavigate: (r: any) => void }) {
@@ -804,6 +786,9 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
   const sortedFaces = useMemo(() => {
     const dir = filter.direction === "asc" ? 1 : -1;
     const key = filter.sort ?? "appearances";
+    if (filter.sort === "random") {
+      return sortSeededRandom(linkedFaces, (face) => String(face.id), filter.seed, filter.direction === "desc");
+    }
     return [...linkedFaces].sort((left, right) => {
       switch (key) {
         case "videos": return dir * (left.videoCount - right.videoCount);
@@ -813,7 +798,7 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
         default: return dir * (left.appearanceCount - right.appearanceCount);
       }
     });
-  }, [linkedFaces, filter.sort, filter.direction]);
+  }, [linkedFaces, filter.sort, filter.direction, filter.seed]);
 
   if (!canReadFaces) return null;
   if (loadError) return <ListLoadError error={loadError} onRetry={() => { void refetch(); }} className="mt-3" />;
@@ -1119,16 +1104,13 @@ function PerformerGroupsPanel({ performerId, onNavigate }: {
   const [zoomLevel, setZoomLevel] = useState(0);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "performer-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "groups" });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const hasObjectFilter = Object.keys(objectFilter).length > 0;
   const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
     queryKey: ["performer-groups", performerId, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
-      ? groups.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as GroupFilterCriteria, "performersCriterion", performerId),
-        })
-      : performers.groups(performerId, nextFilter),
+    queryFn: (nextFilter) => groups.findFiltered({
+      findFilter: nextFilter,
+      objectFilter: withRequiredMultiId(objectFilter as GroupFilterCriteria, "performersCriterion", performerId),
+    }),
   });
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
@@ -1173,7 +1155,7 @@ function PerformerAppearsWithPanel({ performerId, onNavigate }: {
   const items = data?.items ?? [];
   const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={[{ value: "co_video_count", label: "Shared Videos" }, { value: "name", label: "Name" }]} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={[{ value: "co_video_count", label: "Shared Videos" }, { value: "name", label: "Name" }, { value: "random", label: "Random" }]} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
 
   if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
   if (isLoading) return <LoadingPanel icon={<Users className="h-10 w-10" />} message="Loading co-stars..." />;

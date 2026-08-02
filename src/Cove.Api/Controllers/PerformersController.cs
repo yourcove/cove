@@ -8,6 +8,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
+using Cove.Data.Repositories;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
 
 namespace Cove.Api.Controllers;
@@ -134,6 +135,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         [FromQuery] int perPage = 18,
         [FromQuery] string? sort = null,
         [FromQuery] string? direction = null,
+        [FromQuery] int? seed = null,
         CancellationToken ct = default)
     {
         var performerExists = await db.Performers.AsNoTracking().AnyAsync(performer => performer.Id == id, ct);
@@ -170,6 +172,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         query = sort switch
         {
             "name" => desc ? query.OrderByDescending(item => item.Name) : query.OrderBy(item => item.Name),
+            "random" => SeededRandomOrdering.OrderBy(query, seed, item => item.PerformerId, desc),
             _ => query.OrderByDescending(item => item.VideoCount).ThenBy(item => item.Name),
         };
 

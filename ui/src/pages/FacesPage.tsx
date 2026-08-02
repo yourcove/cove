@@ -23,6 +23,7 @@ import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHand
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
+import { FACE_SORT_OPTIONS } from "../components/faceSortOptions";
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -32,24 +33,12 @@ type FaceSort = string;
 
 const defaultFaceSort: FaceSort = "suggestion_confidence";
 const defaultFaceDirection = "desc";
-const FACE_SORT_OPTIONS = [
-  { value: "suggestion_confidence", label: "Suggested Match Confidence" },
-  { value: "updated", label: "Updated At" },
-  { value: "created", label: "Created At" },
-  { value: "label", label: "Label" },
-  { value: "performer_name", label: "Performer Name" },
-  { value: "primary_source_key", label: "Source" },
-  { value: "detection_count", label: "Detection Count" },
-  { value: "appearance_count", label: "Appearance Count" },
-  { value: "frame_sample_count", label: "Frame Sample Count" },
-  { value: "video_count", label: "Video Count" },
-  { value: "image_count", label: "Image Count" },
-  { value: "cover_present", label: "Has Cover" },
-];
-
 const FACE_CRITERIA: CriterionDefinition[] = [
   { id: "linked", label: "Linked", type: "bool", filterKey: "linkedCriterion" },
   { id: "label", label: "Label", type: "string", filterKey: "labelCriterion" },
+  { id: "source", label: "Source", type: "string", filterKey: "primarySourceKeyCriterion" },
+  { id: "hasCover", label: "Has Cover", type: "bool", filterKey: "hasCoverCriterion" },
+  { id: "ignored", label: "Ignored", type: "bool", filterKey: "ignoredCriterion" },
   { id: "performers", label: "Linked Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
   { id: "topSuggestionPerformers", label: "Top Suggestion Performers", type: "multiId", entityType: "performers", filterKey: "topSuggestionPerformersCriterion" },
   { id: "detectionCount", label: "Detection Count", type: "number", filterKey: "detectionCountCriterion" },
@@ -196,6 +185,9 @@ function sanitizeFaceFilters(filter: Record<string, unknown>) {
   const minSuggestionConfidence = readMinSuggestionConfidence(filter.minSuggestionConfidence);
   const suggestionConfidenceCriterion = readNumberCriterion(filter.suggestionConfidenceCriterion);
   const labelCriterion = readStringCriterion(filter.labelCriterion);
+  const primarySourceKeyCriterion = readStringCriterion(filter.primarySourceKeyCriterion);
+  const hasCoverCriterion = readBoolCriterion(filter.hasCoverCriterion);
+  const ignoredCriterion = readBoolCriterion(filter.ignoredCriterion);
   const detectionCountCriterion = readCountCriterion(filter.detectionCountCriterion);
   const appearanceCountCriterion = readCountCriterion(filter.appearanceCountCriterion);
   const frameSampleCountCriterion = readCountCriterion(filter.frameSampleCountCriterion);
@@ -214,6 +206,9 @@ function sanitizeFaceFilters(filter: Record<string, unknown>) {
   }
 
   if (labelCriterion) next.labelCriterion = labelCriterion;
+  if (primarySourceKeyCriterion) next.primarySourceKeyCriterion = primarySourceKeyCriterion;
+  if (hasCoverCriterion) next.hasCoverCriterion = hasCoverCriterion;
+  if (ignoredCriterion) next.ignoredCriterion = ignoredCriterion;
   if (detectionCountCriterion) next.detectionCountCriterion = detectionCountCriterion;
   if (appearanceCountCriterion) next.appearanceCountCriterion = appearanceCountCriterion;
   if (frameSampleCountCriterion) next.frameSampleCountCriterion = frameSampleCountCriterion;
@@ -344,6 +339,9 @@ export function FacesPage({ onNavigate }: Props) {
   const minSuggestionConfidence = readMinSuggestionConfidence(objectFilter.minSuggestionConfidence);
   const suggestionConfidenceCriterion = readNumberCriterion(objectFilter.suggestionConfidenceCriterion);
   const labelCriterion = readStringCriterion(objectFilter.labelCriterion);
+  const primarySourceKeyCriterion = readStringCriterion(objectFilter.primarySourceKeyCriterion);
+  const hasCoverCriterion = readBoolCriterion(objectFilter.hasCoverCriterion);
+  const ignoredCriterion = readBoolCriterion(objectFilter.ignoredCriterion);
   const detectionCountCriterion = readCountCriterion(objectFilter.detectionCountCriterion);
   const appearanceCountCriterion = readCountCriterion(objectFilter.appearanceCountCriterion);
   const frameSampleCountCriterion = readCountCriterion(objectFilter.frameSampleCountCriterion);
@@ -367,6 +365,10 @@ export function FacesPage({ onNavigate }: Props) {
     linked: linkedCriterion?.value,
     label: labelCriterion?.value,
     labelModifier: labelCriterion?.modifier,
+    primarySourceKey: primarySourceKeyCriterion?.value,
+    primarySourceKeyModifier: primarySourceKeyCriterion?.modifier,
+    hasCover: hasCoverCriterion?.value,
+    ignored: ignoredCriterion?.value,
     detectionCount: detectionCountCriterion?.value,
     detectionCount2: detectionCountCriterion?.value2,
     detectionCountModifier: detectionCountCriterion?.modifier,
@@ -392,14 +394,16 @@ export function FacesPage({ onNavigate }: Props) {
     direction: filter.direction,
     customFieldCriteria,
     page: filter.page ?? 1,
+    seed: filter.seed,
     perPage: filter.perPage ?? 40,
-  }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linkedCriterion?.value, linkedPerformerIds, minSuggestionConfidence, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
+  }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, filter.seed, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, hasCoverCriterion?.value, ignoredCriterion?.value, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linkedCriterion?.value, linkedPerformerIds, minSuggestionConfidence, primarySourceKeyCriterion?.modifier, primarySourceKeyCriterion?.value, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
   const listData = useInfiniteListData<Face>({
     queryKey: ["faces", query],
     filter,
     chunkSize: defaultState.filter.perPage ?? 40,
     queryPage: (nextFilter) => faces.list({
       ...query,
+      seed: nextFilter.seed,
       page: nextFilter.page ?? 1,
       perPage: nextFilter.perPage ?? defaultState.filter.perPage ?? 40,
     }),

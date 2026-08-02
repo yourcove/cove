@@ -24,35 +24,9 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
+import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 
-const SORT_OPTIONS = [
-  { value: "sort_order", label: "Manual Order" },
-  { value: "name", label: "Name" },
-  { value: "date", label: "Date" },
-  { value: "rating", label: "Rating" },
-  { value: "random", label: "Random" },
-  { value: "created_at", label: "Created At" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "item_count", label: "Item Count" },
-  { value: "video_count", label: "Video Count" },
-  { value: "image_count", label: "Image Count" },
-  { value: "audio_count", label: "Audio Count" },
-  { value: "text_count", label: "Text Count" },
-  { value: "gallery_count", label: "Gallery Count" },
-  { value: "performer_count", label: "Performer Item Count" },
-  { value: "studio_count", label: "Studio Item Count" },
-  { value: "tag_item_count", label: "Tag Item Count" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "face_count", label: "Face Count" },
-  { value: "segment_count", label: "Segment Count" },
-  { value: "subgroup_count", label: "Subgroup Count" },
-  { value: "containing_group_count", label: "Containing Group Count" },
-  { value: "cached_item_count", label: "Cached Item Count" },
-  { value: "last_resolved_at", label: "Last Resolved" },
-  { value: "query_source_key", label: "Query Source" },
-  { value: "show_in_video_lists", label: "Show In Video Lists" },
-  { value: "aliases", label: "Aliases" },
-];
+const SORT_OPTIONS = GROUP_SORT_OPTIONS;
 
 interface Props {
   onNavigate: (r: any) => void;

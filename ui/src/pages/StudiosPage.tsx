@@ -21,22 +21,9 @@ import { CustomFieldsEditor } from "../components/shared";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
+import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
 
-const SORT_OPTIONS = [
-  { value: "name", label: "Name" },
-  { value: "rating", label: "Rating" },
-  { value: "video_count", label: "Video Count" },
-  { value: "gallery_count", label: "Gallery Count" },
-  { value: "image_count", label: "Image Count" },
-  { value: "latest_video_date", label: "Latest Video Date" },
-  { value: "total_file_size", label: "Total File Size" },
-  { value: "parent_count", label: "Parent Studio Count" },
-  { value: "child_count", label: "Substudios Count" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "updated_at", label: "Updated At" },
-  { value: "random", label: "Random" },
-  { value: "created_at", label: "Created At" },
-];
+const SORT_OPTIONS = STUDIO_SORT_OPTIONS;
 
 interface Props {
   onNavigate: (r: any) => void;

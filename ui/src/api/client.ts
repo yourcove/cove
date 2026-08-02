@@ -513,12 +513,12 @@ export const segmentLibrary = {
 };
 
 // ===== Faces =====
-type FaceListOptions = { q?: string; performerId?: number; performerIds?: string; linked?: boolean; ignored?: boolean; merged?: boolean; mergedIntoFaceId?: number; label?: string; labelModifier?: string; primarySourceKey?: string; primarySourceKeyModifier?: string; hasCover?: boolean; detectionCount?: number; detectionCount2?: number; detectionCountModifier?: string; appearanceCount?: number; appearanceCount2?: number; appearanceCountModifier?: string; frameSampleCount?: number; frameSampleCount2?: number; frameSampleCountModifier?: string; videoCount?: number; videoCount2?: number; videoCountModifier?: string; imageCount?: number; imageCount2?: number; imageCountModifier?: string; minSuggestionConfidence?: number; suggestionConfidence?: number; suggestionConfidence2?: number; suggestionConfidenceModifier?: string; topSuggestionPerformerIds?: string; sort?: string; direction?: "asc" | "desc"; customFieldCriteria?: CustomFieldCriterion[]; page?: number; perPage?: number };
+type FaceListOptions = { q?: string; performerId?: number; performerIds?: string; linked?: boolean; ignored?: boolean; merged?: boolean; mergedIntoFaceId?: number; label?: string; labelModifier?: string; primarySourceKey?: string; primarySourceKeyModifier?: string; hasCover?: boolean; detectionCount?: number; detectionCount2?: number; detectionCountModifier?: string; appearanceCount?: number; appearanceCount2?: number; appearanceCountModifier?: string; frameSampleCount?: number; frameSampleCount2?: number; frameSampleCountModifier?: string; videoCount?: number; videoCount2?: number; videoCountModifier?: string; imageCount?: number; imageCount2?: number; imageCountModifier?: string; minSuggestionConfidence?: number; suggestionConfidence?: number; suggestionConfidence2?: number; suggestionConfidenceModifier?: string; topSuggestionPerformerIds?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; customFieldCriteria?: CustomFieldCriterion[]; page?: number; perPage?: number };
 
 export const faces: {
   list: (opts?: FaceListOptions) => Promise<PaginatedResponse<Face>>;
   get: (id: number) => Promise<Face>;
-  appearances: (id: number, opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceAppearance>>;
+  appearances: (id: number, opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceAppearance>>;
   videoFaces: (videoId: number) => Promise<FaceHostFace[]>;
   imageFaces: (imageId: number) => Promise<FaceHostFace[]>;
   performerFaces: (performerId: number) => Promise<Face[]>;
@@ -536,7 +536,7 @@ export const faces: {
   link: (id: number, data: FaceLink) => Promise<Face>;
   mergeInto: (id: number, data: FaceMerge) => Promise<Face>;
   setIgnored: (id: number, data: FaceIgnore) => Promise<Face>;
-  similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceSimilar>>;
+  similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceSimilar>>;
   suggestions: (id: number, maxResults?: number) => Promise<FaceSuggestion[]>;
   recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) => Promise<Face>;
   markNotPresent: (id: number, data: { hostType: "video" | "image"; hostId: number }) => Promise<FaceNotPresentResult>;
@@ -576,11 +576,12 @@ export const faces: {
       topSuggestionPerformerIds: opts?.topSuggestionPerformerIds,
       sort: opts?.sort,
       direction: opts?.direction,
+      seed: opts?.seed,
       customFieldCriteria: opts?.customFieldCriteria && opts.customFieldCriteria.length > 0 ? JSON.stringify(opts.customFieldCriteria) : undefined,
     })}`),
   get: (id: number) => request<Face>(`/faces/${id}`),
-  appearances: (id: number, opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; page?: number; perPage?: number }) =>
-    request<PaginatedResponse<FaceAppearance>>(`/faces/${id}/appearances${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, { sort: opts?.sort, direction: opts?.direction })}`),
+  appearances: (id: number, opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) =>
+    request<PaginatedResponse<FaceAppearance>>(`/faces/${id}/appearances${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { sort: opts?.sort, direction: opts?.direction })}`),
   videoFaces: (videoId: number) => request<FaceHostFace[]>(`/videos/${videoId}/faces`),
   imageFaces: (imageId: number) => request<FaceHostFace[]>(`/images/${imageId}/faces`),
   performerFaces: (performerId: number) => request<Face[]>(`/performers/${performerId}/faces`),
@@ -601,8 +602,8 @@ export const faces: {
   link: (id: number, data: FaceLink) => request<Face>(`/faces/${id}/link`, { method: "POST", body: JSON.stringify(data) }),
   mergeInto: (id: number, data: FaceMerge) => request<Face>(`/faces/${id}/merge-into`, { method: "POST", body: JSON.stringify(data) }),
   setIgnored: (id: number, data: FaceIgnore) => request<Face>(`/faces/${id}/ignore`, { method: "POST", body: JSON.stringify(data) }),
-  similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; page?: number; perPage?: number }) =>
-    request<PaginatedResponse<FaceSimilar>>(`/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`),
+  similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) =>
+    request<PaginatedResponse<FaceSimilar>>(`/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`),
   suggestions: (id: number, maxResults?: number) =>
     request<FaceSuggestion[]>(`/faces/${id}/suggestions${buildQuery(undefined, { maxResults })}`),
   recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) =>

@@ -29,26 +29,9 @@ import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
+import { TEXT_SORT_OPTIONS } from "../components/textSortOptions";
 
-const SORT_OPTIONS = [
-  { value: "updatedAt", label: "Updated At" },
-  { value: "createdAt", label: "Created At" },
-  { value: "date", label: "Date" },
-  { value: "words", label: "Words" },
-  { value: "pages", label: "Pages" },
-  { value: "rating", label: "Rating" },
-  { value: "read_count", label: "Read Count" },
-  { value: "like_counter", label: "Likes" },
-  { value: "last_read_at", label: "Last Read" },
-  { value: "file_size", label: "File Size" },
-  { value: "file_mod_time", label: "File Modified" },
-  { value: "file_count", label: "File Count" },
-  { value: "path", label: "Path" },
-  { value: "tag_count", label: "Tag Count" },
-  { value: "performer_count", label: "Performer Count" },
-  { value: "title", label: "Title" },
-  { value: "random", label: "Random" },
-];
+const SORT_OPTIONS = TEXT_SORT_OPTIONS;
 
 interface Props {
   onNavigate: (route: any) => void;

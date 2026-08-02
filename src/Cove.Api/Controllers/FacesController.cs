@@ -96,6 +96,7 @@ public class FacesController(
         [FromQuery] string? topSuggestionPerformerIds = null,
         [FromQuery] string? sort = null,
         [FromQuery] SortDirection direction = SortDirection.Asc,
+        [FromQuery] int? seed = null,
         [FromQuery] string? customFieldCriteria = null,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 50,
@@ -169,7 +170,7 @@ public class FacesController(
 
         var sortedQuery = FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort)
             ? FullTextSearchHelpers.OrderByRelevance(db, query, q)
-            : ApplyFaceSort(db, query, sort, direction == SortDirection.Desc);
+            : ApplyFaceSort(db, query, sort, direction == SortDirection.Desc, seed);
 
         var parsedTopSuggestionPerformerIds = ParseIntList(topSuggestionPerformerIds);
         var hasTopSuggestionFilter = minSuggestionConfidence.HasValue || suggestionConfidence.HasValue || parsedTopSuggestionPerformerIds.Count > 0;
@@ -202,7 +203,7 @@ public class FacesController(
                     .OrderByDescending(face => face.TopSuggestionConfidence ?? -1f)
                     .ThenByDescending(face => face.UpdatedAt)
                     .ThenBy(face => face.Id)
-                : ApplyFaceSort(db, suggestionQuery, sort, direction == SortDirection.Desc);
+                : ApplyFaceSort(db, suggestionQuery, sort, direction == SortDirection.Desc, seed);
 
             var totalFilteredCount = await sortedFiltered.CountAsync(cancellationToken);
             var filteredPage = await sortedFiltered
@@ -396,6 +397,7 @@ public class FacesController(
         [FromQuery] string? q,
         [FromQuery] string? sort,
         [FromQuery] string? direction,
+        [FromQuery] int? seed,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 24,
         CancellationToken cancellationToken = default)
@@ -417,7 +419,7 @@ public class FacesController(
                 .ToList();
         }
 
-        items = ApplyAppearanceSort(items, sort, direction);
+        items = ApplyAppearanceSort(items, sort, direction, seed);
         var totalCount = items.Count;
         var pageItems = items
             .Skip((page - 1) * perPage)
@@ -1124,6 +1126,7 @@ public class FacesController(
         [FromQuery] string? q,
         [FromQuery] string? sort,
         [FromQuery] string? direction,
+        [FromQuery] int? seed,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 18,
         [FromQuery] int k = 80,
@@ -1198,7 +1201,7 @@ public class FacesController(
                 .ToList();
         }
 
-        response = ApplySimilarSort(response, sort, direction);
+        response = ApplySimilarSort(response, sort, direction, seed);
         var totalCount = response.Count;
         var pageItems = response
             .Skip((page - 1) * perPage)
@@ -1275,7 +1278,7 @@ public class FacesController(
         }
     }
 
-    private static IQueryable<Face> ApplyFaceSort(CoveContext db, IQueryable<Face> query, string? sort, bool descending)
+    private static IQueryable<Face> ApplyFaceSort(CoveContext db, IQueryable<Face> query, string? sort, bool descending, int? seed = null)
     {
         var normalized = (sort ?? string.Empty).Trim().ToLowerInvariant();
         if (FilterHelpers.TryParseCustomFieldSort(normalized, out _, out _))
@@ -1310,6 +1313,7 @@ public class FacesController(
             "frame_sample_count" => OrderFacesBy(query, face => face.FrameSampleCount, descending),
             "video_count" => OrderFacesBy(query, face => face.VideoCount, descending),
             "image_count" => OrderFacesBy(query, face => face.ImageCount, descending),
+            "random" => SeededRandomOrdering.OrderBy(query, seed, face => face.Id, descending),
             "created" or "created_at" => OrderFacesBy(query, face => face.CreatedAt, descending),
             "updated" or "updated_at" => OrderFacesBy(query, face => face.UpdatedAt, descending),
             // Composite "best ordering" sort used as the default surface; intentionally direction-agnostic.
@@ -1393,13 +1397,14 @@ public class FacesController(
             .ToList();
     }
 
-    private static List<FaceAppearanceDto> ApplyAppearanceSort(IEnumerable<FaceAppearanceDto> items, string? sort, string? direction)
+    private static List<FaceAppearanceDto> ApplyAppearanceSort(IEnumerable<FaceAppearanceDto> items, string? sort, string? direction, int? seed)
     {
         var normalized = (sort ?? string.Empty).Trim().ToLowerInvariant();
         var ascending = ResolveSortDirection(direction, normalized is "title" or "host_type");
 
         return normalized switch
         {
+            "random" => OrderSeededRandom(items, item => item.AppearanceId, seed, ascending).ToList(),
             "title" => OrderBy(items, item => item.Title, ascending).ThenBy(item => item.HostId).ToList(),
             "host_type" => OrderBy(items, item => item.HostType, ascending).ThenBy(item => item.Title).ToList(),
             "sample_count" => OrderBy(items, item => item.FrameSampleCount, ascending).ThenBy(item => item.Title).ToList(),
@@ -1409,13 +1414,14 @@ public class FacesController(
         };
     }
 
-    private static List<FaceSimilarDto> ApplySimilarSort(IEnumerable<FaceSimilarDto> items, string? sort, string? direction)
+    private static List<FaceSimilarDto> ApplySimilarSort(IEnumerable<FaceSimilarDto> items, string? sort, string? direction, int? seed)
     {
         var normalized = (sort ?? string.Empty).Trim().ToLowerInvariant();
         var ascending = ResolveSortDirection(direction, normalized is "distance" or "label");
 
         return normalized switch
         {
+            "random" => OrderSeededRandom(items, item => item.Id, seed, ascending).ToList(),
             "label" => OrderBy(items, item => item.Label ?? item.PerformerName ?? string.Empty, ascending).ThenBy(item => item.Id).ToList(),
             "updated_at" => OrderBy(items, item => item.UpdatedAt, ascending).ThenBy(item => item.Id).ToList(),
             "appearance_count" => OrderBy(items, item => item.AppearanceCount, ascending).ThenBy(item => item.Distance).ToList(),
@@ -1428,6 +1434,19 @@ public class FacesController(
     private static IOrderedEnumerable<TItem> OrderBy<TItem, TKey>(IEnumerable<TItem> items, Func<TItem, TKey> keySelector, bool ascending)
         where TKey : IComparable<TKey>
         => ascending ? items.OrderBy(keySelector) : items.OrderByDescending(keySelector);
+
+    private static IOrderedEnumerable<TItem> OrderSeededRandom<TItem>(IEnumerable<TItem> items, Func<TItem, int> idSelector, int? seed, bool ascending)
+    {
+        var normalizedSeed = Math.Abs((long)(seed ?? 1));
+        if (normalizedSeed == 0) normalizedSeed = 1;
+        long Primary(TItem item) => ((long)idSelector(item) * 17L + normalizedSeed * 31L) % 13L;
+        long Secondary(TItem item) => ((long)idSelector(item) * 101L + normalizedSeed * 131L) % 97L;
+        long Tertiary(TItem item) => ((long)idSelector(item) * 1103515245L + normalizedSeed * 12345L) % 2147483647L;
+
+        return ascending
+            ? items.OrderBy(Primary).ThenBy(Secondary).ThenBy(Tertiary).ThenBy(idSelector)
+            : items.OrderByDescending(Primary).ThenByDescending(Secondary).ThenByDescending(Tertiary).ThenByDescending(idSelector);
+    }
 
     private static bool ResolveSortDirection(string? direction, bool defaultAscending)
         => string.Equals(direction, "asc", StringComparison.OrdinalIgnoreCase)
@@ -2331,7 +2350,6 @@ public class FacesController(
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
-
 
 
 

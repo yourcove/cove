@@ -1,0 +1,15 @@
+export const FACE_SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "suggestion_confidence", label: "Suggested Match Confidence" },
+  { value: "updated", label: "Updated At" },
+  { value: "created", label: "Created At" },
+  { value: "label", label: "Label" },
+  { value: "performer_name", label: "Performer Name" },
+  { value: "primary_source_key", label: "Source" },
+  { value: "detection_count", label: "Detection Count" },
+  { value: "appearance_count", label: "Appearance Count" },
+  { value: "frame_sample_count", label: "Frame Sample Count" },
+  { value: "video_count", label: "Video Count" },
+  { value: "image_count", label: "Image Count" },
+  { value: "cover_present", label: "Has Cover" },
+  { value: "random", label: "Random" },
+];
