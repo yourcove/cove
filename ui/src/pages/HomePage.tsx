@@ -350,6 +350,7 @@ function SavedFilterRecommendationRow({ savedFilterId, onNavigate }: { savedFilt
         page: 1,
         sort: parsedFilter.sort ?? DEFAULT_SORT_BY_MODE[mode],
         direction: parsedFilter.direction ?? "desc",
+        ...(findFilter?.seed != null ? { seed: findFilter.seed } : {}),
       }}
       viewAllObjectFilter={parsedObjectFilter ?? {}}
       viewAllView={typeof parsedUIOptions?.displayMode === "string" ? parsedUIOptions.displayMode : undefined}
