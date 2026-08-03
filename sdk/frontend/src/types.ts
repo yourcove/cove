@@ -36,6 +36,9 @@ export interface SlotProps<TContext = Record<string, unknown>> {
 /** Stable extension slot rendered inside Cove's native entity cover editor. */
 export const ENTITY_COVER_EDITOR_SLOT = "entity-cover-editor" as const;
 
+/** Stable viewport-level slot for application-wide floating extension UI. */
+export const APP_FLOATING_UI_SLOT = "app-floating-ui" as const;
+
 /** Host-owned context supplied to entity cover editor contributions. */
 export interface EntityCoverEditorContext {
   entityType: EntityType;
