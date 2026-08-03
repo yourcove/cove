@@ -19,7 +19,11 @@ export function ListSearchControl({ query, onQueryChange, placeholder = "Search 
   const [searchText, setSearchText] = useState(query ?? "");
 
   useEffect(() => {
-    setSearchText(query ?? "");
+    setSearchText((currentSearchText) => (
+      currentSearchText.trim() === (query ?? "").trim()
+        ? currentSearchText
+        : query ?? ""
+    ));
   }, [query]);
 
   const commitSearch = useCallback((rawSearchText: string, source: ListSearchCommitSource) => {
