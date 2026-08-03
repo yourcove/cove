@@ -374,6 +374,7 @@ public partial class StashMigrationService
                 LastConsumedAt: lastConsumedAt));
         }
         await AddImportedAffinitiesAsync(sceneAffinitySeeds, idMap, AffinityHostType.Video, ct);
+        await AddImportedVideoLikeInteractionsAsync(sceneODates, idMap, ct);
 
         _logger.LogInformation("Imported {Count} scenes in {Elapsed}", count, stopwatch.Elapsed);
         if (skippedDuplicateFiles > 0)

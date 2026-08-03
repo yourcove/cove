@@ -371,6 +371,8 @@ export const videos = {
     request<Video>("/videos/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   recordPlay: (id: number) => request<void>(`/videos/${id}/play`, { method: "POST" }),
   incrementLike: (id: number) => request<number>(`/videos/${id}/like`, { method: "POST" }),
+  addHistoricalLike: (id: number, at: string) =>
+    request<number>(`/videos/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
   decrementLike: (id: number) => request<void>(`/videos/${id}/like`, { method: "DELETE" }),
   resetLike: (id: number) => request<void>(`/videos/${id}/like/reset`, { method: "POST" }),
   deletePlay: (id: number) => request<void>(`/videos/${id}/play`, { method: "DELETE" }),

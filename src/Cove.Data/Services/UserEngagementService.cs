@@ -351,6 +351,9 @@ public sealed partial class UserEngagementService(
     public Task<UserEngagementSnapshot?> IncrementVideoLikeAsync(int videoId, CancellationToken cancellationToken = default)
         => IncrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken);
 
+    public Task<UserEngagementSnapshot?> AddHistoricalVideoLikeAsync(int videoId, DateTime at, CancellationToken cancellationToken = default)
+        => IncrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken, at);
+
     public Task<UserEngagementSnapshot?> DecrementVideoLikeAsync(int videoId, CancellationToken cancellationToken = default)
         => DecrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken);
 
@@ -366,12 +369,16 @@ public sealed partial class UserEngagementService(
     public Task<UserEngagementSnapshot?> ResetImageLikeAsync(int imageId, CancellationToken cancellationToken = default)
         => ResetLikeAsync(AffinityHostType.Image, imageId, cancellationToken);
 
-    private async Task<UserEngagementSnapshot?> IncrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken)
+    private async Task<UserEngagementSnapshot?> IncrementLikeAsync(
+        AffinityHostType hostType,
+        int hostId,
+        CancellationToken cancellationToken,
+        DateTime? at = null)
     {
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
-        var now = DateTime.UtcNow;
+        var now = at ?? DateTime.UtcNow;
         var affinity = await GetOrCreateAffinityAsync(hostType, hostId, cancellationToken);
         if (affinity != null)
         {

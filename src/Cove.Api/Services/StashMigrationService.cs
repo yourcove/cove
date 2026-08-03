@@ -220,6 +220,38 @@ public partial class StashMigrationService
         }
     }
 
+    private async Task AddImportedVideoLikeInteractionsAsync(
+        IReadOnlyDictionary<int, List<DateTime>> likeHistoryByStashId,
+        IReadOnlyDictionary<int, int> idMap,
+        CancellationToken ct)
+    {
+        var engagementUserId = await GetRequiredImportEngagementUserIdAsync(ct);
+        var importedAt = DateTime.UtcNow;
+
+        foreach (var (stashId, dates) in likeHistoryByStashId)
+        {
+            if (!idMap.TryGetValue(stashId, out var videoId))
+                continue;
+
+            foreach (var at in dates)
+            {
+                _db.Interactions.Add(new Interaction
+                {
+                    UserId = engagementUserId,
+                    HostType = InteractionHostType.Video,
+                    HostId = videoId,
+                    Kind = InteractionKind.LikeCount,
+                    At = at,
+                    CreatedAt = importedAt,
+                    UpdatedAt = importedAt,
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _db.ChangeTracker.Clear();
+    }
+
     private async Task AddImportedAffinitiesAsync(
         IEnumerable<ImportedAffinitySeed> seeds,
         IReadOnlyDictionary<int, int> idMap,

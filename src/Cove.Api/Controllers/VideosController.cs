@@ -1032,6 +1032,22 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         return Ok(snapshot.LikeCount);
     }
 
+    [HttpPost("{id:int}/like/historical")]
+    [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
+    {
+        var at = request.At.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(request.At, DateTimeKind.Utc)
+            : request.At.ToUniversalTime();
+        if (at > DateTime.UtcNow)
+            return BadRequest("Historical likes must be dated in the past.");
+
+        var snapshot = await engagementService.AddHistoricalVideoLikeAsync(id, at, ct);
+        if (snapshot == null) return NotFound();
+        return Ok(snapshot.LikeCount);
+    }
+
     [HttpDelete("{id:int}/like")]
     [RequiresPermission(Permissions.VideosRead)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]

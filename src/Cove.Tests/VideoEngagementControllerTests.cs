@@ -19,6 +19,27 @@ namespace Cove.Tests;
 public class VideoEngagementControllerTests
 {
     [Fact]
+    public async Task AddHistoricalLike_UsesRequestedTimestampAndIncrementsCount()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        context.Videos.Add(new Video { Title = "Historical Like Video" });
+        await context.SaveChangesAsync();
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        principalAccessor.Set(CreatePrincipal(7));
+        var controller = CreateVideosController(context, principalAccessor);
+        var historicalAt = new DateTime(2022, 4, 3, 14, 30, 0, DateTimeKind.Utc);
+
+        var result = await controller.AddHistoricalLike(videoId, new HistoricalLikeDto(historicalAt), CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal(1, Assert.IsType<int>(ok.Value));
+        var history = await new UserEngagementService(context, principalAccessor).GetVideoHistoryAsync(videoId);
+        Assert.Equal(historicalAt.ToString("o"), Assert.Single(history!.LikeHistory));
+    }
+
+    [Fact]
     public async Task EngagementMutations_EmitTraceSummaries()
     {
         await using var scope = await CreateContextAsync();
