@@ -44,4 +44,18 @@ describe("ListSearchControl", () => {
 
     expect(screen.getByRole("textbox", { name: "Search list" })).toHaveValue("winter");
   });
+
+  it("preserves an in-progress space when the committed query is normalized", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    const { rerender } = render(<ListSearchControl onQueryChange={onQueryChange} />);
+    const input = screen.getByRole("textbox", { name: "Search list" });
+
+    await user.type(input, "summer ");
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith("summer", "debounce"));
+
+    rerender(<ListSearchControl query="summer" onQueryChange={onQueryChange} />);
+
+    expect(input).toHaveValue("summer ");
+  });
 });
