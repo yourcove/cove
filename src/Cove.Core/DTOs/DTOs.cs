@@ -1902,6 +1902,8 @@ public record EntityRatingsDto(int HostId, Dictionary<string, int> Ratings);
 
 public record EntityFavoriteDto(bool IsFavorite);
 
+public record HistoricalLikeDto(DateTime At);
+
 public record EntityEngagementBatchRequestDto(AffinityHostType HostType, List<int> HostIds);
 
 public record EngagementInteractionWriteDto(
