@@ -835,6 +835,9 @@ CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, f
 INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at, last_played_at)
 VALUES (1, 'Imported Scene', 0, 15, 45, '2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z', '2024-03-01T00:00:00Z');
 INSERT INTO scenes_view_dates (scene_id, view_date) VALUES (1, '2024-01-15T00:00:00Z');
+INSERT INTO scenes_o_dates (scene_id, o_date) VALUES
+  (1, '2024-01-20T12:30:00Z'),
+  (1, '2024-02-10T08:15:00Z');
 INSERT INTO scenes_files (scene_id, file_id, [primary]) VALUES (1, 10, 1);
 INSERT INTO files (id, basename, parent_folder_id, size, mod_time, created_at)
 VALUES (10, 'clip.mp4', 99, 2048, '2024-04-01T00:00:00Z', '2024-01-05T00:00:00Z');
@@ -871,8 +874,22 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
         var affinity = await context.UserEntityAffinities.SingleAsync(item => item.HostType == AffinityHostType.Video && item.HostId == scene.Id);
         Assert.Equal(new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), affinity.LastConsumedAt);
         Assert.Equal(1, affinity.ViewCount);
+        Assert.Equal(2, affinity.LikeCount);
         Assert.Equal(15, affinity.LastPositionSec);
         Assert.Equal(45, affinity.TotalConsumedSec);
+        Assert.Equal(
+            [
+                new DateTime(2024, 1, 20, 12, 30, 0, DateTimeKind.Utc),
+                new DateTime(2024, 2, 10, 8, 15, 0, DateTimeKind.Utc),
+            ],
+            await context.Interactions
+                .Where(item => item.UserId == affinity.UserId
+                    && item.HostType == InteractionHostType.Video
+                    && item.HostId == scene.Id
+                    && item.Kind == InteractionKind.LikeCount)
+                .OrderBy(item => item.At)
+                .Select(item => item.At)
+                .ToListAsync());
         Assert.Equal(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), scene.CreatedAt);
         Assert.Equal(new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), scene.UpdatedAt);
         Assert.Equal(new DateTime(2024, 1, 5, 0, 0, 0, DateTimeKind.Utc), file.CreatedAt);
