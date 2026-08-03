@@ -1424,6 +1424,19 @@ function HistoryTab({
         )}
       </section>
 
+      <section>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">Like History</h3>
+        {history?.likeHistory?.length ? (
+          <div className="max-h-40 space-y-0.5 overflow-y-auto border-t border-border pt-2">
+            {history.likeHistory.map((date, i) => (
+              <div key={`${date}-${i}`} className="text-xs text-secondary">{formatDateTime(date)}</div>
+            ))}
+          </div>
+        ) : (
+          <div className="border-t border-border pt-2 text-xs text-muted">No likes recorded yet.</div>
+        )}
+      </section>
+
       {recentSessions.length > 0 && (
         <section>
           <div className="mb-2 flex items-center justify-between">
