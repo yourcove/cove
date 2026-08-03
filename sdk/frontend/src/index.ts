@@ -37,7 +37,7 @@ export type {
   ExtensionActionHandler,
   ExtensionModule,
 } from "./types";
-export { ENTITY_COVER_EDITOR_SLOT } from "./types";
+export { APP_FLOATING_UI_SLOT, ENTITY_COVER_EDITOR_SLOT } from "./types";
 
 export {
   ENTITY_MEDIA_TARGET,

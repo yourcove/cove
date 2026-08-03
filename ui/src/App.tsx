@@ -20,6 +20,7 @@ import { useResolvedKeybindingOverrides } from "./hooks/useResolvedKeybindingOve
 import { resolveKeybinding } from "./keyboard/keybindings";
 import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, buildRouteUrl, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, readStoredRoute, resolveCurrentRoute, syncRouteHistory } from "./router/location";
 import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
+import { AppFloatingUI } from "./components/AppFloatingUI";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -185,6 +186,7 @@ export default function App() {
       <AppConfigProvider>
         <AuthGate>
           <ExtensionLoaderProvider>
+            <AppFloatingUI />
             <VideoQueueProvider>
               <AppKeyboardShortcuts navigate={navigate} />
               <AppShell route={route} navigate={navigate} />

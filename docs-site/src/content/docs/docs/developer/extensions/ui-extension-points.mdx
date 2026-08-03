@@ -55,6 +55,14 @@ Page permission checks only control presentation. Protect every API used by the 
 
 The host passes a context object appropriate to the location. Detail slots receive the current entity and `onNavigate`; shared list slots receive the page key, title, filter state, filter callback, total count, and loading state. Treat context fields as location-specific rather than assuming every slot receives the same props.
 
+### Published application slot
+
+| Slot key | Location |
+| --- | --- |
+| `app-floating-ui` | A viewport-level layer that persists across application routes. |
+
+This slot receives an empty context object. The host provides a fixed layer above normal application content, keeps empty areas non-interactive, and isolates each contribution's rendering failure and lifecycle. Components must position themselves (for example, with `position: fixed`); their rendered controls can receive pointer events without blocking the page outside those controls. Contributions render in ascending `Order`. The frontend SDK and runtime component barrel export `APP_FLOATING_UI_SLOT`.
+
 ### Published detail slots
 
 | Page | Slot keys |

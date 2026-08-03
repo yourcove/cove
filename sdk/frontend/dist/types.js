@@ -6,6 +6,8 @@
  */
 /** Stable extension slot rendered inside Cove's native entity cover editor. */
 export const ENTITY_COVER_EDITOR_SLOT = "entity-cover-editor";
+/** Stable viewport-level slot for application-wide floating extension UI. */
+export const APP_FLOATING_UI_SLOT = "app-floating-ui";
 /** Stable host component target for primary entity media overrides. */
 export const ENTITY_MEDIA_TARGET = "entity.media";
 // ── Media-player contribution contracts ───────────────────────────────────────

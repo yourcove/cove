@@ -74,6 +74,7 @@ export type {
 // ─── Players / Viewers ────────────────────────────────────────────────────
 export { VideoPlayer } from "./VideoPlayer";
 export type { VideoPlayerPlaybackControls, VideoPlayerSeek } from "./VideoPlayer";
+export { APP_FLOATING_UI_SLOT } from "./AppFloatingUI";
 export {
   MEDIA_PLAYER_ACTIONS_SLOT,
   MEDIA_PLAYER_OVERLAY_SLOT,
