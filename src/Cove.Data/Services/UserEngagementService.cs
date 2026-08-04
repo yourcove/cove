@@ -110,6 +110,33 @@ public sealed partial class UserEngagementService(
     public Task<Dictionary<int, UserEngagementSnapshot>> GetVideoSnapshotsAsync(IEnumerable<int> videoIds, CancellationToken cancellationToken = default)
         => GetSnapshotsAsync(AffinityHostType.Video, videoIds, cancellationToken);
 
+    public async Task<int?> GetGalleryLikeCountAsync(int galleryId, CancellationToken cancellationToken = default)
+    {
+        if (!await db.Galleries.AnyAsync(gallery => gallery.Id == galleryId, cancellationToken))
+            return null;
+
+        var userId = principalAccessor.Current?.UserId;
+        if (!userId.HasValue)
+            return 0;
+
+        var imageLikes = await (
+            from link in db.Set<ImageGallery>()
+            join affinity in db.UserEntityAffinities on link.ImageId equals affinity.HostId
+            where link.GalleryId == galleryId
+                && affinity.UserId == userId.Value
+                && affinity.HostType == AffinityHostType.Image
+            select (int?)affinity.LikeCount).SumAsync(cancellationToken) ?? 0;
+        var videoLikes = await (
+            from link in db.Set<VideoGallery>()
+            join affinity in db.UserEntityAffinities on link.VideoId equals affinity.HostId
+            where link.GalleryId == galleryId
+                && affinity.UserId == userId.Value
+                && affinity.HostType == AffinityHostType.Video
+            select (int?)affinity.LikeCount).SumAsync(cancellationToken) ?? 0;
+
+        return imageLikes + videoLikes;
+    }
+
     public async Task<UserEngagementSnapshot?> SetFavoriteAsync(AffinityHostType hostType, int hostId, bool isFavorite, CancellationToken cancellationToken = default)
     {
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))

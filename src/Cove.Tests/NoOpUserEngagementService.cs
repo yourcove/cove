@@ -16,6 +16,9 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
     public Task<Dictionary<int, UserEngagementSnapshot>> GetSnapshotsAsync(AffinityHostType hostType, IEnumerable<int> hostIds, CancellationToken cancellationToken = default)
         => Task.FromResult(new Dictionary<int, UserEngagementSnapshot>());
 
+    public Task<int?> GetGalleryLikeCountAsync(int galleryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<int?>(0);
+
     public Task<Dictionary<int, UserEngagementSnapshot>> GetVideoSnapshotsAsync(IEnumerable<int> videoIds, CancellationToken cancellationToken = default)
         => Task.FromResult(new Dictionary<int, UserEngagementSnapshot>());
 

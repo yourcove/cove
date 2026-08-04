@@ -97,6 +97,7 @@ export function Lightbox({
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] });
       queryClient.invalidateQueries({ queryKey: ["image", imageId] });
       queryClient.invalidateQueries({ queryKey: ["image", imageId, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] });
     },
   });
   const likeCount = likeMutation.data ?? engagement?.likeCount ?? 0;

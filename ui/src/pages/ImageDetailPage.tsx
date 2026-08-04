@@ -127,6 +127,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       queryClient.invalidateQueries({ queryKey: ["image", id] });
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] });
       queryClient.invalidateQueries({ queryKey: ["image", id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] });
     },
   });
   const imageHistoryQuery = useQuery({
@@ -578,6 +579,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                 queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
                 queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
                 queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
+                queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
               ]);
             }}
             onDeleteLike={async (at) => {
@@ -587,6 +589,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                 queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
                 queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
                 queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
+                queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
               ]);
             }}
           />

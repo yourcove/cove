@@ -5,6 +5,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Data;
 using Cove.Data.Repositories;
+using Cove.Data.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -225,6 +226,42 @@ public class EntityDetailCountControllerTests
         Assert.Equal(2, detail.ImageCount);
         Assert.Equal(1, detail.VideoCount);
         Assert.NotNull(detail.CoverPath);
+    }
+
+    [Fact]
+    public async Task GalleryLikeCount_SumsCurrentUsersImageAndVideoLikes()
+    {
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "gallery-like-user",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { "*" },
+            Roles = new HashSet<string>(),
+        });
+        await using var context = CreateContext(principalAccessor);
+        var gallery = new Gallery { Title = "Gallery" };
+        var image = new Image { Title = "Image" };
+        var video = new Video { Title = "Video" };
+        context.AddRange(gallery, image, video);
+        await context.SaveChangesAsync();
+        context.AddRange(
+            new ImageGallery { GalleryId = gallery.Id, ImageId = image.Id },
+            new VideoGallery { GalleryId = gallery.Id, VideoId = video.Id },
+            new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Image, HostId = image.Id, LikeCount = 2, DerivedLikeCount = 13 },
+            new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Video, HostId = video.Id, LikeCount = 3 },
+            new UserEntityAffinity { UserId = 2, HostType = AffinityHostType.Image, HostId = image.Id, LikeCount = 11 });
+        await context.SaveChangesAsync();
+        var controller = new GalleriesController(
+            new GalleryRepository(context),
+            context,
+            new UserEngagementService(context, principalAccessor),
+            new NoOpScanService());
+
+        var result = await controller.GetLikeCount(gallery.Id, CancellationToken.None);
+
+        Assert.Equal(5, Assert.IsType<int>(Assert.IsType<OkObjectResult>(result.Result).Value));
     }
 
     private static CoveContext CreateContext(ICurrentPrincipalAccessor? principalAccessor = null)

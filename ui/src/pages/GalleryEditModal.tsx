@@ -44,6 +44,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["gallery", gallery.id] });
       qc.invalidateQueries({ queryKey: ["gallery-videos", gallery.id] });
+      qc.invalidateQueries({ queryKey: ["gallery-like-count", gallery.id] });
       qc.invalidateQueries({ queryKey: ["galleries"] });
       onClose();
     },

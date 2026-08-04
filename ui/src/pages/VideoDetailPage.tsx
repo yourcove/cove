@@ -294,6 +294,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       queryClient.invalidateQueries({ queryKey: ["video", id] });
       queryClient.invalidateQueries({ queryKey: ["engagement", "video", id] });
       queryClient.invalidateQueries({ queryKey: ["video-history", id] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] });
     },
   });
 
@@ -1439,6 +1440,7 @@ function HistoryTab({
             queryClient.invalidateQueries({ queryKey: ["engagement", "video", video.id] }),
             queryClient.invalidateQueries({ queryKey: ["engagement", "video", "batch"] }),
             queryClient.invalidateQueries({ queryKey: ["video-history", video.id] }),
+            queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
           ]);
         }}
         onDeleteLike={async (at) => {
@@ -1448,6 +1450,7 @@ function HistoryTab({
             queryClient.invalidateQueries({ queryKey: ["engagement", "video", video.id] }),
             queryClient.invalidateQueries({ queryKey: ["engagement", "video", "batch"] }),
             queryClient.invalidateQueries({ queryKey: ["video-history", video.id] }),
+            queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] }),
           ]);
         }}
       />

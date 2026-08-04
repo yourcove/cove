@@ -806,6 +806,7 @@ export const galleries = {
   findFiltered: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
     request<PaginatedResponse<Gallery>>("/galleries/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Gallery>(`/galleries/${id}`),
+  getLikeCount: (id: number) => request<number>(`/galleries/${id}/like-count`),
   create: (data: GalleryCreate) => request<Gallery>("/galleries", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: GalleryUpdate) => request<Gallery>(`/galleries/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkGalleryUpdate) => request<void>("/galleries/bulk", { method: "POST", body: JSON.stringify(data) }),
