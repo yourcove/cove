@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, Trash2 } from "lucide-react";
 import { formatDateTime } from "../utils/dateFormat";
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   loading?: boolean;
   canAddHistoricalLike: boolean;
   onAddHistoricalLike: (at: string) => Promise<unknown>;
+  onDeleteLike: (at: string) => Promise<unknown>;
 }
 
 function currentLocalDateTime() {
@@ -16,7 +17,7 @@ function currentLocalDateTime() {
   return now.toISOString().slice(0, 16);
 }
 
-export function LikeHistorySection({ likeHistory, loading, canAddHistoricalLike, onAddHistoricalLike }: Props) {
+export function LikeHistorySection({ likeHistory, loading, canAddHistoricalLike, onAddHistoricalLike, onDeleteLike }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [historicalAt, setHistoricalAt] = useState("");
@@ -27,6 +28,7 @@ export function LikeHistorySection({ likeHistory, loading, canAddHistoricalLike,
       setHistoricalAt("");
     },
   });
+  const deleteMutation = useMutation({ mutationFn: (at: string) => onDeleteLike(at) });
 
   return (
     <section>
@@ -55,7 +57,24 @@ export function LikeHistorySection({ likeHistory, loading, canAddHistoricalLike,
         <div className="border-t border-border pt-2 text-xs text-muted">Loading like history...</div>
       ) : likeHistory?.length ? (
         <div className="max-h-40 space-y-0.5 overflow-y-auto border-t border-border pt-2">
-          {likeHistory.map((date, index) => <div key={`${date}-${index}`} className="text-xs text-secondary">{formatDateTime(date)}</div>)}
+          {likeHistory.map((date, index) => (
+            <div key={`${date}-${index}`} className="flex items-center justify-between gap-2 text-xs text-secondary">
+              <span>{formatDateTime(date)}</span>
+              {canAddHistoricalLike ? (
+                <button
+                  type="button"
+                  aria-label={`Delete like from ${formatDateTime(date)}`}
+                  title="Delete like"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteMutation.mutate(date)}
+                  className="rounded p-1 text-muted hover:bg-card-hover hover:text-danger disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {deleteMutation.isError ? <div className="pt-1 text-xs text-danger">Could not delete the like.</div> : null}
         </div>
       ) : (
         <div className="border-t border-border pt-2 text-xs text-muted">No likes recorded yet.</div>

@@ -375,6 +375,40 @@ public sealed partial class UserEngagementService(
     public Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
         => IncrementLikeCoreAsync(hostType, hostId, cancellationToken, at);
 
+    public async Task<UserEngagementSnapshot?> DeleteLikeAtAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+    {
+        if (!IsDirectLikeHost(hostType))
+            return null;
+        if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
+            return null;
+
+        var affinity = await GetOrCreateAffinityAsync(hostType, hostId, cancellationToken, createIfMissing: false);
+        if (affinity != null)
+        {
+            var normalizedAt = at.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(at, DateTimeKind.Utc)
+                : at.ToUniversalTime();
+            var interactionHostType = ToInteractionHostType(hostType);
+            var interaction = await db.Interactions
+                .Where(item => item.UserId == affinity.UserId
+                    && item.HostType == interactionHostType
+                    && item.HostId == hostId
+                    && item.Kind == InteractionKind.LikeCount
+                    && item.At == normalizedAt)
+                .OrderBy(item => item.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (interaction != null)
+            {
+                db.Interactions.Remove(interaction);
+                affinity.LikeCount = Math.Max(0, affinity.LikeCount - 1);
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
+        TraceLikeCountChanged(hostType, hostId, "deleted from history", affinity?.LikeCount ?? 0);
+
+        return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
+    }
+
     private async Task<UserEngagementSnapshot?> IncrementLikeCoreAsync(
         AffinityHostType hostType,
         int hostId,

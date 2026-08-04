@@ -56,6 +56,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
     }
 
+    [HttpDelete("{id:int}/like/history")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.DeleteLikeAtAsync(AffinityHostType.Text, id, at, ct);
+        if (snapshot == null) return NotFound();
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}/like")]
     [RequiresPermission(Permissions.TextsWrite)]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]

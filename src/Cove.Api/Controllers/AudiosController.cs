@@ -208,6 +208,16 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
     }
 
+    [HttpDelete("{id:int}/like/history")]
+    [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.DeleteLikeAtAsync(AffinityHostType.Audio, id, at, ct);
+        if (snapshot == null) return NotFound();
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}/like")]
     [RequiresPermission(Permissions.AudiosWrite)]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]

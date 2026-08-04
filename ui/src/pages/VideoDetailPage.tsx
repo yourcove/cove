@@ -1437,6 +1437,16 @@ function HistoryTab({
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["video", video.id] }),
             queryClient.invalidateQueries({ queryKey: ["engagement", "video", video.id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "video", "batch"] }),
+            queryClient.invalidateQueries({ queryKey: ["video-history", video.id] }),
+          ]);
+        }}
+        onDeleteLike={async (at) => {
+          await videos.deleteLikeFromHistory(video.id, at);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["video", video.id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "video", video.id] }),
+            queryClient.invalidateQueries({ queryKey: ["engagement", "video", "batch"] }),
             queryClient.invalidateQueries({ queryKey: ["video-history", video.id] }),
           ]);
         }}

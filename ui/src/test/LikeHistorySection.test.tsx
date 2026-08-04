@@ -3,7 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
-function renderSection(canAddHistoricalLike: boolean, onAddHistoricalLike = vi.fn().mockResolvedValue(undefined)) {
+function renderSection(
+  canAddHistoricalLike: boolean,
+  onAddHistoricalLike = vi.fn().mockResolvedValue(undefined),
+  onDeleteLike = vi.fn().mockResolvedValue(undefined),
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -11,10 +15,11 @@ function renderSection(canAddHistoricalLike: boolean, onAddHistoricalLike = vi.f
         likeHistory={["2024-01-02T03:04:05.000Z"]}
         canAddHistoricalLike={canAddHistoricalLike}
         onAddHistoricalLike={onAddHistoricalLike}
+        onDeleteLike={onDeleteLike}
       />
     </QueryClientProvider>,
   );
-  return onAddHistoricalLike;
+  return { onAddHistoricalLike, onDeleteLike };
 }
 
 describe("LikeHistorySection", () => {
@@ -22,10 +27,11 @@ describe("LikeHistorySection", () => {
     renderSection(false);
     expect(screen.getByText(/2024-01-02/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Like history actions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Delete like from/ })).not.toBeInTheDocument();
   });
 
   it("submits a selected historical date as an ISO timestamp", async () => {
-    const onAddHistoricalLike = renderSection(true);
+    const { onAddHistoricalLike } = renderSection(true);
     fireEvent.click(screen.getByRole("button", { name: "Like history actions" }));
     fireEvent.click(screen.getByRole("button", { name: "Add historical like" }));
     fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2024-07-03T12:00" } });
@@ -33,4 +39,14 @@ describe("LikeHistorySection", () => {
 
     await waitFor(() => expect(onAddHistoricalLike).toHaveBeenCalledWith(new Date("2024-07-03T12:00").toISOString()));
   });
+
+  it("deletes the selected like immediately", async () => {
+    const { onDeleteLike } = renderSection(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete like from 2024-01-02/ }));
+
+    await waitFor(() => expect(onDeleteLike).toHaveBeenCalledWith("2024-01-02T03:04:05.000Z"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
 });

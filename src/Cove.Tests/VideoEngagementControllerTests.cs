@@ -48,10 +48,39 @@ public class VideoEngagementControllerTests
             var history = await service.GetHistoryAsync(hostType, hostId, CancellationToken.None);
             Assert.Equal(2, history!.LikeHistory.Count);
             Assert.Contains(historicalAt.ToString("o"), history.LikeHistory);
+
+            snapshot = await service.DeleteLikeAtAsync(hostType, hostId, historicalAt, CancellationToken.None);
+            Assert.Equal(1, snapshot!.LikeCount);
+            history = await service.GetHistoryAsync(hostType, hostId, CancellationToken.None);
+            Assert.DoesNotContain(historicalAt.ToString("o"), history!.LikeHistory);
+            Assert.Single(history.LikeHistory);
         }
 
         var performerId = await context.Performers.Select(item => item.Id).SingleAsync();
         Assert.Null(await service.IncrementLikeAsync(AffinityHostType.Performer, performerId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteLikeAt_RemovesOnlyTheSelectedVideoLike()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        context.Videos.Add(new Video { Title = "Selected Like Video" });
+        await context.SaveChangesAsync();
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        principalAccessor.Set(CreatePrincipal(7));
+        var service = new UserEngagementService(context, principalAccessor);
+        var firstAt = new DateTime(2022, 4, 3, 14, 30, 0, DateTimeKind.Utc);
+        var selectedAt = firstAt.AddDays(1);
+        await service.AddHistoricalVideoLikeAsync(videoId, firstAt);
+        await service.AddHistoricalVideoLikeAsync(videoId, selectedAt);
+
+        var snapshot = await service.DeleteLikeAtAsync(AffinityHostType.Video, videoId, selectedAt);
+
+        Assert.Equal(1, snapshot!.LikeCount);
+        var history = await service.GetVideoHistoryAsync(videoId);
+        Assert.Equal(firstAt.ToString("o"), Assert.Single(history!.LikeHistory));
     }
 
     [Fact]

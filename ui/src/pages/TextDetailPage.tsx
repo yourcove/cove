@@ -613,6 +613,16 @@ export function TextDetailPage({ id, onNavigate }: Props) {
               await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["text", id] }),
                 queryClient.invalidateQueries({ queryKey: ["engagement", "text", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "text", "batch"] }),
+                queryClient.invalidateQueries({ queryKey: ["text", id, "history"] }),
+              ]);
+            }}
+            onDeleteLike={async (at) => {
+              await texts.deleteLikeFromHistory(id, at);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["text", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "text", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "text", "batch"] }),
                 queryClient.invalidateQueries({ queryKey: ["text", id, "history"] }),
               ]);
             }}
@@ -691,6 +701,7 @@ function TextHistoryTab({
   historyLoading,
   canAddHistoricalLike,
   onAddHistoricalLike,
+  onDeleteLike,
 }: {
   pageVisitCount: number;
   timeOpen: number;
@@ -700,6 +711,7 @@ function TextHistoryTab({
   historyLoading?: boolean;
   canAddHistoricalLike: boolean;
   onAddHistoricalLike: (at: string) => Promise<unknown>;
+  onDeleteLike: (at: string) => Promise<unknown>;
 }) {
   return (
     <div className="space-y-6 text-sm">
@@ -713,7 +725,7 @@ function TextHistoryTab({
         </div>
       </section>
 
-      <LikeHistorySection likeHistory={history?.likeHistory} loading={historyLoading} canAddHistoricalLike={canAddHistoricalLike} onAddHistoricalLike={onAddHistoricalLike} />
+      <LikeHistorySection likeHistory={history?.likeHistory} loading={historyLoading} canAddHistoricalLike={canAddHistoricalLike} onAddHistoricalLike={onAddHistoricalLike} onDeleteLike={onDeleteLike} />
 
       <div className="grid grid-cols-2 gap-2">
         <div><span className="text-muted">Created:</span> <span className="text-foreground">{formatDate(createdAt)}</span></div>

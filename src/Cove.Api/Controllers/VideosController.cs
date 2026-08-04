@@ -1052,6 +1052,16 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         return Ok(snapshot.LikeCount);
     }
 
+    [HttpDelete("{id:int}/like/history")]
+    [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
+    {
+        var snapshot = await engagementService.DeleteLikeAtAsync(AffinityHostType.Video, id, at, ct);
+        if (snapshot == null) return NotFound();
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}/like")]
     [RequiresPermission(Permissions.VideosRead)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead)]

@@ -354,6 +354,16 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return history is null ? NotFound() : Ok(history);
     }
 
+    [HttpDelete("{id:int}/like/history")]
+    [RequiresPermission(Permissions.ImagesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
+    {
+        var snapshot = await engagementService.DeleteLikeAtAsync(AffinityHostType.Image, id, at, ct);
+        if (snapshot == null) return NotFound();
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}/like")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]

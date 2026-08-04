@@ -64,6 +64,9 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
     public Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
+    public Task<UserEngagementSnapshot?> DeleteLikeAtAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
     public Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 

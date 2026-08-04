@@ -576,6 +576,16 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
               await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["image", id] }),
                 queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
+                queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
+              ]);
+            }}
+            onDeleteLike={async (at) => {
+              await images.deleteLikeFromHistory(id, at);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["image", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] }),
                 queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
               ]);
             }}

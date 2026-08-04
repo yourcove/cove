@@ -579,6 +579,16 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
               await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["audio", id] }),
                 queryClient.invalidateQueries({ queryKey: ["engagement", "audio", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "audio", "batch"] }),
+                queryClient.invalidateQueries({ queryKey: ["audio", id, "history"] }),
+              ]);
+            }}
+            onDeleteLike={async (at) => {
+              await audios.deleteLikeFromHistory(id, at);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["audio", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "audio", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "audio", "batch"] }),
                 queryClient.invalidateQueries({ queryKey: ["audio", id, "history"] }),
               ]);
             }}
@@ -658,6 +668,7 @@ function AudioHistoryTab({
   updatedAt,
   canAddHistoricalLike,
   onAddHistoricalLike,
+  onDeleteLike,
 }: {
   playCount: number;
   playDuration: number;
@@ -668,6 +679,7 @@ function AudioHistoryTab({
   updatedAt: string;
   canAddHistoricalLike: boolean;
   onAddHistoricalLike: (at: string) => Promise<unknown>;
+  onDeleteLike: (at: string) => Promise<unknown>;
 }) {
   const sessions = history?.sessions ?? [];
   return (
@@ -689,6 +701,7 @@ function AudioHistoryTab({
         loading={historyLoading}
         canAddHistoricalLike={canAddHistoricalLike}
         onAddHistoricalLike={onAddHistoricalLike}
+        onDeleteLike={onDeleteLike}
       />
 
       <section>
