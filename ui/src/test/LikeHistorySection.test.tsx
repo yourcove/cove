@@ -49,4 +49,14 @@ describe("LikeHistorySection", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("closes the actions popover when clicking outside", () => {
+    renderSection(true);
+    fireEvent.click(screen.getByRole("button", { name: "Like history actions" }));
+    expect(screen.getByRole("button", { name: "Add historical like" })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+
+    expect(screen.queryByRole("button", { name: "Add historical like" })).not.toBeInTheDocument();
+  });
+
 });

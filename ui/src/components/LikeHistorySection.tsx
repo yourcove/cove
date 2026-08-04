@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { MoreVertical, Trash2 } from "lucide-react";
 import { formatDateTime } from "../utils/dateFormat";
@@ -21,6 +21,7 @@ export function LikeHistorySection({ likeHistory, loading, canAddHistoricalLike,
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [historicalAt, setHistoricalAt] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
   const addMutation = useMutation({
     mutationFn: () => onAddHistoricalLike(new Date(historicalAt).toISOString()),
     onSuccess: () => {
@@ -30,12 +31,21 @@ export function LikeHistorySection({ likeHistory, loading, canAddHistoricalLike,
   });
   const deleteMutation = useMutation({ mutationFn: (at: string) => onDeleteLike(at) });
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">Like History</h3>
         {canAddHistoricalLike ? (
-          <div className="relative">
+          <div ref={menuRef} className="relative">
             <button type="button" aria-label="Like history actions" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)} className="rounded p-1 text-secondary hover:bg-card-hover hover:text-foreground">
               <MoreVertical className="h-4 w-4" />
             </button>
