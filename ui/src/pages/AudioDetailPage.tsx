@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Clapperboard, Download, ExternalLink, Eye, FileAudio, Files, FolderOpen, Image, Layers, Link2, Mic2, MoreVertical, RefreshCw, Rows3, Trash2 } from "lucide-react";
+import { Check, Clapperboard, Download, ExternalLink, Eye, FileAudio, Files, FolderOpen, Image, Layers, Link2, Mic2, MoreVertical, RefreshCw, Rows3, ThumbsUp, Trash2 } from "lucide-react";
 import { audios, entityImages, fileOps } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
@@ -27,6 +27,7 @@ import { VideoPlayer } from "../components/VideoPlayer";
 import { trackInteraction } from "../utils/interactionTracking";
 import { getAudioDisplayTitle, pickPrimaryAudioFile } from "../utils/audioTextDisplay";
 import { AudioEditPanel } from "./AudioEditPanel";
+import { LikeHistorySection } from "../components/LikeHistorySection";
 
 const MediaScrapeDialog = lazy(() => import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })));
 const MediaDownloadDialog = lazy(() => import("../components/MediaDownloadDialog").then((module) => ({ default: module.MediaDownloadDialog })));
@@ -92,6 +93,14 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["audios"] });
       goBack();
+    },
+  });
+  const incrementLikeMut = useMutation({
+    mutationFn: () => audios.incrementLike(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["audio", id] });
+      queryClient.invalidateQueries({ queryKey: ["engagement", "audio", id] });
+      queryClient.invalidateQueries({ queryKey: ["audio", id, "history"] });
     },
   });
   const revealFileMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
@@ -176,6 +185,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
   const audioPlayCount = audioEngagement?.playCount ?? 0;
   const audioPlayDuration = audioEngagement?.playDuration ?? 0;
   const audioPageVisitCount = audioEngagement?.pageVisitCount ?? 0;
+  const audioLikeCount = audioEngagement?.likeCount ?? 0;
 
   const audioMedia = !canStreamAudio ? (
     <div className="flex h-full min-h-[20rem] items-center justify-center rounded-[2rem] border border-dashed border-border bg-card/70 text-sm text-muted">
@@ -267,7 +277,14 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
       onTabChange={(key) => setActiveTab(key as AudioTab)}
       engagement={{
         primaryContent: <InteractiveRating value={audioRating} onChange={(value) => setAudioRating(value)} readOnly={!canEngageAudio} />,
-        additionalMetrics: [],
+        additionalMetrics: [{
+          label: "Likes",
+          value: audioLikeCount,
+          icon: <ThumbsUp className={["h-4 w-4", audioLikeCount > 0 ? "fill-accent text-accent" : ""].join(" ")} />,
+          title: "Likes",
+          onClick: canWriteAudio ? () => incrementLikeMut.mutate() : undefined,
+          active: audioLikeCount > 0,
+        }],
       }}
       actions={
         <>
@@ -556,6 +573,15 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
             historyLoading={audioHistoryQuery.isLoading}
             createdAt={audio.createdAt}
             updatedAt={audio.updatedAt}
+            canAddHistoricalLike={canWriteAudio}
+            onAddHistoricalLike={async (at) => {
+              await audios.addHistoricalLike(id, at);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["audio", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "audio", id] }),
+                queryClient.invalidateQueries({ queryKey: ["audio", id, "history"] }),
+              ]);
+            }}
           />
         ) : null}
 
@@ -630,6 +656,8 @@ function AudioHistoryTab({
   historyLoading,
   createdAt,
   updatedAt,
+  canAddHistoricalLike,
+  onAddHistoricalLike,
 }: {
   playCount: number;
   playDuration: number;
@@ -638,6 +666,8 @@ function AudioHistoryTab({
   historyLoading?: boolean;
   createdAt: string;
   updatedAt: string;
+  canAddHistoricalLike: boolean;
+  onAddHistoricalLike: (at: string) => Promise<unknown>;
 }) {
   const sessions = history?.sessions ?? [];
   return (
@@ -653,6 +683,13 @@ function AudioHistoryTab({
           {history ? <div><span className="text-muted">Distinct Listened:</span> <span className="text-foreground">{formatDuration(history.totalDistinctWatchedSec ?? 0)}</span></div> : null}
         </div>
       </section>
+
+      <LikeHistorySection
+        likeHistory={history?.likeHistory}
+        loading={historyLoading}
+        canAddHistoricalLike={canAddHistoricalLike}
+        onAddHistoricalLike={onAddHistoricalLike}
+      />
 
       <section>
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">Sessions</h3>

@@ -858,8 +858,10 @@ export const images = {
     return request<void>("/images/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
   },
   incrementLike: (id: number) => request<number>(`/images/${id}/like`, { method: "POST" }),
+  addHistoricalLike: (id: number, at: string) => request<number>(`/images/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
   decrementLike: (id: number) => request<number>(`/images/${id}/like`, { method: "DELETE" }),
   resetLike: (id: number) => request<number>(`/images/${id}/like/reset`, { method: "POST" }),
+  getHistory: (id: number) => request<VideoHistory>(`/images/${id}/history`),
   detections: {
     list: (imageId: number) => request<Detection[]>(`/images/${imageId}/detections`),
     create: (imageId: number, data: DetectionCreate) =>
@@ -890,6 +892,10 @@ export const audios = {
   bulkDelete: (ids: number[], options?: DeleteEntityOptions) =>
     request<void>("/audios/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
   getHistory: (id: number) => request<VideoHistory>(`/audios/${id}/history`),
+  incrementLike: (id: number) => request<number>(`/audios/${id}/like`, { method: "POST" }),
+  addHistoricalLike: (id: number, at: string) => request<number>(`/audios/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
+  decrementLike: (id: number) => request<number>(`/audios/${id}/like`, { method: "DELETE" }),
+  resetLike: (id: number) => request<number>(`/audios/${id}/like/reset`, { method: "POST" }),
   resetActivity: (id: number) => request<void>(`/audios/${id}/activity/reset`, { method: "POST" }),
   streamUrl: (id: number) => buildMediaUrl(`/audios/${id}/stream`),
 };
@@ -911,6 +917,11 @@ export const texts = {
     request<void>(`/texts/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`, { method: "DELETE" }),
   bulkDelete: (ids: number[], options?: DeleteEntityOptions) =>
     request<void>("/texts/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
+  getHistory: (id: number) => request<VideoHistory>(`/texts/${id}/history`),
+  incrementLike: (id: number) => request<number>(`/texts/${id}/like`, { method: "POST" }),
+  addHistoricalLike: (id: number, at: string) => request<number>(`/texts/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
+  decrementLike: (id: number) => request<number>(`/texts/${id}/like`, { method: "DELETE" }),
+  resetLike: (id: number) => request<number>(`/texts/${id}/like/reset`, { method: "POST" }),
   fileUrl: (id: number) => buildMediaUrl(`/texts/${id}/file`),
 };
 

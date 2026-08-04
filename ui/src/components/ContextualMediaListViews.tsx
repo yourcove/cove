@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { FindFilter, Image, PaginatedResponse, Video } from "../api/types";
 import { images } from "../api/client";
-import { canReadEntity } from "../auth/visibility";
+import { canReadEntity, canWriteEntity } from "../auth/visibility";
 import { useAuth } from "../auth/AuthContext";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
@@ -41,6 +41,7 @@ export function ContextualImageListView({ items, filter, totalCount, queryPage, 
   const appConfig = useOptionalAppConfig();
   const { hasPermission, user } = useAuth();
   const canEngage = canReadEntity("image", hasPermission) && (user?.kind === "user" || user?.kind === "system");
+  const canLike = canWriteEntity("image", hasPermission);
   const toLightboxImage = useCallback((image: Image): LightboxImage => ({
     id: image.id,
     src: images.imageUrl(image.id),
@@ -68,7 +69,7 @@ export function ContextualImageListView({ items, filter, totalCount, queryPage, 
         {...listProps}
       />
       {lightbox.lightboxProps.open ? (
-        <Lightbox {...lightbox.lightboxProps} slideshowDelay={appConfig?.config?.ui.slideshowDelay} canEngage={canEngage} />
+        <Lightbox {...lightbox.lightboxProps} slideshowDelay={appConfig?.config?.ui.slideshowDelay} canEngage={canEngage} canLike={canLike} />
       ) : null}
     </>
   );

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpenText, Check, ChevronLeft, ChevronRight, Clapperboard, Download, ExternalLink, Files, FolderOpen, Image, Layers, Link2, MoreVertical, RefreshCw, Rows3, Trash2 } from "lucide-react";
+import { BookOpenText, Check, ChevronLeft, ChevronRight, Clapperboard, Download, ExternalLink, Files, FolderOpen, Image, Layers, Link2, MoreVertical, RefreshCw, Rows3, ThumbsUp, Trash2 } from "lucide-react";
 import { entityImages, fileOps, playback, texts } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
@@ -13,7 +13,7 @@ import { GenerateDialog } from "../components/GenerateDialog";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import type { MediaDetailTab } from "../components/MediaDetailLayout/types";
-import type { FieldProvenance } from "../api/types";
+import type { FieldProvenance, VideoHistory } from "../api/types";
 import { InteractiveRating } from "../components/Rating";
 import { TextViewer } from "../components/TextViewer";
 import { CustomFieldsDisplay, FieldProvenanceHover, formatDate, formatDuration, formatFileSize, TagBadge, resolveTagProvenance } from "../components/shared";
@@ -26,6 +26,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
 import { getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
 import { TextEditPanel } from "./TextEditPanel";
+import { LikeHistorySection } from "../components/LikeHistorySection";
 
 const MediaScrapeDialog = lazy(() => import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })));
 const MediaDownloadDialog = lazy(() => import("../components/MediaDownloadDialog").then((module) => ({ default: module.MediaDownloadDialog })));
@@ -177,6 +178,19 @@ export function TextDetailPage({ id, onNavigate }: Props) {
       queryClient.invalidateQueries({ queryKey: ["texts"] });
       goBack();
     },
+  });
+  const incrementLikeMut = useMutation({
+    mutationFn: () => texts.incrementLike(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["text", id] });
+      queryClient.invalidateQueries({ queryKey: ["engagement", "text", id] });
+      queryClient.invalidateQueries({ queryKey: ["text", id, "history"] });
+    },
+  });
+  const textHistoryQuery = useQuery({
+    queryKey: ["text", id, "history"],
+    queryFn: () => texts.getHistory(id),
+    enabled: activeTab === "history" && canEngageText,
   });
   const revealFileMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
   const rescanTextMut = useMutation({ mutationFn: () => texts.rescan(id) });
@@ -330,6 +344,14 @@ export function TextDetailPage({ id, onNavigate }: Props) {
       engagement={{
         primaryContent: <InteractiveRating value={textRating} onChange={(value) => setTextRating(value)} readOnly={!canEngageText} />,
         additionalMetrics: [
+          {
+            label: "Likes",
+            value: textEngagement?.likeCount ?? 0,
+            icon: <ThumbsUp className={["h-4 w-4", (textEngagement?.likeCount ?? 0) > 0 ? "fill-accent text-accent" : ""].join(" ")} />,
+            title: "Likes",
+            onClick: canWriteText ? () => incrementLikeMut.mutate() : undefined,
+            active: (textEngagement?.likeCount ?? 0) > 0,
+          },
           { label: "Words", value: text.maxWordCount ? Intl.NumberFormat().format(text.maxWordCount) : "-", icon: <BookOpenText className="h-4 w-4" /> },
           { label: "Pages", value: text.maxPageCount ?? "-", icon: <Files className="h-4 w-4" /> },
         ],
@@ -583,6 +605,17 @@ export function TextDetailPage({ id, onNavigate }: Props) {
             timeOpen={textEngagement?.playDuration ?? 0}
             createdAt={text.createdAt}
             updatedAt={text.updatedAt}
+            history={textHistoryQuery.data}
+            historyLoading={textHistoryQuery.isLoading}
+            canAddHistoricalLike={canWriteText}
+            onAddHistoricalLike={async (at) => {
+              await texts.addHistoricalLike(id, at);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["text", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "text", id] }),
+                queryClient.invalidateQueries({ queryKey: ["text", id, "history"] }),
+              ]);
+            }}
           />
         ) : null}
 
@@ -654,11 +687,19 @@ function TextHistoryTab({
   timeOpen,
   createdAt,
   updatedAt,
+  history,
+  historyLoading,
+  canAddHistoricalLike,
+  onAddHistoricalLike,
 }: {
   pageVisitCount: number;
   timeOpen: number;
   createdAt: string;
   updatedAt: string;
+  history?: VideoHistory;
+  historyLoading?: boolean;
+  canAddHistoricalLike: boolean;
+  onAddHistoricalLike: (at: string) => Promise<unknown>;
 }) {
   return (
     <div className="space-y-6 text-sm">
@@ -671,6 +712,8 @@ function TextHistoryTab({
           <div><span className="text-muted">Time Open:</span> <span className="text-foreground">{formatDuration(timeOpen)}</span></div>
         </div>
       </section>
+
+      <LikeHistorySection likeHistory={history?.likeHistory} loading={historyLoading} canAddHistoricalLike={canAddHistoricalLike} onAddHistoricalLike={onAddHistoricalLike} />
 
       <div className="grid grid-cols-2 gap-2">
         <div><span className="text-muted">Created:</span> <span className="text-foreground">{formatDate(createdAt)}</span></div>

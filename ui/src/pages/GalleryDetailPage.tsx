@@ -93,6 +93,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const canEngageGallery = canReadEntity("gallery", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteGallery = canDeleteEntity("gallery", hasPermission);
   const canReadGalleryImages = canReadEntity("image", hasPermission);
+  const canWriteImages = canWriteEntity("image", hasPermission);
   const canEngageImages = canReadGalleryImages && (user?.kind === "user" || user?.kind === "system");
   const canReadPerformers = canReadEntity("performer", hasPermission);
   const canReadStudios = canReadEntity("studio", hasPermission);
@@ -440,6 +441,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       <Lightbox
         {...galleryLightbox.lightboxProps}
         canEngage={canEngageImages}
+        canLike={canWriteImages}
       />
     </div>
   );

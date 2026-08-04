@@ -29,6 +29,7 @@ import { ImageVisualSimilarityPanel, useImageVisualSimilarityAvailable } from ".
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { ImageEditPanel } from "./ImageEditModal";
 import { getLoadError } from "../utils/queryLoadState";
+import { LikeHistorySection } from "../components/LikeHistorySection";
 
 const ImageDownloadDialog = lazy(() => import("../components/ImageDownloadDialog").then((module) => ({ default: module.ImageDownloadDialog })));
 const MediaScrapeDialog = lazy(() => import("../components/MediaScrapeDialog").then((module) => ({ default: module.MediaScrapeDialog })));
@@ -38,7 +39,7 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type ImageTab = "details" | "file-info" | "similar" | "detections" | "edit";
+type ImageTab = "details" | "file-info" | "similar" | "detections" | "history" | "edit";
 
 type ImageCoverTarget = {
   key: string;
@@ -125,7 +126,13 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["image", id] });
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] });
+      queryClient.invalidateQueries({ queryKey: ["image", id, "history"] });
     },
+  });
+  const imageHistoryQuery = useQuery({
+    queryKey: ["image", id, "history"],
+    queryFn: () => images.getHistory(id),
+    enabled: activeTab === "history" && canEngageImage,
   });
   const revealFileMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
   const rescanMut = useMutation({ mutationFn: () => images.rescan(id) });
@@ -160,6 +167,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       ...(canReadFiles ? [{ key: "file-info", label: "File Info", count: image?.files.length ?? 0 }] : []),
       ...(hasVisualSimilarity ? [{ key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> }] : []),
       ...(imageFaces.length > 0 ? [{ key: "detections", label: "Faces", count: imageFaces.length }] : []),
+      { key: "history", label: "History" },
       ...(canWriteImage ? [{ key: "edit", label: "Edit" }] : []),
     ];
     return nextTabs;
@@ -254,7 +262,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       key: "l",
       description: "Likes",
       handler: () => {
-        if (canEngageImage) {
+        if (canWriteImage) {
           incrementLikeMut.mutate();
         }
       },
@@ -280,7 +288,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       description: "Close lightbox",
       handler: () => closeLightbox(),
     },
-  ]), [canEngageImage, canWriteImage, closeLightbox, incrementLikeMut, lightboxOpen, openLightbox]);
+  ]), [canWriteImage, closeLightbox, incrementLikeMut, lightboxOpen, openLightbox]);
 
   if (isLoading) {
     return (
@@ -558,6 +566,20 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       ? <ImageVisualSimilarityPanel imageId={image.id} onNavigate={onNavigate} />
     : activeTab === "detections"
       ? detectionsContent
+      : activeTab === "history"
+        ? <LikeHistorySection
+            likeHistory={imageHistoryQuery.data?.likeHistory}
+            loading={imageHistoryQuery.isLoading}
+            canAddHistoricalLike={canWriteImage}
+            onAddHistoricalLike={async (at) => {
+              await images.addHistoricalLike(id, at);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["image", id] }),
+                queryClient.invalidateQueries({ queryKey: ["engagement", "image", id] }),
+                queryClient.invalidateQueries({ queryKey: ["image", id, "history"] }),
+              ]);
+            }}
+          />
       : activeTab === "edit"
           ? <ImageEditPanel image={image} onSaved={() => setActiveTab("details")} />
           : detailsContent;
@@ -622,6 +644,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         open={lightboxOpen && lightboxImages.length > 0}
         onClose={closeLightbox}
         canEngage={canEngageImage}
+        canLike={canWriteImage}
       />
       <MediaDetailLayout
         title={<FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="title">{displayTitle}</FieldProvenanceHover>}
@@ -695,7 +718,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
               value: imageLikeCount,
               icon: <ThumbsUp className={["h-4 w-4", imageLikeCount > 0 ? "fill-accent text-accent" : ""].join(" ")} />,
               title: "Likes",
-              onClick: canEngageImage ? () => incrementLikeMut.mutate() : undefined,
+              onClick: canWriteImage ? () => incrementLikeMut.mutate() : undefined,
               active: imageLikeCount > 0,
             },
             {

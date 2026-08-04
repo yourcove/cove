@@ -32,7 +32,7 @@ vi.mock("../utils/interactionTracking", () => ({
 
 import { Lightbox } from "../components/Lightbox";
 
-function renderLightbox(canEngage = true) {
+function renderLightbox(canEngage = true, canLike = canEngage) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -42,6 +42,7 @@ function renderLightbox(canEngage = true) {
         open
         onClose={vi.fn()}
         canEngage={canEngage}
+        canLike={canLike}
       />
     </QueryClientProvider>,
   );
@@ -71,6 +72,13 @@ describe("Lightbox image engagement", () => {
     renderLightbox(false);
 
     expect(screen.getByRole("button", { name: "Rate image 60" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Like image (1 likes)" })).toBeDisabled();
+  });
+
+  it("allows ratings but prevents likes without image write permission", () => {
+    renderLightbox(true, false);
+
+    expect(screen.getByRole("button", { name: "Rate image 60" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Like image (1 likes)" })).toBeDisabled();
   });
 });
