@@ -34,11 +34,16 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         [FromQuery] string? sort = null,
         [FromQuery] string? direction = null,
         [FromQuery] int? seed = null,
+        [FromQuery] string? sorts = null,
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
         perPage = Math.Clamp(perPage, 1, 250);
-        var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+        var sortClauses = SortClause.Parse(sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        sort = primarySort?.Key ?? sort;
+        var descending = primarySort?.Direction == Cove.Core.Enums.SortDirection.Desc
+            || (primarySort is null && string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase));
 
         var query = db.Audios.AsNoTracking().AsQueryable();
 
@@ -54,7 +59,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performerSelectors: [audio => audio.AudioPerformers.Where(ap => ap.Performer != null).Select(ap => ap.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, q, audio => audio.Files);
 
-        query = ApplySort(query, sort, descending, seed);
+        query = ApplySort(query, sort, descending, seed, sortClauses);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
 
@@ -107,7 +112,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter.Q, audio => audio.Files);
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
+        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
 
@@ -532,8 +537,24 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         return items.OrderBy(audio => orderMap.GetValueOrDefault(audio.Id, int.MaxValue)).ToList();
     }
 
-    private IQueryable<Audio> ApplySort(IQueryable<Audio> query, string? sort, bool descending, int? seed = null)
+    private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
+        "updatedAt", "updated_at", "createdAt", "created_at", "date", "duration", "file_size",
+        "file_mod_time", "file_count", "path", "bitrate", "has_video_files", "track_count",
+        "tag_count", "performer_count", "title",
+    };
+
+    private IQueryable<Audio> ApplySort(
+        IQueryable<Audio> query,
+        string? sort,
+        bool descending,
+        int? seed = null,
+        IEnumerable<SortClause>? sorts = null)
+    {
+        var clauses = CompoundSortOrdering.Normalize(sorts, MultiSortKeys);
+        if (clauses.Count > 1)
+            return ApplyMultiSort(query, clauses);
+
         if (FilterHelpers.TryParseCustomFieldSort(sort, out _, out _))
             return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Audio, sort, descending);
 
@@ -562,6 +583,47 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             "created_at" => descending ? query.OrderByDescending(audio => audio.CreatedAt).ThenByDescending(audio => audio.Id) : query.OrderBy(audio => audio.CreatedAt).ThenBy(audio => audio.Id),
             _ => descending ? query.OrderByDescending(audio => audio.UpdatedAt).ThenByDescending(audio => audio.Id) : query.OrderBy(audio => audio.UpdatedAt).ThenBy(audio => audio.Id),
         };
+    }
+
+    private static IQueryable<Audio> ApplyMultiSort(IQueryable<Audio> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Audio>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "title":
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Title == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Title, desc);
+                    break;
+                case "date":
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Date == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Date, desc);
+                    break;
+                case "duration": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxDuration, desc); break;
+                case "file_size": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxFileSize, desc); break;
+                case "file_mod_time":
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxFileModTime == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxFileModTime, desc);
+                    break;
+                case "file_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.FileCount, desc); break;
+                case "path":
+                    ordered = CompoundSortOrdering.Append(query, ordered, audio => desc ? audio.MaxPath : audio.MinPath, desc);
+                    break;
+                case "bitrate": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxBitRate, desc); break;
+                case "has_video_files": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.HasVideoFiles, desc); break;
+                case "track_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Tracks.Count, desc); break;
+                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.AudioTags.Count, desc); break;
+                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.AudioPerformers.Count, desc); break;
+                case "createdat":
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.CreatedAt, desc); break;
+                case "updatedat":
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.UpdatedAt, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, audio => audio.Id);
     }
 
     private IQueryable<Audio> ApplyFilter(IQueryable<Audio> query, AudioFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

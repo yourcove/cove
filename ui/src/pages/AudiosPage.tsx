@@ -29,7 +29,7 @@ import { AUDIO_CRITERIA } from "../components/FilterDialog";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
-import { AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
+import { AUDIO_MULTI_SORT_KEYS, AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
 
 const SORT_OPTIONS = AUDIO_SORT_OPTIONS;
 
@@ -101,6 +101,7 @@ export function AudiosPage({ onNavigate }: Props) {
       onRetry={() => { void listData.refetch(); }}
       searchPlaceholder="Search audio, tags, performers..."
       sortOptions={SORT_OPTIONS}
+      multiSortKeys={AUDIO_MULTI_SORT_KEYS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={["grid", "list", "tagger"]}

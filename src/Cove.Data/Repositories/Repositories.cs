@@ -10,6 +10,12 @@ namespace Cove.Data.Repositories;
 
 public class PerformerRepository : IPerformerRepository
 {
+    private static readonly HashSet<string> PerformerMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "name", "created_at", "updated_at", "birthdate", "video_count", "image_count", "gallery_count",
+        "latest_video_date", "total_file_size", "height", "weight", "tag_count",
+    };
+
     private readonly CoveContext _db;
     public PerformerRepository(CoveContext db) => _db = db;
 
@@ -556,10 +562,15 @@ public class PerformerRepository : IPerformerRepository
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 
-        var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
-        var sort = findFilter?.Sort ?? "name";
-        var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        query = FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
+        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, PerformerMultiSortKeys);
+        var primarySort = sortClauses.FirstOrDefault();
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var sort = primarySort?.Key ?? findFilter?.Sort ?? "name";
+        var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        query = sortClauses.Count > 1
+            ? ApplyPerformerMultiSort(query, sortClauses)
+            : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Performer, sort, desc)
             : sort switch
             {
@@ -622,10 +633,42 @@ public class PerformerRepository : IPerformerRepository
         return (sortedItems, totalCount);
     }
 
+    private static IQueryable<Performer> ApplyPerformerMultiSort(IQueryable<Performer> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Performer>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "name": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Name, desc); break;
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.CreatedAt, desc); break;
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.UpdatedAt, desc); break;
+                case "birthdate": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Birthdate, desc); break;
+                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.VideoPerformers.Count, desc); break;
+                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.ImagePerformers.Count, desc); break;
+                case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.GalleryPerformers.Count, desc); break;
+                case "latest_video_date": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc); break;
+                case "total_file_size": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.VideoPerformers.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
+                case "height": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.HeightCm, desc); break;
+                case "weight": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Weight, desc); break;
+                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.TagCount, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, performer => performer.Id);
+    }
+
 }
 
 public class TagRepository : ITagRepository
 {
+    private static readonly HashSet<string> TagMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "name", "video_count", "gallery_count", "group_count", "image_count", "performer_count",
+        "studio_count", "latest_video_date", "total_file_size", "created_at", "updated_at",
+    };
+
     private readonly record struct TagEntityPair(int TagId, int EntityId);
 
     private readonly CoveContext _db;
@@ -765,10 +808,15 @@ public class TagRepository : ITagRepository
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 
-        var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
-        var sort = findFilter?.Sort ?? "name";
-        var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        query = FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
+        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, TagMultiSortKeys);
+        var primarySort = sortClauses.FirstOrDefault();
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var sort = primarySort?.Key ?? findFilter?.Sort ?? "name";
+        var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        query = sortClauses.Count > 1
+            ? ApplyTagMultiSort(query, sortClauses)
+            : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Tag, sort, desc)
             : sort switch
             {
@@ -840,6 +888,31 @@ public class TagRepository : ITagRepository
         => desc
             ? query.OrderByDescending(keySelector).ThenBy(tag => tag.Id)
             : query.OrderBy(keySelector).ThenBy(tag => tag.Id);
+
+    private static IQueryable<Tag> ApplyTagMultiSort(IQueryable<Tag> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Tag>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "name": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.Name, desc); break;
+                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoCount, desc); break;
+                case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.GalleryCount, desc); break;
+                case "group_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.GroupCount, desc); break;
+                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.ImageCount, desc); break;
+                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.PerformerCount, desc); break;
+                case "studio_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.StudioCount, desc); break;
+                case "latest_video_date": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoTags.Max(link => link.Video!.Date), desc); break;
+                case "total_file_size": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoTags.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.CreatedAt, desc); break;
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.UpdatedAt, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, tag => tag.Id);
+    }
 
     private async Task<IQueryable<Tag>> ApplyTagCountCriteriaAsync(IQueryable<Tag> query, TagFilter filter, CancellationToken ct)
     {
@@ -1164,6 +1237,12 @@ public class TagRepository : ITagRepository
 
 public class StudioRepository : IStudioRepository
 {
+    private static readonly HashSet<string> StudioMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "name", "video_count", "gallery_count", "image_count", "latest_video_date", "total_file_size",
+        "parent_count", "child_count", "tag_count", "created_at", "updated_at",
+    };
+
     private readonly CoveContext _db;
     public StudioRepository(CoveContext db) => _db = db;
 
@@ -1317,10 +1396,15 @@ public class StudioRepository : IStudioRepository
         }
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
-        var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
-        var sort = findFilter?.Sort ?? "name";
-        var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        query = FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
+        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, StudioMultiSortKeys);
+        var primarySort = sortClauses.FirstOrDefault();
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var sort = primarySort?.Key ?? findFilter?.Sort ?? "name";
+        var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        query = sortClauses.Count > 1
+            ? ApplyStudioMultiSort(query, sortClauses)
+            : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Studio, sort, desc)
             : sort switch
             {
@@ -1368,10 +1452,41 @@ public class StudioRepository : IStudioRepository
         var sortedItems = items.OrderBy(s => orderMap.GetValueOrDefault(s.Id, int.MaxValue)).ToList();
         return (sortedItems, totalCount);
     }
+
+    private static IQueryable<Studio> ApplyStudioMultiSort(IQueryable<Studio> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Studio>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "name": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Name, desc); break;
+                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.VideoCount, desc); break;
+                case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.GalleryCount, desc); break;
+                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ImageCount, desc); break;
+                case "latest_video_date": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Videos.Max(video => video.Date), desc); break;
+                case "total_file_size": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L, desc); break;
+                case "parent_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ParentId.HasValue ? 1 : 0, desc); break;
+                case "child_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ChildStudioCount, desc); break;
+                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.TagCount, desc); break;
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.CreatedAt, desc); break;
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.UpdatedAt, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, studio => studio.Id);
+    }
 }
 
 public class GalleryRepository : IGalleryRepository
 {
+    private static readonly HashSet<string> GalleryMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "updated_at", "created_at", "date", "studio", "file_mod_time", "file_count", "path", "title",
+        "code", "photographer", "organized", "image_count", "video_count", "performer_count", "tag_count",
+    };
+
     private readonly CoveContext _db;
     public GalleryRepository(CoveContext db) => _db = db;
 
@@ -1552,10 +1667,15 @@ public class GalleryRepository : IGalleryRepository
         }
 
         var totalCount = await query.CountAsync(ct);
-        var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
-        var sort = findFilter?.Sort ?? "updated_at";
-        var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        query = FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
+        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, GalleryMultiSortKeys);
+        var primarySort = sortClauses.FirstOrDefault();
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var sort = primarySort?.Key ?? findFilter?.Sort ?? "updated_at";
+        var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        query = sortClauses.Count > 1
+            ? ApplyGalleryMultiSort(query, sortClauses)
+            : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Gallery, sort, desc)
             : sort switch
             {
@@ -1629,6 +1749,42 @@ public class GalleryRepository : IGalleryRepository
         return desc
             ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).Select(item => item.Gallery)
             : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
+    }
+
+    private static IQueryable<Gallery> ApplyGalleryMultiSort(IQueryable<Gallery> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Gallery>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.UpdatedAt, desc); break;
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.CreatedAt, desc); break;
+                case "date": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Date, desc); break;
+                case "studio":
+                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Studio == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Studio != null ? gallery.Studio.Name : null, desc);
+                    break;
+                case "file_mod_time":
+                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Files.Select(file => (DateTime?)file.ModTime).Max() ?? (gallery.Folder != null ? (DateTime?)gallery.Folder.ModTime : null), desc);
+                    break;
+                case "file_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Files.Count, desc); break;
+                case "path":
+                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Folder != null ? gallery.Folder.Path : gallery.Files.Select(file => file.Path).OrderBy(path => path).FirstOrDefault(), desc);
+                    break;
+                case "title": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Title, desc); break;
+                case "code": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Code, desc); break;
+                case "photographer": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Photographer, desc); break;
+                case "organized": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Organized, desc); break;
+                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.ImageCount, desc); break;
+                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.VideoCount, desc); break;
+                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.PerformerCount, desc); break;
+                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.TagCount, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, gallery => gallery.Id);
     }
 
     private static IQueryable<Gallery> ApplyGalleryStudioSort(IQueryable<Gallery> query, bool desc)
@@ -1875,6 +2031,12 @@ public class GalleryRepository : IGalleryRepository
 
 public class ImageRepository : IImageRepository
 {
+    private static readonly HashSet<string> ImageMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "updated_at", "created_at", "date", "file_mod_time", "file_size", "resolution", "path",
+        "title", "performer_count", "tag_count",
+    };
+
     private readonly CoveContext _db;
     public ImageRepository(CoveContext db) => _db = db;
 
@@ -1990,10 +2152,15 @@ public class ImageRepository : IImageRepository
         var totalCount = await filterQuery.AsNoTracking().CountAsync(ct);
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
-        var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
-        var sort = findFilter?.Sort ?? "updated_at";
-        var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        filterQuery = ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
+        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, ImageMultiSortKeys);
+        var primarySort = sortClauses.FirstOrDefault();
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var sort = primarySort?.Key ?? findFilter?.Sort ?? "updated_at";
+        var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        filterQuery = sortClauses.Count > 1
+            ? ApplyImageMultiSort(filterQuery, sortClauses)
+            : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
         if (!hasExplicitSort)
             filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
 
@@ -2208,6 +2375,30 @@ public class ImageRepository : IImageRepository
             return SeededRandomOrdering.OrderBy(query, seed, image => image.Id, desc);
 
         return ApplySortingSwitch(query, sort, desc);
+    }
+
+    private static IQueryable<Image> ApplyImageMultiSort(IQueryable<Image> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Image>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, image => image.UpdatedAt, desc); break;
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, image => image.CreatedAt, desc); break;
+                case "date": ordered = CompoundSortOrdering.Append(query, ordered, image => image.Date, desc); break;
+                case "file_mod_time": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxFileModTime, desc); break;
+                case "file_size": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxFileSize, desc); break;
+                case "resolution": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxResolution, desc); break;
+                case "path": ordered = CompoundSortOrdering.Append(query, ordered, image => desc ? image.MaxPath : image.MinPath, desc); break;
+                case "title": ordered = CompoundSortOrdering.Append(query, ordered, DisplayTitleSelector, desc); break;
+                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, image => image.ImagePerformers.Count, desc); break;
+                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, image => image.TagCount, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, image => image.Id);
     }
 
     private IQueryable<Image> ApplySortingSwitch(IQueryable<Image> query, string sort, bool desc)

@@ -18,3 +18,7 @@ export const GALLERY_SORT_OPTIONS = [
   { value: "typical_resolution", label: "Typical Resolution" },
   { value: "random", label: "Random" },
 ];
+
+export const GALLERY_MULTI_SORT_KEYS = GALLERY_SORT_OPTIONS
+  .map((option) => option.value)
+  .filter((key) => key !== "rating" && key !== "typical_resolution" && key !== "random");

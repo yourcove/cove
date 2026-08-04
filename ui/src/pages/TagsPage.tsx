@@ -51,6 +51,10 @@ const SORT_OPTIONS = [
   { value: "updated_at", label: "Updated At" },
 ];
 
+const MULTI_SORT_KEYS = SORT_OPTIONS
+  .map((option) => option.value)
+  .filter((key) => key !== "rating" && key !== "tag_group" && key !== "random");
+
 interface Props {
   onNavigate: (r: any) => void;
 }
@@ -145,6 +149,7 @@ export function TagsPage({ onNavigate }: Props) {
       error={displayMode === "graph" ? (!graphData && graphError instanceof Error ? graphError : null) : listData.loadError}
       onRetry={() => { void (displayMode === "graph" ? refetchGraph() : listData.refetch()); }}
       sortOptions={SORT_OPTIONS}
+      multiSortKeys={displayMode === "graph" ? undefined : MULTI_SORT_KEYS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={["grid", "list", "graph", "tagger"]}

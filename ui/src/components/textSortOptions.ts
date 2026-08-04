@@ -18,3 +18,7 @@ export const TEXT_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "title", label: "Title" },
   { value: "random", label: "Random" },
 ];
+
+export const TEXT_MULTI_SORT_KEYS = TEXT_SORT_OPTIONS
+  .map((option) => option.value)
+  .filter((key) => !["rating", "read_count", "like_counter", "read_duration", "last_read_at", "random"].includes(key));

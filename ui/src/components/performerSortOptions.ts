@@ -20,3 +20,7 @@ export const PERFORMER_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "updated_at", label: "Updated At" },
   { value: "random", label: "Random" },
 ];
+
+export const PERFORMER_MULTI_SORT_KEYS = PERFORMER_SORT_OPTIONS
+  .map((option) => option.value)
+  .filter((key) => !["rating", "career_length", "last_like_at", "last_played_at", "measurements", "like_counter", "play_count", "random"].includes(key));

@@ -32,11 +32,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         [FromQuery] string? sort = null,
         [FromQuery] string? direction = null,
         [FromQuery] int? seed = null,
+        [FromQuery] string? sorts = null,
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
         perPage = Math.Clamp(perPage, 1, 250);
-        var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+        var sortClauses = SortClause.Parse(sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        sort = primarySort?.Key ?? sort;
+        var descending = primarySort?.Direction == Cove.Core.Enums.SortDirection.Desc
+            || (primarySort is null && string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase));
 
         var query = db.TextDocuments.AsNoTracking().AsQueryable();
 
@@ -52,7 +57,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, q, text => text.Files);
 
-        query = ApplySort(query, sort, descending, seed);
+        query = ApplySort(query, sort, descending, seed, sortClauses);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
 
@@ -104,7 +109,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
+        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
 
@@ -495,8 +500,23 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return items.OrderBy(text => orderMap.GetValueOrDefault(text.Id, int.MaxValue)).ToList();
     }
 
-    private IQueryable<TextDocument> ApplySort(IQueryable<TextDocument> query, string? sort, bool descending, int? seed = null)
+    private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
+        "updatedAt", "updated_at", "createdAt", "created_at", "date", "words", "pages",
+        "file_size", "file_mod_time", "file_count", "path", "tag_count", "performer_count", "title",
+    };
+
+    private IQueryable<TextDocument> ApplySort(
+        IQueryable<TextDocument> query,
+        string? sort,
+        bool descending,
+        int? seed = null,
+        IEnumerable<SortClause>? sorts = null)
+    {
+        var clauses = CompoundSortOrdering.Normalize(sorts, MultiSortKeys);
+        if (clauses.Count > 1)
+            return ApplyMultiSort(query, clauses);
+
         if (FilterHelpers.TryParseCustomFieldSort(sort, out _, out _))
             return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Text, sort, descending);
 
@@ -523,6 +543,43 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             "created_at" => descending ? query.OrderByDescending(text => text.CreatedAt).ThenByDescending(text => text.Id) : query.OrderBy(text => text.CreatedAt).ThenBy(text => text.Id),
             _ => descending ? query.OrderByDescending(text => text.UpdatedAt).ThenByDescending(text => text.Id) : query.OrderBy(text => text.UpdatedAt).ThenBy(text => text.Id),
         };
+    }
+
+    private static IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<TextDocument>? ordered = null;
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "title":
+                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Title == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Title, desc);
+                    break;
+                case "date":
+                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Date == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Date, desc);
+                    break;
+                case "words": ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxWordCount, desc); break;
+                case "pages": ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxPageCount, desc); break;
+                case "file_size": ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxFileSize, desc); break;
+                case "file_mod_time":
+                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxFileModTime == null ? 1 : 0, false);
+                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxFileModTime, desc);
+                    break;
+                case "file_count": ordered = CompoundSortOrdering.Append(query, ordered, text => text.FileCount, desc); break;
+                case "path": ordered = CompoundSortOrdering.Append(query, ordered, text => desc ? text.MaxPath : text.MinPath, desc); break;
+                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, text => text.TextTags.Count, desc); break;
+                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, text => text.TextPerformers.Count, desc); break;
+                case "createdat":
+                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, text => text.CreatedAt, desc); break;
+                case "updatedat":
+                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, text => text.UpdatedAt, desc); break;
+            }
+        }
+
+        return CompoundSortOrdering.Finish(query, ordered, text => text.Id);
     }
 
     private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

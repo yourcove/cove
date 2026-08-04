@@ -301,6 +301,62 @@ public class EntityListSortBehaviorHarnessTests
     }
 
     [Theory]
+    [InlineData("images")]
+    [InlineData("galleries")]
+    [InlineData("audios")]
+    [InlineData("texts")]
+    [InlineData("performers")]
+    [InlineData("studios")]
+    [InlineData("tags")]
+    public async Task CompoundSortUsesSecondaryClauseAcrossSupportedEntityLists(string entity)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var sharedUpdatedAt = DateTime.UtcNow.AddYears(-10);
+        switch (entity)
+        {
+            case "images": (await fixture.Context.Images.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "galleries": (await fixture.Context.Galleries.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "audios": (await fixture.Context.Audios.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "texts": (await fixture.Context.TextDocuments.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "performers": (await fixture.Context.Performers.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "studios": (await fixture.Context.Studios.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "tags": (await fixture.Context.Tags.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+        }
+        await fixture.Context.SaveChangesAsync();
+
+        var labelKey = entity is "performers" or "studios" or "tags" ? "name" : "title";
+        var updatedKey = entity is "audios" or "texts" ? "updatedAt" : "updated_at";
+        var findFilter = new FindFilter
+        {
+            Page = 1,
+            PerPage = 50,
+            Sort = updatedKey,
+            Direction = CoveSortDirection.Asc,
+            Sorts =
+            [
+                new SortClause(updatedKey, CoveSortDirection.Asc),
+                new SortClause(labelKey, CoveSortDirection.Desc),
+            ],
+        };
+
+        var actualIds = entity switch
+        {
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
+            "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
+            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
+        };
+
+        Assert.Equal(actualIds.OrderByDescending(id => id).ToArray(), actualIds);
+    }
+
+    [Theory]
     [MemberData(nameof(FilterRows))]
     public async Task RepresentativeFiltersMatchSeededFixtureSet(FilterProbe probe)
     {

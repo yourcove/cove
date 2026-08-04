@@ -30,7 +30,7 @@ import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { useAppConfig } from "../state/AppConfigContext";
-import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
+import { IMAGE_MULTI_SORT_KEYS, IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 
 const Lightbox = lazy(() => import("../components/Lightbox").then((module) => ({ default: module.Lightbox })));
@@ -97,10 +97,18 @@ export function ImagesPage({ onNavigate }: Props) {
     if (!visualSimilarityAvailable && searchMode === "visual") {
       setSearchMode("text");
       if (filter.sort === "visual_match") {
-        setFilter({ ...filter, sort: defaultState.filter.sort, direction: defaultState.filter.direction ?? "desc", page: 1 });
+        setFilter({ ...filter, sort: defaultState.filter.sort, direction: defaultState.filter.direction ?? "desc", sorts: undefined, page: 1 });
       }
     }
   }, [defaultState.filter.direction, defaultState.filter.sort, filter, searchMode, setFilter, setSearchMode, visualSimilarityAvailable]);
+
+  useEffect(() => {
+    if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
+      return;
+    }
+
+    setFilter({ ...filter, sort: "visual_match", direction: "desc", sorts: undefined, page: 1 });
+  }, [filter, searchMode, setFilter, visualSimilarityAvailable]);
 
   const handleSearchModeChange = useCallback((mode: string) => {
     if (mode === "visual" && !visualSimilarityAvailable) {
@@ -110,7 +118,7 @@ export function ImagesPage({ onNavigate }: Props) {
     setSearchMode(mode);
 
     if (mode === "visual") {
-      setFilter({ ...filter, sort: "visual_match", direction: "desc", page: 1 });
+      setFilter({ ...filter, sort: "visual_match", direction: "desc", sorts: undefined, page: 1 });
       return;
     }
 
@@ -119,6 +127,7 @@ export function ImagesPage({ onNavigate }: Props) {
         ...filter,
         sort: defaultState.filter.sort,
         direction: defaultState.filter.direction ?? "desc",
+        sorts: undefined,
         page: 1,
       });
       return;
@@ -265,6 +274,7 @@ export function ImagesPage({ onNavigate }: Props) {
       searchPlaceholder={visualSimilarityAvailable && searchMode === "visual" ? "Search visuals..." : "Search images, tags, performers..."}
       onSearchModeChange={handleSearchModeChange}
       sortOptions={sortOptions}
+      multiSortKeys={searchMode === "text" ? IMAGE_MULTI_SORT_KEYS : undefined}
       displayMode={displayMode}
       onDisplayModeChange={handleDisplayModeChange}
       availableDisplayModes={["grid", "list", "wall", "tagger", "feed"]}

@@ -17,7 +17,7 @@ import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { CardSelectionToggle } from "../components/RouteCardLinkOverlay";
 import { useWallColumns } from "../hooks/useWallColumns";
-import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
+import { GALLERY_MULTI_SORT_KEYS, GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { WallMediaCard } from "../components/WallMediaCard";
 import { BatchDownloadOptionsDialog } from "../components/BatchDownloadOptionsDialog";
@@ -179,6 +179,7 @@ export function GalleriesPage({ onNavigate }: Props) {
       error={listData.loadError}
       onRetry={() => { void listData.refetch(); }}
       sortOptions={GALLERY_SORT_OPTIONS}
+      multiSortKeys={GALLERY_MULTI_SORT_KEYS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={["grid", "list", "wall", "tagger"]}

@@ -21,7 +21,7 @@ import { CustomFieldsEditor } from "../components/shared";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
-import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
+import { STUDIO_MULTI_SORT_KEYS, STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
 
 const SORT_OPTIONS = STUDIO_SORT_OPTIONS;
 
@@ -93,6 +93,7 @@ export function StudiosPage({ onNavigate }: Props) {
         error={listData.loadError}
         onRetry={() => { void listData.refetch(); }}
         sortOptions={SORT_OPTIONS}
+        multiSortKeys={STUDIO_MULTI_SORT_KEYS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
         availableDisplayModes={["grid", "list", "tagger"]}
