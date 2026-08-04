@@ -44,6 +44,45 @@ function SavedDisplayDefaultProbe() {
   return <div data-testid="display-mode">{displayMode}</div>;
 }
 
+function MultiSortProbe() {
+  const { filter, setFilter } = useListUrlState({
+    resetKey: "videos",
+    defaultFilter: { page: 1, perPage: 40, sort: "date", direction: "desc" },
+    defaultDisplayMode: "grid" as const,
+    allowedDisplayModes: ["grid"] as const,
+  });
+
+  return (
+    <div>
+      <div data-testid="sort-clauses">{JSON.stringify(filter.sorts ?? [])}</div>
+      <button
+        type="button"
+        onClick={() => setFilter({
+          ...filter,
+          sort: "studio",
+          direction: "asc",
+          sorts: [
+            { key: "studio", direction: "asc" },
+            { key: "date", direction: "desc" },
+          ],
+        })}
+      >
+        Group by studio
+      </button>
+      <button
+        type="button"
+        onClick={() => setFilter({
+          ...filter,
+          direction: filter.direction === "desc" ? "asc" : "desc",
+          sorts: undefined,
+        })}
+      >
+        Toggle direction
+      </button>
+    </div>
+  );
+}
+
 describe("useListUrlState", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/videos?view=wall&perPage=infinite&page=2&viewMode=vertical");
@@ -101,5 +140,43 @@ describe("useListUrlState", () => {
 
     expect(screen.getByTestId("display-mode")).toHaveTextContent("grid");
     expect(window.location.search).toBe("?view=grid");
+  });
+
+  it("round-trips ordered sort clauses through a compact URL parameter", async () => {
+    window.history.replaceState(null, "", "/videos?sorts=studio%3Aasc%2Cdate%3Adesc");
+    const user = userEvent.setup();
+
+    render(<MultiSortProbe />);
+
+    expect(screen.getByTestId("sort-clauses")).toHaveTextContent(
+      JSON.stringify([
+        { key: "studio", direction: "asc" },
+        { key: "date", direction: "desc" },
+      ]),
+    );
+
+    window.history.replaceState(null, "", "/videos");
+    await user.click(screen.getByRole("button", { name: "Group by studio" }));
+
+    await waitFor(() => {
+      expect(decodeURIComponent(window.location.search)).toContain("sorts=studio:asc,date:desc");
+      expect(window.location.search).not.toContain("sort=studio");
+      expect(window.location.search).not.toContain("direction=asc");
+    });
+  });
+
+  it("keeps a scalar direction change after URL synchronization settles", async () => {
+    window.history.replaceState(null, "", "/videos");
+    const user = userEvent.setup();
+
+    render(<MultiSortProbe />);
+    await user.click(screen.getByRole("button", { name: "Toggle direction" }));
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?direction=asc");
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(window.location.search).toBe("?direction=asc");
   });
 });

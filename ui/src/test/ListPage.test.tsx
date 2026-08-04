@@ -562,9 +562,183 @@ describe("ListPage active filter chips", () => {
       </QueryClientProvider>
     );
 
-    await user.click(screen.getByTitle("Sort descending"));
+    const directionButton = screen.getByRole("button", { name: "Sort descending" });
+    const shuffleButton = screen.getByRole("button", { name: "Shuffle" });
+    expect(directionButton.compareDocumentPosition(shuffleButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    await user.click(directionButton);
 
     expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: "random", direction: "asc", seed: 12345 }));
+  });
+
+  it("keeps one sort compact and progressively reveals ordered additional sorts", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const onFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40, sort: "studio", direction: "asc" }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[
+              { value: "date", label: "Date" },
+              { value: "studio", label: "Studio" },
+              { value: "title", label: "Title" },
+            ]}
+            multiSortKeys={["date", "studio", "title"]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    expect(screen.queryByRole("dialog", { name: "Sort order" })).not.toBeInTheDocument();
+    const primaryDirectionButton = screen.getByRole("button", { name: "Sort ascending" });
+    const addSortButton = screen.getByRole("button", { name: "Add another sort" });
+    expect(primaryDirectionButton.compareDocumentPosition(addSortButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    await user.click(addSortButton);
+    expect(screen.getByRole("dialog", { name: "Sort order" })).toBeInTheDocument();
+    expect(screen.queryByText("Earlier fields take priority.")).not.toBeInTheDocument();
+    expect(screen.getByText("1.")).toBeInTheDocument();
+    const directionButton = screen.getByRole("button", { name: "Studio ascending" });
+    const moveEarlierButton = screen.getByRole("button", { name: "Move Studio earlier" });
+    expect(directionButton).not.toHaveTextContent(/Asc|Desc/);
+    expect(moveEarlierButton.compareDocumentPosition(directionButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "Add sort" }));
+
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      sort: "studio",
+      direction: "asc",
+      sorts: [
+        { key: "studio", direction: "asc" },
+        { key: "date", direction: "desc" },
+      ],
+    }));
+  });
+
+  it("lets compact sort editors change a clause's priority directly", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const onFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{
+              page: 1,
+              perPage: 40,
+              sort: "studio",
+              direction: "asc",
+              sorts: [
+                { key: "studio", direction: "asc" },
+                { key: "date", direction: "desc" },
+                { key: "title", direction: "asc" },
+              ],
+            }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[
+              { value: "date", label: "Date" },
+              { value: "studio", label: "Studio" },
+              { value: "title", label: "Title" },
+            ]}
+            multiSortKeys={["date", "studio", "title"]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    expect(screen.queryByRole("combobox", { name: "Primary sort" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sort ascending" })).not.toBeInTheDocument();
+    const summaryButton = screen.getByRole("button", {
+      name: "Edit sort order: 1. Studio ascending; 2. Date descending; 3. Title ascending",
+    });
+    expect(summaryButton).toHaveTextContent("1. Studio");
+    expect(summaryButton).toHaveTextContent("2. Date");
+    expect(summaryButton).toHaveTextContent("+1");
+    expect(summaryButton).not.toHaveTextContent("Title");
+
+    await user.click(summaryButton);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Priority for Date" }), "0");
+
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      sort: "date",
+      direction: "desc",
+      sorts: [
+        { key: "date", direction: "desc" },
+        { key: "studio", direction: "asc" },
+        { key: "title", direction: "asc" },
+      ],
+    }));
+  });
+
+  it("shows the scalar sort when compound sorting is unavailable", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{
+              page: 1,
+              perPage: 40,
+              sort: "visual_match",
+              direction: "desc",
+              sorts: [
+                { key: "studio", direction: "asc" },
+                { key: "date", direction: "desc" },
+              ],
+            }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[
+              { value: "visual_match", label: "Visual Match" },
+              { value: "date", label: "Date" },
+              { value: "studio", label: "Studio" },
+            ]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue("visual_match");
+    expect(screen.queryByRole("button", { name: /Edit sort order:/ })).not.toBeInTheDocument();
   });
 
   it("shows a shuffle button for random sort and replaces the seed", async () => {

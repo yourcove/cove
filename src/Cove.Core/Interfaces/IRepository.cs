@@ -97,6 +97,40 @@ public interface ISavedFilterRepository : IRepository<SavedFilter>
 }
 
 // Filter models
+public sealed record SortClause(string Key, Cove.Core.Enums.SortDirection Direction)
+{
+    public const int MaxClauses = 5;
+
+    public static List<SortClause> Parse(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return [];
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var clauses = new List<SortClause>();
+        foreach (var rawClause in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = rawClause.LastIndexOf(':');
+            if (separator <= 0) continue;
+
+            var key = rawClause[..separator].Trim();
+            var rawDirection = rawClause[(separator + 1)..].Trim();
+            if (key.Length == 0 || !seen.Add(key)) continue;
+
+            var direction = string.Equals(rawDirection, "desc", StringComparison.OrdinalIgnoreCase)
+                ? Cove.Core.Enums.SortDirection.Desc
+                : string.Equals(rawDirection, "asc", StringComparison.OrdinalIgnoreCase)
+                    ? Cove.Core.Enums.SortDirection.Asc
+                    : (Cove.Core.Enums.SortDirection?)null;
+            if (direction == null) continue;
+
+            clauses.Add(new SortClause(key, direction.Value));
+            if (clauses.Count >= MaxClauses) break;
+        }
+
+        return clauses;
+    }
+}
+
 public class FindFilter
 {
     public string? Q { get; set; }
@@ -104,6 +138,7 @@ public class FindFilter
     public int PerPage { get; set; } = 25;
     public string? Sort { get; set; }
     public Cove.Core.Enums.SortDirection Direction { get; set; } = Cove.Core.Enums.SortDirection.Asc;
+    public List<SortClause>? Sorts { get; set; }
     public int? Seed { get; set; }
 }
 

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 using System.Text.RegularExpressions;
 using PermissionKeys = Cove.Core.Auth.Permissions;
 using Cove.Core.Entities;
@@ -117,10 +118,15 @@ public class VideoRepository : IVideoRepository
         var totalCount = await filterQuery.AsNoTracking().CountAsync(ct);
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
-        var hasExplicitSort = !string.IsNullOrWhiteSpace(findFilter?.Sort);
-        var sort = findFilter?.Sort ?? "updated_at";
-        var desc = findFilter?.Direction == Core.Enums.SortDirection.Desc;
-        filterQuery = ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
+        var sortClauses = NormalizeMultiSortClauses(findFilter?.Sorts);
+        var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
+        var primarySortClause = sortClauses.FirstOrDefault();
+        var sort = primarySortClause?.Key ?? findFilter?.Sort ?? "updated_at";
+        var desc = primarySortClause?.Direction == Core.Enums.SortDirection.Desc
+            || (primarySortClause == null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
+        filterQuery = sortClauses.Count > 1
+            ? ApplyMultiSorting(filterQuery, sortClauses)
+            : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
         if (!hasExplicitSort)
             filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
 
@@ -395,6 +401,132 @@ public class VideoRepository : IVideoRepository
             return SeededRandomOrdering.OrderBy(query, seed, video => video.Id, desc);
 
         return ApplySortingSwitch(query, sort, desc);
+    }
+
+    private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bitrate",
+        "code",
+        "created_at",
+        "date",
+        "duration",
+        "file_count",
+        "file_mod_time",
+        "file_size",
+        "framerate",
+        "organized",
+        "path",
+        "performer_count",
+        "resolution",
+        "studio",
+        "studio_code",
+        "tag_count",
+        "title",
+        "updated_at",
+    };
+
+    private static List<SortClause> NormalizeMultiSortClauses(IEnumerable<SortClause>? clauses)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return (clauses ?? [])
+            .Where(clause => clause != null && !string.IsNullOrWhiteSpace(clause.Key) && MultiSortKeys.Contains(clause.Key) && seen.Add(clause.Key))
+            .Take(SortClause.MaxClauses)
+            .ToList();
+    }
+
+    private static IQueryable<Video> ApplyMultiSorting(IQueryable<Video> query, IReadOnlyList<SortClause> clauses)
+    {
+        IOrderedQueryable<Video>? ordered = null;
+
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "title":
+                    ordered = AppendSort(query, ordered, video => video.Title == null ? 1 : 0, false);
+                    ordered = AppendSort(query, ordered, video => video.Title, desc);
+                    break;
+                case "date":
+                    ordered = AppendSort(query, ordered, video => video.Date == null ? 1 : 0, false);
+                    ordered = AppendSort(query, ordered, video => video.Date, desc);
+                    break;
+                case "organized":
+                    ordered = AppendSort(query, ordered, video => video.Organized, desc);
+                    break;
+                case "duration":
+                    ordered = AppendSort(query, ordered, video => video.MaxDuration, desc);
+                    break;
+                case "file_size":
+                    ordered = AppendSort(query, ordered, video => video.MaxFileSize, desc);
+                    break;
+                case "file_mod_time":
+                    ordered = AppendSort(query, ordered, video => video.MaxFileModTime == null ? 1 : 0, false);
+                    ordered = AppendSort(query, ordered, video => video.MaxFileModTime, desc);
+                    break;
+                case "file_count":
+                    ordered = AppendSort(query, ordered, video => video.FileCount, desc);
+                    break;
+                case "path":
+                    if (desc)
+                    {
+                        ordered = AppendSort(query, ordered, video => video.MaxPath == null ? 1 : 0, false);
+                        ordered = AppendSort(query, ordered, video => video.MaxPath, true);
+                    }
+                    else
+                    {
+                        ordered = AppendSort(query, ordered, video => video.MinPath == null ? 1 : 0, false);
+                        ordered = AppendSort(query, ordered, video => video.MinPath, false);
+                    }
+                    break;
+                case "resolution":
+                    ordered = AppendSort(query, ordered, video => video.MaxHeight, desc);
+                    break;
+                case "framerate":
+                    ordered = AppendSort(query, ordered, video => video.MaxFrameRate, desc);
+                    break;
+                case "bitrate":
+                    ordered = AppendSort(query, ordered, video => video.MaxBitRate, desc);
+                    break;
+                case "tag_count":
+                    ordered = AppendSort(query, ordered, video => video.VideoTags.Count, desc);
+                    break;
+                case "performer_count":
+                    ordered = AppendSort(query, ordered, video => video.VideoPerformers.Count, desc);
+                    break;
+                case "studio":
+                    ordered = AppendSort(query, ordered, video => video.Studio == null ? 1 : 0, false);
+                    ordered = AppendSort(query, ordered, video => video.Studio != null ? video.Studio.Name : null, desc);
+                    break;
+                case "code":
+                case "studio_code":
+                    ordered = AppendSort(query, ordered, video => video.Code == null ? 1 : 0, false);
+                    ordered = AppendSort(query, ordered, video => video.Code, desc);
+                    break;
+                case "created_at":
+                    ordered = AppendSort(query, ordered, video => video.CreatedAt, desc);
+                    break;
+                case "updated_at":
+                    ordered = AppendSort(query, ordered, video => video.UpdatedAt, desc);
+                    break;
+            }
+        }
+
+        return ordered == null
+            ? query.OrderBy(video => video.Id)
+            : ordered.ThenBy(video => video.Id);
+    }
+
+    private static IOrderedQueryable<Video> AppendSort<TKey>(
+        IQueryable<Video> query,
+        IOrderedQueryable<Video>? ordered,
+        Expression<Func<Video, TKey>> keySelector,
+        bool descending)
+    {
+        if (ordered == null)
+            return descending ? query.OrderByDescending(keySelector) : query.OrderBy(keySelector);
+
+        return descending ? ordered.ThenByDescending(keySelector) : ordered.ThenBy(keySelector);
     }
 
     private IQueryable<Video> ApplySortingSwitch(IQueryable<Video> query, string sort, bool desc)

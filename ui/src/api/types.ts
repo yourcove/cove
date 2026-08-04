@@ -2079,12 +2079,18 @@ export interface JobInfo {
   updatedAt?: string | null;
 }
 
+export interface SortClause {
+  key: string;
+  direction: "asc" | "desc";
+}
+
 export interface FindFilter {
   q?: string;
   page?: number;
   perPage?: number;
   sort?: string;
   direction?: "asc" | "desc";
+  sorts?: SortClause[];
   seed?: number;
 }
 
