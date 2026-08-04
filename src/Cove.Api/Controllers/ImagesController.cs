@@ -335,6 +335,25 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return Ok(snapshot.LikeCount);
     }
 
+    [HttpPost("{id:int}/like/historical")]
+    [RequiresPermission(Permissions.ImagesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
+    {
+        var at = NormalizeHistoricalLikeAt(request.At);
+        if (at > DateTime.UtcNow) return BadRequest("Historical likes must be dated in the past.");
+        var snapshot = await engagementService.AddHistoricalLikeAsync(AffinityHostType.Image, id, at, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpGet("{id:int}/history")]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead)]
+    public async Task<ActionResult<VideoHistoryDto>> GetHistory(int id, CancellationToken ct)
+    {
+        var history = await engagementService.GetHistoryAsync(AffinityHostType.Image, id, ct);
+        return history is null ? NotFound() : Ok(history);
+    }
+
     [HttpDelete("{id:int}/like")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
@@ -354,6 +373,9 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         if (snapshot == null) return NotFound();
         return Ok(snapshot.LikeCount);
     }
+
+    private static DateTime NormalizeHistoricalLikeAt(DateTime at)
+        => at.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(at, DateTimeKind.Utc) : at.ToUniversalTime();
 
     // ===== Bulk Operations =====
 

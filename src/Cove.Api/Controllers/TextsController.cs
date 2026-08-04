@@ -17,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TextsRead)]
-public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -26,6 +26,53 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     };
 
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
+    private IUserEngagementService EngagementService => engagementService ?? new Cove.Data.Services.UserEngagementService(db, principalAccessor ?? new CurrentPrincipalAccessor());
+
+    [HttpGet("{id:int}/history")]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
+    public async Task<ActionResult<VideoHistoryDto>> GetHistory(int id, CancellationToken ct)
+    {
+        var history = await EngagementService.GetHistoryAsync(AffinityHostType.Text, id, ct);
+        return history is null ? NotFound() : Ok(history);
+    }
+
+    [HttpPost("{id:int}/like")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> IncrementLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.IncrementLikeAsync(AffinityHostType.Text, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpPost("{id:int}/like/historical")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
+    {
+        var at = request.At.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(request.At, DateTimeKind.Utc) : request.At.ToUniversalTime();
+        if (at > DateTime.UtcNow) return BadRequest("Historical likes must be dated in the past.");
+        var snapshot = await EngagementService.AddHistoricalLikeAsync(AffinityHostType.Text, id, at, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpDelete("{id:int}/like")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> DecrementLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.DecrementLikeAsync(AffinityHostType.Text, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpPost("{id:int}/like/reset")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> ResetLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.ResetLikeAsync(AffinityHostType.Text, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
 
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]

@@ -352,7 +352,7 @@ public sealed partial class UserEngagementService(
         => IncrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken);
 
     public Task<UserEngagementSnapshot?> AddHistoricalVideoLikeAsync(int videoId, DateTime at, CancellationToken cancellationToken = default)
-        => IncrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken, at);
+        => AddHistoricalLikeAsync(AffinityHostType.Video, videoId, at, cancellationToken);
 
     public Task<UserEngagementSnapshot?> DecrementVideoLikeAsync(int videoId, CancellationToken cancellationToken = default)
         => DecrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken);
@@ -369,12 +369,20 @@ public sealed partial class UserEngagementService(
     public Task<UserEngagementSnapshot?> ResetImageLikeAsync(int imageId, CancellationToken cancellationToken = default)
         => ResetLikeAsync(AffinityHostType.Image, imageId, cancellationToken);
 
-    private async Task<UserEngagementSnapshot?> IncrementLikeAsync(
+    public Task<UserEngagementSnapshot?> IncrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => IncrementLikeCoreAsync(hostType, hostId, cancellationToken);
+
+    public Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+        => IncrementLikeCoreAsync(hostType, hostId, cancellationToken, at);
+
+    private async Task<UserEngagementSnapshot?> IncrementLikeCoreAsync(
         AffinityHostType hostType,
         int hostId,
         CancellationToken cancellationToken,
         DateTime? at = null)
     {
+        if (!IsDirectLikeHost(hostType))
+            return null;
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
@@ -398,8 +406,10 @@ public sealed partial class UserEngagementService(
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
-    private async Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken)
+    public async Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
+        if (!IsDirectLikeHost(hostType))
+            return null;
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
@@ -421,8 +431,10 @@ public sealed partial class UserEngagementService(
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
-    private async Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken)
+    public async Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
+        if (!IsDirectLikeHost(hostType))
+            return null;
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
@@ -441,6 +453,9 @@ public sealed partial class UserEngagementService(
 
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
+
+    private static bool IsDirectLikeHost(AffinityHostType hostType)
+        => hostType is AffinityHostType.Video or AffinityHostType.Image or AffinityHostType.Audio or AffinityHostType.Text;
 
     /// <summary>
     /// Record a batch of contiguous watched intervals for a playback session.

@@ -188,6 +188,44 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         return history is null ? NotFound() : Ok(history);
     }
 
+    [HttpPost("{id:int}/like")]
+    [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    public async Task<ActionResult<int>> IncrementLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.IncrementLikeAsync(AffinityHostType.Audio, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpPost("{id:int}/like/historical")]
+    [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
+    {
+        var at = request.At.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(request.At, DateTimeKind.Utc) : request.At.ToUniversalTime();
+        if (at > DateTime.UtcNow) return BadRequest("Historical likes must be dated in the past.");
+        var snapshot = await EngagementService.AddHistoricalLikeAsync(AffinityHostType.Audio, id, at, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpDelete("{id:int}/like")]
+    [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    public async Task<ActionResult<int>> DecrementLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.DecrementLikeAsync(AffinityHostType.Audio, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpPost("{id:int}/like/reset")]
+    [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    public async Task<ActionResult<int>> ResetLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.ResetLikeAsync(AffinityHostType.Audio, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
     [HttpPost("{id:int}/activity/reset")]
     [RequiresPermission(Permissions.AudiosWrite)]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]

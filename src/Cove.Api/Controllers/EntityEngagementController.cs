@@ -51,6 +51,8 @@ public class EntityEngagementController(IUserEngagementService engagementService
             return BadRequest("Unsupported interaction host type.");
         if (!InteractionValueMapper.TryParseKind(dto.Kind, out var kind))
             return BadRequest("Unsupported interaction kind.");
+        if (kind == InteractionKind.LikeCount)
+            return BadRequest("Like count interactions must use a dedicated media like endpoint.");
         if (InteractionValueMapper.RequiresConcreteHost(hostType) && (!dto.HostId.HasValue || dto.HostId.Value <= 0))
             return BadRequest("This interaction host type requires a host id.");
         if (!HasInteractionPermission(hostType))

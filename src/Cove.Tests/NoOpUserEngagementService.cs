@@ -58,6 +58,18 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
     public Task<UserEngagementSnapshot?> ResetVideoLikeAsync(int videoId, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
+    public Task<UserEngagementSnapshot?> IncrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
     public Task<UserEngagementSnapshot?> IncrementImageLikeAsync(int imageId, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
