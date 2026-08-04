@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
+import { PERFORMER_MULTI_SORT_KEYS, PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 
 describe("PERFORMER_SORT_OPTIONS", () => {
   it("includes the full performer sort set without duplicates", () => {
@@ -13,5 +13,15 @@ describe("PERFORMER_SORT_OPTIONS", () => {
     expect(sortByValue.get("play_count")).toBe("Play Count");
     expect(sortByValue.get("random")).toBe("Random");
     expect(sortByValue.size).toBe(PERFORMER_SORT_OPTIONS.length);
+  });
+
+  it("allows personalized scores in compound sorts", () => {
+    expect(PERFORMER_MULTI_SORT_KEYS).toEqual(expect.arrayContaining([
+      "rating",
+      "like_counter",
+      "play_count",
+      "last_like_at",
+      "last_played_at",
+    ]));
   });
 });

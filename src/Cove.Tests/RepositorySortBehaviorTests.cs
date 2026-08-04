@@ -384,6 +384,53 @@ public class RepositorySortBehaviorTests
     }
 
     [Fact]
+    public async Task PerformerRepository_CompoundEngagementSortsUseBirthdateToBreakTies()
+    {
+        await using var context = CreateContext();
+
+        var mostLiked = new Performer { Name = "Most Liked", Birthdate = new DateOnly(2000, 1, 1) };
+        var olderTie = new Performer { Name = "Older Tie", Birthdate = new DateOnly(1980, 1, 1) };
+        var youngerTie = new Performer { Name = "Younger Tie", Birthdate = new DateOnly(1990, 1, 1) };
+        var mostLikedVideo = new Video { Title = "most-liked", VideoPerformers = { new VideoPerformer { Performer = mostLiked } } };
+        var olderTieVideo = new Video { Title = "older-tie", VideoPerformers = { new VideoPerformer { Performer = olderTie } } };
+        var youngerTieVideo = new Video { Title = "younger-tie", VideoPerformers = { new VideoPerformer { Performer = youngerTie } } };
+
+        context.Performers.AddRange(mostLiked, olderTie, youngerTie);
+        context.Videos.AddRange(mostLikedVideo, olderTieVideo, youngerTieVideo);
+        await context.SaveChangesAsync();
+
+        AddVideoAffinity(context, mostLikedVideo.Id, viewCount: 10, likeCount: 10, lastConsumedAt: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddVideoAffinity(context, olderTieVideo.Id, viewCount: 5, likeCount: 5, lastConsumedAt: new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddVideoAffinity(context, youngerTieVideo.Id, viewCount: 5, likeCount: 5, lastConsumedAt: new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddFavoriteAffinity(context, AffinityHostType.Performer, mostLiked.Id, new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddFavoriteAffinity(context, AffinityHostType.Performer, olderTie.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddFavoriteAffinity(context, AffinityHostType.Performer, youngerTie.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
+        await context.SaveChangesAsync();
+
+        var repository = new PerformerRepository(context);
+        async Task<IReadOnlyList<string>> SortNames(string sortKey)
+        {
+            var (items, _) = await repository.FindAsync(null, new FindFilter
+            {
+                Page = 1,
+                PerPage = 20,
+                Sorts =
+                [
+                    new SortClause(sortKey, Cove.Core.Enums.SortDirection.Desc),
+                    new SortClause("birthdate", Cove.Core.Enums.SortDirection.Asc),
+                ],
+            });
+            return items.Select(performer => performer.Name).ToArray();
+        }
+
+        var expected = new[] { "Most Liked", "Older Tie", "Younger Tie" };
+        Assert.Equal(expected, await SortNames("like_counter"));
+        Assert.Equal(expected, await SortNames("play_count"));
+        Assert.Equal(expected, await SortNames("last_like_at"));
+        Assert.Equal(expected, await SortNames("last_played_at"));
+    }
+
+    [Fact]
     public async Task RatingSorts_PlaceUnratedAndZeroRatedItemsFirstWhenSortingAscending()
     {
         await using var context = CreateContext();
@@ -771,4 +818,3 @@ public class RepositorySortBehaviorTests
         }
     }
 }
-

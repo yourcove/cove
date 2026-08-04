@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { ArrowDown, ArrowUp, LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause, Shuffle } from "lucide-react";
+import { LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause } from "lucide-react";
 import type { CriterionModifier, CustomFieldCriterion, CustomFieldDefinition, CustomFieldEntityType, CustomFieldType, ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { getDefaultFilter, SavedFilterMenu } from "./SavedFilterMenu";
@@ -14,7 +14,7 @@ import { useAppConfig } from "../state/AppConfigContext";
 import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
+import { withSeededRandomSort } from "../utils/seededRandomSort";
 import { trackInteraction } from "../utils/interactionTracking";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { PageSizeSelect } from "./PageSizeSelect";
@@ -25,6 +25,7 @@ import { collapseExtensionCriteria, executableExtensionFilterKey, expandExtensio
 import { ListQueryState } from "./ListQueryState";
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
+import { MultiSortControl } from "./MultiSortControl";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -39,6 +40,7 @@ interface ListPageProps {
   onRetry?: () => void;
   children: ReactNode;
   sortOptions?: { value: string; label: string }[];
+  multiSortKeys?: readonly string[];
   displayMode?: DisplayMode;
   onDisplayModeChange?: (mode: DisplayMode) => void;
   availableDisplayModes?: DisplayMode[];
@@ -538,6 +540,7 @@ export function ListPage({
   onRetry,
   children,
   sortOptions,
+  multiSortKeys,
   displayMode,
   onDisplayModeChange,
   availableDisplayModes,
@@ -862,39 +865,12 @@ export function ListPage({
 
         {/* Sort */}
         {sortedSortOptions && (
-          <div className={toolbarSegmentClass}>
-            <select
-              value={filter.sort ?? ""}
-              onChange={(e) => onFilterChange(withSeededRandomSort(filter, { ...filter, sort: e.target.value || undefined, page: 1 }))}
-              className={`${toolbarSelectClass} min-w-[8.5rem] max-w-[10rem]`}
-            >
-              {sortedSortOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-
-            {filter.sort === "random" && (
-              <button
-                type="button"
-                onClick={() => onFilterChange(reshuffleRandomSort(filter))}
-                className={toolbarIconButtonClass}
-                title="Shuffle"
-                aria-label="Shuffle"
-              >
-                <Shuffle className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {/* Direction toggle */}
-            <button
-              type="button"
-              onClick={() => onFilterChange(withSeededRandomSort(filter, { ...filter, direction: filter.direction === "desc" ? "asc" : "desc" }))}
-              className={toolbarIconButtonClass}
-              title={filter.direction === "desc" ? "Sort descending" : "Sort ascending"}
-            >
-              {filter.direction === "desc" ? <ArrowDown className="w-3.5 h-3.5" /> : <ArrowUp className="w-3.5 h-3.5" />}
-            </button>
-          </div>
+          <MultiSortControl
+            filter={filter}
+            onFilterChange={onFilterChange}
+            options={sortedSortOptions}
+            multiSortKeys={multiSortKeys}
+          />
         )}
 
         {/* Saved filters */}

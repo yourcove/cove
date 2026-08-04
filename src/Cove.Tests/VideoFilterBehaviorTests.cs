@@ -961,6 +961,66 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task VideosController_Find_BindsOrderedSortClausesFromQuery()
+    {
+        var repository = new CapturingVideoRepository();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        await using var context = CreateContext();
+        var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
+
+        await controller.Find(q: null, page: 1, perPage: 25, sort: null, direction: null, seed: null, sorts: "studio:asc,date:desc", ct: default);
+
+        Assert.Equal(
+            [
+                new SortClause("studio", Cove.Core.Enums.SortDirection.Asc),
+                new SortClause("date", Cove.Core.Enums.SortDirection.Desc),
+            ],
+            repository.LastFindFilter?.Sorts);
+    }
+
+    [Fact]
+    public async Task VideoRepository_SortsByStudioThenDate()
+    {
+        await using var context = CreateContext();
+        var alphaStudio = new Studio { Name = "Alpha" };
+        var betaStudio = new Studio { Name = "Beta" };
+
+        var alphaOld = CreateVideoWithFile("alpha-old");
+        alphaOld.Studio = alphaStudio;
+        alphaOld.Date = new DateOnly(2024, 1, 1);
+        var alphaNew = CreateVideoWithFile("alpha-new");
+        alphaNew.Studio = alphaStudio;
+        alphaNew.Date = new DateOnly(2024, 2, 1);
+        var betaOld = CreateVideoWithFile("beta-old");
+        betaOld.Studio = betaStudio;
+        betaOld.Date = new DateOnly(2024, 1, 1);
+        var betaNew = CreateVideoWithFile("beta-new");
+        betaNew.Studio = betaStudio;
+        betaNew.Date = new DateOnly(2024, 2, 1);
+
+        context.Videos.AddRange(betaOld, alphaOld, betaNew, alphaNew);
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var (items, totalCount) = await repository.FindAsync(null, new FindFilter
+        {
+            Page = 1,
+            PerPage = 20,
+            Sorts =
+            [
+                new SortClause("studio", Cove.Core.Enums.SortDirection.Asc),
+                null!,
+                new SortClause("date", Cove.Core.Enums.SortDirection.Desc),
+            ],
+        });
+
+        Assert.Equal(4, totalCount);
+        Assert.Equal(
+            ["alpha-new", "alpha-old", "beta-new", "beta-old"],
+            items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task VideosController_FindWithCompilations_ReturnsVideoRangeGroupsAsPagedRows()
     {
         await using var context = CreateContext();

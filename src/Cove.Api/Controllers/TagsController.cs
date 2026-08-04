@@ -71,16 +71,20 @@ public class TagsController(
         [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int perPage = 25,
         [FromQuery] string? sort = null, [FromQuery] string? direction = null,
         [FromQuery] int? seed = null,
+        [FromQuery] string? sorts = null,
         [FromQuery] string? name = null, [FromQuery] bool? favorite = null,
         [FromQuery] int? rating = null,
         [FromQuery] bool includeCounts = true,
         CancellationToken ct = default)
     {
         var filter = new TagFilter { Name = name, Favorite = favorite, Rating = rating };
+        var sortClauses = SortClause.Parse(sorts);
+        var primarySort = sortClauses.FirstOrDefault();
         var findFilter = new FindFilter
         {
-            Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? SortDirection.Desc : SortDirection.Asc,
+            Q = q, Page = page, PerPage = perPage, Sort = primarySort?.Key ?? sort,
+            Direction = primarySort?.Direction ?? (direction == "desc" ? SortDirection.Desc : SortDirection.Asc),
+            Sorts = sortClauses.Count > 0 ? sortClauses : null,
             Seed = seed,
         };
 
@@ -167,6 +171,7 @@ public class TagsController(
         PerPage = perPage,
         Sort = source.Sort,
         Direction = source.Direction,
+        Sorts = source.Sorts,
         Seed = source.Seed,
     };
 

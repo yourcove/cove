@@ -66,6 +66,32 @@ const SEARCH_MODE_OPTIONS = [
 ];
 
 const VISUAL_MATCH_SORT_OPTION = { value: "visual_match", label: "Visual Match" };
+const VIDEO_MULTI_SORT_KEYS = [
+  "bitrate",
+  "code",
+  "created_at",
+  "date",
+  "duration",
+  "file_count",
+  "file_mod_time",
+  "file_size",
+  "framerate",
+  "organized",
+  "path",
+  "performer_count",
+  "play_count",
+  "like_counter",
+  "last_like_at",
+  "last_played_at",
+  "play_duration",
+  "resume_time",
+  "rating",
+  "resolution",
+  "studio",
+  "tag_count",
+  "title",
+  "updated_at",
+] as const;
 const INCLUDE_COMPILATIONS_FILTER_KEY = "includeCompilationGroups";
 const IS_VR_FILTER_KEY = "isVrCriterion";
 const VERTICAL_PORTRAIT_FILTER_KEY = "orientationCriterion";
@@ -331,7 +357,7 @@ export function VideosPage({ onNavigate }: Props) {
     setSearchMode(mode);
 
     if (mode === "visual") {
-      setFilter({ ...filter, sort: "visual_match", direction: "desc", page: 1 });
+      setFilter({ ...filter, sort: "visual_match", direction: "desc", sorts: undefined, page: 1 });
       return;
     }
 
@@ -375,6 +401,22 @@ export function VideosPage({ onNavigate }: Props) {
   const includeCompilationGroups = isIncludeCompilationGroupsEnabled(normalizedObjectFilter[INCLUDE_COMPILATIONS_FILTER_KEY]);
   const canShowCompilationGroups = !infinitePageSize && includeCompilationGroups && searchMode === "text" && !hasCompilationBlockingObjectFilter && (displayMode === "grid" || displayMode === "list");
 
+  useEffect(() => {
+    if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
+      return;
+    }
+
+    setFilter({ ...filter, sort: "visual_match", direction: "desc", sorts: undefined, page: 1 });
+  }, [filter, searchMode, setFilter, visualSimilarityAvailable]);
+
+  useEffect(() => {
+    if (!includeCompilationGroups || !filter.sorts || filter.sorts.length <= 1) {
+      return;
+    }
+
+    setFilter({ ...filter, sorts: undefined, page: 1 });
+  }, [filter, includeCompilationGroups, setFilter]);
+
   const { data, isLoading, error: pageError, refetch: refetchPage } = useQuery({
     queryKey: ["videos", filter, backendObjectFilter, searchMode],
     queryFn: () => {
@@ -394,7 +436,10 @@ export function VideosPage({ onNavigate }: Props) {
 
   const { data: unifiedData, isLoading: unifiedLoading, error: unifiedError, refetch: refetchUnified } = useQuery({
     queryKey: ["videos", "with-compilations", filter, compilationQueryExtra],
-    queryFn: () => videos.findWithCompilations(filter, compilationQueryExtra),
+    queryFn: () => videos.findWithCompilations(
+      filter.sorts && filter.sorts.length > 1 ? { ...filter, sorts: undefined } : filter,
+      compilationQueryExtra,
+    ),
     enabled: !infinitePageSize && canShowCompilationGroups,
   });
 
@@ -676,6 +721,7 @@ export function VideosPage({ onNavigate }: Props) {
       searchPlaceholder={visualSimilarityAvailable && searchMode === "visual" ? "Search visuals..." : "Search videos, tags, performers..."}
       onSearchModeChange={handleSearchModeChange}
       sortOptions={sortOptions}
+      multiSortKeys={searchMode === "text" && !includeCompilationGroups ? VIDEO_MULTI_SORT_KEYS : undefined}
       displayMode={displayMode}
       onDisplayModeChange={handleDisplayModeChange}
       availableDisplayModes={["grid", "list", "wall", "tagger", "feed", "vertical"]}

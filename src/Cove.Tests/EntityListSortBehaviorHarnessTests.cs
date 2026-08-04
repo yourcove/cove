@@ -301,6 +301,199 @@ public class EntityListSortBehaviorHarnessTests
     }
 
     [Theory]
+    [InlineData("images")]
+    [InlineData("galleries")]
+    [InlineData("audios")]
+    [InlineData("texts")]
+    [InlineData("performers")]
+    [InlineData("studios")]
+    [InlineData("tags")]
+    public async Task CompoundSortUsesSecondaryClauseAcrossSupportedEntityLists(string entity)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var sharedUpdatedAt = DateTime.UtcNow.AddYears(-10);
+        switch (entity)
+        {
+            case "images": (await fixture.Context.Images.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "galleries": (await fixture.Context.Galleries.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "audios": (await fixture.Context.Audios.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "texts": (await fixture.Context.TextDocuments.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "performers": (await fixture.Context.Performers.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "studios": (await fixture.Context.Studios.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+            case "tags": (await fixture.Context.Tags.ToListAsync()).ForEach(item => item.UpdatedAt = sharedUpdatedAt); break;
+        }
+        await fixture.Context.SaveChangesAsync();
+
+        var labelKey = entity is "performers" or "studios" or "tags" ? "name" : "title";
+        var updatedKey = entity is "audios" or "texts" ? "updatedAt" : "updated_at";
+        var findFilter = new FindFilter
+        {
+            Page = 1,
+            PerPage = 50,
+            Sort = updatedKey,
+            Direction = CoveSortDirection.Asc,
+            Sorts =
+            [
+                new SortClause(updatedKey, CoveSortDirection.Asc),
+                new SortClause(labelKey, CoveSortDirection.Desc),
+            ],
+        };
+
+        var actualIds = entity switch
+        {
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
+            "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
+            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
+        };
+
+        Assert.Equal(actualIds.OrderByDescending(id => id).ToArray(), actualIds);
+    }
+
+    [Theory]
+    [InlineData("videos")]
+    [InlineData("images")]
+    [InlineData("galleries")]
+    [InlineData("audios")]
+    [InlineData("texts")]
+    [InlineData("performers")]
+    [InlineData("studios")]
+    [InlineData("tags")]
+    public async Task CompoundRatingSortUsesSecondaryClauseAcrossSupportedEntityLists(string entity)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var (hostType, entityIds) = entity switch
+        {
+            "videos" => (RatingHostType.Video, fixture.Videos.Select(item => item.Id).ToArray()),
+            "images" => (RatingHostType.Image, fixture.Images.Select(item => item.Id).ToArray()),
+            "galleries" => (RatingHostType.Gallery, fixture.Galleries.Select(item => item.Id).ToArray()),
+            "audios" => (RatingHostType.Audio, fixture.Audios.Select(item => item.Id).ToArray()),
+            "texts" => (RatingHostType.Text, fixture.Texts.Select(item => item.Id).ToArray()),
+            "performers" => (RatingHostType.Performer, fixture.Performers.Select(item => item.Id).ToArray()),
+            "studios" => (RatingHostType.Studio, fixture.Studios.Select(item => item.Id).ToArray()),
+            "tags" => (RatingHostType.Tag, fixture.Tags.Select(item => item.Id).ToArray()),
+            _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
+        };
+
+        var existingRatings = await fixture.Context.Ratings
+            .Where(rating => rating.UserId == TestUserId && rating.HostType == hostType && rating.Aspect == "overall")
+            .ToListAsync();
+        fixture.Context.Ratings.RemoveRange(existingRatings);
+        fixture.Context.Ratings.AddRange(
+            new Rating { UserId = TestUserId, HostType = hostType, HostId = entityIds[0], Aspect = "overall", Value = 5 },
+            new Rating { UserId = TestUserId, HostType = hostType, HostId = entityIds[1], Aspect = "overall", Value = 5 },
+            new Rating { UserId = TestUserId, HostType = hostType, HostId = entityIds[2], Aspect = "overall", Value = 1 });
+        await fixture.Context.SaveChangesAsync();
+
+        var labelKey = entity is "performers" or "studios" or "tags" ? "name" : "title";
+        var findFilter = new FindFilter
+        {
+            Page = 1,
+            PerPage = 50,
+            Sorts =
+            [
+                new SortClause("rating", CoveSortDirection.Desc),
+                new SortClause(labelKey, CoveSortDirection.Desc),
+            ],
+        };
+
+        var actualIds = entity switch
+        {
+            "videos" => (await new VideoRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "galleries" => (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
+            "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
+            "performers" => (await new PerformerRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "studios" => (await new StudioRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "tags" => (await new TagRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
+        };
+
+        Assert.Equal([entityIds[1], entityIds[0], entityIds[2]], actualIds);
+    }
+
+    [Theory]
+    [InlineData("videos", "play_count")]
+    [InlineData("videos", "like_counter")]
+    [InlineData("videos", "last_like_at")]
+    [InlineData("videos", "last_played_at")]
+    [InlineData("videos", "play_duration")]
+    [InlineData("videos", "resume_time")]
+    [InlineData("images", "like_counter")]
+    [InlineData("audios", "play_count")]
+    [InlineData("audios", "like_counter")]
+    [InlineData("audios", "play_duration")]
+    [InlineData("audios", "last_played_at")]
+    [InlineData("texts", "read_count")]
+    [InlineData("texts", "like_counter")]
+    [InlineData("texts", "read_duration")]
+    [InlineData("texts", "last_read_at")]
+    public async Task CompoundEngagementSortUsesSecondaryClause(string entity, string sortKey)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var (hostType, entityIds) = entity switch
+        {
+            "videos" => (AffinityHostType.Video, fixture.Videos.Select(item => item.Id).ToArray()),
+            "images" => (AffinityHostType.Image, fixture.Images.Select(item => item.Id).ToArray()),
+            "audios" => (AffinityHostType.Audio, fixture.Audios.Select(item => item.Id).ToArray()),
+            "texts" => (AffinityHostType.Text, fixture.Texts.Select(item => item.Id).ToArray()),
+            _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
+        };
+
+        for (var index = 0; index < entityIds.Length; index++)
+        {
+            var affinity = fixture.Affinity(hostType, entityIds[index]);
+            var tiedValue = index < 2;
+            switch (sortKey)
+            {
+                case "play_count":
+                case "read_count": affinity.ViewCount = tiedValue ? 5 : 1; break;
+                case "like_counter": affinity.LikeCount = tiedValue ? 5 : 1; break;
+                case "play_duration":
+                case "read_duration": affinity.TotalConsumedSec = tiedValue ? 500 : 100; break;
+                case "resume_time": affinity.LastPositionSec = tiedValue ? 50 : 10; break;
+                case "last_like_at": affinity.FavoritedAt = tiedValue ? new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc); break;
+                case "last_played_at":
+                case "last_read_at": affinity.LastConsumedAt = tiedValue ? new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc); break;
+            }
+        }
+        await fixture.Context.SaveChangesAsync();
+
+        var findFilter = new FindFilter
+        {
+            Page = 1,
+            PerPage = 50,
+            Sorts =
+            [
+                new SortClause(sortKey, CoveSortDirection.Desc),
+                new SortClause("title", CoveSortDirection.Desc),
+            ],
+        };
+
+        var actualIds = entity switch
+        {
+            "videos" => (await new VideoRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "images" => (await new ImageRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray(),
+            "audios" => await QueryFilteredAudioIdsAsync(fixture.Context, new AudioFilter(), findFilter),
+            "texts" => await QueryFilteredTextIdsAsync(fixture.Context, new TextDocumentFilter(), findFilter),
+            _ => throw new InvalidOperationException($"Unsupported entity '{entity}'."),
+        };
+
+        Assert.Equal([entityIds[1], entityIds[0], entityIds[2]], actualIds);
+    }
+
+    [Theory]
     [MemberData(nameof(FilterRows))]
     public async Task RepresentativeFiltersMatchSeededFixtureSet(FilterProbe probe)
     {
@@ -886,6 +1079,7 @@ public class EntityListSortBehaviorHarnessTests
         => sortKey switch
         {
             "name" => Order(fixture.Tags, tag => tag.Name, descending),
+            "rating" => Order(fixture.Tags, tag => fixture.Rating(RatingHostType.Tag, tag.Id), descending),
             "tag_group" => Order(fixture.Tags, tag => tag.TagGroup!.Name, descending),
             "video_count" => Order(fixture.Tags, tag => tag.VideoTags.Select(link => link.VideoId).Distinct().Count(), descending),
             "gallery_count" => Order(fixture.Tags, tag => tag.GalleryTags.Select(link => link.GalleryId).Distinct().Count(), descending),
@@ -1433,6 +1627,9 @@ public class EntityListSortBehaviorHarnessTests
             AddRating(RatingHostType.Studio, studios[0].Id, 5);
             AddRating(RatingHostType.Studio, studios[1].Id, 8);
             AddRating(RatingHostType.Studio, studios[2].Id, 9);
+            AddRating(RatingHostType.Tag, tags[0].Id, 3);
+            AddRating(RatingHostType.Tag, tags[1].Id, 6);
+            AddRating(RatingHostType.Tag, tags[2].Id, 9);
 
             AddAffinity(AffinityHostType.Video, videos[0].Id, viewCount: 1, likeCount: 10, totalConsumedSec: 100, lastPositionSec: 11, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Video, videos[1].Id, viewCount: 3, likeCount: 20, totalConsumedSec: 200, lastPositionSec: 22, lastConsumedAt: now.AddDays(-20), favoritedAt: now.AddDays(-8));

@@ -20,6 +20,10 @@ namespace Cove.Api.Controllers;
 public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
+    private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "read_count", "like_counter", "read_duration", "last_read_at",
+    };
 
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
 
@@ -32,11 +36,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         [FromQuery] string? sort = null,
         [FromQuery] string? direction = null,
         [FromQuery] int? seed = null,
+        [FromQuery] string? sorts = null,
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
         perPage = Math.Clamp(perPage, 1, 250);
-        var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+        var sortClauses = SortClause.Parse(sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        sort = primarySort?.Key ?? sort;
+        var descending = primarySort?.Direction == Cove.Core.Enums.SortDirection.Desc
+            || (primarySort is null && string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase));
 
         var query = db.TextDocuments.AsNoTracking().AsQueryable();
 
@@ -52,7 +61,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(tp => tp.Performer != null).Select(tp => tp.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, q, text => text.Files);
 
-        query = ApplySort(query, sort, descending, seed);
+        query = ApplySort(query, sort, descending, seed, sortClauses);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
 
@@ -104,7 +113,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed);
+        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
 
@@ -495,8 +504,24 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return items.OrderBy(text => orderMap.GetValueOrDefault(text.Id, int.MaxValue)).ToList();
     }
 
-    private IQueryable<TextDocument> ApplySort(IQueryable<TextDocument> query, string? sort, bool descending, int? seed = null)
+    private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
+        "updatedAt", "updated_at", "createdAt", "created_at", "date", "words", "pages",
+        "file_size", "file_mod_time", "file_count", "path", "tag_count", "performer_count", "title", "rating",
+        "read_count", "like_counter", "read_duration", "last_read_at",
+    };
+
+    private IQueryable<TextDocument> ApplySort(
+        IQueryable<TextDocument> query,
+        string? sort,
+        bool descending,
+        int? seed = null,
+        IEnumerable<SortClause>? sorts = null)
+    {
+        var clauses = CompoundSortOrdering.Normalize(sorts, MultiSortKeys);
+        if (clauses.Count > 1)
+            return ApplyMultiSort(query, clauses);
+
         if (FilterHelpers.TryParseCustomFieldSort(sort, out _, out _))
             return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Text, sort, descending);
 
@@ -523,6 +548,52 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             "created_at" => descending ? query.OrderByDescending(text => text.CreatedAt).ThenByDescending(text => text.Id) : query.OrderBy(text => text.CreatedAt).ThenBy(text => text.Id),
             _ => descending ? query.OrderByDescending(text => text.UpdatedAt).ThenByDescending(text => text.Id) : query.OrderBy(text => text.UpdatedAt).ThenBy(text => text.Id),
         };
+    }
+
+    private IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses)
+    {
+        var userId = EngagementQueryHelpers.CurrentUserId(db);
+        var compound = CompoundSortQuery<TextDocument>.Create(
+            db, query, userId, AffinityHostType.Text, RatingHostType.Text,
+            includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
+        foreach (var clause in clauses)
+        {
+            var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
+            switch (clause.Key.ToLowerInvariant())
+            {
+                case "title":
+                    compound.Append(text => text.Title == null ? 1 : 0, false);
+                    compound.Append(text => text.Title, desc);
+                    break;
+                case "rating": compound.AppendRating(desc); break;
+                case "read_count": compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc); break;
+                case "like_counter": compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc); break;
+                case "read_duration": compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc); break;
+                case "last_read_at": compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc); break;
+                case "date":
+                    compound.Append(text => text.Date == null ? 1 : 0, false);
+                    compound.Append(text => text.Date, desc);
+                    break;
+                case "words": compound.Append(text => text.MaxWordCount, desc); break;
+                case "pages": compound.Append(text => text.MaxPageCount, desc); break;
+                case "file_size": compound.Append(text => text.MaxFileSize, desc); break;
+                case "file_mod_time":
+                    compound.Append(text => text.MaxFileModTime == null ? 1 : 0, false);
+                    compound.Append(text => text.MaxFileModTime, desc);
+                    break;
+                case "file_count": compound.Append(text => text.FileCount, desc); break;
+                case "path": compound.Append(text => desc ? text.MaxPath : text.MinPath, desc); break;
+                case "tag_count": compound.Append(text => text.TextTags.Count, desc); break;
+                case "performer_count": compound.Append(text => text.TextPerformers.Count, desc); break;
+                case "createdat":
+                case "created_at": compound.Append(text => text.CreatedAt, desc); break;
+                case "updatedat":
+                case "updated_at": compound.Append(text => text.UpdatedAt, desc); break;
+            }
+        }
+
+        return compound.Finish(text => text.Id);
     }
 
     private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

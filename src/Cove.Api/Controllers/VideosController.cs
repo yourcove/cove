@@ -37,8 +37,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         [FromQuery] bool? organized = null, [FromQuery] int? studioId = null,
         [FromQuery] int? groupId = null, [FromQuery] int? galleryId = null, [FromQuery] string? tagIds = null, [FromQuery] string? performerIds = null,
         [FromQuery] string? ids = null,
+        [FromQuery] string? sorts = null,
         CancellationToken ct = default)
     {
+        var sortClauses = SortClause.Parse(sorts);
+        var primarySort = sortClauses.FirstOrDefault();
         var filter = new VideoFilter
         {
             Ids = QueryParsing.ParseIntList(ids)?.ToList(),
@@ -47,8 +50,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         };
         var findFilter = new FindFilter
         {
-            Q = q, Page = page, PerPage = perPage, Sort = sort,
-            Direction = direction == "desc" ? Core.Enums.SortDirection.Desc : Core.Enums.SortDirection.Asc,
+            Q = q, Page = page, PerPage = perPage, Sort = primarySort?.Key ?? sort,
+            Direction = primarySort?.Direction ?? (direction == "desc" ? Core.Enums.SortDirection.Desc : Core.Enums.SortDirection.Asc),
+            Sorts = sortClauses.Count > 0 ? sortClauses : null,
             Seed = seed,
         };
 

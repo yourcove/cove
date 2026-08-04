@@ -29,7 +29,7 @@ import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { TEXT_SORT_OPTIONS } from "../components/textSortOptions";
+import { TEXT_MULTI_SORT_KEYS, TEXT_SORT_OPTIONS } from "../components/textSortOptions";
 
 const SORT_OPTIONS = TEXT_SORT_OPTIONS;
 
@@ -102,6 +102,7 @@ export function TextsPage({ onNavigate }: Props) {
       onRetry={() => { void listData.refetch(); }}
       searchPlaceholder="Search text, tags, performers..."
       sortOptions={SORT_OPTIONS}
+      multiSortKeys={TEXT_MULTI_SORT_KEYS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={["grid", "list", "tagger"]}

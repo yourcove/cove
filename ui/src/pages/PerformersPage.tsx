@@ -21,7 +21,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canWriteEntity } from "../auth/visibility";
 import { createNestedRouteLinkProps } from "../components/cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
-import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
+import { PERFORMER_MULTI_SORT_KEYS, PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 import { CustomFieldsEditor } from "../components/shared";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { WallMediaCard } from "../components/WallMediaCard";
@@ -108,6 +108,7 @@ export function PerformersPage({ onNavigate }: Props) {
         error={listData.loadError}
         onRetry={() => { void listData.refetch(); }}
         sortOptions={SORT_OPTIONS}
+        multiSortKeys={PERFORMER_MULTI_SORT_KEYS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
         availableDisplayModes={["grid", "list", "wall", "tagger"]}

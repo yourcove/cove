@@ -13,3 +13,7 @@ export const IMAGE_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "tag_count", label: "Tag Count" },
   { value: "random", label: "Random" },
 ];
+
+export const IMAGE_MULTI_SORT_KEYS = IMAGE_SORT_OPTIONS
+  .map((option) => option.value)
+  .filter((key) => key !== "random");

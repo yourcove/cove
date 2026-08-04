@@ -235,6 +235,7 @@ public static class EntityListSortFilterCatalog
 
         // Tags
         new("tags", "name", "Name"),
+        new("tags", "rating", "Rating"),
         new("tags", "tag_group", "Tag Group"),
         new("tags", "video_count", "Video Count"),
         new("tags", "gallery_count", "Gallery Count"),

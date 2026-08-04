@@ -156,21 +156,18 @@ public static class EngagementQueryHelpers
                 ? query.OrderByDescending(entity => EF.Property<int>(entity, "Id"))
                 : query.OrderBy(entity => EF.Property<int>(entity, "Id"));
 
-        var sortQuery = query.Select(entity => new
-        {
-            Entity = entity,
-            Value = db.UserEntityAffinities
+        return CompoundSortOrdering.Append(
+            query,
+            ordered: null,
+            entity => db.UserEntityAffinities
                 .Where(affinity =>
                     affinity.UserId == selectedUserId &&
                     affinity.HostType == hostType &&
                     affinity.HostId == EF.Property<int>(entity, "Id"))
                 .Select(affinity => EF.Property<int>(affinity, propertyName))
                 .FirstOrDefault(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.Value <= 0 ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
-            : sortQuery.OrderBy(item => item.Value <= 0 ? 0 : 1).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+            desc)
+            .ThenByDirection(entity => EF.Property<int>(entity, "Id"), desc);
     }
 
     public static IQueryable<T> ApplyAffinityDoubleSort<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, bool desc)
@@ -181,21 +178,18 @@ public static class EngagementQueryHelpers
                 ? query.OrderByDescending(entity => EF.Property<int>(entity, "Id"))
                 : query.OrderBy(entity => EF.Property<int>(entity, "Id"));
 
-        var sortQuery = query.Select(entity => new
-        {
-            Entity = entity,
-            Value = db.UserEntityAffinities
+        return CompoundSortOrdering.Append(
+            query,
+            ordered: null,
+            entity => db.UserEntityAffinities
                 .Where(affinity =>
                     affinity.UserId == selectedUserId &&
                     affinity.HostType == hostType &&
                     affinity.HostId == EF.Property<int>(entity, "Id"))
                 .Select(affinity => EF.Property<double>(affinity, propertyName))
                 .FirstOrDefault(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.Value <= 0 ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
-            : sortQuery.OrderBy(item => item.Value <= 0 ? 0 : 1).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+            desc)
+            .ThenByDirection(entity => EF.Property<int>(entity, "Id"), desc);
     }
 
     public static IQueryable<T> ApplyAffinityTimestampSort<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, bool desc)
@@ -206,21 +200,18 @@ public static class EngagementQueryHelpers
                 ? query.OrderByDescending(entity => EF.Property<int>(entity, "Id"))
                 : query.OrderBy(entity => EF.Property<int>(entity, "Id"));
 
-        var sortQuery = query.Select(entity => new
-        {
-            Entity = entity,
-            Value = db.UserEntityAffinities
+        return CompoundSortOrdering.Append(
+            query,
+            ordered: null,
+            entity => db.UserEntityAffinities
                 .Where(affinity =>
                     affinity.UserId == selectedUserId &&
                     affinity.HostType == hostType &&
                     affinity.HostId == EF.Property<int>(entity, "Id"))
                 .Select(affinity => EF.Property<DateTime?>(affinity, propertyName))
-                .FirstOrDefault(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.Value == null ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
-            : sortQuery.OrderBy(item => item.Value == null ? 1 : 0).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+                .FirstOrDefault() ?? (desc ? DateTime.MinValue : DateTime.MaxValue),
+            desc)
+            .ThenByDirection(entity => EF.Property<int>(entity, "Id"), desc);
     }
 
     public static IQueryable<T> ApplyInteractionTimestampSort<T>(CoveContext db, IQueryable<T> query, int? userId, InteractionHostType hostType, InteractionKind kind, bool desc)
@@ -231,21 +222,24 @@ public static class EngagementQueryHelpers
                 ? query.OrderByDescending(entity => EF.Property<int>(entity, "Id"))
                 : query.OrderBy(entity => EF.Property<int>(entity, "Id"));
 
-        var sortQuery = query.Select(entity => new
-        {
-            Entity = entity,
-            Value = db.Interactions
+        return CompoundSortOrdering.Append(
+            query,
+            ordered: null,
+            entity => db.Interactions
                 .Where(interaction =>
                     interaction.UserId == selectedUserId &&
                     interaction.HostType == hostType &&
                     interaction.HostId == EF.Property<int>(entity, "Id") &&
                     interaction.Kind == kind)
                 .Select(interaction => (DateTime?)interaction.At)
-                .Max(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.Value == null ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
-            : sortQuery.OrderBy(item => item.Value == null ? 1 : 0).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+                .Max() ?? (desc ? DateTime.MinValue : DateTime.MaxValue),
+            desc)
+            .ThenByDirection(entity => EF.Property<int>(entity, "Id"), desc);
     }
+
+    private static IOrderedQueryable<T> ThenByDirection<T, TKey>(
+        this IOrderedQueryable<T> query,
+        System.Linq.Expressions.Expression<Func<T, TKey>> keySelector,
+        bool desc)
+        => desc ? query.ThenByDescending(keySelector) : query.ThenBy(keySelector);
 }

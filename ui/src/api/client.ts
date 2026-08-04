@@ -113,6 +113,7 @@ const API_BASE = "/api";
 // ===== Auth-aware fetch =====
 // Lazy import to avoid circular deps; the auth module has no client.ts deps.
 import { authStore } from "../auth/authStore";
+import { serializeSortClauses } from "../utils/sortClauses";
 
 let refreshInFlight: Promise<boolean> | null = null;
 
@@ -253,8 +254,12 @@ function buildQuery(filter?: FindFilter, extra?: Record<string, string | number 
   if (filter?.q) params.set("q", filter.q);
   if (filter?.page != null) params.set("page", String(filter.page));
   if (filter && filter.perPage != null) params.set("perPage", String(filter.perPage));
-  if (filter?.sort) params.set("sort", filter.sort);
-  if (filter?.direction) params.set("direction", filter.direction);
+  if (filter?.sorts && filter.sorts.length > 1) {
+    params.set("sorts", serializeSortClauses(filter.sorts));
+  } else {
+    if (filter?.sort) params.set("sort", filter.sort);
+    if (filter?.direction) params.set("direction", filter.direction);
+  }
   if (filter?.seed != null) params.set("seed", String(filter.seed));
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
