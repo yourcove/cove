@@ -503,7 +503,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "updatedAt", "updated_at", "createdAt", "created_at", "date", "words", "pages",
-        "file_size", "file_mod_time", "file_count", "path", "tag_count", "performer_count", "title",
+        "file_size", "file_mod_time", "file_count", "path", "tag_count", "performer_count", "title", "rating",
+        "read_count", "like_counter", "read_duration", "last_read_at",
     };
 
     private IQueryable<TextDocument> ApplySort(
@@ -545,9 +546,10 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         };
     }
 
-    private static IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<TextDocument>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
@@ -556,6 +558,21 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
                 case "title":
                     ordered = CompoundSortOrdering.Append(query, ordered, text => text.Title == null ? 1 : 0, false);
                     ordered = CompoundSortOrdering.Append(query, ordered, text => text.Title, desc);
+                    break;
+                case "rating":
+                    ordered = EngagementQueryHelpers.AppendRatingSort(db, query, ordered, userId, RatingHostType.Text, desc);
+                    break;
+                case "read_count":
+                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.ViewCount), desc);
+                    break;
+                case "like_counter":
+                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.LikeCount), desc);
+                    break;
+                case "read_duration":
+                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.TotalConsumedSec), desc);
+                    break;
+                case "last_read_at":
+                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.LastConsumedAt), desc);
                     break;
                 case "date":
                     ordered = CompoundSortOrdering.Append(query, ordered, text => text.Date == null ? 1 : 0, false);

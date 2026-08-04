@@ -23,4 +23,4 @@ export const AUDIO_SORT_OPTIONS: { value: string; label: string }[] = [
 
 export const AUDIO_MULTI_SORT_KEYS = AUDIO_SORT_OPTIONS
   .map((option) => option.value)
-  .filter((key) => !["rating", "play_count", "like_counter", "play_duration", "last_played_at", "random"].includes(key));
+  .filter((key) => key !== "random");

@@ -16,4 +16,4 @@ export const STUDIO_SORT_OPTIONS: { value: string; label: string }[] = [
 
 export const STUDIO_MULTI_SORT_KEYS = STUDIO_SORT_OPTIONS
   .map((option) => option.value)
-  .filter((key) => key !== "rating" && key !== "random");
+  .filter((key) => key !== "random");

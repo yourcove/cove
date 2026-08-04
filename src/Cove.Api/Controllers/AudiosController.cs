@@ -541,7 +541,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     {
         "updatedAt", "updated_at", "createdAt", "created_at", "date", "duration", "file_size",
         "file_mod_time", "file_count", "path", "bitrate", "has_video_files", "track_count",
-        "tag_count", "performer_count", "title",
+        "tag_count", "performer_count", "title", "rating", "play_count", "like_counter",
+        "play_duration", "last_played_at",
     };
 
     private IQueryable<Audio> ApplySort(
@@ -585,9 +586,10 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         };
     }
 
-    private static IQueryable<Audio> ApplyMultiSort(IQueryable<Audio> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Audio> ApplyMultiSort(IQueryable<Audio> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Audio>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
@@ -596,6 +598,21 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
                 case "title":
                     ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Title == null ? 1 : 0, false);
                     ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Title, desc);
+                    break;
+                case "rating":
+                    ordered = EngagementQueryHelpers.AppendRatingSort(db, query, ordered, userId, RatingHostType.Audio, desc);
+                    break;
+                case "play_count":
+                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.ViewCount), desc);
+                    break;
+                case "like_counter":
+                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.LikeCount), desc);
+                    break;
+                case "play_duration":
+                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.TotalConsumedSec), desc);
+                    break;
+                case "last_played_at":
+                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.LastConsumedAt), desc);
                     break;
                 case "date":
                     ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Date == null ? 1 : 0, false);

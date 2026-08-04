@@ -21,4 +21,4 @@ export const GALLERY_SORT_OPTIONS = [
 
 export const GALLERY_MULTI_SORT_KEYS = GALLERY_SORT_OPTIONS
   .map((option) => option.value)
-  .filter((key) => key !== "rating" && key !== "typical_resolution" && key !== "random");
+  .filter((key) => key !== "typical_resolution" && key !== "random");

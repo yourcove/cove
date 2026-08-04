@@ -16,4 +16,4 @@ export const IMAGE_SORT_OPTIONS: { value: string; label: string }[] = [
 
 export const IMAGE_MULTI_SORT_KEYS = IMAGE_SORT_OPTIONS
   .map((option) => option.value)
-  .filter((key) => key !== "rating" && key !== "like_counter" && key !== "random");
+  .filter((key) => key !== "random");

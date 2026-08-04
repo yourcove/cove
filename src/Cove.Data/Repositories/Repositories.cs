@@ -13,7 +13,8 @@ public class PerformerRepository : IPerformerRepository
     private static readonly HashSet<string> PerformerMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "name", "created_at", "updated_at", "birthdate", "video_count", "image_count", "gallery_count",
-        "latest_video_date", "total_file_size", "height", "weight", "tag_count",
+        "latest_video_date", "total_file_size", "height", "weight", "tag_count", "rating", "like_counter",
+        "play_count", "last_like_at", "last_played_at",
     };
 
     private readonly CoveContext _db;
@@ -173,6 +174,77 @@ public class PerformerRepository : IPerformerRepository
         return desc
             ? sortQuery.OrderBy(item => item.Value <= 0 ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
             : sortQuery.OrderBy(item => item.Value <= 0 ? 0 : 1).ThenBy(item => item.Value).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+    }
+
+    private IOrderedQueryable<Performer>? AppendVideoAffinityIntSumSort(
+        IQueryable<Performer> query,
+        IOrderedQueryable<Performer>? ordered,
+        int? userId,
+        string propertyName,
+        bool desc)
+    {
+        if (userId is not int selectedUserId)
+            return ordered;
+
+        ordered = CompoundSortOrdering.Append(
+            query,
+            ordered,
+            performer => performer.VideoPerformers
+                .Select(videoPerformer => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == selectedUserId
+                        && affinity.HostType == AffinityHostType.Video
+                        && affinity.HostId == videoPerformer.VideoId)
+                    .Select(affinity => EF.Property<int>(affinity, propertyName))
+                    .FirstOrDefault())
+                .Sum() <= 0 ? (desc ? 1 : 0) : (desc ? 0 : 1),
+            false);
+
+        return CompoundSortOrdering.Append(
+            query,
+            ordered,
+            performer => performer.VideoPerformers
+                .Select(videoPerformer => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == selectedUserId
+                        && affinity.HostType == AffinityHostType.Video
+                        && affinity.HostId == videoPerformer.VideoId)
+                    .Select(affinity => EF.Property<int>(affinity, propertyName))
+                    .FirstOrDefault())
+                .Sum(),
+            desc);
+    }
+
+    private IOrderedQueryable<Performer>? AppendLastPlayedAtSort(
+        IQueryable<Performer> query,
+        IOrderedQueryable<Performer>? ordered,
+        int? userId,
+        bool desc)
+    {
+        if (userId is not int selectedUserId)
+            return ordered;
+
+        ordered = CompoundSortOrdering.Append(
+            query,
+            ordered,
+            performer => performer.VideoPerformers.Any(videoPerformer =>
+                _db.UserEntityAffinities.Any(affinity =>
+                    affinity.UserId == selectedUserId
+                    && affinity.HostType == AffinityHostType.Video
+                    && affinity.HostId == videoPerformer.VideoId
+                    && affinity.LastConsumedAt != null)) ? 0 : 1,
+            false);
+
+        return CompoundSortOrdering.Append(
+            query,
+            ordered,
+            performer => performer.VideoPerformers
+                .Select(videoPerformer => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == selectedUserId
+                        && affinity.HostType == AffinityHostType.Video
+                        && affinity.HostId == videoPerformer.VideoId)
+                    .Select(affinity => affinity.LastConsumedAt)
+                    .FirstOrDefault())
+                .Max(),
+            desc);
     }
     private static IQueryable<Performer> ApplyMeasurementsSort(IQueryable<Performer> query, bool desc)
     {
@@ -633,15 +705,17 @@ public class PerformerRepository : IPerformerRepository
         return (sortedItems, totalCount);
     }
 
-    private static IQueryable<Performer> ApplyPerformerMultiSort(IQueryable<Performer> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Performer> ApplyPerformerMultiSort(IQueryable<Performer> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Performer>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "name": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Name, desc); break;
+                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Performer, desc); break;
                 case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.CreatedAt, desc); break;
                 case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.UpdatedAt, desc); break;
                 case "birthdate": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Birthdate, desc); break;
@@ -653,6 +727,10 @@ public class PerformerRepository : IPerformerRepository
                 case "height": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.HeightCm, desc); break;
                 case "weight": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Weight, desc); break;
                 case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.TagCount, desc); break;
+                case "like_counter": ordered = AppendVideoAffinityIntSumSort(query, ordered, userId, nameof(UserEntityAffinity.LikeCount), desc); break;
+                case "play_count": ordered = AppendVideoAffinityIntSumSort(query, ordered, userId, nameof(UserEntityAffinity.ViewCount), desc); break;
+                case "last_like_at": ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(_db, query, ordered, userId, AffinityHostType.Performer, nameof(UserEntityAffinity.FavoritedAt), desc); break;
+                case "last_played_at": ordered = AppendLastPlayedAtSort(query, ordered, userId, desc); break;
             }
         }
 
@@ -666,7 +744,7 @@ public class TagRepository : ITagRepository
     private static readonly HashSet<string> TagMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "name", "video_count", "gallery_count", "group_count", "image_count", "performer_count",
-        "studio_count", "latest_video_date", "total_file_size", "created_at", "updated_at",
+        "studio_count", "latest_video_date", "total_file_size", "created_at", "updated_at", "rating",
     };
 
     private readonly record struct TagEntityPair(int TagId, int EntityId);
@@ -889,15 +967,17 @@ public class TagRepository : ITagRepository
             ? query.OrderByDescending(keySelector).ThenBy(tag => tag.Id)
             : query.OrderBy(keySelector).ThenBy(tag => tag.Id);
 
-    private static IQueryable<Tag> ApplyTagMultiSort(IQueryable<Tag> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Tag> ApplyTagMultiSort(IQueryable<Tag> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Tag>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "name": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.Name, desc); break;
+                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Tag, desc); break;
                 case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoCount, desc); break;
                 case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.GalleryCount, desc); break;
                 case "group_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.GroupCount, desc); break;
@@ -1240,7 +1320,7 @@ public class StudioRepository : IStudioRepository
     private static readonly HashSet<string> StudioMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "name", "video_count", "gallery_count", "image_count", "latest_video_date", "total_file_size",
-        "parent_count", "child_count", "tag_count", "created_at", "updated_at",
+        "parent_count", "child_count", "tag_count", "created_at", "updated_at", "rating",
     };
 
     private readonly CoveContext _db;
@@ -1453,15 +1533,17 @@ public class StudioRepository : IStudioRepository
         return (sortedItems, totalCount);
     }
 
-    private static IQueryable<Studio> ApplyStudioMultiSort(IQueryable<Studio> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Studio> ApplyStudioMultiSort(IQueryable<Studio> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Studio>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "name": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Name, desc); break;
+                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Studio, desc); break;
                 case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.VideoCount, desc); break;
                 case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.GalleryCount, desc); break;
                 case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ImageCount, desc); break;
@@ -1484,7 +1566,7 @@ public class GalleryRepository : IGalleryRepository
     private static readonly HashSet<string> GalleryMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "updated_at", "created_at", "date", "studio", "file_mod_time", "file_count", "path", "title",
-        "code", "photographer", "organized", "image_count", "video_count", "performer_count", "tag_count",
+        "code", "photographer", "organized", "image_count", "video_count", "performer_count", "tag_count", "rating",
     };
 
     private readonly CoveContext _db;
@@ -1751,15 +1833,17 @@ public class GalleryRepository : IGalleryRepository
             : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
     }
 
-    private static IQueryable<Gallery> ApplyGalleryMultiSort(IQueryable<Gallery> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Gallery> ApplyGalleryMultiSort(IQueryable<Gallery> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Gallery>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.UpdatedAt, desc); break;
+                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Gallery, desc); break;
                 case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.CreatedAt, desc); break;
                 case "date": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Date, desc); break;
                 case "studio":
@@ -2034,7 +2118,7 @@ public class ImageRepository : IImageRepository
     private static readonly HashSet<string> ImageMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "updated_at", "created_at", "date", "file_mod_time", "file_size", "resolution", "path",
-        "title", "performer_count", "tag_count",
+        "title", "performer_count", "tag_count", "rating", "like_counter",
     };
 
     private readonly CoveContext _db;
@@ -2377,15 +2461,18 @@ public class ImageRepository : IImageRepository
         return ApplySortingSwitch(query, sort, desc);
     }
 
-    private static IQueryable<Image> ApplyImageMultiSort(IQueryable<Image> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Image> ApplyImageMultiSort(IQueryable<Image> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Image>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, image => image.UpdatedAt, desc); break;
+                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Image, desc); break;
+                case "like_counter": ordered = EngagementQueryHelpers.AppendAffinityIntSort(_db, query, ordered, userId, AffinityHostType.Image, nameof(UserEntityAffinity.LikeCount), desc); break;
                 case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, image => image.CreatedAt, desc); break;
                 case "date": ordered = CompoundSortOrdering.Append(query, ordered, image => image.Date, desc); break;
                 case "file_mod_time": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxFileModTime, desc); break;

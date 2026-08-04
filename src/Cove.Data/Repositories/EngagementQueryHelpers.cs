@@ -148,6 +148,45 @@ public static class EngagementQueryHelpers
             : sortQuery.OrderBy(item => item.Rating == null || item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
     }
 
+    public static IOrderedQueryable<T>? AppendRatingSort<T>(
+        CoveContext db,
+        IQueryable<T> query,
+        IOrderedQueryable<T>? ordered,
+        int? userId,
+        RatingHostType hostType,
+        bool desc)
+        where T : class
+    {
+        if (userId is not int selectedUserId)
+            return ordered;
+
+        ordered = CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.Ratings.Any(rating =>
+                rating.UserId == selectedUserId &&
+                rating.HostType == hostType &&
+                rating.HostId == EF.Property<int>(entity, "Id") &&
+                rating.Aspect == "overall" &&
+                rating.Value > 0)
+                    ? (desc ? 0 : 1)
+                    : (desc ? 1 : 0),
+            false);
+
+        return CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.Ratings
+                .Where(rating =>
+                    rating.UserId == selectedUserId &&
+                    rating.HostType == hostType &&
+                    rating.HostId == EF.Property<int>(entity, "Id") &&
+                    rating.Aspect == "overall")
+                .Select(rating => (int?)rating.Value)
+                .FirstOrDefault(),
+            desc);
+    }
+
     public static IQueryable<T> ApplyAffinityIntSort<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, bool desc)
         where T : class
     {
@@ -171,6 +210,44 @@ public static class EngagementQueryHelpers
         return desc
             ? sortQuery.OrderBy(item => item.Value <= 0 ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
             : sortQuery.OrderBy(item => item.Value <= 0 ? 0 : 1).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+    }
+
+    public static IOrderedQueryable<T>? AppendAffinityIntSort<T>(
+        CoveContext db,
+        IQueryable<T> query,
+        IOrderedQueryable<T>? ordered,
+        int? userId,
+        AffinityHostType hostType,
+        string propertyName,
+        bool desc)
+        where T : class
+    {
+        if (userId is not int selectedUserId)
+            return ordered;
+
+        ordered = CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.UserEntityAffinities.Any(affinity =>
+                affinity.UserId == selectedUserId &&
+                affinity.HostType == hostType &&
+                affinity.HostId == EF.Property<int>(entity, "Id") &&
+                EF.Property<int>(affinity, propertyName) > 0)
+                    ? (desc ? 0 : 1)
+                    : (desc ? 1 : 0),
+            false);
+
+        return CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.UserEntityAffinities
+                .Where(affinity =>
+                    affinity.UserId == selectedUserId &&
+                    affinity.HostType == hostType &&
+                    affinity.HostId == EF.Property<int>(entity, "Id"))
+                .Select(affinity => EF.Property<int>(affinity, propertyName))
+                .FirstOrDefault(),
+            desc);
     }
 
     public static IQueryable<T> ApplyAffinityDoubleSort<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, bool desc)
@@ -198,6 +275,44 @@ public static class EngagementQueryHelpers
             : sortQuery.OrderBy(item => item.Value <= 0 ? 0 : 1).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
     }
 
+    public static IOrderedQueryable<T>? AppendAffinityDoubleSort<T>(
+        CoveContext db,
+        IQueryable<T> query,
+        IOrderedQueryable<T>? ordered,
+        int? userId,
+        AffinityHostType hostType,
+        string propertyName,
+        bool desc)
+        where T : class
+    {
+        if (userId is not int selectedUserId)
+            return ordered;
+
+        ordered = CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.UserEntityAffinities.Any(affinity =>
+                affinity.UserId == selectedUserId &&
+                affinity.HostType == hostType &&
+                affinity.HostId == EF.Property<int>(entity, "Id") &&
+                EF.Property<double>(affinity, propertyName) > 0)
+                    ? (desc ? 0 : 1)
+                    : (desc ? 1 : 0),
+            false);
+
+        return CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.UserEntityAffinities
+                .Where(affinity =>
+                    affinity.UserId == selectedUserId &&
+                    affinity.HostType == hostType &&
+                    affinity.HostId == EF.Property<int>(entity, "Id"))
+                .Select(affinity => EF.Property<double>(affinity, propertyName))
+                .FirstOrDefault(),
+            desc);
+    }
+
     public static IQueryable<T> ApplyAffinityTimestampSort<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, bool desc)
         where T : class
     {
@@ -221,6 +336,44 @@ public static class EngagementQueryHelpers
         return desc
             ? sortQuery.OrderBy(item => item.Value == null ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity)
             : sortQuery.OrderBy(item => item.Value == null ? 1 : 0).ThenBy(item => item.Value).ThenBy(item => EF.Property<int>(item.Entity, "Id")).Select(item => item.Entity);
+    }
+
+    public static IOrderedQueryable<T>? AppendAffinityTimestampSort<T>(
+        CoveContext db,
+        IQueryable<T> query,
+        IOrderedQueryable<T>? ordered,
+        int? userId,
+        AffinityHostType hostType,
+        string propertyName,
+        bool desc)
+        where T : class
+    {
+        if (userId is not int selectedUserId)
+            return ordered;
+
+        ordered = CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.UserEntityAffinities.Any(affinity =>
+                affinity.UserId == selectedUserId &&
+                affinity.HostType == hostType &&
+                affinity.HostId == EF.Property<int>(entity, "Id") &&
+                EF.Property<DateTime?>(affinity, propertyName) != null)
+                    ? 0
+                    : 1,
+            false);
+
+        return CompoundSortOrdering.Append(
+            query,
+            ordered,
+            entity => db.UserEntityAffinities
+                .Where(affinity =>
+                    affinity.UserId == selectedUserId &&
+                    affinity.HostType == hostType &&
+                    affinity.HostId == EF.Property<int>(entity, "Id"))
+                .Select(affinity => EF.Property<DateTime?>(affinity, propertyName))
+                .FirstOrDefault(),
+            desc);
     }
 
     public static IQueryable<T> ApplyInteractionTimestampSort<T>(CoveContext db, IQueryable<T> query, int? userId, InteractionHostType hostType, InteractionKind kind, bool desc)

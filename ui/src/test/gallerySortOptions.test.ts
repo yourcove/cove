@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
+import { GALLERY_MULTI_SORT_KEYS, GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 
 describe("gallery sort options", () => {
   it("exposes first-class gallery metadata and relationship sorts", () => {
@@ -23,5 +23,9 @@ describe("gallery sort options", () => {
       "typical_resolution",
       "random",
     ]);
+  });
+
+  it("allows Rating in compound sorts", () => {
+    expect(GALLERY_MULTI_SORT_KEYS).toContain("rating");
   });
 });

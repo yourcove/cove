@@ -417,6 +417,13 @@ public class VideoRepository : IVideoRepository
         "organized",
         "path",
         "performer_count",
+        "play_count",
+        "like_counter",
+        "last_like_at",
+        "last_played_at",
+        "play_duration",
+        "resume_time",
+        "rating",
         "resolution",
         "studio",
         "studio_code",
@@ -434,9 +441,10 @@ public class VideoRepository : IVideoRepository
             .ToList();
     }
 
-    private static IQueryable<Video> ApplyMultiSorting(IQueryable<Video> query, IReadOnlyList<SortClause> clauses)
+    private IQueryable<Video> ApplyMultiSorting(IQueryable<Video> query, IReadOnlyList<SortClause> clauses)
     {
         IOrderedQueryable<Video>? ordered = null;
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
 
         foreach (var clause in clauses)
         {
@@ -446,6 +454,27 @@ public class VideoRepository : IVideoRepository
                 case "title":
                     ordered = AppendSort(query, ordered, video => video.Title == null ? 1 : 0, false);
                     ordered = AppendSort(query, ordered, video => video.Title, desc);
+                    break;
+                case "rating":
+                    ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Video, desc);
+                    break;
+                case "play_count":
+                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc);
+                    break;
+                case "like_counter":
+                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc);
+                    break;
+                case "last_like_at":
+                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.FavoritedAt), desc);
+                    break;
+                case "last_played_at":
+                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), desc);
+                    break;
+                case "play_duration":
+                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.TotalConsumedSec), desc);
+                    break;
+                case "resume_time":
+                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.LastPositionSec), desc);
                     break;
                 case "date":
                     ordered = AppendSort(query, ordered, video => video.Date == null ? 1 : 0, false);

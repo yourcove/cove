@@ -53,7 +53,7 @@ const SORT_OPTIONS = [
 
 const MULTI_SORT_KEYS = SORT_OPTIONS
   .map((option) => option.value)
-  .filter((key) => key !== "rating" && key !== "tag_group" && key !== "random");
+  .filter((key) => key !== "tag_group" && key !== "random");
 
 interface Props {
   onNavigate: (r: any) => void;
