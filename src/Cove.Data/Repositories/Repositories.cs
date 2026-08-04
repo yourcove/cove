@@ -1577,6 +1577,7 @@ public class GalleryRepository : IGalleryRepository
         }
 
         var query = _db.Galleries.AsQueryable();
+        var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
         if (filter != null)
         {
             if (!string.IsNullOrEmpty(filter.Title)) query = query.Where(g => g.Title != null && EF.Functions.ILike(g.Title, $"%{filter.Title}%"));
@@ -1589,6 +1590,31 @@ public class GalleryRepository : IGalleryRepository
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Gallery, filter.RatingCriterion);
             query = FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, g => g.ImageCount);
+            query = FilterHelpers.ApplyInt(query, filter.LikeCounterCriterion, gallery =>
+                (gallery.ImageGalleries.Select(link => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == currentUserId
+                        && affinity.HostType == AffinityHostType.Image
+                        && affinity.HostId == link.ImageId)
+                    .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum())
+                + (gallery.VideoGalleries.Select(link => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == currentUserId
+                        && affinity.HostType == AffinityHostType.Video
+                        && affinity.HostId == link.VideoId)
+                    .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()));
+            query = FilterHelpers.ApplyNullableTimestamp(query, filter.LastLikedAtCriterion, gallery =>
+                gallery.ImageGalleries.Select(link => _db.Interactions
+                    .Where(interaction => interaction.UserId == currentUserId
+                        && interaction.HostType == InteractionHostType.Image
+                        && interaction.HostId == link.ImageId
+                        && interaction.Kind == InteractionKind.LikeCount)
+                    .Max(interaction => (DateTime?)interaction.At))
+                    .Concat(gallery.VideoGalleries.Select(link => _db.Interactions
+                        .Where(interaction => interaction.UserId == currentUserId
+                            && interaction.HostType == InteractionHostType.Video
+                            && interaction.HostId == link.VideoId
+                            && interaction.Kind == InteractionKind.LikeCount)
+                        .Max(interaction => (DateTime?)interaction.At)))
+                    .Max());
 
             if (filter.OrganizedCriterion != null)
                 query = query.Where(g => g.Organized == filter.OrganizedCriterion.Value);
@@ -1724,6 +1750,16 @@ public class GalleryRepository : IGalleryRepository
             "image_count" => desc ? query.OrderByDescending(g => g.ImageCount) : query.OrderBy(g => g.ImageCount),
             "video_count" => desc ? query.OrderByDescending(g => g.VideoCount) : query.OrderBy(g => g.VideoCount),
             "rating" => ApplyGalleryRatingSort(query, desc),
+            "like_counter" => desc
+                ? query.OrderByDescending(gallery =>
+                    gallery.ImageGalleries.Select(link => _db.UserEntityAffinities.Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Image && affinity.HostId == link.ImageId).Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()
+                    + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities.Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId).Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()).ThenByDescending(gallery => gallery.Id)
+                : query.OrderBy(gallery =>
+                    gallery.ImageGalleries.Select(link => _db.UserEntityAffinities.Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Image && affinity.HostId == link.ImageId).Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()
+                    + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities.Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId).Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()).ThenBy(gallery => gallery.Id),
+            "last_like_at" => desc
+                ? query.OrderByDescending(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max()).ThenByDescending(gallery => gallery.Id)
+                : query.OrderBy(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max()).ThenBy(gallery => gallery.Id),
             "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount) : query.OrderBy(g => g.PerformerCount),
             "tag_count" => desc ? query.OrderByDescending(g => g.TagCount) : query.OrderBy(g => g.TagCount),
             "typical_resolution" => ApplyGalleryTypicalResolutionSort(query, desc),

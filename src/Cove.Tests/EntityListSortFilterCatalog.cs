@@ -145,6 +145,8 @@ public static class EntityListSortFilterCatalog
         new("galleries", "photographer", "Photographer"),
         new("galleries", "organized", "Organized"),
         new("galleries", "rating", "Rating"),
+        new("galleries", "like_counter", "Likes"),
+        new("galleries", "last_like_at", "Last Liked Date"),
         new("galleries", "image_count", "Image Count"),
         new("galleries", "video_count", "Video Count"),
         new("galleries", "performer_count", "Performer Count"),

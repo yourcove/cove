@@ -15,7 +15,8 @@ public sealed record UserEngagementSnapshot(
     int LikeCount,
     int DerivedLikeCount,
     int PageVisitCount,
-    int CompleteCount);
+    int CompleteCount,
+    DateTime? LastLikedAt = null);
 
 public interface IUserEngagementService
 {

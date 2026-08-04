@@ -145,6 +145,14 @@ public class EntityListSortBehaviorHarnessTests
             "filter:galleries:ImageCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { ImageCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
             _ => [602, 603])];
+        yield return [new FilterProbe(
+            "filter:galleries:LikeCounterCriterion/greater_than",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { LikeCounterCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 20 } }),
+            _ => [602, 603])];
+        yield return [new FilterProbe(
+            "filter:galleries:LastLikedAtCriterion/greater_than",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { LastLikedAtCriterion = new TimestampCriterion { Modifier = CriterionModifier.GreaterThan, Value = fixture.Now.AddDays(-7).ToString("o") } }),
+            _ => [602, 603])];
 
         yield return [new FilterProbe(
             "filter:groups:NameCriterion/includes",
@@ -962,6 +970,8 @@ public class EntityListSortBehaviorHarnessTests
             "photographer" => Order(fixture.Galleries, gallery => gallery.Photographer, descending),
             "organized" => OrderWithDirectionalIdTieBreaker(fixture.Galleries, gallery => gallery.Organized, descending),
             "rating" => Order(fixture.Galleries, gallery => fixture.Rating(RatingHostType.Gallery, gallery.Id), descending),
+            "like_counter" => Order(fixture.Galleries, gallery => gallery.ImageGalleries.Sum(link => fixture.Affinity(AffinityHostType.Image, link.ImageId).LikeCount) + gallery.VideoGalleries.Sum(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LikeCount), descending),
+            "last_like_at" => Order(fixture.Galleries, gallery => gallery.ImageGalleries.Select(link => fixture.LastLike(InteractionHostType.Image, link.ImageId)).Concat(gallery.VideoGalleries.Select(link => fixture.LastLike(InteractionHostType.Video, link.VideoId))).Max(), descending),
             "image_count" => Order(fixture.Galleries, gallery => gallery.ImageGalleries.Count, descending),
             "video_count" => Order(fixture.Galleries, gallery => gallery.VideoGalleries.Count, descending),
             "performer_count" => Order(fixture.Galleries, gallery => gallery.GalleryPerformers.Count, descending),
@@ -1311,6 +1321,14 @@ public class EntityListSortBehaviorHarnessTests
 
         public UserEntityAffinity Affinity(AffinityHostType hostType, int hostId) => Affinities[(hostType, hostId)];
 
+        public DateTime Now { get; } = new(2024, 7, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        public DateTime? LastLike(InteractionHostType hostType, int hostId)
+            => Context.Interactions.Local
+                .Where(item => item.UserId == TestUserId && item.HostType == hostType && item.HostId == hostId && item.Kind == InteractionKind.LikeCount)
+                .Select(item => (DateTime?)item.At)
+                .Max();
+
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
@@ -1318,7 +1336,7 @@ public class EntityListSortBehaviorHarnessTests
 
         private async Task SeedAsync()
         {
-            var now = new DateTime(2024, 7, 1, 12, 0, 0, DateTimeKind.Utc);
+            var now = Now;
 
             var folderA = new Folder { Id = 1, Path = "Z:/cove/a", ModTime = now.AddDays(-7) };
             var folderB = new Folder { Id = 2, Path = "Z:/cove/b", ModTime = now.AddDays(-6) };
@@ -1647,6 +1665,13 @@ public class EntityListSortBehaviorHarnessTests
             AddAffinity(AffinityHostType.Text, texts[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-24));
             AddAffinity(AffinityHostType.Text, texts[1].Id, viewCount: 4, likeCount: 8, totalConsumedSec: 80, lastPositionSec: 8, lastConsumedAt: now.AddDays(-14));
             AddAffinity(AffinityHostType.Text, texts[2].Id, viewCount: 6, likeCount: 12, totalConsumedSec: 120, lastPositionSec: 12, lastConsumedAt: now.AddDays(-4));
+            Context.Interactions.AddRange(
+                new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[0].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-9) },
+                new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[1].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-6) },
+                new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[2].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-3) },
+                new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = videos[0].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-8) },
+                new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = videos[1].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-5) },
+                new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = videos[2].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-2) });
 
             await Context.SaveChangesAsync();
             await CorruptCountColumnsAsync(performers, images, studios);

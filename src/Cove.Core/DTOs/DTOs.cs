@@ -1896,7 +1896,8 @@ public record EntityEngagementDto(
     int LikeCount,
     int DerivedLikeCount,
     int PageVisitCount,
-    int CompleteCount);
+    int CompleteCount,
+    string? LastLikedAt = null);
 
 public record EntityRatingsDto(int HostId, Dictionary<string, int> Ratings);
 

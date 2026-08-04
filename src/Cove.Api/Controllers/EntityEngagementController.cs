@@ -202,6 +202,7 @@ public class EntityEngagementController(IUserEngagementService engagementService
             snapshot.LikeCount,
             snapshot.DerivedLikeCount,
             snapshot.PageVisitCount,
-            snapshot.CompleteCount);
+            snapshot.CompleteCount,
+            snapshot.LastLikedAt?.ToString("o"));
     }
 }

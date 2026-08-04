@@ -1422,7 +1422,8 @@ interface GalleryTileProps {
 
 export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting, bookmarkInitiallySaved }: GalleryTileProps & { engagement?: EntityEngagement }) {
   const imageFit = useConfiguredImageFit();
-  const hasFooter = gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
+  const likeCount = engagement?.likeCount ?? 0;
+  const hasFooter = likeCount > 0 || gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
   const title = getGalleryDisplayTitle(gallery);
   const galleryCoverSrc = gallery.coverPath ?? galleries.coverUrl(gallery.id, gallery.updatedAt, 960);
 
@@ -1489,6 +1490,7 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
       )}
       footer={hasFooter ? (
         <>
+            {likeCount > 0 ? <LikeCounter count={likeCount} /> : null}
             {gallery.imageCount > 0 ? (
               <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={gallery.imageCount} title="Images" wide preferBelow>
                 <ImagesPopoverContent filter={{ galleryId: gallery.id }} />

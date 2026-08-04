@@ -102,8 +102,65 @@ public sealed partial class UserEngagementService(
             .GroupBy(rating => rating.HostId)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(rating => rating.Id).First());
 
+        Dictionary<int, int>? galleryLikeCounts = null;
+        Dictionary<int, DateTime>? galleryLastLikedAt = null;
+        if (hostType == AffinityHostType.Gallery)
+        {
+            var imageLikes = await (
+                from link in db.Set<ImageGallery>()
+                join affinity in db.UserEntityAffinities on link.ImageId equals affinity.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && affinity.UserId == userId.Value
+                    && affinity.HostType == AffinityHostType.Image
+                group affinity by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, Count = grouped.Sum(item => item.LikeCount) })
+                .ToListAsync(cancellationToken);
+            var videoLikes = await (
+                from link in db.Set<VideoGallery>()
+                join affinity in db.UserEntityAffinities on link.VideoId equals affinity.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && affinity.UserId == userId.Value
+                    && affinity.HostType == AffinityHostType.Video
+                group affinity by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, Count = grouped.Sum(item => item.LikeCount) })
+                .ToListAsync(cancellationToken);
+            galleryLikeCounts = imageLikes.Concat(videoLikes)
+                .GroupBy(item => item.GalleryId)
+                .ToDictionary(group => group.Key, group => group.Sum(item => item.Count));
+
+            var imageLastLikes = await (
+                from link in db.Set<ImageGallery>()
+                join interaction in db.Interactions on link.ImageId equals interaction.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && interaction.UserId == userId.Value
+                    && interaction.HostType == InteractionHostType.Image
+                    && interaction.Kind == InteractionKind.LikeCount
+                group interaction by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, At = grouped.Max(item => item.At) })
+                .ToListAsync(cancellationToken);
+            var videoLastLikes = await (
+                from link in db.Set<VideoGallery>()
+                join interaction in db.Interactions on link.VideoId equals interaction.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && interaction.UserId == userId.Value
+                    && interaction.HostType == InteractionHostType.Video
+                    && interaction.Kind == InteractionKind.LikeCount
+                group interaction by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, At = grouped.Max(item => item.At) })
+                .ToListAsync(cancellationToken);
+            galleryLastLikedAt = imageLastLikes.Concat(videoLastLikes)
+                .GroupBy(item => item.GalleryId)
+                .ToDictionary(group => group.Key, group => group.Max(item => item.At));
+        }
+
         return ids.ToDictionary(id => id, id => visibleIdSet.Contains(id)
-            ? ToSnapshot(affinities.GetValueOrDefault(id), ratings.GetValueOrDefault(id))
+            ? ToSnapshot(affinities.GetValueOrDefault(id), ratings.GetValueOrDefault(id)) with
+            {
+                LikeCount = galleryLikeCounts?.GetValueOrDefault(id)
+                    ?? affinities.GetValueOrDefault(id)?.LikeCount
+                    ?? 0,
+                LastLikedAt = galleryLastLikedAt?.GetValueOrDefault(id),
+            }
             : EmptySnapshot);
     }
 

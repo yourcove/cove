@@ -16,6 +16,8 @@ describe("gallery sort options", () => {
       "photographer",
       "organized",
       "rating",
+      "like_counter",
+      "last_like_at",
       "image_count",
       "video_count",
       "performer_count",
