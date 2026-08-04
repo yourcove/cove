@@ -20,6 +20,10 @@ namespace Cove.Api.Controllers;
 public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
+    private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "read_count", "like_counter", "read_duration", "last_read_at",
+    };
 
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
 
@@ -548,55 +552,48 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
     private IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<TextDocument>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(db);
+        var compound = CompoundSortQuery<TextDocument>.Create(
+            db, query, userId, AffinityHostType.Text, RatingHostType.Text,
+            includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "title":
-                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Title == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Title, desc);
+                    compound.Append(text => text.Title == null ? 1 : 0, false);
+                    compound.Append(text => text.Title, desc);
                     break;
-                case "rating":
-                    ordered = EngagementQueryHelpers.AppendRatingSort(db, query, ordered, userId, RatingHostType.Text, desc);
-                    break;
-                case "read_count":
-                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.ViewCount), desc);
-                    break;
-                case "like_counter":
-                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.LikeCount), desc);
-                    break;
-                case "read_duration":
-                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.TotalConsumedSec), desc);
-                    break;
-                case "last_read_at":
-                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(db, query, ordered, userId, AffinityHostType.Text, nameof(UserEntityAffinity.LastConsumedAt), desc);
-                    break;
+                case "rating": compound.AppendRating(desc); break;
+                case "read_count": compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc); break;
+                case "like_counter": compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc); break;
+                case "read_duration": compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc); break;
+                case "last_read_at": compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc); break;
                 case "date":
-                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Date == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.Date, desc);
+                    compound.Append(text => text.Date == null ? 1 : 0, false);
+                    compound.Append(text => text.Date, desc);
                     break;
-                case "words": ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxWordCount, desc); break;
-                case "pages": ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxPageCount, desc); break;
-                case "file_size": ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxFileSize, desc); break;
+                case "words": compound.Append(text => text.MaxWordCount, desc); break;
+                case "pages": compound.Append(text => text.MaxPageCount, desc); break;
+                case "file_size": compound.Append(text => text.MaxFileSize, desc); break;
                 case "file_mod_time":
-                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxFileModTime == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, text => text.MaxFileModTime, desc);
+                    compound.Append(text => text.MaxFileModTime == null ? 1 : 0, false);
+                    compound.Append(text => text.MaxFileModTime, desc);
                     break;
-                case "file_count": ordered = CompoundSortOrdering.Append(query, ordered, text => text.FileCount, desc); break;
-                case "path": ordered = CompoundSortOrdering.Append(query, ordered, text => desc ? text.MaxPath : text.MinPath, desc); break;
-                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, text => text.TextTags.Count, desc); break;
-                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, text => text.TextPerformers.Count, desc); break;
+                case "file_count": compound.Append(text => text.FileCount, desc); break;
+                case "path": compound.Append(text => desc ? text.MaxPath : text.MinPath, desc); break;
+                case "tag_count": compound.Append(text => text.TextTags.Count, desc); break;
+                case "performer_count": compound.Append(text => text.TextPerformers.Count, desc); break;
                 case "createdat":
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, text => text.CreatedAt, desc); break;
+                case "created_at": compound.Append(text => text.CreatedAt, desc); break;
                 case "updatedat":
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, text => text.UpdatedAt, desc); break;
+                case "updated_at": compound.Append(text => text.UpdatedAt, desc); break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, text => text.Id);
+        return compound.Finish(text => text.Id);
     }
 
     private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

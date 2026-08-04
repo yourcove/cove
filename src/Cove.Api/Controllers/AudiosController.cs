@@ -21,6 +21,10 @@ namespace Cove.Api.Controllers;
 public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
+    private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "play_count", "like_counter", "play_duration", "last_played_at",
+    };
 
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private IUserEngagementService EngagementService => engagementService ?? new UserEngagementService(db, principalAccessor ?? new CurrentPrincipalAccessor());
@@ -588,59 +592,50 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     private IQueryable<Audio> ApplyMultiSort(IQueryable<Audio> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Audio>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(db);
+        var compound = CompoundSortQuery<Audio>.Create(
+            db, query, userId, AffinityHostType.Audio, RatingHostType.Audio,
+            includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
                 case "title":
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Title == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Title, desc);
+                    compound.Append(audio => audio.Title == null ? 1 : 0, false);
+                    compound.Append(audio => audio.Title, desc);
                     break;
-                case "rating":
-                    ordered = EngagementQueryHelpers.AppendRatingSort(db, query, ordered, userId, RatingHostType.Audio, desc);
-                    break;
-                case "play_count":
-                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.ViewCount), desc);
-                    break;
-                case "like_counter":
-                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.LikeCount), desc);
-                    break;
-                case "play_duration":
-                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.TotalConsumedSec), desc);
-                    break;
-                case "last_played_at":
-                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(db, query, ordered, userId, AffinityHostType.Audio, nameof(UserEntityAffinity.LastConsumedAt), desc);
-                    break;
+                case "rating": compound.AppendRating(desc); break;
+                case "play_count": compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc); break;
+                case "like_counter": compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc); break;
+                case "play_duration": compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc); break;
+                case "last_played_at": compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc); break;
                 case "date":
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Date == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Date, desc);
+                    compound.Append(audio => audio.Date == null ? 1 : 0, false);
+                    compound.Append(audio => audio.Date, desc);
                     break;
-                case "duration": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxDuration, desc); break;
-                case "file_size": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxFileSize, desc); break;
+                case "duration": compound.Append(audio => audio.MaxDuration, desc); break;
+                case "file_size": compound.Append(audio => audio.MaxFileSize, desc); break;
                 case "file_mod_time":
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxFileModTime == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxFileModTime, desc);
+                    compound.Append(audio => audio.MaxFileModTime == null ? 1 : 0, false);
+                    compound.Append(audio => audio.MaxFileModTime, desc);
                     break;
-                case "file_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.FileCount, desc); break;
-                case "path":
-                    ordered = CompoundSortOrdering.Append(query, ordered, audio => desc ? audio.MaxPath : audio.MinPath, desc);
-                    break;
-                case "bitrate": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.MaxBitRate, desc); break;
-                case "has_video_files": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.HasVideoFiles, desc); break;
-                case "track_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.Tracks.Count, desc); break;
-                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.AudioTags.Count, desc); break;
-                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.AudioPerformers.Count, desc); break;
+                case "file_count": compound.Append(audio => audio.FileCount, desc); break;
+                case "path": compound.Append(audio => desc ? audio.MaxPath : audio.MinPath, desc); break;
+                case "bitrate": compound.Append(audio => audio.MaxBitRate, desc); break;
+                case "has_video_files": compound.Append(audio => audio.HasVideoFiles, desc); break;
+                case "track_count": compound.Append(audio => audio.Tracks.Count, desc); break;
+                case "tag_count": compound.Append(audio => audio.AudioTags.Count, desc); break;
+                case "performer_count": compound.Append(audio => audio.AudioPerformers.Count, desc); break;
                 case "createdat":
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.CreatedAt, desc); break;
+                case "created_at": compound.Append(audio => audio.CreatedAt, desc); break;
                 case "updatedat":
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, audio => audio.UpdatedAt, desc); break;
+                case "updated_at": compound.Append(audio => audio.UpdatedAt, desc); break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, audio => audio.Id);
+        return compound.Finish(audio => audio.Id);
     }
 
     private IQueryable<Audio> ApplyFilter(IQueryable<Audio> query, AudioFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

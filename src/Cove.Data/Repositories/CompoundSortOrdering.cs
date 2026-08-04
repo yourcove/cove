@@ -1,5 +1,7 @@
 using System.Linq.Expressions;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Repositories;
 
@@ -31,4 +33,161 @@ public static class CompoundSortOrdering
         IOrderedQueryable<TEntity>? ordered,
         Expression<Func<TEntity, int>> idSelector)
         => ordered is null ? query.OrderBy(idSelector) : ordered.ThenBy(idSelector);
+}
+
+public sealed class CompoundSortQuery<TEntity> where TEntity : class
+{
+    private sealed class SortRow
+    {
+        public required TEntity Entity { get; init; }
+        public UserEntityAffinity? Affinity { get; init; }
+        public Rating? Rating { get; init; }
+    }
+
+    private readonly IQueryable<SortRow> _query;
+    private readonly bool _hasAffinity;
+    private readonly bool _hasRating;
+    private IOrderedQueryable<SortRow>? _ordered;
+
+    private CompoundSortQuery(IQueryable<SortRow> query, bool hasAffinity, bool hasRating)
+    {
+        _query = query;
+        _hasAffinity = hasAffinity;
+        _hasRating = hasRating;
+    }
+
+    public static CompoundSortQuery<TEntity> Create(
+        CoveContext db,
+        IQueryable<TEntity> query,
+        int? userId,
+        AffinityHostType? affinityHostType,
+        RatingHostType? ratingHostType,
+        bool includeAffinity,
+        bool includeRating)
+    {
+        var hasAffinity = includeAffinity && userId.HasValue && affinityHostType.HasValue;
+        var hasRating = includeRating && userId.HasValue && ratingHostType.HasValue;
+        IQueryable<SortRow> rows = query.Select(entity => new SortRow { Entity = entity });
+
+        if (hasAffinity)
+        {
+            var selectedUserId = userId!.Value;
+            var selectedHostType = affinityHostType!.Value;
+            var affinities = db.UserEntityAffinities.Where(affinity =>
+                affinity.UserId == selectedUserId && affinity.HostType == selectedHostType);
+
+            rows = rows
+                .GroupJoin(
+                    affinities,
+                    row => EF.Property<int>(row.Entity, "Id"),
+                    affinity => affinity.HostId,
+                    (row, matches) => new { row, matches })
+                .SelectMany(
+                    item => item.matches.DefaultIfEmpty(),
+                    (item, affinity) => new SortRow
+                    {
+                        Entity = item.row.Entity,
+                        Affinity = affinity,
+                        Rating = item.row.Rating,
+                    });
+        }
+
+        if (hasRating)
+        {
+            var selectedUserId = userId!.Value;
+            var selectedHostType = ratingHostType!.Value;
+            var ratings = db.Ratings.Where(rating =>
+                rating.UserId == selectedUserId &&
+                rating.HostType == selectedHostType &&
+                rating.Aspect == "overall");
+
+            rows = rows
+                .GroupJoin(
+                    ratings,
+                    row => EF.Property<int>(row.Entity, "Id"),
+                    rating => rating.HostId,
+                    (row, matches) => new { row, matches })
+                .SelectMany(
+                    item => item.matches.DefaultIfEmpty(),
+                    (item, rating) => new SortRow
+                    {
+                        Entity = item.row.Entity,
+                        Affinity = item.row.Affinity,
+                        Rating = rating,
+                    });
+        }
+
+        return new CompoundSortQuery<TEntity>(rows, hasAffinity, hasRating);
+    }
+
+    public void Append<TKey>(Expression<Func<TEntity, TKey>> keySelector, bool descending)
+    {
+        var rowParameter = Expression.Parameter(typeof(SortRow), "row");
+        var entity = Expression.Property(rowParameter, nameof(SortRow.Entity));
+        var body = new ReplaceExpressionVisitor(keySelector.Parameters[0], entity).Visit(keySelector.Body)!;
+        var rowSelector = Expression.Lambda<Func<SortRow, TKey>>(body, rowParameter);
+        _ordered = CompoundSortOrdering.Append(_query, _ordered, rowSelector, descending);
+    }
+
+    public void AppendRating(bool descending)
+    {
+        if (!_hasRating) return;
+        _ordered = CompoundSortOrdering.Append(
+            _query,
+            _ordered,
+            row => row.Rating == null || row.Rating.Value <= 0
+                ? (descending ? 1 : 0)
+                : (descending ? 0 : 1),
+            descending: false);
+        _ordered = CompoundSortOrdering.Append(
+            _query,
+            _ordered,
+            row => row.Rating == null ? (int?)null : row.Rating.Value,
+            descending);
+    }
+
+    public void AppendAffinityInt(string propertyName, bool descending)
+    {
+        if (!_hasAffinity) return;
+        _ordered = CompoundSortOrdering.Append(
+            _query,
+            _ordered,
+            row => row.Affinity == null ? 0 : EF.Property<int>(row.Affinity, propertyName),
+            descending);
+    }
+
+    public void AppendAffinityDouble(string propertyName, bool descending)
+    {
+        if (!_hasAffinity) return;
+        _ordered = CompoundSortOrdering.Append(
+            _query,
+            _ordered,
+            row => row.Affinity == null ? 0d : EF.Property<double>(row.Affinity, propertyName),
+            descending);
+    }
+
+    public void AppendAffinityTimestamp(string propertyName, bool descending)
+    {
+        if (!_hasAffinity) return;
+        _ordered = CompoundSortOrdering.Append(
+            _query,
+            _ordered,
+            row => row.Affinity == null
+                ? (descending ? DateTime.MinValue : DateTime.MaxValue)
+                : EF.Property<DateTime?>(row.Affinity, propertyName)
+                    ?? (descending ? DateTime.MinValue : DateTime.MaxValue),
+            descending);
+    }
+
+    public IQueryable<TEntity> Finish(Expression<Func<TEntity, int>> idSelector)
+    {
+        Append(idSelector, descending: false);
+        return _ordered!.Select(row => row.Entity);
+    }
+
+    private sealed class ReplaceExpressionVisitor(Expression source, Expression replacement) : ExpressionVisitor
+    {
+        public override Expression? Visit(Expression? node)
+            => node == source ? replacement : base.Visit(node);
+    }
 }

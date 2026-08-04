@@ -432,6 +432,11 @@ public class VideoRepository : IVideoRepository
         "updated_at",
     };
 
+    private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "play_count", "like_counter", "last_like_at", "last_played_at", "play_duration", "resume_time",
+    };
+
     private static List<SortClause> NormalizeMultiSortClauses(IEnumerable<SortClause>? clauses)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -443,8 +448,15 @@ public class VideoRepository : IVideoRepository
 
     private IQueryable<Video> ApplyMultiSorting(IQueryable<Video> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Video>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        var compound = CompoundSortQuery<Video>.Create(
+            _db,
+            query,
+            userId,
+            AffinityHostType.Video,
+            RatingHostType.Video,
+            includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
 
         foreach (var clause in clauses)
         {
@@ -452,98 +464,96 @@ public class VideoRepository : IVideoRepository
             switch (clause.Key.ToLowerInvariant())
             {
                 case "title":
-                    ordered = AppendSort(query, ordered, video => video.Title == null ? 1 : 0, false);
-                    ordered = AppendSort(query, ordered, video => video.Title, desc);
+                    compound.Append(video => video.Title == null ? 1 : 0, false);
+                    compound.Append(video => video.Title, desc);
                     break;
                 case "rating":
-                    ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Video, desc);
+                    compound.AppendRating(desc);
                     break;
                 case "play_count":
-                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc);
+                    compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc);
                     break;
                 case "like_counter":
-                    ordered = EngagementQueryHelpers.AppendAffinityIntSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc);
+                    compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc);
                     break;
                 case "last_like_at":
-                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.FavoritedAt), desc);
+                    compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc);
                     break;
                 case "last_played_at":
-                    ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), desc);
+                    compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc);
                     break;
                 case "play_duration":
-                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.TotalConsumedSec), desc);
+                    compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc);
                     break;
                 case "resume_time":
-                    ordered = EngagementQueryHelpers.AppendAffinityDoubleSort(_db, query, ordered, userId, AffinityHostType.Video, nameof(UserEntityAffinity.LastPositionSec), desc);
+                    compound.AppendAffinityDouble(nameof(UserEntityAffinity.LastPositionSec), desc);
                     break;
                 case "date":
-                    ordered = AppendSort(query, ordered, video => video.Date == null ? 1 : 0, false);
-                    ordered = AppendSort(query, ordered, video => video.Date, desc);
+                    compound.Append(video => video.Date == null ? 1 : 0, false);
+                    compound.Append(video => video.Date, desc);
                     break;
                 case "organized":
-                    ordered = AppendSort(query, ordered, video => video.Organized, desc);
+                    compound.Append(video => video.Organized, desc);
                     break;
                 case "duration":
-                    ordered = AppendSort(query, ordered, video => video.MaxDuration, desc);
+                    compound.Append(video => video.MaxDuration, desc);
                     break;
                 case "file_size":
-                    ordered = AppendSort(query, ordered, video => video.MaxFileSize, desc);
+                    compound.Append(video => video.MaxFileSize, desc);
                     break;
                 case "file_mod_time":
-                    ordered = AppendSort(query, ordered, video => video.MaxFileModTime == null ? 1 : 0, false);
-                    ordered = AppendSort(query, ordered, video => video.MaxFileModTime, desc);
+                    compound.Append(video => video.MaxFileModTime == null ? 1 : 0, false);
+                    compound.Append(video => video.MaxFileModTime, desc);
                     break;
                 case "file_count":
-                    ordered = AppendSort(query, ordered, video => video.FileCount, desc);
+                    compound.Append(video => video.FileCount, desc);
                     break;
                 case "path":
                     if (desc)
                     {
-                        ordered = AppendSort(query, ordered, video => video.MaxPath == null ? 1 : 0, false);
-                        ordered = AppendSort(query, ordered, video => video.MaxPath, true);
+                        compound.Append(video => video.MaxPath == null ? 1 : 0, false);
+                        compound.Append(video => video.MaxPath, true);
                     }
                     else
                     {
-                        ordered = AppendSort(query, ordered, video => video.MinPath == null ? 1 : 0, false);
-                        ordered = AppendSort(query, ordered, video => video.MinPath, false);
+                        compound.Append(video => video.MinPath == null ? 1 : 0, false);
+                        compound.Append(video => video.MinPath, false);
                     }
                     break;
                 case "resolution":
-                    ordered = AppendSort(query, ordered, video => video.MaxHeight, desc);
+                    compound.Append(video => video.MaxHeight, desc);
                     break;
                 case "framerate":
-                    ordered = AppendSort(query, ordered, video => video.MaxFrameRate, desc);
+                    compound.Append(video => video.MaxFrameRate, desc);
                     break;
                 case "bitrate":
-                    ordered = AppendSort(query, ordered, video => video.MaxBitRate, desc);
+                    compound.Append(video => video.MaxBitRate, desc);
                     break;
                 case "tag_count":
-                    ordered = AppendSort(query, ordered, video => video.VideoTags.Count, desc);
+                    compound.Append(video => video.VideoTags.Count, desc);
                     break;
                 case "performer_count":
-                    ordered = AppendSort(query, ordered, video => video.VideoPerformers.Count, desc);
+                    compound.Append(video => video.VideoPerformers.Count, desc);
                     break;
                 case "studio":
-                    ordered = AppendSort(query, ordered, video => video.Studio == null ? 1 : 0, false);
-                    ordered = AppendSort(query, ordered, video => video.Studio != null ? video.Studio.Name : null, desc);
+                    compound.Append(video => video.Studio == null ? 1 : 0, false);
+                    compound.Append(video => video.Studio != null ? video.Studio.Name : null, desc);
                     break;
                 case "code":
                 case "studio_code":
-                    ordered = AppendSort(query, ordered, video => video.Code == null ? 1 : 0, false);
-                    ordered = AppendSort(query, ordered, video => video.Code, desc);
+                    compound.Append(video => video.Code == null ? 1 : 0, false);
+                    compound.Append(video => video.Code, desc);
                     break;
                 case "created_at":
-                    ordered = AppendSort(query, ordered, video => video.CreatedAt, desc);
+                    compound.Append(video => video.CreatedAt, desc);
                     break;
                 case "updated_at":
-                    ordered = AppendSort(query, ordered, video => video.UpdatedAt, desc);
+                    compound.Append(video => video.UpdatedAt, desc);
                     break;
             }
         }
 
-        return ordered == null
-            ? query.OrderBy(video => video.Id)
-            : ordered.ThenBy(video => video.Id);
+        return compound.Finish(video => video.Id);
     }
 
     private static IOrderedQueryable<Video> AppendSort<TKey>(

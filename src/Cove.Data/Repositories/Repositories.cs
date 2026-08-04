@@ -118,20 +118,17 @@ public class PerformerRepository : IPerformerRepository
         if (userId is not int selectedUserId)
             return desc ? query.OrderByDescending(performer => performer.Id) : query.OrderBy(performer => performer.Id);
 
-        var sortQuery = query.Select(performer => new
-        {
-            Performer = performer,
-            LastPlayedAt = performer.VideoPerformers
-                .Select(videoPerformer => _db.UserEntityAffinities
-                    .Where(affinity => affinity.UserId == selectedUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == videoPerformer.VideoId)
-                    .Select(affinity => affinity.LastConsumedAt)
-                    .FirstOrDefault())
-                .Max(),
-        });
+        var ordered = CompoundSortOrdering.Append(
+            query,
+            ordered: null,
+            performer => _db.UserEntityAffinities
+                .Where(affinity => affinity.UserId == selectedUserId
+                    && affinity.HostType == AffinityHostType.Video
+                    && performer.VideoPerformers.Any(videoPerformer => videoPerformer.VideoId == affinity.HostId))
+                .Max(affinity => affinity.LastConsumedAt) ?? (desc ? DateTime.MinValue : DateTime.MaxValue),
+            desc);
 
-        return desc
-            ? sortQuery.OrderBy(item => item.LastPlayedAt == null ? 1 : 0).ThenByDescending(item => item.LastPlayedAt).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
-            : sortQuery.OrderBy(item => item.LastPlayedAt == null ? 1 : 0).ThenBy(item => item.LastPlayedAt).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
+        return desc ? ordered.ThenByDescending(performer => performer.Id) : ordered.ThenBy(performer => performer.Id);
     }
 
     private IQueryable<Performer> ApplyPlayCountSort(IQueryable<Performer> query, bool desc)
@@ -146,12 +143,11 @@ public class PerformerRepository : IPerformerRepository
         if (userId is not int selectedUserId)
             return FilterHelpers.ApplyInt(query, criterion, _ => 0);
 
-        return FilterHelpers.ApplyInt(query, criterion, performer => performer.VideoPerformers
-            .Select(videoPerformer => _db.UserEntityAffinities
-                .Where(affinity => affinity.UserId == selectedUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == videoPerformer.VideoId)
-                .Select(affinity => EF.Property<int>(affinity, propertyName))
-                .FirstOrDefault())
-            .Sum());
+        return FilterHelpers.ApplyInt(query, criterion, performer => _db.UserEntityAffinities
+            .Where(affinity => affinity.UserId == selectedUserId
+                && affinity.HostType == AffinityHostType.Video
+                && performer.VideoPerformers.Any(videoPerformer => videoPerformer.VideoId == affinity.HostId))
+            .Sum(affinity => EF.Property<int>(affinity, propertyName)));
     }
 
     private IQueryable<Performer> ApplyVideoAffinityIntSumSort(IQueryable<Performer> query, string propertyName, bool desc)
@@ -160,92 +156,19 @@ public class PerformerRepository : IPerformerRepository
         if (userId is not int selectedUserId)
             return desc ? query.OrderByDescending(performer => performer.Id) : query.OrderBy(performer => performer.Id);
 
-        var sortQuery = query.Select(performer => new
-        {
-            Performer = performer,
-            Value = performer.VideoPerformers
-                .Select(videoPerformer => _db.UserEntityAffinities
-                    .Where(affinity => affinity.UserId == selectedUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == videoPerformer.VideoId)
-                    .Select(affinity => EF.Property<int>(affinity, propertyName))
-                    .FirstOrDefault())
-                .Sum(),
-        });
-
-        return desc
-            ? sortQuery.OrderBy(item => item.Value <= 0 ? 1 : 0).ThenByDescending(item => item.Value).ThenByDescending(item => item.Performer.Id).Select(item => item.Performer)
-            : sortQuery.OrderBy(item => item.Value <= 0 ? 0 : 1).ThenBy(item => item.Value).ThenBy(item => item.Performer.Id).Select(item => item.Performer);
-    }
-
-    private IOrderedQueryable<Performer>? AppendVideoAffinityIntSumSort(
-        IQueryable<Performer> query,
-        IOrderedQueryable<Performer>? ordered,
-        int? userId,
-        string propertyName,
-        bool desc)
-    {
-        if (userId is not int selectedUserId)
-            return ordered;
-
-        ordered = CompoundSortOrdering.Append(
+        var ordered = CompoundSortOrdering.Append(
             query,
-            ordered,
-            performer => performer.VideoPerformers
-                .Select(videoPerformer => _db.UserEntityAffinities
-                    .Where(affinity => affinity.UserId == selectedUserId
-                        && affinity.HostType == AffinityHostType.Video
-                        && affinity.HostId == videoPerformer.VideoId)
-                    .Select(affinity => EF.Property<int>(affinity, propertyName))
-                    .FirstOrDefault())
-                .Sum() <= 0 ? (desc ? 1 : 0) : (desc ? 0 : 1),
-            false);
-
-        return CompoundSortOrdering.Append(
-            query,
-            ordered,
-            performer => performer.VideoPerformers
-                .Select(videoPerformer => _db.UserEntityAffinities
-                    .Where(affinity => affinity.UserId == selectedUserId
-                        && affinity.HostType == AffinityHostType.Video
-                        && affinity.HostId == videoPerformer.VideoId)
-                    .Select(affinity => EF.Property<int>(affinity, propertyName))
-                    .FirstOrDefault())
-                .Sum(),
-            desc);
-    }
-
-    private IOrderedQueryable<Performer>? AppendLastPlayedAtSort(
-        IQueryable<Performer> query,
-        IOrderedQueryable<Performer>? ordered,
-        int? userId,
-        bool desc)
-    {
-        if (userId is not int selectedUserId)
-            return ordered;
-
-        ordered = CompoundSortOrdering.Append(
-            query,
-            ordered,
-            performer => performer.VideoPerformers.Any(videoPerformer =>
-                _db.UserEntityAffinities.Any(affinity =>
-                    affinity.UserId == selectedUserId
+            ordered: null,
+            performer => _db.UserEntityAffinities
+                .Where(affinity => affinity.UserId == selectedUserId
                     && affinity.HostType == AffinityHostType.Video
-                    && affinity.HostId == videoPerformer.VideoId
-                    && affinity.LastConsumedAt != null)) ? 0 : 1,
-            false);
-
-        return CompoundSortOrdering.Append(
-            query,
-            ordered,
-            performer => performer.VideoPerformers
-                .Select(videoPerformer => _db.UserEntityAffinities
-                    .Where(affinity => affinity.UserId == selectedUserId
-                        && affinity.HostType == AffinityHostType.Video
-                        && affinity.HostId == videoPerformer.VideoId)
-                    .Select(affinity => affinity.LastConsumedAt)
-                    .FirstOrDefault())
-                .Max(),
+                    && performer.VideoPerformers.Any(videoPerformer => videoPerformer.VideoId == affinity.HostId))
+                .Sum(affinity => EF.Property<int>(affinity, propertyName)),
             desc);
+
+        return desc ? ordered.ThenByDescending(performer => performer.Id) : ordered.ThenBy(performer => performer.Id);
     }
+
     private static IQueryable<Performer> ApplyMeasurementsSort(IQueryable<Performer> query, bool desc)
     {
         var measuredQuery = query.Select(performer => new
@@ -707,34 +630,55 @@ public class PerformerRepository : IPerformerRepository
 
     private IQueryable<Performer> ApplyPerformerMultiSort(IQueryable<Performer> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Performer>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        var compound = CompoundSortQuery<Performer>.Create(
+            _db, query, userId, AffinityHostType.Performer, RatingHostType.Performer,
+            includeAffinity: clauses.Any(clause => clause.Key.Equals("last_like_at", StringComparison.OrdinalIgnoreCase)),
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
-                case "name": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Name, desc); break;
-                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Performer, desc); break;
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.CreatedAt, desc); break;
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.UpdatedAt, desc); break;
-                case "birthdate": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Birthdate, desc); break;
-                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.VideoPerformers.Count, desc); break;
-                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.ImagePerformers.Count, desc); break;
-                case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.GalleryPerformers.Count, desc); break;
-                case "latest_video_date": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc); break;
-                case "total_file_size": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.VideoPerformers.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
-                case "height": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.HeightCm, desc); break;
-                case "weight": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.Weight, desc); break;
-                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, performer => performer.TagCount, desc); break;
-                case "like_counter": ordered = AppendVideoAffinityIntSumSort(query, ordered, userId, nameof(UserEntityAffinity.LikeCount), desc); break;
-                case "play_count": ordered = AppendVideoAffinityIntSumSort(query, ordered, userId, nameof(UserEntityAffinity.ViewCount), desc); break;
-                case "last_like_at": ordered = EngagementQueryHelpers.AppendAffinityTimestampSort(_db, query, ordered, userId, AffinityHostType.Performer, nameof(UserEntityAffinity.FavoritedAt), desc); break;
-                case "last_played_at": ordered = AppendLastPlayedAtSort(query, ordered, userId, desc); break;
+                case "name": compound.Append(performer => performer.Name, desc); break;
+                case "rating": compound.AppendRating(desc); break;
+                case "created_at": compound.Append(performer => performer.CreatedAt, desc); break;
+                case "updated_at": compound.Append(performer => performer.UpdatedAt, desc); break;
+                case "birthdate": compound.Append(performer => performer.Birthdate, desc); break;
+                case "video_count": compound.Append(performer => performer.VideoPerformers.Count, desc); break;
+                case "image_count": compound.Append(performer => performer.ImagePerformers.Count, desc); break;
+                case "gallery_count": compound.Append(performer => performer.GalleryPerformers.Count, desc); break;
+                case "latest_video_date": compound.Append(performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc); break;
+                case "total_file_size": compound.Append(performer => performer.VideoPerformers.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
+                case "height": compound.Append(performer => performer.HeightCm, desc); break;
+                case "weight": compound.Append(performer => performer.Weight, desc); break;
+                case "tag_count": compound.Append(performer => performer.TagCount, desc); break;
+                case "like_counter":
+                    if (userId is int likeUserId)
+                        compound.Append(performer => _db.UserEntityAffinities
+                            .Where(affinity => affinity.UserId == likeUserId && affinity.HostType == AffinityHostType.Video
+                                && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
+                            .Sum(affinity => affinity.LikeCount), desc);
+                    break;
+                case "play_count":
+                    if (userId is int playUserId)
+                        compound.Append(performer => _db.UserEntityAffinities
+                            .Where(affinity => affinity.UserId == playUserId && affinity.HostType == AffinityHostType.Video
+                                && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
+                            .Sum(affinity => affinity.ViewCount), desc);
+                    break;
+                case "last_like_at": compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc); break;
+                case "last_played_at":
+                    if (userId is int playedUserId)
+                        compound.Append(performer => _db.UserEntityAffinities
+                            .Where(affinity => affinity.UserId == playedUserId && affinity.HostType == AffinityHostType.Video
+                                && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
+                            .Max(affinity => affinity.LastConsumedAt) ?? (desc ? DateTime.MinValue : DateTime.MaxValue), desc);
+                    break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, performer => performer.Id);
+        return compound.Finish(performer => performer.Id);
     }
 
 }
@@ -969,29 +913,32 @@ public class TagRepository : ITagRepository
 
     private IQueryable<Tag> ApplyTagMultiSort(IQueryable<Tag> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Tag>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        var compound = CompoundSortQuery<Tag>.Create(
+            _db, query, userId, null, RatingHostType.Tag,
+            includeAffinity: false,
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
-                case "name": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.Name, desc); break;
-                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Tag, desc); break;
-                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoCount, desc); break;
-                case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.GalleryCount, desc); break;
-                case "group_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.GroupCount, desc); break;
-                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.ImageCount, desc); break;
-                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.PerformerCount, desc); break;
-                case "studio_count": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.StudioCount, desc); break;
-                case "latest_video_date": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoTags.Max(link => link.Video!.Date), desc); break;
-                case "total_file_size": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.VideoTags.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.CreatedAt, desc); break;
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, tag => tag.UpdatedAt, desc); break;
+                case "name": compound.Append(tag => tag.Name, desc); break;
+                case "rating": compound.AppendRating(desc); break;
+                case "video_count": compound.Append(tag => tag.VideoCount, desc); break;
+                case "gallery_count": compound.Append(tag => tag.GalleryCount, desc); break;
+                case "group_count": compound.Append(tag => tag.GroupCount, desc); break;
+                case "image_count": compound.Append(tag => tag.ImageCount, desc); break;
+                case "performer_count": compound.Append(tag => tag.PerformerCount, desc); break;
+                case "studio_count": compound.Append(tag => tag.StudioCount, desc); break;
+                case "latest_video_date": compound.Append(tag => tag.VideoTags.Max(link => link.Video!.Date), desc); break;
+                case "total_file_size": compound.Append(tag => tag.VideoTags.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
+                case "created_at": compound.Append(tag => tag.CreatedAt, desc); break;
+                case "updated_at": compound.Append(tag => tag.UpdatedAt, desc); break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, tag => tag.Id);
+        return compound.Finish(tag => tag.Id);
     }
 
     private async Task<IQueryable<Tag>> ApplyTagCountCriteriaAsync(IQueryable<Tag> query, TagFilter filter, CancellationToken ct)
@@ -1535,29 +1482,32 @@ public class StudioRepository : IStudioRepository
 
     private IQueryable<Studio> ApplyStudioMultiSort(IQueryable<Studio> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Studio>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        var compound = CompoundSortQuery<Studio>.Create(
+            _db, query, userId, null, RatingHostType.Studio,
+            includeAffinity: false,
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
-                case "name": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Name, desc); break;
-                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Studio, desc); break;
-                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.VideoCount, desc); break;
-                case "gallery_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.GalleryCount, desc); break;
-                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ImageCount, desc); break;
-                case "latest_video_date": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Videos.Max(video => video.Date), desc); break;
-                case "total_file_size": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L, desc); break;
-                case "parent_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ParentId.HasValue ? 1 : 0, desc); break;
-                case "child_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.ChildStudioCount, desc); break;
-                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.TagCount, desc); break;
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.CreatedAt, desc); break;
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, studio => studio.UpdatedAt, desc); break;
+                case "name": compound.Append(studio => studio.Name, desc); break;
+                case "rating": compound.AppendRating(desc); break;
+                case "video_count": compound.Append(studio => studio.VideoCount, desc); break;
+                case "gallery_count": compound.Append(studio => studio.GalleryCount, desc); break;
+                case "image_count": compound.Append(studio => studio.ImageCount, desc); break;
+                case "latest_video_date": compound.Append(studio => studio.Videos.Max(video => video.Date), desc); break;
+                case "total_file_size": compound.Append(studio => studio.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L, desc); break;
+                case "parent_count": compound.Append(studio => studio.ParentId.HasValue ? 1 : 0, desc); break;
+                case "child_count": compound.Append(studio => studio.ChildStudioCount, desc); break;
+                case "tag_count": compound.Append(studio => studio.TagCount, desc); break;
+                case "created_at": compound.Append(studio => studio.CreatedAt, desc); break;
+                case "updated_at": compound.Append(studio => studio.UpdatedAt, desc); break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, studio => studio.Id);
+        return compound.Finish(studio => studio.Id);
     }
 }
 
@@ -1835,40 +1785,43 @@ public class GalleryRepository : IGalleryRepository
 
     private IQueryable<Gallery> ApplyGalleryMultiSort(IQueryable<Gallery> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Gallery>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        var compound = CompoundSortQuery<Gallery>.Create(
+            _db, query, userId, null, RatingHostType.Gallery,
+            includeAffinity: false,
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.UpdatedAt, desc); break;
-                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Gallery, desc); break;
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.CreatedAt, desc); break;
-                case "date": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Date, desc); break;
+                case "updated_at": compound.Append(gallery => gallery.UpdatedAt, desc); break;
+                case "rating": compound.AppendRating(desc); break;
+                case "created_at": compound.Append(gallery => gallery.CreatedAt, desc); break;
+                case "date": compound.Append(gallery => gallery.Date, desc); break;
                 case "studio":
-                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Studio == null ? 1 : 0, false);
-                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Studio != null ? gallery.Studio.Name : null, desc);
+                    compound.Append(gallery => gallery.Studio == null ? 1 : 0, false);
+                    compound.Append(gallery => gallery.Studio != null ? gallery.Studio.Name : null, desc);
                     break;
                 case "file_mod_time":
-                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Files.Select(file => (DateTime?)file.ModTime).Max() ?? (gallery.Folder != null ? (DateTime?)gallery.Folder.ModTime : null), desc);
+                    compound.Append(gallery => gallery.Files.Select(file => (DateTime?)file.ModTime).Max() ?? (gallery.Folder != null ? (DateTime?)gallery.Folder.ModTime : null), desc);
                     break;
-                case "file_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Files.Count, desc); break;
+                case "file_count": compound.Append(gallery => gallery.Files.Count, desc); break;
                 case "path":
-                    ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Folder != null ? gallery.Folder.Path : gallery.Files.Select(file => file.Path).OrderBy(path => path).FirstOrDefault(), desc);
+                    compound.Append(gallery => gallery.Folder != null ? gallery.Folder.Path : gallery.Files.Select(file => file.Path).OrderBy(path => path).FirstOrDefault(), desc);
                     break;
-                case "title": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Title, desc); break;
-                case "code": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Code, desc); break;
-                case "photographer": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Photographer, desc); break;
-                case "organized": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.Organized, desc); break;
-                case "image_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.ImageCount, desc); break;
-                case "video_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.VideoCount, desc); break;
-                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.PerformerCount, desc); break;
-                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, gallery => gallery.TagCount, desc); break;
+                case "title": compound.Append(gallery => gallery.Title, desc); break;
+                case "code": compound.Append(gallery => gallery.Code, desc); break;
+                case "photographer": compound.Append(gallery => gallery.Photographer, desc); break;
+                case "organized": compound.Append(gallery => gallery.Organized, desc); break;
+                case "image_count": compound.Append(gallery => gallery.ImageCount, desc); break;
+                case "video_count": compound.Append(gallery => gallery.VideoCount, desc); break;
+                case "performer_count": compound.Append(gallery => gallery.PerformerCount, desc); break;
+                case "tag_count": compound.Append(gallery => gallery.TagCount, desc); break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, gallery => gallery.Id);
+        return compound.Finish(gallery => gallery.Id);
     }
 
     private static IQueryable<Gallery> ApplyGalleryStudioSort(IQueryable<Gallery> query, bool desc)
@@ -2463,29 +2416,32 @@ public class ImageRepository : IImageRepository
 
     private IQueryable<Image> ApplyImageMultiSort(IQueryable<Image> query, IReadOnlyList<SortClause> clauses)
     {
-        IOrderedQueryable<Image>? ordered = null;
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        var compound = CompoundSortQuery<Image>.Create(
+            _db, query, userId, AffinityHostType.Image, RatingHostType.Image,
+            includeAffinity: clauses.Any(clause => clause.Key.Equals("like_counter", StringComparison.OrdinalIgnoreCase)),
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         foreach (var clause in clauses)
         {
             var desc = clause.Direction == Core.Enums.SortDirection.Desc;
             switch (clause.Key.ToLowerInvariant())
             {
-                case "updated_at": ordered = CompoundSortOrdering.Append(query, ordered, image => image.UpdatedAt, desc); break;
-                case "rating": ordered = EngagementQueryHelpers.AppendRatingSort(_db, query, ordered, userId, RatingHostType.Image, desc); break;
-                case "like_counter": ordered = EngagementQueryHelpers.AppendAffinityIntSort(_db, query, ordered, userId, AffinityHostType.Image, nameof(UserEntityAffinity.LikeCount), desc); break;
-                case "created_at": ordered = CompoundSortOrdering.Append(query, ordered, image => image.CreatedAt, desc); break;
-                case "date": ordered = CompoundSortOrdering.Append(query, ordered, image => image.Date, desc); break;
-                case "file_mod_time": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxFileModTime, desc); break;
-                case "file_size": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxFileSize, desc); break;
-                case "resolution": ordered = CompoundSortOrdering.Append(query, ordered, image => image.MaxResolution, desc); break;
-                case "path": ordered = CompoundSortOrdering.Append(query, ordered, image => desc ? image.MaxPath : image.MinPath, desc); break;
-                case "title": ordered = CompoundSortOrdering.Append(query, ordered, DisplayTitleSelector, desc); break;
-                case "performer_count": ordered = CompoundSortOrdering.Append(query, ordered, image => image.ImagePerformers.Count, desc); break;
-                case "tag_count": ordered = CompoundSortOrdering.Append(query, ordered, image => image.TagCount, desc); break;
+                case "updated_at": compound.Append(image => image.UpdatedAt, desc); break;
+                case "rating": compound.AppendRating(desc); break;
+                case "like_counter": compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc); break;
+                case "created_at": compound.Append(image => image.CreatedAt, desc); break;
+                case "date": compound.Append(image => image.Date, desc); break;
+                case "file_mod_time": compound.Append(image => image.MaxFileModTime, desc); break;
+                case "file_size": compound.Append(image => image.MaxFileSize, desc); break;
+                case "resolution": compound.Append(image => image.MaxResolution, desc); break;
+                case "path": compound.Append(image => desc ? image.MaxPath : image.MinPath, desc); break;
+                case "title": compound.Append(DisplayTitleSelector, desc); break;
+                case "performer_count": compound.Append(image => image.ImagePerformers.Count, desc); break;
+                case "tag_count": compound.Append(image => image.TagCount, desc); break;
             }
         }
 
-        return CompoundSortOrdering.Finish(query, ordered, image => image.Id);
+        return compound.Finish(image => image.Id);
     }
 
     private IQueryable<Image> ApplySortingSwitch(IQueryable<Image> query, string sort, bool desc)

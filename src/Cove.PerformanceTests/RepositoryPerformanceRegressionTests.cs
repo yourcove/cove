@@ -22,6 +22,29 @@ public sealed class RepositoryPerformanceRegressionTests(PostgresPerformanceFixt
             })];
 
         yield return [new RepositoryPerformanceBudget(
+            Name: "video_compound_rating_play_count",
+            MaxMeanMs: 140,
+            MaxP95Ms: 220,
+            Operation: static async (performanceFixture, ct) =>
+            {
+                await using var context = performanceFixture.CreateContext();
+                var repository = new VideoRepository(context);
+                _ = await repository.FindAsync(
+                    null,
+                    new FindFilter
+                    {
+                        Page = 1,
+                        PerPage = 25,
+                        Sorts =
+                        [
+                            new SortClause("rating", Cove.Core.Enums.SortDirection.Desc),
+                            new SortClause("play_count", Cove.Core.Enums.SortDirection.Desc),
+                        ],
+                    },
+                    ct);
+            })];
+
+        yield return [new RepositoryPerformanceBudget(
             Name: "video_find_stack5_duration",
             MaxMeanMs: 170,
             MaxP95Ms: 260,
