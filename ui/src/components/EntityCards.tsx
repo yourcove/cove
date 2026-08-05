@@ -18,6 +18,7 @@ import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, TagMediaHover, type EntityMediaFit } from "./EntityMedia";
+import { VideoCoverImage } from "./VideoCoverImage";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
@@ -31,11 +32,6 @@ function useConfiguredImageFit() {
 
 function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUrl: string; coverAlt: string; previewUrl: string; fit: EntityMediaFit }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [coverFailed, setCoverFailed] = useState(false);
-
-  useEffect(() => {
-    setCoverFailed(false);
-  }, [coverUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -52,20 +48,14 @@ function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUr
 
   return (
     <>
-      {!coverFailed ? (
-        <img
-          src={coverUrl}
-          alt={coverAlt}
-          className="video-card-preview-image h-full w-full"
-          style={{ objectFit: fit }}
-          loading="lazy"
-          onError={() => setCoverFailed(true)}
-        />
-      ) : (
-        <div className="video-card-cover-fallback flex h-full w-full items-center justify-center bg-gradient-to-br from-surface to-card">
-          <Film className="h-12 w-12 text-muted" aria-hidden="true" />
-        </div>
-      )}
+      <VideoCoverImage
+        src={coverUrl}
+        alt={coverAlt}
+        className="video-card-preview-image h-full w-full"
+        fallbackClassName="video-card-cover-fallback"
+        style={{ objectFit: fit }}
+        loading="lazy"
+      />
       <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="video-card-preview-video" style={{ objectFit: fit }} />
     </>
   );

@@ -58,6 +58,10 @@ vi.mock("../hooks/useEntityEngagementBatch", () => ({
   useEntityEngagementBatch: () => ({ engagementById: new Map() }),
 }));
 
+vi.mock("../components/Rating", () => ({
+  RatingBanner: () => null,
+}));
+
 vi.mock("../utils/userUiPreferences", () => ({
   readAuthenticatedUserHomePageContent: () => mockHomePageContent.value,
   updateAuthenticatedUserUiPreferences: vi.fn(),
@@ -127,6 +131,25 @@ describe("HomePage random rows", () => {
       listFilter: { q: "", page: 1, sort: "created_at", direction: "desc" },
       listObjectFilter: {},
     });
+  });
+
+  it("shows the video placeholder when a recommendation cover fails to load", async () => {
+    mockHomePageContent.value = JSON.stringify([
+      { type: "custom", mode: "videos", sortBy: "created_at", direction: "desc", header: "Recent Videos" },
+    ]);
+    mocks.videosFind.mockResolvedValueOnce({
+      items: [{ id: 101, title: "Video without a cover", files: [], tags: [], performers: [] }],
+      totalCount: 1,
+    });
+
+    const { container } = renderHomePage();
+    await screen.findByText("Video without a cover");
+    const cover = container.querySelector<HTMLImageElement>('img[src="/api/stream/video/101/screenshot"]')!;
+
+    fireEvent.error(cover);
+
+    expect(container.querySelector(".video-recommendation-cover-fallback")).toBeVisible();
+    expect(cover).not.toBeInTheDocument();
   });
 
   it("requests only the Continue Watching items shown on the home page", async () => {
