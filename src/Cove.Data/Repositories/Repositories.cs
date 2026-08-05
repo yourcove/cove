@@ -1801,7 +1801,7 @@ public class GalleryRepository : IGalleryRepository
             : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
     }
 
-    private CompoundSortRegistry<Gallery> CreateGalleryMultiSortRegistry(int currentUserId)
+    internal CompoundSortRegistry<Gallery> CreateGalleryMultiSortRegistry(int currentUserId)
         => new(new Dictionary<string, Action<CompoundSortQuery<Gallery>, bool>>(StringComparer.OrdinalIgnoreCase)
         {
             ["updated_at"] = (compound, desc) => compound.Append(gallery => gallery.UpdatedAt, desc),

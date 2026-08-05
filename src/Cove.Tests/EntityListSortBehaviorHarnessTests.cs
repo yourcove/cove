@@ -542,6 +542,65 @@ public class EntityListSortBehaviorHarnessTests
     }
 
     [Fact]
+    public async Task GalleryAggregateCompoundSortsHonorPrimarySecondaryAndNullOrdering()
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        var now = fixture.Now;
+        var images = Enumerable.Range(0, 4)
+            .Select(index => new Image { Id = 9001 + index, Title = $"Aggregate Image {index + 1}" })
+            .ToArray();
+        var galleries = new[]
+        {
+            new Gallery { Id = 9101, Title = "Aggregate Contract One", Date = new DateOnly(2024, 1, 1) },
+            new Gallery { Id = 9102, Title = "Aggregate Contract Two", Date = new DateOnly(2025, 1, 1) },
+            new Gallery { Id = 9103, Title = "Aggregate Contract Three", Date = new DateOnly(2026, 1, 1) },
+            new Gallery { Id = 9104, Title = "Aggregate Contract No Likes", Date = new DateOnly(2027, 1, 1) },
+        };
+
+        for (var index = 0; index < galleries.Length; index++)
+        {
+            var link = new ImageGallery
+            {
+                Gallery = galleries[index], GalleryId = galleries[index].Id,
+                Image = images[index], ImageId = images[index].Id,
+            };
+            galleries[index].ImageGalleries.Add(link);
+            images[index].ImageGalleries.Add(link);
+        }
+
+        fixture.Context.Images.AddRange(images);
+        fixture.Context.Galleries.AddRange(galleries);
+        fixture.Context.UserEntityAffinities.AddRange(
+            new UserEntityAffinity { UserId = TestUserId, HostType = AffinityHostType.Image, HostId = images[0].Id, LikeCount = 1000 },
+            new UserEntityAffinity { UserId = TestUserId, HostType = AffinityHostType.Image, HostId = images[1].Id, LikeCount = 1000 },
+            new UserEntityAffinity { UserId = TestUserId, HostType = AffinityHostType.Image, HostId = images[2].Id, LikeCount = 500 });
+        fixture.Context.Interactions.AddRange(
+            new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[0].Id, Kind = InteractionKind.LikeCount, At = now.AddHours(-1) },
+            new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[1].Id, Kind = InteractionKind.LikeCount, At = now.AddHours(-1) },
+            new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[2].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-1) });
+        await fixture.Context.SaveChangesAsync();
+
+        var likeResult = await new GalleryRepository(fixture.Context).FindAsync(null, new FindFilter
+        {
+            Page = 1, PerPage = 10,
+            Sorts = [new SortClause("like_counter", CoveSortDirection.Desc), new SortClause("date", CoveSortDirection.Desc)],
+        });
+        var likeIds = likeResult.Items.Select(gallery => gallery.Id).ToArray();
+        Assert.Equal([9102, 9101, 9103], likeIds[..3]);
+        Assert.True(Array.IndexOf(likeIds, 9104) > Array.IndexOf(likeIds, 9103));
+
+        var lastLikeResult = await new GalleryRepository(fixture.Context).FindAsync(null, new FindFilter
+        {
+            Page = 1, PerPage = 10,
+            Sorts = [new SortClause("last_like_at", CoveSortDirection.Desc), new SortClause("date", CoveSortDirection.Desc)],
+        });
+        var lastLikeIds = lastLikeResult.Items.Select(gallery => gallery.Id).ToArray();
+        Assert.Equal([9102, 9101, 9103], lastLikeIds[..3]);
+        Assert.True(Array.IndexOf(lastLikeIds, 9104) > Array.IndexOf(lastLikeIds, 9103));
+    }
+
+    [Fact]
     public async Task BackendsAcceptEverySharedFrontendCompoundSortKey()
     {
         await using var fixture = await SortHarnessFixture.CreateAsync();

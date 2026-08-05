@@ -1,4 +1,5 @@
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -49,6 +50,34 @@ public class CompoundSortQueryShapeTests
 
         Assert.DoesNotContain("user_entity_affinities", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("ratings", sql, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("like_counter")]
+    [InlineData("last_like_at")]
+    public void GalleryAggregateCompoundSortTranslatesForPostgres(string key)
+    {
+        using var context = CreatePostgresContext();
+        var repository = new GalleryRepository(context);
+        var registry = repository.CreateGalleryMultiSortRegistry(currentUserId: 42);
+        var compound = CompoundSortQuery<Gallery>.Create(
+            context,
+            context.Galleries.IgnoreQueryFilters(),
+            userId: 42,
+            affinityHostType: null,
+            RatingHostType.Gallery,
+            includeAffinity: false,
+            includeRating: false);
+        registry.Apply(compound,
+        [
+            new SortClause(key, Cove.Core.Enums.SortDirection.Desc),
+            new SortClause("date", Cove.Core.Enums.SortDirection.Desc),
+        ]);
+
+        var sql = compound.Finish(gallery => gallery.Id).Take(25).Select(gallery => gallery.Id).ToQueryString();
+
+        Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(key == "like_counter" ? "user_entity_affinities" : "interactions", sql, StringComparison.OrdinalIgnoreCase);
     }
 
     private static CoveContext CreatePostgresContext()
