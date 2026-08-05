@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { extensions, groups } from "../api/client";
+import { extensions, globalSearch, groups } from "../api/client";
 
 describe("api client", () => {
   afterEach(() => {
@@ -21,6 +21,19 @@ describe("api client", () => {
     await groups.items.page(4, { page: 1, perPage: 0 });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/groups/4/items/page?page=1&perPage=0", expect.objectContaining({ headers: expect.any(Headers) }));
+  });
+
+  it("forwards global-search limits and cancellation", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ groups: [], failedTypes: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    await globalSearch.find("quick search", 8, controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/search/global?q=quick+search&perType=8",
+      expect.objectContaining({ signal: controller.signal }),
+    );
   });
 
   it("uploads extension ZIPs as authenticated multipart form data without setting a boundary header", async () => {

@@ -1,5 +1,6 @@
 import type {
   MeResponse,
+  GlobalSearchResponse,
   Video, VideoCreate, VideoUpdate, VideoListEntry,
   Performer, PerformerCreate, PerformerUpdate,
   Tag, TagDetail, TagCreate, TagUpdate, TagSegmentWall,
@@ -253,6 +254,11 @@ async function readResponseBody<T>(res: Response): Promise<T> {
 
   return JSON.parse(text) as T;
 }
+
+export const globalSearch = {
+  find: (q: string, perType = 8, signal?: AbortSignal) =>
+    request<GlobalSearchResponse>(`/search/global${buildQuery(undefined, { q, perType })}`, { signal }),
+};
 
 function buildQuery(filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams();

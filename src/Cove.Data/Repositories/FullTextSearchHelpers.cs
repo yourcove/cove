@@ -219,6 +219,43 @@ public static class FullTextSearchHelpers
             .ThenBy(entity => entity.Id);
     }
 
+    public static IQueryable<T> OrderByExactThenRelevance<T>(
+        CoveContext db,
+        IQueryable<T> query,
+        string? search,
+        Expression<Func<T, string?>> titleSelector)
+        where T : BaseEntity
+    {
+        var normalized = Normalize(search);
+        if (normalized is null)
+            return query;
+
+        var entityParam = Expression.Parameter(typeof(T), "entity");
+        var title = new ParameterReplacer(titleSelector.Parameters[0], entityParam)
+            .Visit(titleSelector.Body)!;
+        var exactTitle = Expression.Lambda<Func<T, bool>>(
+            Expression.AndAlso(
+                Expression.NotEqual(title, Expression.Constant(null, typeof(string))),
+                Expression.Equal(
+                    Expression.Call(title, StringToLowerMethod),
+                    Expression.Constant(normalized.ToLowerInvariant()))),
+            entityParam);
+
+        var exactOrdered = query.OrderByDescending(exactTitle);
+        if (!SupportsPostgresFullText(db))
+            return exactOrdered.ThenBy(entity => entity.Id);
+
+        var prefixQuery = BuildPrefixQuery(normalized);
+        if (prefixQuery is null)
+            return exactOrdered.ThenBy(entity => entity.Id);
+
+        return exactOrdered
+            .ThenByDescending(entity => EF.Property<NpgsqlTsVector>(entity, SearchVectorProperty)
+                .Rank(EF.Functions.ToTsQuery(SearchConfig, prefixQuery)))
+            .ThenByDescending(entity => entity.UpdatedAt)
+            .ThenBy(entity => entity.Id);
+    }
+
     private static bool SupportsPostgresFullText(CoveContext db)
         => db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true;
 
@@ -265,4 +302,3 @@ public static class FullTextSearchHelpers
         return builder.Length == 0 ? null : builder.ToString();
     }
 }
-

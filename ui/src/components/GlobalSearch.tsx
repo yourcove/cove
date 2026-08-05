@@ -1,12 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, Building2, Film, FolderOpen, Headphones, ImageIcon, Layers, Loader2, Search, Tag, Users } from "lucide-react";
-import { audios, galleries, groups as groupApi, images, performers, videos, studios, tags, texts } from "../api/client";
-import type { InteractionHostType } from "../api/types";
+import { globalSearch } from "../api/client";
+import type { GlobalSearchEntityType, InteractionHostType } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { canReadEntity } from "../auth/visibility";
-import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { trackInteraction } from "../utils/interactionTracking";
 
 interface Props {
@@ -20,64 +19,46 @@ type SearchGroup = {
   items: { id: number; title: string; subtitle?: string; route: any; hostType: InteractionHostType }[];
 };
 
-type VideoSearchItems = Awaited<ReturnType<typeof videos.find>>["items"];
-type PerformerSearchItems = Awaited<ReturnType<typeof performers.find>>["items"];
-type StudioSearchItems = Awaited<ReturnType<typeof studios.find>>["items"];
-type TagSearchItems = Awaited<ReturnType<typeof tags.find>>["items"];
-type GallerySearchItems = Awaited<ReturnType<typeof galleries.find>>["items"];
-type ImageSearchItems = Awaited<ReturnType<typeof images.find>>["items"];
-type GroupSearchItems = Awaited<ReturnType<typeof groupApi.find>>["items"];
-type AudioSearchItems = Awaited<ReturnType<typeof audios.find>>["items"];
-type TextSearchItems = Awaited<ReturnType<typeof texts.find>>["items"];
-
-type SearchDefinition = {
-  key: string;
+type SearchPresentation = {
+  key: GlobalSearchEntityType;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   hostType: InteractionHostType;
-  load: () => Promise<{ items: unknown[] }>;
-  mapItems: (items: unknown[]) => SearchGroup["items"];
+  page: string;
 };
 
-type SearchResult = {
-  groups: SearchGroup[];
-  failedLabels: string[];
+const GLOBAL_SEARCH_DEBOUNCE_MS = 100;
+const SEARCH_PRESENTATIONS: Record<GlobalSearchEntityType, SearchPresentation> = {
+  video: { key: "video", label: "Videos", icon: Film, hostType: "video", page: "video" },
+  performer: { key: "performer", label: "Performers", icon: Users, hostType: "performer", page: "performer" },
+  studio: { key: "studio", label: "Studios", icon: Building2, hostType: "studio", page: "studio" },
+  tag: { key: "tag", label: "Tags", icon: Tag, hostType: "tag", page: "tag" },
+  gallery: { key: "gallery", label: "Galleries", icon: FolderOpen, hostType: "gallery", page: "gallery" },
+  image: { key: "image", label: "Images", icon: ImageIcon, hostType: "image", page: "image" },
+  group: { key: "group", label: "Groups", icon: Layers, hostType: "group", page: "group" },
+  audio: { key: "audio", label: "Audios", icon: Headphones, hostType: "audio", page: "audio" },
+  text: { key: "text", label: "Texts", icon: BookOpenText, hostType: "text", page: "text" },
 };
-
-async function mergeSearches<TItem extends { id: number }>(limit: number, searches: Promise<{ items: TItem[] }>[]) {
-  const settled = await Promise.allSettled(searches);
-  const resultSets = settled
-    .filter((result): result is PromiseFulfilledResult<{ items: TItem[] }> => result.status === "fulfilled")
-    .map((result) => result.value.items);
-  const seen = new Set<number>();
-  const items: TItem[] = [];
-
-  for (let index = 0; items.length < limit; index++) {
-    let foundItemAtIndex = false;
-    for (const resultItems of resultSets) {
-      const item = resultItems[index];
-      if (!item) continue;
-      foundItemAtIndex = true;
-      if (seen.has(item.id)) continue;
-      seen.add(item.id);
-      items.push(item);
-      if (items.length >= limit) return { items };
-    }
-    if (!foundItemAtIndex) break;
-  }
-
-  return { items };
-}
 
 export function GlobalSearch({ navigate }: Props) {
   const [term, setTerm] = useState("");
+  const [committedTerm, setCommittedTerm] = useState("");
   const [open, setOpen] = useState(false);
   const [desktopPanelStyle, setDesktopPanelStyle] = useState<{ left: number; top: number; width: number } | null>(null);
-  const deferredTerm = useDeferredValue(term.trim());
+  const normalizedTerm = term.trim();
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const lastTrackedSearchKey = useRef("");
   const { hasPermission, permissions } = useAuth();
+
+  useEffect(() => {
+    if (normalizedTerm.length < 2) {
+      setCommittedTerm(normalizedTerm);
+      return;
+    }
+    const timeout = window.setTimeout(() => setCommittedTerm(normalizedTerm), GLOBAL_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [normalizedTerm]);
 
   const readableEntities = useMemo(() => ({
     videos: canReadEntity("video", hasPermission),
@@ -146,180 +127,41 @@ export function GlobalSearch({ navigate }: Props) {
   }, [open]);
 
   const { data, isFetching } = useQuery({
-    queryKey: ["global-search", deferredTerm, searchableLabels.join(",")],
-    enabled: deferredTerm.length >= 2 && searchableLabels.length > 0,
-    queryFn: async () => {
-      const query = { q: deferredTerm, perPage: 8, direction: "desc" as const };
-      const aliasCriterion = { value: deferredTerm, modifier: "INCLUDES" as const };
-      const aliasFindFilter = { perPage: query.perPage, sort: "name", direction: "asc" as const };
-      const searches: SearchDefinition[] = [
-        ...(readableEntities.videos ? [{
-          key: "videos",
-          label: "Videos",
-          icon: Film,
-          hostType: "video" as const,
-          load: () => videos.find(query),
-          mapItems: (items: unknown[]) => (items as VideoSearchItems).map((item) => ({
-            id: item.id,
-            title: item.title || item.files[0]?.basename || `Video ${item.id}`,
-            subtitle: item.studioName || item.date || undefined,
-            route: { page: "video", id: item.id },
-            hostType: "video" as const,
-          })),
-        }] : []),
-        ...(readableEntities.performers ? [{
-          key: "performers",
-          label: "Performers",
-          icon: Users,
-          hostType: "performer" as const,
-          load: () => mergeSearches<PerformerSearchItems[number]>(query.perPage, [
-            performers.find({ ...query, sort: "name", direction: "asc" }),
-            performers.findFiltered({ findFilter: aliasFindFilter, objectFilter: { aliasesCriterion: aliasCriterion } }),
-          ]),
-          mapItems: (items: unknown[]) => (items as PerformerSearchItems).map((item) => ({
-            id: item.id,
-            title: item.name,
-            subtitle: item.aliases?.length ? `Aliases: ${item.aliases.slice(0, 3).join(", ")}` : item.disambiguation || undefined,
-            route: { page: "performer", id: item.id },
-            hostType: "performer" as const,
-          })),
-        }] : []),
-        ...(readableEntities.studios ? [{
-          key: "studios",
-          label: "Studios",
-          icon: Building2,
-          hostType: "studio" as const,
-          load: () => mergeSearches<StudioSearchItems[number]>(query.perPage, [
-            studios.find({ ...query, sort: "name", direction: "asc" }),
-            studios.findFiltered({ findFilter: aliasFindFilter, objectFilter: { aliasesCriterion: aliasCriterion } }),
-          ]),
-          mapItems: (items: unknown[]) => (items as StudioSearchItems).map((item) => ({
-            id: item.id,
-            title: item.name,
-            subtitle: item.aliases?.length ? `Aliases: ${item.aliases.slice(0, 3).join(", ")}` : item.parentName || undefined,
-            route: { page: "studio", id: item.id },
-            hostType: "studio" as const,
-          })),
-        }] : []),
-        ...(readableEntities.tags ? [{
-          key: "tags",
-          label: "Tags",
-          icon: Tag,
-          hostType: "tag" as const,
-          load: () => mergeSearches<TagSearchItems[number]>(query.perPage, [
-            tags.find({ ...query, sort: "name", direction: "asc" }),
-            tags.findFiltered({ findFilter: aliasFindFilter, objectFilter: { aliasesCriterion: aliasCriterion } }),
-          ]),
-          mapItems: (items: unknown[]) => (items as TagSearchItems).map((item) => ({
-            id: item.id,
-            title: item.name,
-            subtitle: item.aliases?.length ? `Aliases: ${item.aliases.slice(0, 3).join(", ")}` : item.description || undefined,
-            route: { page: "tag", id: item.id },
-            hostType: "tag" as const,
-          })),
-        }] : []),
-        ...(readableEntities.galleries ? [{
-          key: "galleries",
-          label: "Galleries",
-          icon: FolderOpen,
-          hostType: "gallery" as const,
-          load: () => galleries.find({ ...query, sort: "title", direction: "asc" }),
-          mapItems: (items: unknown[]) => (items as GallerySearchItems).map((item) => ({
-            id: item.id,
-            title: item.title || `Gallery ${item.id}`,
-            subtitle: item.studioName || item.date || undefined,
-            route: { page: "gallery", id: item.id },
-            hostType: "gallery" as const,
-          })),
-        }] : []),
-        ...(readableEntities.images ? [{
-          key: "images",
-          label: "Images",
-          icon: ImageIcon,
-          hostType: "image" as const,
-          load: () => images.find({ ...query, sort: "title", direction: "asc" }),
-          mapItems: (items: unknown[]) => (items as ImageSearchItems).map((item) => ({
-            id: item.id,
-            title: getImageDisplayTitle(item),
-            subtitle: item.studioName || item.date || undefined,
-            route: { page: "image", id: item.id },
-            hostType: "image" as const,
-          })),
-        }] : []),
-        ...(readableEntities.groups ? [{
-          key: "groups",
-          label: "Groups",
-          icon: Layers,
-          hostType: "group" as const,
-          load: () => groupApi.find({ ...query, sort: "name", direction: "asc" }),
-          mapItems: (items: unknown[]) => (items as GroupSearchItems).map((item) => ({
-            id: item.id,
-            title: item.name,
-            subtitle: item.studioName || item.date || undefined,
-            route: { page: "group", id: item.id },
-            hostType: "group" as const,
-          })),
-        }] : []),
-        ...(readableEntities.audios ? [{
-          key: "audios",
-          label: "Audios",
-          icon: Headphones,
-          hostType: "audio" as const,
-          load: () => audios.find({ ...query, sort: "title", direction: "asc" }),
-          mapItems: (items: unknown[]) => (items as AudioSearchItems).map((item) => ({
-            id: item.id,
-            title: item.title || item.files[0]?.basename || `Audio ${item.id}`,
-            subtitle: item.studioName || item.date || undefined,
-            route: { page: "audio", id: item.id },
-            hostType: "audio" as const,
-          })),
-        }] : []),
-        ...(readableEntities.texts ? [{
-          key: "texts",
-          label: "Texts",
-          icon: BookOpenText,
-          hostType: "text" as const,
-          load: () => texts.find({ ...query, sort: "title", direction: "asc" }),
-          mapItems: (items: unknown[]) => (items as TextSearchItems).map((item) => ({
-            id: item.id,
-            title: item.title || item.files[0]?.basename || `Text ${item.id}`,
-            subtitle: item.studioName || item.date || undefined,
-            route: { page: "text", id: item.id },
-            hostType: "text" as const,
-          })),
-        }] : []),
-      ];
-
-      const results = await Promise.allSettled(searches.map((search) => search.load()));
-      const failedLabels: string[] = [];
-      const searchGroups = searches.flatMap((search, index) => {
-        const result = results[index];
-        if (result?.status !== "fulfilled") {
-          failedLabels.push(search.label);
-          return [];
-        }
-
-        const items = search.mapItems(result.value.items);
-        return items.length > 0
-          ? [{ key: search.key, label: search.label, icon: search.icon, items }]
-          : [];
-      });
-
-      return { groups: searchGroups, failedLabels } satisfies SearchResult;
-    },
+    queryKey: ["global-search", committedTerm, searchableLabels.join(",")],
+    enabled: committedTerm.length >= 2 && searchableLabels.length > 0,
+    queryFn: ({ signal }) => globalSearch.find(committedTerm, 8, signal),
   });
 
-  const groupsData = data?.groups ?? [];
-  const failedLabels = data?.failedLabels ?? [];
+  const resultMatchesInput = committedTerm === normalizedTerm;
+  const groupsData = useMemo<SearchGroup[]>(() => resultMatchesInput ? (data?.groups ?? []).flatMap((group) => {
+    const presentation = SEARCH_PRESENTATIONS[group.type];
+    if (!presentation) return [];
+    return [{
+      key: presentation.key,
+      label: presentation.label,
+      icon: presentation.icon,
+      items: group.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        subtitle: item.subtitle ?? undefined,
+        route: { page: presentation.page, id: item.id },
+        hostType: presentation.hostType,
+      })),
+    }];
+  }) : [], [data, resultMatchesInput]);
+  const failedLabels = resultMatchesInput
+    ? (data?.failedTypes ?? []).map((type) => SEARCH_PRESENTATIONS[type]?.label ?? type)
+    : [];
+  const isWaiting = normalizedTerm.length >= 2 && (!resultMatchesInput || isFetching);
   const flatResults = useMemo(() => groupsData.flatMap((group) => group.items), [groupsData]);
 
   useEffect(() => {
-    if (!open || deferredTerm.length < 2 || isFetching || searchableLabels.length === 0) {
+    if (!open || committedTerm.length < 2 || !resultMatchesInput || isFetching || searchableLabels.length === 0) {
       return;
     }
 
     const resultCount = flatResults.length;
-    const searchKey = `${deferredTerm}|${searchableLabels.join(",")}|${resultCount}`;
+    const searchKey = `${committedTerm}|${searchableLabels.join(",")}|${resultCount}`;
     if (lastTrackedSearchKey.current === searchKey) {
       return;
     }
@@ -329,13 +171,13 @@ export function GlobalSearch({ navigate }: Props) {
       hostType: "search",
       kind: "searchQuery",
       meta: {
-        query: deferredTerm,
+        query: committedTerm,
         resultCount,
         scopes: searchableLabels,
         source: "globalSearch",
       },
     });
-  }, [deferredTerm, flatResults.length, isFetching, open, searchableLabels]);
+  }, [committedTerm, flatResults.length, isFetching, open, resultMatchesInput, searchableLabels]);
 
   const handleSelect = (item: SearchGroup["items"][number], rank: number) => {
     trackInteraction({
@@ -343,7 +185,7 @@ export function GlobalSearch({ navigate }: Props) {
       hostId: item.id,
       kind: "searchSelect",
       meta: {
-        query: deferredTerm,
+        query: committedTerm,
         rank,
         source: "globalSearch",
       },
@@ -353,6 +195,18 @@ export function GlobalSearch({ navigate }: Props) {
     setTerm("");
   };
 
+  const handleEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || normalizedTerm.length < 2)
+      return;
+    event.preventDefault();
+    if (!resultMatchesInput) {
+      setCommittedTerm(normalizedTerm);
+      return;
+    }
+    if (flatResults.length > 0)
+      handleSelect(flatResults[0], 1);
+  };
+
   const renderResults = () => (
     <>
       <div className="border-b border-border px-3 py-2 text-[11px] uppercase tracking-wider text-muted">
@@ -360,14 +214,14 @@ export function GlobalSearch({ navigate }: Props) {
       </div>
       {searchableLabels.length === 0 ? (
         <div className="px-4 py-6 text-sm text-secondary">No searchable libraries are available for this account.</div>
-      ) : deferredTerm.length < 2 ? (
+      ) : normalizedTerm.length < 2 ? (
         <div className="px-4 py-6 text-sm text-secondary">Type at least 2 characters to search {searchableLabels.join(", ")}.</div>
-      ) : isFetching ? (
+      ) : isWaiting ? (
         <div className="flex items-center gap-2 px-4 py-6 text-sm text-secondary">
           <Loader2 className="h-4 w-4 animate-spin" /> Searching...
         </div>
       ) : groupsData.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-secondary">No results found for &ldquo;{deferredTerm}&rdquo;.</div>
+        <div className="px-4 py-6 text-sm text-secondary">No results found for &ldquo;{normalizedTerm}&rdquo;.</div>
       ) : (
         <div className="max-h-[28rem] overflow-y-auto">
           {failedLabels.length > 0 ? (
@@ -426,11 +280,9 @@ export function GlobalSearch({ navigate }: Props) {
                       setOpen(false);
                       return;
                     }
-                    if (event.key === "Enter" && flatResults.length > 0) {
-                      event.preventDefault();
-                      handleSelect(flatResults[0], 1);
-                    }
+                    handleEnter(event);
                   }}
+                  aria-label="Search all..."
                   placeholder="Search all..."
                   className="w-full rounded-lg border border-border bg-input py-1.5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
                 />
@@ -480,11 +332,9 @@ export function GlobalSearch({ navigate }: Props) {
               setOpen(false);
               return;
             }
-            if (event.key === "Enter" && flatResults.length > 0) {
-              event.preventDefault();
-              handleSelect(flatResults[0], 1);
-            }
+            handleEnter(event);
           }}
+          aria-label="Search all..."
           placeholder="Search all..."
           className="w-72 rounded-lg border border-border bg-input py-1.5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
         />
