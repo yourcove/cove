@@ -54,7 +54,8 @@ public sealed class GlobalSearchSmokeTests
         {
             var performer = new Performer { Name = "Relationship-only phrase" };
             var video = new Video { Title = "Unrelated title" };
-            db.VideoPerformers.Add(new VideoPerformer { Video = video, Performer = performer });
+            video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
+            db.Videos.Add(video);
             await db.SaveChangesAsync();
         });
         using var client = factory.CreateAuthenticatedClient();
