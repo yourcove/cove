@@ -10,13 +10,6 @@ namespace Cove.Data.Repositories;
 
 public class PerformerRepository : IPerformerRepository
 {
-    private static readonly HashSet<string> PerformerMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "name", "created_at", "updated_at", "birthdate", "video_count", "image_count", "gallery_count",
-        "latest_video_date", "total_file_size", "height", "weight", "tag_count", "rating", "like_counter",
-        "play_count", "last_like_at", "last_played_at",
-    };
-
     private readonly CoveContext _db;
     public PerformerRepository(CoveContext db) => _db = db;
 
@@ -557,14 +550,15 @@ public class PerformerRepository : IPerformerRepository
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 
-        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, PerformerMultiSortKeys);
+        var multiSortRegistry = CreatePerformerMultiSortRegistry(EngagementQueryHelpers.CurrentUserId(_db));
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
         var primarySort = sortClauses.FirstOrDefault();
         var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
         var sort = primarySort?.Key ?? findFilter?.Sort ?? "name";
         var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
             || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
         query = sortClauses.Count > 1
-            ? ApplyPerformerMultiSort(query, sortClauses)
+            ? ApplyPerformerMultiSort(query, sortClauses, multiSortRegistry)
             : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Performer, sort, desc)
             : sort switch
@@ -628,55 +622,60 @@ public class PerformerRepository : IPerformerRepository
         return (sortedItems, totalCount);
     }
 
-    private IQueryable<Performer> ApplyPerformerMultiSort(IQueryable<Performer> query, IReadOnlyList<SortClause> clauses)
+    private CompoundSortRegistry<Performer> CreatePerformerMultiSortRegistry(int? userId)
+        => new(new Dictionary<string, Action<CompoundSortQuery<Performer>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["name"] = (compound, desc) => compound.Append(performer => performer.Name, desc),
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["created_at"] = (compound, desc) => compound.Append(performer => performer.CreatedAt, desc),
+            ["updated_at"] = (compound, desc) => compound.Append(performer => performer.UpdatedAt, desc),
+            ["birthdate"] = (compound, desc) => compound.Append(performer => performer.Birthdate, desc),
+            ["video_count"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Count, desc),
+            ["image_count"] = (compound, desc) => compound.Append(performer => performer.ImagePerformers.Count, desc),
+            ["gallery_count"] = (compound, desc) => compound.Append(performer => performer.GalleryPerformers.Count, desc),
+            ["latest_video_date"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc),
+            ["total_file_size"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc),
+            ["height"] = (compound, desc) => compound.Append(performer => performer.HeightCm, desc),
+            ["weight"] = (compound, desc) => compound.Append(performer => performer.Weight, desc),
+            ["tag_count"] = (compound, desc) => compound.Append(performer => performer.TagCount, desc),
+            ["like_counter"] = (compound, desc) =>
+            {
+                if (userId is int selectedUserId)
+                    compound.Append(performer => _db.UserEntityAffinities
+                        .Where(affinity => affinity.UserId == selectedUserId && affinity.HostType == AffinityHostType.Video
+                            && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
+                        .Sum(affinity => affinity.LikeCount), desc);
+            },
+            ["play_count"] = (compound, desc) =>
+            {
+                if (userId is int selectedUserId)
+                    compound.Append(performer => _db.UserEntityAffinities
+                        .Where(affinity => affinity.UserId == selectedUserId && affinity.HostType == AffinityHostType.Video
+                            && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
+                        .Sum(affinity => affinity.ViewCount), desc);
+            },
+            ["last_like_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc),
+            ["last_played_at"] = (compound, desc) =>
+            {
+                if (userId is int selectedUserId)
+                    compound.Append(performer => _db.UserEntityAffinities
+                        .Where(affinity => affinity.UserId == selectedUserId && affinity.HostType == AffinityHostType.Video
+                            && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
+                        .Max(affinity => affinity.LastConsumedAt) ?? (desc ? DateTime.MinValue : DateTime.MaxValue), desc);
+            },
+        });
+
+    private IQueryable<Performer> ApplyPerformerMultiSort(
+        IQueryable<Performer> query,
+        IReadOnlyList<SortClause> clauses,
+        CompoundSortRegistry<Performer> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Performer>.Create(
             _db, query, userId, AffinityHostType.Performer, RatingHostType.Performer,
             includeAffinity: clauses.Any(clause => clause.Key.Equals("last_like_at", StringComparison.OrdinalIgnoreCase)),
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "name": compound.Append(performer => performer.Name, desc); break;
-                case "rating": compound.AppendRating(desc); break;
-                case "created_at": compound.Append(performer => performer.CreatedAt, desc); break;
-                case "updated_at": compound.Append(performer => performer.UpdatedAt, desc); break;
-                case "birthdate": compound.Append(performer => performer.Birthdate, desc); break;
-                case "video_count": compound.Append(performer => performer.VideoPerformers.Count, desc); break;
-                case "image_count": compound.Append(performer => performer.ImagePerformers.Count, desc); break;
-                case "gallery_count": compound.Append(performer => performer.GalleryPerformers.Count, desc); break;
-                case "latest_video_date": compound.Append(performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc); break;
-                case "total_file_size": compound.Append(performer => performer.VideoPerformers.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
-                case "height": compound.Append(performer => performer.HeightCm, desc); break;
-                case "weight": compound.Append(performer => performer.Weight, desc); break;
-                case "tag_count": compound.Append(performer => performer.TagCount, desc); break;
-                case "like_counter":
-                    if (userId is int likeUserId)
-                        compound.Append(performer => _db.UserEntityAffinities
-                            .Where(affinity => affinity.UserId == likeUserId && affinity.HostType == AffinityHostType.Video
-                                && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
-                            .Sum(affinity => affinity.LikeCount), desc);
-                    break;
-                case "play_count":
-                    if (userId is int playUserId)
-                        compound.Append(performer => _db.UserEntityAffinities
-                            .Where(affinity => affinity.UserId == playUserId && affinity.HostType == AffinityHostType.Video
-                                && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
-                            .Sum(affinity => affinity.ViewCount), desc);
-                    break;
-                case "last_like_at": compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc); break;
-                case "last_played_at":
-                    if (userId is int playedUserId)
-                        compound.Append(performer => _db.UserEntityAffinities
-                            .Where(affinity => affinity.UserId == playedUserId && affinity.HostType == AffinityHostType.Video
-                                && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
-                            .Max(affinity => affinity.LastConsumedAt) ?? (desc ? DateTime.MinValue : DateTime.MaxValue), desc);
-                    break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(performer => performer.Id);
     }
@@ -685,12 +684,6 @@ public class PerformerRepository : IPerformerRepository
 
 public class TagRepository : ITagRepository
 {
-    private static readonly HashSet<string> TagMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "name", "video_count", "gallery_count", "group_count", "image_count", "performer_count",
-        "studio_count", "latest_video_date", "total_file_size", "created_at", "updated_at", "rating",
-    };
-
     private readonly record struct TagEntityPair(int TagId, int EntityId);
 
     private readonly CoveContext _db;
@@ -830,14 +823,15 @@ public class TagRepository : ITagRepository
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 
-        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, TagMultiSortKeys);
+        var multiSortRegistry = CreateTagMultiSortRegistry();
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
         var primarySort = sortClauses.FirstOrDefault();
         var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
         var sort = primarySort?.Key ?? findFilter?.Sort ?? "name";
         var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
             || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
         query = sortClauses.Count > 1
-            ? ApplyTagMultiSort(query, sortClauses)
+            ? ApplyTagMultiSort(query, sortClauses, multiSortRegistry)
             : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Tag, sort, desc)
             : sort switch
@@ -911,32 +905,31 @@ public class TagRepository : ITagRepository
             ? query.OrderByDescending(keySelector).ThenBy(tag => tag.Id)
             : query.OrderBy(keySelector).ThenBy(tag => tag.Id);
 
-    private IQueryable<Tag> ApplyTagMultiSort(IQueryable<Tag> query, IReadOnlyList<SortClause> clauses)
+    private static CompoundSortRegistry<Tag> CreateTagMultiSortRegistry()
+        => new(new Dictionary<string, Action<CompoundSortQuery<Tag>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["name"] = (compound, desc) => compound.Append(tag => tag.Name, desc),
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["video_count"] = (compound, desc) => compound.Append(tag => tag.VideoCount, desc),
+            ["gallery_count"] = (compound, desc) => compound.Append(tag => tag.GalleryCount, desc),
+            ["group_count"] = (compound, desc) => compound.Append(tag => tag.GroupCount, desc),
+            ["image_count"] = (compound, desc) => compound.Append(tag => tag.ImageCount, desc),
+            ["performer_count"] = (compound, desc) => compound.Append(tag => tag.PerformerCount, desc),
+            ["studio_count"] = (compound, desc) => compound.Append(tag => tag.StudioCount, desc),
+            ["latest_video_date"] = (compound, desc) => compound.Append(tag => tag.VideoTags.Max(link => link.Video!.Date), desc),
+            ["total_file_size"] = (compound, desc) => compound.Append(tag => tag.VideoTags.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc),
+            ["created_at"] = (compound, desc) => compound.Append(tag => tag.CreatedAt, desc),
+            ["updated_at"] = (compound, desc) => compound.Append(tag => tag.UpdatedAt, desc),
+        });
+
+    private IQueryable<Tag> ApplyTagMultiSort(IQueryable<Tag> query, IReadOnlyList<SortClause> clauses, CompoundSortRegistry<Tag> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Tag>.Create(
             _db, query, userId, null, RatingHostType.Tag,
             includeAffinity: false,
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "name": compound.Append(tag => tag.Name, desc); break;
-                case "rating": compound.AppendRating(desc); break;
-                case "video_count": compound.Append(tag => tag.VideoCount, desc); break;
-                case "gallery_count": compound.Append(tag => tag.GalleryCount, desc); break;
-                case "group_count": compound.Append(tag => tag.GroupCount, desc); break;
-                case "image_count": compound.Append(tag => tag.ImageCount, desc); break;
-                case "performer_count": compound.Append(tag => tag.PerformerCount, desc); break;
-                case "studio_count": compound.Append(tag => tag.StudioCount, desc); break;
-                case "latest_video_date": compound.Append(tag => tag.VideoTags.Max(link => link.Video!.Date), desc); break;
-                case "total_file_size": compound.Append(tag => tag.VideoTags.Sum(link => (long?)link.Video!.MaxFileSize) ?? 0L, desc); break;
-                case "created_at": compound.Append(tag => tag.CreatedAt, desc); break;
-                case "updated_at": compound.Append(tag => tag.UpdatedAt, desc); break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(tag => tag.Id);
     }
@@ -1264,12 +1257,6 @@ public class TagRepository : ITagRepository
 
 public class StudioRepository : IStudioRepository
 {
-    private static readonly HashSet<string> StudioMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "name", "video_count", "gallery_count", "image_count", "latest_video_date", "total_file_size",
-        "parent_count", "child_count", "tag_count", "created_at", "updated_at", "rating",
-    };
-
     private readonly CoveContext _db;
     public StudioRepository(CoveContext db) => _db = db;
 
@@ -1423,14 +1410,15 @@ public class StudioRepository : IStudioRepository
         }
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
-        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, StudioMultiSortKeys);
+        var multiSortRegistry = CreateStudioMultiSortRegistry();
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
         var primarySort = sortClauses.FirstOrDefault();
         var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
         var sort = primarySort?.Key ?? findFilter?.Sort ?? "name";
         var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
             || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
         query = sortClauses.Count > 1
-            ? ApplyStudioMultiSort(query, sortClauses)
+            ? ApplyStudioMultiSort(query, sortClauses, multiSortRegistry)
             : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Studio, sort, desc)
             : sort switch
@@ -1480,32 +1468,31 @@ public class StudioRepository : IStudioRepository
         return (sortedItems, totalCount);
     }
 
-    private IQueryable<Studio> ApplyStudioMultiSort(IQueryable<Studio> query, IReadOnlyList<SortClause> clauses)
+    private static CompoundSortRegistry<Studio> CreateStudioMultiSortRegistry()
+        => new(new Dictionary<string, Action<CompoundSortQuery<Studio>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["name"] = (compound, desc) => compound.Append(studio => studio.Name, desc),
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["video_count"] = (compound, desc) => compound.Append(studio => studio.VideoCount, desc),
+            ["gallery_count"] = (compound, desc) => compound.Append(studio => studio.GalleryCount, desc),
+            ["image_count"] = (compound, desc) => compound.Append(studio => studio.ImageCount, desc),
+            ["latest_video_date"] = (compound, desc) => compound.Append(studio => studio.Videos.Max(video => video.Date), desc),
+            ["total_file_size"] = (compound, desc) => compound.Append(studio => studio.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L, desc),
+            ["parent_count"] = (compound, desc) => compound.Append(studio => studio.ParentId.HasValue ? 1 : 0, desc),
+            ["child_count"] = (compound, desc) => compound.Append(studio => studio.ChildStudioCount, desc),
+            ["tag_count"] = (compound, desc) => compound.Append(studio => studio.TagCount, desc),
+            ["created_at"] = (compound, desc) => compound.Append(studio => studio.CreatedAt, desc),
+            ["updated_at"] = (compound, desc) => compound.Append(studio => studio.UpdatedAt, desc),
+        });
+
+    private IQueryable<Studio> ApplyStudioMultiSort(IQueryable<Studio> query, IReadOnlyList<SortClause> clauses, CompoundSortRegistry<Studio> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Studio>.Create(
             _db, query, userId, null, RatingHostType.Studio,
             includeAffinity: false,
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "name": compound.Append(studio => studio.Name, desc); break;
-                case "rating": compound.AppendRating(desc); break;
-                case "video_count": compound.Append(studio => studio.VideoCount, desc); break;
-                case "gallery_count": compound.Append(studio => studio.GalleryCount, desc); break;
-                case "image_count": compound.Append(studio => studio.ImageCount, desc); break;
-                case "latest_video_date": compound.Append(studio => studio.Videos.Max(video => video.Date), desc); break;
-                case "total_file_size": compound.Append(studio => studio.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L, desc); break;
-                case "parent_count": compound.Append(studio => studio.ParentId.HasValue ? 1 : 0, desc); break;
-                case "child_count": compound.Append(studio => studio.ChildStudioCount, desc); break;
-                case "tag_count": compound.Append(studio => studio.TagCount, desc); break;
-                case "created_at": compound.Append(studio => studio.CreatedAt, desc); break;
-                case "updated_at": compound.Append(studio => studio.UpdatedAt, desc); break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(studio => studio.Id);
     }
@@ -2119,12 +2106,6 @@ public class GalleryRepository : IGalleryRepository
 
 public class ImageRepository : IImageRepository
 {
-    private static readonly HashSet<string> ImageMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "updated_at", "created_at", "date", "file_mod_time", "file_size", "resolution", "path",
-        "title", "performer_count", "tag_count", "rating", "like_counter",
-    };
-
     private readonly CoveContext _db;
     public ImageRepository(CoveContext db) => _db = db;
 
@@ -2240,14 +2221,15 @@ public class ImageRepository : IImageRepository
         var totalCount = await filterQuery.AsNoTracking().CountAsync(ct);
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
-        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, ImageMultiSortKeys);
+        var multiSortRegistry = CreateImageMultiSortRegistry();
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
         var primarySort = sortClauses.FirstOrDefault();
         var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
         var sort = primarySort?.Key ?? findFilter?.Sort ?? "updated_at";
         var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
             || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
         filterQuery = sortClauses.Count > 1
-            ? ApplyImageMultiSort(filterQuery, sortClauses)
+            ? ApplyImageMultiSort(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
         if (!hasExplicitSort)
             filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
@@ -2465,32 +2447,31 @@ public class ImageRepository : IImageRepository
         return ApplySortingSwitch(query, sort, desc);
     }
 
-    private IQueryable<Image> ApplyImageMultiSort(IQueryable<Image> query, IReadOnlyList<SortClause> clauses)
+    private static CompoundSortRegistry<Image> CreateImageMultiSortRegistry()
+        => new(new Dictionary<string, Action<CompoundSortQuery<Image>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["updated_at"] = (compound, desc) => compound.Append(image => image.UpdatedAt, desc),
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["like_counter"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc),
+            ["created_at"] = (compound, desc) => compound.Append(image => image.CreatedAt, desc),
+            ["date"] = (compound, desc) => compound.Append(image => image.Date, desc),
+            ["file_mod_time"] = (compound, desc) => compound.Append(image => image.MaxFileModTime, desc),
+            ["file_size"] = (compound, desc) => compound.Append(image => image.MaxFileSize, desc),
+            ["resolution"] = (compound, desc) => compound.Append(image => image.MaxResolution, desc),
+            ["path"] = (compound, desc) => compound.Append(image => desc ? image.MaxPath : image.MinPath, desc),
+            ["title"] = (compound, desc) => compound.Append(DisplayTitleSelector, desc),
+            ["performer_count"] = (compound, desc) => compound.Append(image => image.ImagePerformers.Count, desc),
+            ["tag_count"] = (compound, desc) => compound.Append(image => image.TagCount, desc),
+        });
+
+    private IQueryable<Image> ApplyImageMultiSort(IQueryable<Image> query, IReadOnlyList<SortClause> clauses, CompoundSortRegistry<Image> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Image>.Create(
             _db, query, userId, AffinityHostType.Image, RatingHostType.Image,
             includeAffinity: clauses.Any(clause => clause.Key.Equals("like_counter", StringComparison.OrdinalIgnoreCase)),
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "updated_at": compound.Append(image => image.UpdatedAt, desc); break;
-                case "rating": compound.AppendRating(desc); break;
-                case "like_counter": compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc); break;
-                case "created_at": compound.Append(image => image.CreatedAt, desc); break;
-                case "date": compound.Append(image => image.Date, desc); break;
-                case "file_mod_time": compound.Append(image => image.MaxFileModTime, desc); break;
-                case "file_size": compound.Append(image => image.MaxFileSize, desc); break;
-                case "resolution": compound.Append(image => image.MaxResolution, desc); break;
-                case "path": compound.Append(image => desc ? image.MaxPath : image.MinPath, desc); break;
-                case "title": compound.Append(DisplayTitleSelector, desc); break;
-                case "performer_count": compound.Append(image => image.ImagePerformers.Count, desc); break;
-                case "tag_count": compound.Append(image => image.TagCount, desc); break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(image => image.Id);
     }
