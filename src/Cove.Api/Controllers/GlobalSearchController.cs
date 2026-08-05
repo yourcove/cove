@@ -242,22 +242,8 @@ public sealed class GlobalSearchController(
     };
 
     private IQueryable<Video> ApplyVideoSearch(IQueryable<Video> query, string term)
-    {
-        var text = FullTextSearchHelpers.Apply(db, query, term,
+        => FullTextSearchHelpers.Apply(db, query, term,
             video => video.Title, video => video.Details, video => video.Code, video => video.FileSearchText, video => video.SearchText);
-        var lower = term.ToLowerInvariant();
-        var tagWord = $" {lower} ";
-        var relational = query.Where(video =>
-            (video.Studio != null && video.Studio.Name.ToLower().Contains(lower))
-            || video.VideoPerformers.Any(link => link.Performer != null &&
-                (link.Performer.Name.ToLower().Contains(lower) || link.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))))
-            || video.VideoTags.Any(link => link.Tag != null &&
-                ((" " + link.Tag.Name.ToLower() + " ").Contains(tagWord)
-                 || link.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(tagWord))))
-            || video.VideoGalleries.Any(link => link.Gallery != null && link.Gallery.Title != null && link.Gallery.Title.ToLower().Contains(lower))
-            || video.GroupItems.Any(item => item.Group != null && item.Group.Name.ToLower().Contains(lower)));
-        return FullTextSearchHelpers.ApplyFilePathMatch(text.Concat(relational).Distinct(), query, term, video => video.Files);
-    }
 
     private IQueryable<Performer> ApplyPerformerSearch(IQueryable<Performer> query, string term)
     {
@@ -299,14 +285,8 @@ public sealed class GlobalSearchController(
     }
 
     private IQueryable<Image> ApplyImageSearch(IQueryable<Image> query, string term)
-    {
-        var text = FullTextSearchHelpers.Apply(db, query, term,
+        => FullTextSearchHelpers.Apply(db, query, term,
             image => image.Title, image => image.Details, image => image.Code, image => image.Photographer, image => image.FileSearchText, image => image.SearchText);
-        var relational = FullTextSearchHelpers.ApplyRelationalMatches(text, query, term,
-            tagSelectors: [image => image.ImageTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
-            performerSelectors: [image => image.ImagePerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
-        return FullTextSearchHelpers.ApplyFilePathMatch(relational, query, term, image => image.Files);
-    }
 
     private IQueryable<Group> ApplyGroupSearch(IQueryable<Group> query, string term)
     {
