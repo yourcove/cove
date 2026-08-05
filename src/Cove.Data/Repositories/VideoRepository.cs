@@ -118,14 +118,15 @@ public class VideoRepository : IVideoRepository
         var totalCount = await filterQuery.AsNoTracking().CountAsync(ct);
 
         // Sort and paginate on the lightweight query, then fetch only the IDs
-        var sortClauses = NormalizeMultiSortClauses(findFilter?.Sorts);
+        var multiSortRegistry = CreateMultiSortRegistry();
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
         var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
         var primarySortClause = sortClauses.FirstOrDefault();
         var sort = primarySortClause?.Key ?? findFilter?.Sort ?? "updated_at";
         var desc = primarySortClause?.Direction == Core.Enums.SortDirection.Desc
             || (primarySortClause == null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
         filterQuery = sortClauses.Count > 1
-            ? ApplyMultiSorting(filterQuery, sortClauses)
+            ? ApplyMultiSorting(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
         if (!hasExplicitSort)
             filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
@@ -403,44 +404,71 @@ public class VideoRepository : IVideoRepository
         return ApplySortingSwitch(query, sort, desc);
     }
 
-    private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "bitrate",
-        "code",
-        "created_at",
-        "date",
-        "duration",
-        "file_count",
-        "file_mod_time",
-        "file_size",
-        "framerate",
-        "organized",
-        "path",
-        "performer_count",
-        "play_count",
-        "like_counter",
-        "last_like_at",
-        "last_played_at",
-        "play_duration",
-        "resume_time",
-        "rating",
-        "resolution",
-        "studio",
-        "studio_code",
-        "tag_count",
-        "title",
-        "updated_at",
-    };
-
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "play_count", "like_counter", "last_like_at", "last_played_at", "play_duration", "resume_time",
     };
 
-    private static List<SortClause> NormalizeMultiSortClauses(IEnumerable<SortClause>? clauses)
-        => CompoundSortOrdering.Normalize(clauses, MultiSortKeys);
+    private static CompoundSortRegistry<Video> CreateMultiSortRegistry()
+        => new(new Dictionary<string, Action<CompoundSortQuery<Video>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["title"] = (compound, desc) =>
+            {
+                compound.Append(video => video.Title == null ? 1 : 0, false);
+                compound.Append(video => video.Title, desc);
+            },
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["play_count"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc),
+            ["like_counter"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc),
+            ["last_like_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc),
+            ["last_played_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc),
+            ["play_duration"] = (compound, desc) => compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc),
+            ["resume_time"] = (compound, desc) => compound.AppendAffinityDouble(nameof(UserEntityAffinity.LastPositionSec), desc),
+            ["date"] = (compound, desc) =>
+            {
+                compound.Append(video => video.Date == null ? 1 : 0, false);
+                compound.Append(video => video.Date, desc);
+            },
+            ["organized"] = (compound, desc) => compound.Append(video => video.Organized, desc),
+            ["duration"] = (compound, desc) => compound.Append(video => video.MaxDuration, desc),
+            ["file_size"] = (compound, desc) => compound.Append(video => video.MaxFileSize, desc),
+            ["file_mod_time"] = (compound, desc) =>
+            {
+                compound.Append(video => video.MaxFileModTime == null ? 1 : 0, false);
+                compound.Append(video => video.MaxFileModTime, desc);
+            },
+            ["file_count"] = (compound, desc) => compound.Append(video => video.FileCount, desc),
+            ["path"] = (compound, desc) =>
+            {
+                compound.Append(video => desc ? video.MaxPath == null ? 1 : 0 : video.MinPath == null ? 1 : 0, false);
+                compound.Append(video => desc ? video.MaxPath : video.MinPath, desc);
+            },
+            ["resolution"] = (compound, desc) => compound.Append(video => video.MaxHeight, desc),
+            ["framerate"] = (compound, desc) => compound.Append(video => video.MaxFrameRate, desc),
+            ["bitrate"] = (compound, desc) => compound.Append(video => video.MaxBitRate, desc),
+            ["tag_count"] = (compound, desc) => compound.Append(video => video.VideoTags.Count, desc),
+            ["performer_count"] = (compound, desc) => compound.Append(video => video.VideoPerformers.Count, desc),
+            ["studio"] = (compound, desc) =>
+            {
+                compound.Append(video => video.Studio == null ? 1 : 0, false);
+                compound.Append(video => video.Studio != null ? video.Studio.Name : null, desc);
+            },
+            ["code"] = AppendCode,
+            ["studio_code"] = AppendCode,
+            ["created_at"] = (compound, desc) => compound.Append(video => video.CreatedAt, desc),
+            ["updated_at"] = (compound, desc) => compound.Append(video => video.UpdatedAt, desc),
+        });
 
-    private IQueryable<Video> ApplyMultiSorting(IQueryable<Video> query, IReadOnlyList<SortClause> clauses)
+    private static void AppendCode(CompoundSortQuery<Video> compound, bool desc)
+    {
+        compound.Append(video => video.Code == null ? 1 : 0, false);
+        compound.Append(video => video.Code, desc);
+    }
+
+    private IQueryable<Video> ApplyMultiSorting(
+        IQueryable<Video> query,
+        IReadOnlyList<SortClause> clauses,
+        CompoundSortRegistry<Video> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Video>.Create(
@@ -452,100 +480,7 @@ public class VideoRepository : IVideoRepository
             includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
 
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "title":
-                    compound.Append(video => video.Title == null ? 1 : 0, false);
-                    compound.Append(video => video.Title, desc);
-                    break;
-                case "rating":
-                    compound.AppendRating(desc);
-                    break;
-                case "play_count":
-                    compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc);
-                    break;
-                case "like_counter":
-                    compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc);
-                    break;
-                case "last_like_at":
-                    compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc);
-                    break;
-                case "last_played_at":
-                    compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc);
-                    break;
-                case "play_duration":
-                    compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc);
-                    break;
-                case "resume_time":
-                    compound.AppendAffinityDouble(nameof(UserEntityAffinity.LastPositionSec), desc);
-                    break;
-                case "date":
-                    compound.Append(video => video.Date == null ? 1 : 0, false);
-                    compound.Append(video => video.Date, desc);
-                    break;
-                case "organized":
-                    compound.Append(video => video.Organized, desc);
-                    break;
-                case "duration":
-                    compound.Append(video => video.MaxDuration, desc);
-                    break;
-                case "file_size":
-                    compound.Append(video => video.MaxFileSize, desc);
-                    break;
-                case "file_mod_time":
-                    compound.Append(video => video.MaxFileModTime == null ? 1 : 0, false);
-                    compound.Append(video => video.MaxFileModTime, desc);
-                    break;
-                case "file_count":
-                    compound.Append(video => video.FileCount, desc);
-                    break;
-                case "path":
-                    if (desc)
-                    {
-                        compound.Append(video => video.MaxPath == null ? 1 : 0, false);
-                        compound.Append(video => video.MaxPath, true);
-                    }
-                    else
-                    {
-                        compound.Append(video => video.MinPath == null ? 1 : 0, false);
-                        compound.Append(video => video.MinPath, false);
-                    }
-                    break;
-                case "resolution":
-                    compound.Append(video => video.MaxHeight, desc);
-                    break;
-                case "framerate":
-                    compound.Append(video => video.MaxFrameRate, desc);
-                    break;
-                case "bitrate":
-                    compound.Append(video => video.MaxBitRate, desc);
-                    break;
-                case "tag_count":
-                    compound.Append(video => video.VideoTags.Count, desc);
-                    break;
-                case "performer_count":
-                    compound.Append(video => video.VideoPerformers.Count, desc);
-                    break;
-                case "studio":
-                    compound.Append(video => video.Studio == null ? 1 : 0, false);
-                    compound.Append(video => video.Studio != null ? video.Studio.Name : null, desc);
-                    break;
-                case "code":
-                case "studio_code":
-                    compound.Append(video => video.Code == null ? 1 : 0, false);
-                    compound.Append(video => video.Code, desc);
-                    break;
-                case "created_at":
-                    compound.Append(video => video.CreatedAt, desc);
-                    break;
-                case "updated_at":
-                    compound.Append(video => video.UpdatedAt, desc);
-                    break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(video => video.Id);
     }
