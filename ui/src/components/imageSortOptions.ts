@@ -14,6 +14,4 @@ export const IMAGE_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "random", label: "Random" },
 ];
 
-export const IMAGE_MULTI_SORT_KEYS = IMAGE_SORT_OPTIONS
-  .map((option) => option.value)
-  .filter((key) => key !== "random");
+export { IMAGE_MULTI_SORT_KEYS } from "./entityMultiSortKeys";

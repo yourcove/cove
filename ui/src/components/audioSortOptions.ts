@@ -21,6 +21,4 @@ export const AUDIO_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "random", label: "Random" },
 ];
 
-export const AUDIO_MULTI_SORT_KEYS = AUDIO_SORT_OPTIONS
-  .map((option) => option.value)
-  .filter((key) => key !== "random");
+export { AUDIO_MULTI_SORT_KEYS } from "./entityMultiSortKeys";

@@ -19,6 +19,4 @@ export const TEXT_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "random", label: "Random" },
 ];
 
-export const TEXT_MULTI_SORT_KEYS = TEXT_SORT_OPTIONS
-  .map((option) => option.value)
-  .filter((key) => key !== "random");
+export { TEXT_MULTI_SORT_KEYS } from "./entityMultiSortKeys";

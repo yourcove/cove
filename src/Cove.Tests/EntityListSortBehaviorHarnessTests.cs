@@ -546,26 +546,12 @@ public class EntityListSortBehaviorHarnessTests
     {
         await using var fixture = await SortHarnessFixture.CreateAsync();
         fixture.ActivatePrincipal();
-        var catalogs = new[]
-        {
-            (Entity: "galleries", File: "gallerySortOptions.ts", Excluded: new HashSet<string>(["typical_resolution", "random"], StringComparer.OrdinalIgnoreCase)),
-            (Entity: "performers", File: "performerSortOptions.ts", Excluded: new HashSet<string>(["career_length", "measurements", "random"], StringComparer.OrdinalIgnoreCase)),
-            (Entity: "studios", File: "studioSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
-            (Entity: "images", File: "imageSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
-            (Entity: "audios", File: "audioSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
-            (Entity: "texts", File: "textSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
-        };
+        var contractPath = FindRepositoryFile("ui", "src", "components", "entityMultiSortKeys.json");
+        var contract = JsonSerializer.Deserialize<Dictionary<string, string[]>>(await File.ReadAllTextAsync(contractPath))
+            ?? throw new InvalidOperationException("Compound-sort contract is empty.");
 
-        foreach (var catalog in catalogs)
+        foreach (var (entity, advertisedKeys) in contract)
         {
-            var optionsPath = FindRepositoryFile("ui", "src", "components", catalog.File);
-            var source = await File.ReadAllTextAsync(optionsPath);
-            var advertisedKeys = System.Text.RegularExpressions.Regex.Matches(source, "value:\\s*\"([^\"]+)\"")
-                .Select(match => match.Groups[1].Value)
-                .Where(key => !catalog.Excluded.Contains(key))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
             foreach (var key in advertisedKeys)
             {
                 var secondaryKey = key.Equals(advertisedKeys[0], StringComparison.OrdinalIgnoreCase)
@@ -582,36 +568,9 @@ public class EntityListSortBehaviorHarnessTests
                     ],
                 };
 
-                var exception = await Record.ExceptionAsync(() => ExecuteCompoundSortAsync(fixture.Context, catalog.Entity, findFilter));
+                var exception = await Record.ExceptionAsync(() => ExecuteCompoundSortAsync(fixture.Context, entity, findFilter));
                 Assert.Null(exception);
             }
-        }
-
-        var videosPagePath = FindRepositoryFile("ui", "src", "pages", "VideosPage.tsx");
-        var videosPageSource = await File.ReadAllTextAsync(videosPagePath);
-        var videoCatalogStart = videosPageSource.IndexOf("const VIDEO_MULTI_SORT_KEYS", StringComparison.Ordinal);
-        var videoCatalogEnd = videosPageSource.IndexOf("] as const;", videoCatalogStart, StringComparison.Ordinal);
-        var videoCatalogSource = videosPageSource[videoCatalogStart..videoCatalogEnd];
-        var videoKeys = System.Text.RegularExpressions.Regex.Matches(videoCatalogSource, "\"([^\"]+)\"")
-            .Select(match => match.Groups[1].Value)
-            .ToArray();
-
-        foreach (var key in videoKeys)
-        {
-            var secondaryKey = key.Equals(videoKeys[0], StringComparison.OrdinalIgnoreCase) ? videoKeys[1] : videoKeys[0];
-            var findFilter = new FindFilter
-            {
-                Page = 1,
-                PerPage = 50,
-                Sorts =
-                [
-                    new SortClause(key, CoveSortDirection.Desc),
-                    new SortClause(secondaryKey, CoveSortDirection.Asc),
-                ],
-            };
-
-            var exception = await Record.ExceptionAsync(() => ExecuteCompoundSortAsync(fixture.Context, "videos", findFilter));
-            Assert.Null(exception);
         }
     }
 
@@ -692,6 +651,7 @@ public class EntityListSortBehaviorHarnessTests
             case "galleries": await new GalleryRepository(context).FindAsync(null, findFilter); break;
             case "performers": await new PerformerRepository(context).FindAsync(null, findFilter); break;
             case "studios": await new StudioRepository(context).FindAsync(null, findFilter); break;
+            case "tags": await new TagRepository(context).FindAsync(null, findFilter); break;
             case "images": await new ImageRepository(context).FindAsync(null, findFilter); break;
             case "audios": await QueryFilteredAudioIdsAsync(context, new AudioFilter(), findFilter); break;
             case "texts": await QueryFilteredTextIdsAsync(context, new TextDocumentFilter(), findFilter); break;

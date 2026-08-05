@@ -26,6 +26,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
+import { TAG_MULTI_SORT_KEYS, TAG_SORT_OPTIONS } from "../components/tagSortOptions";
 
 const GRAPH_VIEW_LIMIT = 5000;
 
@@ -33,27 +34,6 @@ function clampOptionalPercent(value: number | undefined) {
   if (value == null || !Number.isFinite(value)) return undefined;
   return Math.min(100, Math.max(0, value));
 }
-
-const SORT_OPTIONS = [
-  { value: "name", label: "Name" },
-  { value: "rating", label: "Rating" },
-  { value: "tag_group", label: "Tag Group" },
-  { value: "video_count", label: "Video Count" },
-  { value: "gallery_count", label: "Gallery Count" },
-  { value: "group_count", label: "Group Count" },
-  { value: "image_count", label: "Image Count" },
-  { value: "performer_count", label: "Performer Count" },
-  { value: "studio_count", label: "Studio Count" },
-  { value: "latest_video_date", label: "Latest Video Date" },
-  { value: "total_file_size", label: "Total File Size" },
-  { value: "random", label: "Random" },
-  { value: "created_at", label: "Created At" },
-  { value: "updated_at", label: "Updated At" },
-];
-
-const MULTI_SORT_KEYS = SORT_OPTIONS
-  .map((option) => option.value)
-  .filter((key) => key !== "tag_group" && key !== "random");
 
 interface Props {
   onNavigate: (r: any) => void;
@@ -148,8 +128,8 @@ export function TagsPage({ onNavigate }: Props) {
       isLoading={isLoading}
       error={displayMode === "graph" ? (!graphData && graphError instanceof Error ? graphError : null) : listData.loadError}
       onRetry={() => { void (displayMode === "graph" ? refetchGraph() : listData.refetch()); }}
-      sortOptions={SORT_OPTIONS}
-      multiSortKeys={displayMode === "graph" ? undefined : MULTI_SORT_KEYS}
+      sortOptions={TAG_SORT_OPTIONS}
+      multiSortKeys={displayMode === "graph" ? undefined : TAG_MULTI_SORT_KEYS}
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={["grid", "list", "graph", "tagger"]}

@@ -21,6 +21,4 @@ export const GALLERY_SORT_OPTIONS = [
   { value: "random", label: "Random" },
 ];
 
-export const GALLERY_MULTI_SORT_KEYS = GALLERY_SORT_OPTIONS
-  .map((option) => option.value)
-  .filter((key) => key !== "typical_resolution" && key !== "random");
+export { GALLERY_MULTI_SORT_KEYS } from "./entityMultiSortKeys";
