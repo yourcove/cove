@@ -19,6 +19,71 @@ namespace Cove.Tests;
 public class VideoEngagementControllerTests
 {
     [Fact]
+    public async Task DirectMediaLikes_RecordHistoryForImagesAudiosAndTexts()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        context.Images.Add(new Image { Title = "Liked Image" });
+        context.Audios.Add(new Audio { Title = "Liked Audio" });
+        context.TextDocuments.Add(new TextDocument { Title = "Liked Text" });
+        context.Performers.Add(new Performer { Name = "Aggregate Performer" });
+        await context.SaveChangesAsync();
+        principalAccessor.Set(CreatePrincipal(7));
+        var service = new UserEngagementService(context, principalAccessor);
+        var historicalAt = new DateTime(2022, 7, 3, 12, 0, 0, DateTimeKind.Utc);
+
+        foreach (var (hostType, hostId) in new[]
+        {
+            (AffinityHostType.Image, await context.Images.Select(item => item.Id).SingleAsync()),
+            (AffinityHostType.Audio, await context.Audios.Select(item => item.Id).SingleAsync()),
+            (AffinityHostType.Text, await context.TextDocuments.Select(item => item.Id).SingleAsync()),
+        })
+        {
+            var snapshot = await service.IncrementLikeAsync(hostType, hostId, CancellationToken.None);
+            Assert.Equal(1, snapshot!.LikeCount);
+            snapshot = await service.AddHistoricalLikeAsync(hostType, hostId, historicalAt, CancellationToken.None);
+            Assert.Equal(2, snapshot!.LikeCount);
+
+            var history = await service.GetHistoryAsync(hostType, hostId, CancellationToken.None);
+            Assert.Equal(2, history!.LikeHistory.Count);
+            Assert.Contains(historicalAt.ToString("o"), history.LikeHistory);
+
+            snapshot = await service.DeleteLikeAtAsync(hostType, hostId, historicalAt, CancellationToken.None);
+            Assert.Equal(1, snapshot!.LikeCount);
+            history = await service.GetHistoryAsync(hostType, hostId, CancellationToken.None);
+            Assert.DoesNotContain(historicalAt.ToString("o"), history!.LikeHistory);
+            Assert.Single(history.LikeHistory);
+        }
+
+        var performerId = await context.Performers.Select(item => item.Id).SingleAsync();
+        Assert.Null(await service.IncrementLikeAsync(AffinityHostType.Performer, performerId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteLikeAt_RemovesOnlyTheSelectedVideoLike()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        context.Videos.Add(new Video { Title = "Selected Like Video" });
+        await context.SaveChangesAsync();
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        principalAccessor.Set(CreatePrincipal(7));
+        var service = new UserEngagementService(context, principalAccessor);
+        var firstAt = new DateTime(2022, 4, 3, 14, 30, 0, DateTimeKind.Utc);
+        var selectedAt = firstAt.AddDays(1);
+        await service.AddHistoricalVideoLikeAsync(videoId, firstAt);
+        await service.AddHistoricalVideoLikeAsync(videoId, selectedAt);
+
+        var snapshot = await service.DeleteLikeAtAsync(AffinityHostType.Video, videoId, selectedAt);
+
+        Assert.Equal(1, snapshot!.LikeCount);
+        var history = await service.GetVideoHistoryAsync(videoId);
+        Assert.Equal(firstAt.ToString("o"), Assert.Single(history!.LikeHistory));
+    }
+
+    [Fact]
     public async Task AddHistoricalLike_UsesRequestedTimestampAndIncrementsCount()
     {
         await using var scope = await CreateContextAsync();

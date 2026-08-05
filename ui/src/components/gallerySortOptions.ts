@@ -11,6 +11,8 @@ export const GALLERY_SORT_OPTIONS = [
   { value: "photographer", label: "Photographer" },
   { value: "organized", label: "Organized" },
   { value: "rating", label: "Rating" },
+  { value: "like_counter", label: "Likes" },
+  { value: "last_like_at", label: "Last Liked Date" },
   { value: "image_count", label: "Image Count" },
   { value: "video_count", label: "Video Count" },
   { value: "performer_count", label: "Performer Count" },
@@ -19,6 +21,4 @@ export const GALLERY_SORT_OPTIONS = [
   { value: "random", label: "Random" },
 ];
 
-export const GALLERY_MULTI_SORT_KEYS = GALLERY_SORT_OPTIONS
-  .map((option) => option.value)
-  .filter((key) => key !== "typical_resolution" && key !== "random");
+export { GALLERY_MULTI_SORT_KEYS } from "./entityMultiSortKeys";

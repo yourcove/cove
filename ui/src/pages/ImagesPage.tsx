@@ -463,6 +463,7 @@ export function ImagesPage({ onNavigate }: Props) {
           {...imageLightbox.lightboxProps}
           slideshowDelay={config?.ui.slideshowDelay}
           canEngage={canEngageImage}
+          canLike={canWriteImage}
         />
       ) : null}
       {quickViewId !== null ? (

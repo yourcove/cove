@@ -358,6 +358,8 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.FileCountCriterion);
         Assert.Null(filter.TagCountCriterion);
         Assert.Null(filter.PerformerCountCriterion);
+        Assert.Null(filter.LikeCounterCriterion);
+        Assert.Null(filter.LastLikedAtCriterion);
         Assert.Null(filter.VideosCriterion);
         Assert.Null(filter.PerformerTagsCriterion);
     }
@@ -749,4 +751,3 @@ public class FilterCriteriaParityTests
         Assert.Equal(CriterionModifier.IncludesAll, deserialized.PerformersCriterion?.Modifier);
     }
 }
-

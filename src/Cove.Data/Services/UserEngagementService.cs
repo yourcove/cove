@@ -102,13 +102,97 @@ public sealed partial class UserEngagementService(
             .GroupBy(rating => rating.HostId)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(rating => rating.Id).First());
 
+        Dictionary<int, int>? galleryLikeCounts = null;
+        Dictionary<int, DateTime>? galleryLastLikedAt = null;
+        if (hostType == AffinityHostType.Gallery)
+        {
+            var imageLikes = await (
+                from link in db.Set<ImageGallery>()
+                join affinity in db.UserEntityAffinities on link.ImageId equals affinity.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && affinity.UserId == userId.Value
+                    && affinity.HostType == AffinityHostType.Image
+                group affinity by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, Count = grouped.Sum(item => item.LikeCount) })
+                .ToListAsync(cancellationToken);
+            var videoLikes = await (
+                from link in db.Set<VideoGallery>()
+                join affinity in db.UserEntityAffinities on link.VideoId equals affinity.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && affinity.UserId == userId.Value
+                    && affinity.HostType == AffinityHostType.Video
+                group affinity by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, Count = grouped.Sum(item => item.LikeCount) })
+                .ToListAsync(cancellationToken);
+            galleryLikeCounts = imageLikes.Concat(videoLikes)
+                .GroupBy(item => item.GalleryId)
+                .ToDictionary(group => group.Key, group => group.Sum(item => item.Count));
+
+            var imageLastLikes = await (
+                from link in db.Set<ImageGallery>()
+                join interaction in db.Interactions on link.ImageId equals interaction.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && interaction.UserId == userId.Value
+                    && interaction.HostType == InteractionHostType.Image
+                    && interaction.Kind == InteractionKind.LikeCount
+                group interaction by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, At = grouped.Max(item => item.At) })
+                .ToListAsync(cancellationToken);
+            var videoLastLikes = await (
+                from link in db.Set<VideoGallery>()
+                join interaction in db.Interactions on link.VideoId equals interaction.HostId
+                where visibleIds.Contains(link.GalleryId)
+                    && interaction.UserId == userId.Value
+                    && interaction.HostType == InteractionHostType.Video
+                    && interaction.Kind == InteractionKind.LikeCount
+                group interaction by link.GalleryId into grouped
+                select new { GalleryId = grouped.Key, At = grouped.Max(item => item.At) })
+                .ToListAsync(cancellationToken);
+            galleryLastLikedAt = imageLastLikes.Concat(videoLastLikes)
+                .GroupBy(item => item.GalleryId)
+                .ToDictionary(group => group.Key, group => group.Max(item => item.At));
+        }
+
         return ids.ToDictionary(id => id, id => visibleIdSet.Contains(id)
-            ? ToSnapshot(affinities.GetValueOrDefault(id), ratings.GetValueOrDefault(id))
+            ? ToSnapshot(affinities.GetValueOrDefault(id), ratings.GetValueOrDefault(id)) with
+            {
+                LikeCount = galleryLikeCounts?.GetValueOrDefault(id)
+                    ?? affinities.GetValueOrDefault(id)?.LikeCount
+                    ?? 0,
+                LastLikedAt = galleryLastLikedAt?.GetValueOrDefault(id),
+            }
             : EmptySnapshot);
     }
 
     public Task<Dictionary<int, UserEngagementSnapshot>> GetVideoSnapshotsAsync(IEnumerable<int> videoIds, CancellationToken cancellationToken = default)
         => GetSnapshotsAsync(AffinityHostType.Video, videoIds, cancellationToken);
+
+    public async Task<int?> GetGalleryLikeCountAsync(int galleryId, CancellationToken cancellationToken = default)
+    {
+        if (!await db.Galleries.AnyAsync(gallery => gallery.Id == galleryId, cancellationToken))
+            return null;
+
+        var userId = principalAccessor.Current?.UserId;
+        if (!userId.HasValue)
+            return 0;
+
+        var imageLikes = await (
+            from link in db.Set<ImageGallery>()
+            join affinity in db.UserEntityAffinities on link.ImageId equals affinity.HostId
+            where link.GalleryId == galleryId
+                && affinity.UserId == userId.Value
+                && affinity.HostType == AffinityHostType.Image
+            select (int?)affinity.LikeCount).SumAsync(cancellationToken) ?? 0;
+        var videoLikes = await (
+            from link in db.Set<VideoGallery>()
+            join affinity in db.UserEntityAffinities on link.VideoId equals affinity.HostId
+            where link.GalleryId == galleryId
+                && affinity.UserId == userId.Value
+                && affinity.HostType == AffinityHostType.Video
+            select (int?)affinity.LikeCount).SumAsync(cancellationToken) ?? 0;
+
+        return imageLikes + videoLikes;
+    }
 
     public async Task<UserEngagementSnapshot?> SetFavoriteAsync(AffinityHostType hostType, int hostId, bool isFavorite, CancellationToken cancellationToken = default)
     {
@@ -352,7 +436,7 @@ public sealed partial class UserEngagementService(
         => IncrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken);
 
     public Task<UserEngagementSnapshot?> AddHistoricalVideoLikeAsync(int videoId, DateTime at, CancellationToken cancellationToken = default)
-        => IncrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken, at);
+        => AddHistoricalLikeAsync(AffinityHostType.Video, videoId, at, cancellationToken);
 
     public Task<UserEngagementSnapshot?> DecrementVideoLikeAsync(int videoId, CancellationToken cancellationToken = default)
         => DecrementLikeAsync(AffinityHostType.Video, videoId, cancellationToken);
@@ -369,12 +453,54 @@ public sealed partial class UserEngagementService(
     public Task<UserEngagementSnapshot?> ResetImageLikeAsync(int imageId, CancellationToken cancellationToken = default)
         => ResetLikeAsync(AffinityHostType.Image, imageId, cancellationToken);
 
-    private async Task<UserEngagementSnapshot?> IncrementLikeAsync(
+    public Task<UserEngagementSnapshot?> IncrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => IncrementLikeCoreAsync(hostType, hostId, cancellationToken);
+
+    public Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+        => IncrementLikeCoreAsync(hostType, hostId, cancellationToken, at);
+
+    public async Task<UserEngagementSnapshot?> DeleteLikeAtAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+    {
+        if (!IsDirectLikeHost(hostType))
+            return null;
+        if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
+            return null;
+
+        var affinity = await GetOrCreateAffinityAsync(hostType, hostId, cancellationToken, createIfMissing: false);
+        if (affinity != null)
+        {
+            var normalizedAt = at.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(at, DateTimeKind.Utc)
+                : at.ToUniversalTime();
+            var interactionHostType = ToInteractionHostType(hostType);
+            var interaction = await db.Interactions
+                .Where(item => item.UserId == affinity.UserId
+                    && item.HostType == interactionHostType
+                    && item.HostId == hostId
+                    && item.Kind == InteractionKind.LikeCount
+                    && item.At == normalizedAt)
+                .OrderBy(item => item.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (interaction != null)
+            {
+                db.Interactions.Remove(interaction);
+                affinity.LikeCount = Math.Max(0, affinity.LikeCount - 1);
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
+        TraceLikeCountChanged(hostType, hostId, "deleted from history", affinity?.LikeCount ?? 0);
+
+        return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
+    }
+
+    private async Task<UserEngagementSnapshot?> IncrementLikeCoreAsync(
         AffinityHostType hostType,
         int hostId,
         CancellationToken cancellationToken,
         DateTime? at = null)
     {
+        if (!IsDirectLikeHost(hostType))
+            return null;
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
@@ -398,8 +524,10 @@ public sealed partial class UserEngagementService(
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
-    private async Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken)
+    public async Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
+        if (!IsDirectLikeHost(hostType))
+            return null;
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
@@ -421,8 +549,10 @@ public sealed partial class UserEngagementService(
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
 
-    private async Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken)
+    public async Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
+        if (!IsDirectLikeHost(hostType))
+            return null;
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
             return null;
 
@@ -441,6 +571,9 @@ public sealed partial class UserEngagementService(
 
         return (await GetSnapshotsAsync(hostType, [hostId], cancellationToken)).GetValueOrDefault(hostId) ?? EmptySnapshot;
     }
+
+    private static bool IsDirectLikeHost(AffinityHostType hostType)
+        => hostType is AffinityHostType.Video or AffinityHostType.Image or AffinityHostType.Audio or AffinityHostType.Text;
 
     /// <summary>
     /// Record a batch of contiguous watched intervals for a playback session.

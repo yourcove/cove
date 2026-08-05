@@ -1422,7 +1422,8 @@ interface GalleryTileProps {
 
 export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting, bookmarkInitiallySaved }: GalleryTileProps & { engagement?: EntityEngagement }) {
   const imageFit = useConfiguredImageFit();
-  const hasFooter = gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
+  const likeCount = engagement?.likeCount ?? 0;
+  const hasFooter = likeCount > 0 || gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
   const title = getGalleryDisplayTitle(gallery);
   const galleryCoverSrc = gallery.coverPath ?? galleries.coverUrl(gallery.id, gallery.updatedAt, 960);
 
@@ -1506,6 +1507,7 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
               onNavigate={onNavigate}
             />
             {gallery.organized ? <span className="p-1 text-muted" title="Organized"><Box className="w-3.5 h-3.5" /></span> : null}
+            {likeCount > 0 ? <LikeCounter count={likeCount} /> : null}
         </>
       ) : null}
     />

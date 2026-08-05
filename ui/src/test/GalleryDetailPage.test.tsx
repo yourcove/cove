@@ -13,6 +13,7 @@ const {
 } = vi.hoisted(() => ({
   mockGalleries: {
     get: vi.fn(),
+    getLikeCount: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     addImages: vi.fn(),
@@ -195,6 +196,7 @@ function renderPage() {
 describe("GalleryDetailPage", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/gallery/21");
+    mockGalleries.getLikeCount.mockResolvedValue(0);
   });
 
   afterEach(() => {
@@ -256,6 +258,19 @@ describe("GalleryDetailPage", () => {
 
     fireEvent.click(within(tabs).getByRole("tab", { name: /file info/i }));
     expect(await screen.findByText("C:/galleries/summer-set")).toBeInTheDocument();
+  });
+
+  it("shows the aggregate likes from gallery images and videos", async () => {
+    mockGalleries.get.mockResolvedValue(buildGallery());
+    mockGalleries.getLikeCount.mockResolvedValue(7);
+    mockImages.find.mockResolvedValue({ items: [{ id: 91, title: "Cover Frame" }], totalCount: 1 });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+
+    renderPage();
+
+    expect((await screen.findAllByText("Likes")).length).toBeGreaterThan(1);
+    expect(await screen.findByText("7")).toBeInTheDocument();
+    expect(mockGalleries.getLikeCount).toHaveBeenCalledWith(21);
   });
 
   it("supports keyboard shortcuts for images, videos, file info, and edit", async () => {

@@ -15,7 +15,8 @@ public sealed record UserEngagementSnapshot(
     int LikeCount,
     int DerivedLikeCount,
     int PageVisitCount,
-    int CompleteCount);
+    int CompleteCount,
+    DateTime? LastLikedAt = null);
 
 public interface IUserEngagementService
 {
@@ -24,6 +25,8 @@ public interface IUserEngagementService
     Task<Dictionary<string, int>?> GetRatingsByAspectAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default);
 
     Task<Dictionary<int, UserEngagementSnapshot>> GetSnapshotsAsync(AffinityHostType hostType, IEnumerable<int> hostIds, CancellationToken cancellationToken = default);
+
+    Task<int?> GetGalleryLikeCountAsync(int galleryId, CancellationToken cancellationToken = default);
 
     Task<Dictionary<int, UserEngagementSnapshot>> GetVideoSnapshotsAsync(IEnumerable<int> videoIds, CancellationToken cancellationToken = default);
 
@@ -50,6 +53,16 @@ public interface IUserEngagementService
     Task<UserEngagementSnapshot?> DecrementVideoLikeAsync(int videoId, CancellationToken cancellationToken = default);
 
     Task<UserEngagementSnapshot?> ResetVideoLikeAsync(int videoId, CancellationToken cancellationToken = default);
+
+    Task<UserEngagementSnapshot?> IncrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default);
+
+    Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default);
+
+    Task<UserEngagementSnapshot?> DeleteLikeAtAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default);
+
+    Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default);
+
+    Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default);
 
     Task<UserEngagementSnapshot?> IncrementImageLikeAsync(int imageId, CancellationToken cancellationToken = default);
 

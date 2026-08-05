@@ -53,6 +53,7 @@ import { getLoadError } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
 
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
+import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
 
 const VideoDownloadDialog = lazy(() => import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })));
 const BatchDownloadOptionsDialog = lazy(() => import("../components/BatchDownloadOptionsDialog").then((module) => ({ default: module.BatchDownloadOptionsDialog })));
@@ -66,32 +67,6 @@ const SEARCH_MODE_OPTIONS = [
 ];
 
 const VISUAL_MATCH_SORT_OPTION = { value: "visual_match", label: "Visual Match" };
-const VIDEO_MULTI_SORT_KEYS = [
-  "bitrate",
-  "code",
-  "created_at",
-  "date",
-  "duration",
-  "file_count",
-  "file_mod_time",
-  "file_size",
-  "framerate",
-  "organized",
-  "path",
-  "performer_count",
-  "play_count",
-  "like_counter",
-  "last_like_at",
-  "last_played_at",
-  "play_duration",
-  "resume_time",
-  "rating",
-  "resolution",
-  "studio",
-  "tag_count",
-  "title",
-  "updated_at",
-] as const;
 const INCLUDE_COMPILATIONS_FILTER_KEY = "includeCompilationGroups";
 const IS_VR_FILTER_KEY = "isVrCriterion";
 const VERTICAL_PORTRAIT_FILTER_KEY = "orientationCriterion";

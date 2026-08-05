@@ -276,6 +276,19 @@ describe("PerformerTile", () => {
 });
 
 describe("GalleryTile", () => {
+  it("shows the aggregate like count from gallery engagement", () => {
+    const { container } = render(
+      <GalleryTile
+        gallery={baseGallery as any}
+        engagement={{ likeCount: 6 } as any}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTitle("Likes: 6")).toBeInTheDocument();
+    expect(container.querySelector(".card-popovers")?.lastElementChild).toBe(screen.getByTitle("Likes: 6"));
+  });
+
   it("uses media-enabled tag links in the shared reference popover", () => {
     vi.useFakeTimers();
     render(

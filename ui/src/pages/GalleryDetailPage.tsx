@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, images, videos, fileOps } from "../api/client";
 import type { FindFilter, Gallery, Image, ImageFilterCriteria, Video, VideoFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, formatFileSize, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Film, FolderOpen, HardDrive, ImageIcon, Link as LinkIcon, Pencil, Plus, Trash2, Loader2, MoreVertical, RefreshCw, Star } from "lucide-react";
+import { Film, FolderOpen, HardDrive, ImageIcon, Link as LinkIcon, Pencil, Plus, Trash2, Loader2, MoreVertical, RefreshCw, Star, ThumbsUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GalleryEditModal } from "./GalleryEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -62,6 +62,11 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     queryKey: ["gallery", id],
     queryFn: () => galleries.get(id),
   });
+  const { data: galleryLikeCount = 0 } = useQuery({
+    queryKey: ["gallery-like-count", id],
+    queryFn: () => galleries.getLikeCount(id),
+    enabled: !!gallery,
+  });
   const queryGalleryImages = useCallback((nextFilter: FindFilter) => hasImageObjectFilter
     ? images.findFiltered({
         findFilter: nextFilter,
@@ -93,6 +98,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const canEngageGallery = canReadEntity("gallery", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteGallery = canDeleteEntity("gallery", hasPermission);
   const canReadGalleryImages = canReadEntity("image", hasPermission);
+  const canWriteImages = canWriteEntity("image", hasPermission);
   const canEngageImages = canReadGalleryImages && (user?.kind === "user" || user?.kind === "system");
   const canReadPerformers = canReadEntity("performer", hasPermission);
   const canReadStudios = canReadEntity("studio", hasPermission);
@@ -210,6 +216,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["gallery-images", id] });
       queryClient.invalidateQueries({ queryKey: ["gallery", id] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-like-count", id] });
       setShowAddImages(false);
     },
   });
@@ -346,6 +353,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
           { key: "images", label: "Images", value: effectiveImageCount, icon: <ImageIcon className="h-4 w-4" /> },
           { key: "videos", label: "Videos", value: gallery.videoCount, icon: <Film className="h-4 w-4" /> },
           { key: "files", label: "Files", value: gallery.files.length, icon: <HardDrive className="h-4 w-4" /> },
+          { key: "likes", label: "Likes", value: galleryLikeCount, icon: <ThumbsUp className="h-4 w-4" /> },
         ]}
         metaRow={
           <>
@@ -440,6 +448,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       <Lightbox
         {...galleryLightbox.lightboxProps}
         canEngage={canEngageImages}
+        canLike={canWriteImages}
       />
     </div>
   );

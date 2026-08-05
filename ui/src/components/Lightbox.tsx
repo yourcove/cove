@@ -40,6 +40,7 @@ export interface LightboxProps {
   slideshowDelay?: number;
   autoPlay?: boolean;
   canEngage?: boolean;
+  canLike?: boolean;
   loadPrevious?: () => Promise<LightboxImage[]>;
   loadNext?: () => Promise<LightboxImage[]>;
   hasPrevious?: boolean;
@@ -55,6 +56,7 @@ export function Lightbox({
   slideshowDelay = 5000,
   autoPlay = false,
   canEngage = false,
+  canLike = false,
   loadPrevious,
   loadNext,
   hasPrevious = false,
@@ -94,6 +96,8 @@ export function Lightbox({
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", imageId] });
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] });
       queryClient.invalidateQueries({ queryKey: ["image", imageId] });
+      queryClient.invalidateQueries({ queryKey: ["image", imageId, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-like-count"] });
     },
   });
   const likeCount = likeMutation.data ?? engagement?.likeCount ?? 0;
@@ -603,7 +607,7 @@ export function Lightbox({
           <InteractiveRating value={rating} onChange={setRating} readOnly={!canEngage || ratingPending} />
           <button
             type="button"
-            disabled={!canEngage || likeMutation.isPending}
+            disabled={!canLike || likeMutation.isPending}
             onClick={() => likeMutation.mutate(current.id)}
             className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={`Like image (${likeCount} likes)`}

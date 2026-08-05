@@ -1602,6 +1602,7 @@ export interface EntityEngagement {
   derivedLikeCount: number;
   pageVisitCount: number;
   completeCount: number;
+  lastLikedAt?: string;
 }
 
 export interface EntityRatings {
@@ -2750,6 +2751,8 @@ export interface GalleryFilterCriteria {
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
   imageCountCriterion?: IntCriterion;
+  likeCounterCriterion?: IntCriterion;
+  lastLikedAtCriterion?: TimestampCriterion;
   titleCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
   pathCriterion?: StringCriterion;

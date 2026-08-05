@@ -17,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TextsRead)]
-public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -26,6 +26,63 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     };
 
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
+    private IUserEngagementService EngagementService => engagementService ?? new Cove.Data.Services.UserEngagementService(db, principalAccessor ?? new CurrentPrincipalAccessor());
+
+    [HttpGet("{id:int}/history")]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsRead)]
+    public async Task<ActionResult<VideoHistoryDto>> GetHistory(int id, CancellationToken ct)
+    {
+        var history = await EngagementService.GetHistoryAsync(AffinityHostType.Text, id, ct);
+        return history is null ? NotFound() : Ok(history);
+    }
+
+    [HttpPost("{id:int}/like")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> IncrementLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.IncrementLikeAsync(AffinityHostType.Text, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpPost("{id:int}/like/historical")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> AddHistoricalLike(int id, HistoricalLikeDto request, CancellationToken ct)
+    {
+        var at = request.At.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(request.At, DateTimeKind.Utc) : request.At.ToUniversalTime();
+        if (at > DateTime.UtcNow) return BadRequest("Historical likes must be dated in the past.");
+        var snapshot = await EngagementService.AddHistoricalLikeAsync(AffinityHostType.Text, id, at, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpDelete("{id:int}/like/history")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<IActionResult> DeleteLikeFromHistory(int id, [FromQuery] DateTime at, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.DeleteLikeAtAsync(AffinityHostType.Text, id, at, ct);
+        if (snapshot == null) return NotFound();
+        return NoContent();
+    }
+
+    [HttpDelete("{id:int}/like")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> DecrementLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.DecrementLikeAsync(AffinityHostType.Text, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
+
+    [HttpPost("{id:int}/like/reset")]
+    [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    public async Task<ActionResult<int>> ResetLike(int id, CancellationToken ct)
+    {
+        var snapshot = await EngagementService.ResetLikeAsync(AffinityHostType.Text, id, ct);
+        return snapshot == null ? NotFound() : Ok(snapshot.LikeCount);
+    }
 
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]
@@ -504,13 +561,6 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return items.OrderBy(text => orderMap.GetValueOrDefault(text.Id, int.MaxValue)).ToList();
     }
 
-    private static readonly HashSet<string> MultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "updatedAt", "updated_at", "createdAt", "created_at", "date", "words", "pages",
-        "file_size", "file_mod_time", "file_count", "path", "tag_count", "performer_count", "title", "rating",
-        "read_count", "like_counter", "read_duration", "last_read_at",
-    };
-
     private IQueryable<TextDocument> ApplySort(
         IQueryable<TextDocument> query,
         string? sort,
@@ -518,9 +568,10 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         int? seed = null,
         IEnumerable<SortClause>? sorts = null)
     {
-        var clauses = CompoundSortOrdering.Normalize(sorts, MultiSortKeys);
+        var multiSortRegistry = CreateMultiSortRegistry();
+        var clauses = multiSortRegistry.Normalize(sorts);
         if (clauses.Count > 1)
-            return ApplyMultiSort(query, clauses);
+            return ApplyMultiSort(query, clauses, multiSortRegistry);
 
         if (FilterHelpers.TryParseCustomFieldSort(sort, out _, out _))
             return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Text, sort, descending);
@@ -550,48 +601,50 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         };
     }
 
-    private IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses)
+    private static CompoundSortRegistry<TextDocument> CreateMultiSortRegistry()
+        => new(new Dictionary<string, Action<CompoundSortQuery<TextDocument>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["title"] = (compound, desc) =>
+            {
+                compound.Append(text => text.Title == null ? 1 : 0, false);
+                compound.Append(text => text.Title, desc);
+            },
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["read_count"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc),
+            ["like_counter"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc),
+            ["read_duration"] = (compound, desc) => compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc),
+            ["last_read_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc),
+            ["date"] = (compound, desc) =>
+            {
+                compound.Append(text => text.Date == null ? 1 : 0, false);
+                compound.Append(text => text.Date, desc);
+            },
+            ["words"] = (compound, desc) => compound.Append(text => text.MaxWordCount, desc),
+            ["pages"] = (compound, desc) => compound.Append(text => text.MaxPageCount, desc),
+            ["file_size"] = (compound, desc) => compound.Append(text => text.MaxFileSize, desc),
+            ["file_mod_time"] = (compound, desc) =>
+            {
+                compound.Append(text => text.MaxFileModTime == null ? 1 : 0, false);
+                compound.Append(text => text.MaxFileModTime, desc);
+            },
+            ["file_count"] = (compound, desc) => compound.Append(text => text.FileCount, desc),
+            ["path"] = (compound, desc) => compound.Append(text => desc ? text.MaxPath : text.MinPath, desc),
+            ["tag_count"] = (compound, desc) => compound.Append(text => text.TextTags.Count, desc),
+            ["performer_count"] = (compound, desc) => compound.Append(text => text.TextPerformers.Count, desc),
+            ["createdAt"] = (compound, desc) => compound.Append(text => text.CreatedAt, desc),
+            ["created_at"] = (compound, desc) => compound.Append(text => text.CreatedAt, desc),
+            ["updatedAt"] = (compound, desc) => compound.Append(text => text.UpdatedAt, desc),
+            ["updated_at"] = (compound, desc) => compound.Append(text => text.UpdatedAt, desc),
+        });
+
+    private IQueryable<TextDocument> ApplyMultiSort(IQueryable<TextDocument> query, IReadOnlyList<SortClause> clauses, CompoundSortRegistry<TextDocument> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(db);
         var compound = CompoundSortQuery<TextDocument>.Create(
             db, query, userId, AffinityHostType.Text, RatingHostType.Text,
             includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Cove.Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "title":
-                    compound.Append(text => text.Title == null ? 1 : 0, false);
-                    compound.Append(text => text.Title, desc);
-                    break;
-                case "rating": compound.AppendRating(desc); break;
-                case "read_count": compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc); break;
-                case "like_counter": compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc); break;
-                case "read_duration": compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc); break;
-                case "last_read_at": compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc); break;
-                case "date":
-                    compound.Append(text => text.Date == null ? 1 : 0, false);
-                    compound.Append(text => text.Date, desc);
-                    break;
-                case "words": compound.Append(text => text.MaxWordCount, desc); break;
-                case "pages": compound.Append(text => text.MaxPageCount, desc); break;
-                case "file_size": compound.Append(text => text.MaxFileSize, desc); break;
-                case "file_mod_time":
-                    compound.Append(text => text.MaxFileModTime == null ? 1 : 0, false);
-                    compound.Append(text => text.MaxFileModTime, desc);
-                    break;
-                case "file_count": compound.Append(text => text.FileCount, desc); break;
-                case "path": compound.Append(text => desc ? text.MaxPath : text.MinPath, desc); break;
-                case "tag_count": compound.Append(text => text.TextTags.Count, desc); break;
-                case "performer_count": compound.Append(text => text.TextPerformers.Count, desc); break;
-                case "createdat":
-                case "created_at": compound.Append(text => text.CreatedAt, desc); break;
-                case "updatedat":
-                case "updated_at": compound.Append(text => text.UpdatedAt, desc); break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(text => text.Id);
     }

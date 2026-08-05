@@ -75,6 +75,14 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         return Ok(await MapToDtoWithProvenanceAsync(gallery, ct));
     }
 
+    [HttpGet("{id:int}/like-count")]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead)]
+    public async Task<ActionResult<int>> GetLikeCount(int id, CancellationToken ct)
+    {
+        var likeCount = await engagementService.GetGalleryLikeCountAsync(id, ct);
+        return likeCount.HasValue ? Ok(likeCount.Value) : NotFound();
+    }
+
     [HttpGet("{id:int}/cover")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<IActionResult> GetCover(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)

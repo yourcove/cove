@@ -16,6 +16,9 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
     public Task<Dictionary<int, UserEngagementSnapshot>> GetSnapshotsAsync(AffinityHostType hostType, IEnumerable<int> hostIds, CancellationToken cancellationToken = default)
         => Task.FromResult(new Dictionary<int, UserEngagementSnapshot>());
 
+    public Task<int?> GetGalleryLikeCountAsync(int galleryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<int?>(0);
+
     public Task<Dictionary<int, UserEngagementSnapshot>> GetVideoSnapshotsAsync(IEnumerable<int> videoIds, CancellationToken cancellationToken = default)
         => Task.FromResult(new Dictionary<int, UserEngagementSnapshot>());
 
@@ -56,6 +59,21 @@ internal sealed class NoOpUserEngagementService : IUserEngagementService
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
     public Task<UserEngagementSnapshot?> ResetVideoLikeAsync(int videoId, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> IncrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> AddHistoricalLikeAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> DeleteLikeAtAsync(AffinityHostType hostType, int hostId, DateTime at, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> DecrementLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => Task.FromResult<UserEngagementSnapshot?>(null);
+
+    public Task<UserEngagementSnapshot?> ResetLikeAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
         => Task.FromResult<UserEngagementSnapshot?>(null);
 
     public Task<UserEngagementSnapshot?> IncrementImageLikeAsync(int imageId, CancellationToken cancellationToken = default)

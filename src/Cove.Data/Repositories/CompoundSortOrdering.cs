@@ -5,16 +5,26 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Repositories;
 
+public sealed class UnsupportedCompoundSortException(string key)
+    : Exception($"Compound sort key '{key}' is not supported.")
+{
+    public string Key { get; } = key;
+}
+
 public static class CompoundSortOrdering
 {
     public static List<SortClause> Normalize(IEnumerable<SortClause>? clauses, IReadOnlySet<string> supportedKeys)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return (clauses ?? [])
-            .Where(clause => clause is not null
-                && !string.IsNullOrWhiteSpace(clause.Key)
-                && supportedKeys.Contains(clause.Key)
-                && seen.Add(clause.Key))
+        var candidates = (clauses ?? [])
+            .Where(clause => clause is not null && !string.IsNullOrWhiteSpace(clause.Key))
+            .ToList();
+        var unsupported = candidates.FirstOrDefault(clause => !supportedKeys.Contains(clause.Key));
+        if (unsupported is not null)
+            throw new UnsupportedCompoundSortException(unsupported.Key);
+
+        return candidates
+            .Where(clause => seen.Add(clause.Key))
             .Take(SortClause.MaxClauses)
             .ToList();
     }
@@ -33,6 +43,27 @@ public static class CompoundSortOrdering
         IOrderedQueryable<TEntity>? ordered,
         Expression<Func<TEntity, int>> idSelector)
         => ordered is null ? query.OrderBy(idSelector) : ordered.ThenBy(idSelector);
+}
+
+public sealed class CompoundSortRegistry<TEntity> where TEntity : class
+{
+    private readonly IReadOnlyDictionary<string, Action<CompoundSortQuery<TEntity>, bool>> _handlers;
+
+    public CompoundSortRegistry(IEnumerable<KeyValuePair<string, Action<CompoundSortQuery<TEntity>, bool>>> handlers)
+    {
+        _handlers = handlers.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IReadOnlySet<string> SupportedKeys => _handlers.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    public List<SortClause> Normalize(IEnumerable<SortClause>? clauses)
+        => CompoundSortOrdering.Normalize(clauses, SupportedKeys);
+
+    public void Apply(CompoundSortQuery<TEntity> query, IEnumerable<SortClause> clauses)
+    {
+        foreach (var clause in clauses)
+            _handlers[clause.Key](query, clause.Direction == Cove.Core.Enums.SortDirection.Desc);
+    }
 }
 
 public sealed class CompoundSortQuery<TEntity> where TEntity : class

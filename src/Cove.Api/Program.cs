@@ -544,6 +544,7 @@ try
     // Middleware pipeline
     // UseSerilogRequestLogging removed â€” adds 3-5ms per request overhead
     app.UseMiddleware<Cove.Api.Middleware.OperationLogContextMiddleware>();
+    app.UseMiddleware<Cove.Api.Middleware.CompoundSortValidationMiddleware>();
     app.UseMiddleware<Cove.Api.Middleware.DatabaseUnavailableMiddleware>();
 
     if (app.Environment.IsDevelopment())

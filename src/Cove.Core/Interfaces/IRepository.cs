@@ -396,6 +396,8 @@ public class GalleryFilter
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public IntCriterion? ImageCountCriterion { get; set; }
+    public IntCriterion? LikeCounterCriterion { get; set; }
+    public TimestampCriterion? LastLikedAtCriterion { get; set; }
     public StringCriterion? TitleCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }

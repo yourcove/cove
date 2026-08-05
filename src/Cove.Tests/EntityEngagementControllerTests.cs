@@ -112,6 +112,10 @@ public class EntityEngagementControllerTests
                 Meta: JsonSerializer.SerializeToElement(new { source = "imageDetailPage" })),
             CancellationToken.None));
 
+        Assert.IsType<BadRequestObjectResult>(await controller.RecordInteraction(
+            new EngagementInteractionWriteDto("image", imageId, "likeCount"),
+            CancellationToken.None));
+
         var imageInteractionsResult = await controller.GetInteractions("image", imageId, 10, CancellationToken.None);
         var imageInteractionsOk = Assert.IsType<OkObjectResult>(imageInteractionsResult.Result);
         var imageInteractions = Assert.IsAssignableFrom<IReadOnlyList<EngagementInteractionDto>>(imageInteractionsOk.Value);
@@ -198,4 +202,3 @@ public class EntityEngagementControllerTests
         }
     }
 }
-
