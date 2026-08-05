@@ -1778,9 +1778,11 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
 
         var studio = await ResolveStudioAsync(studioName, createMissing, ct);
-
         if (studio != null)
+        {
+            video.Studio = studio;
             video.StudioId = studio.Id;
+        }
     }
 
     private async Task HydratePerformersAsync(JsonElement root, bool createMissingPerformers, bool createMissingTags, IReadOnlyDictionary<string, string>? performerSelections, CancellationToken ct)
