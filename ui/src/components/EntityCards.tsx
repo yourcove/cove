@@ -31,6 +31,11 @@ function useConfiguredImageFit() {
 
 function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUrl: string; coverAlt: string; previewUrl: string; fit: EntityMediaFit }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [coverFailed, setCoverFailed] = useState(false);
+
+  useEffect(() => {
+    setCoverFailed(false);
+  }, [coverUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -47,13 +52,20 @@ function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUr
 
   return (
     <>
-      <img
-        src={coverUrl}
-        alt={coverAlt}
-        className="video-card-preview-image h-full w-full"
-        style={{ objectFit: fit }}
-        loading="lazy"
-      />
+      {!coverFailed ? (
+        <img
+          src={coverUrl}
+          alt={coverAlt}
+          className="video-card-preview-image h-full w-full"
+          style={{ objectFit: fit }}
+          loading="lazy"
+          onError={() => setCoverFailed(true)}
+        />
+      ) : (
+        <div className="video-card-cover-fallback flex h-full w-full items-center justify-center bg-gradient-to-br from-surface to-card">
+          <Film className="h-12 w-12 text-muted" aria-hidden="true" />
+        </div>
+      )}
       <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="video-card-preview-video" style={{ objectFit: fit }} />
     </>
   );
