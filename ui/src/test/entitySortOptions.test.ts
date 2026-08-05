@@ -71,6 +71,23 @@ describe("canonical entity sort options", () => {
     expect(options.map((option) => option.value)).toEqual(expect.arrayContaining(keys));
   });
 
+  it.each([
+    ["videos", VIDEO_MULTI_SORT_KEYS, VIDEO_SORT_OPTIONS, ["random", "phash", "performer_age"]],
+    ["images", CONTRACT_IMAGE_KEYS, IMAGE_SORT_OPTIONS, ["random"]],
+    ["audios", CONTRACT_AUDIO_KEYS, AUDIO_SORT_OPTIONS, ["random"]],
+    ["texts", CONTRACT_TEXT_KEYS, TEXT_SORT_OPTIONS, ["random"]],
+    ["galleries", GALLERY_MULTI_SORT_KEYS, GALLERY_SORT_OPTIONS, ["random", "typical_resolution"]],
+    ["performers", PERFORMER_MULTI_SORT_KEYS, PERFORMER_SORT_OPTIONS, ["random", "career_length", "measurements"]],
+    ["studios", CONTRACT_STUDIO_KEYS, STUDIO_SORT_OPTIONS, ["random"]],
+    ["tags", CONTRACT_TAG_KEYS, TAG_SORT_OPTIONS, ["random", "tag_group"]],
+  ])("lists every compound-capable %s option in the shared contract", (_entity, keys, options, singleSortOnlyKeys) => {
+    const eligibleOptionKeys = options
+      .map((option) => option.value)
+      .filter((key) => !singleSortOnlyKeys.includes(key));
+
+    expect(new Set(keys)).toEqual(new Set(eligibleOptionKeys));
+  });
+
   it("re-exports tag compound keys from the tag catalog", () => {
     expect(TAG_MULTI_SORT_KEYS).toBe(CONTRACT_TAG_KEYS);
   });
