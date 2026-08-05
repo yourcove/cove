@@ -438,13 +438,7 @@ public class VideoRepository : IVideoRepository
     };
 
     private static List<SortClause> NormalizeMultiSortClauses(IEnumerable<SortClause>? clauses)
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return (clauses ?? [])
-            .Where(clause => clause != null && !string.IsNullOrWhiteSpace(clause.Key) && MultiSortKeys.Contains(clause.Key) && seen.Add(clause.Key))
-            .Take(SortClause.MaxClauses)
-            .ToList();
-    }
+        => CompoundSortOrdering.Normalize(clauses, MultiSortKeys);
 
     private IQueryable<Video> ApplyMultiSorting(IQueryable<Video> query, IReadOnlyList<SortClause> clauses)
     {

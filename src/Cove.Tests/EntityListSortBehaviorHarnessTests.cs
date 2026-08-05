@@ -586,6 +586,33 @@ public class EntityListSortBehaviorHarnessTests
                 Assert.Null(exception);
             }
         }
+
+        var videosPagePath = FindRepositoryFile("ui", "src", "pages", "VideosPage.tsx");
+        var videosPageSource = await File.ReadAllTextAsync(videosPagePath);
+        var videoCatalogStart = videosPageSource.IndexOf("const VIDEO_MULTI_SORT_KEYS", StringComparison.Ordinal);
+        var videoCatalogEnd = videosPageSource.IndexOf("] as const;", videoCatalogStart, StringComparison.Ordinal);
+        var videoCatalogSource = videosPageSource[videoCatalogStart..videoCatalogEnd];
+        var videoKeys = System.Text.RegularExpressions.Regex.Matches(videoCatalogSource, "\"([^\"]+)\"")
+            .Select(match => match.Groups[1].Value)
+            .ToArray();
+
+        foreach (var key in videoKeys)
+        {
+            var secondaryKey = key.Equals(videoKeys[0], StringComparison.OrdinalIgnoreCase) ? videoKeys[1] : videoKeys[0];
+            var findFilter = new FindFilter
+            {
+                Page = 1,
+                PerPage = 50,
+                Sorts =
+                [
+                    new SortClause(key, CoveSortDirection.Desc),
+                    new SortClause(secondaryKey, CoveSortDirection.Asc),
+                ],
+            };
+
+            var exception = await Record.ExceptionAsync(() => ExecuteCompoundSortAsync(fixture.Context, "videos", findFilter));
+            Assert.Null(exception);
+        }
     }
 
     [Theory]
@@ -661,6 +688,7 @@ public class EntityListSortBehaviorHarnessTests
     {
         switch (entity)
         {
+            case "videos": await new VideoRepository(context).FindAsync(null, findFilter); break;
             case "galleries": await new GalleryRepository(context).FindAsync(null, findFilter); break;
             case "performers": await new PerformerRepository(context).FindAsync(null, findFilter); break;
             case "studios": await new StudioRepository(context).FindAsync(null, findFilter); break;
