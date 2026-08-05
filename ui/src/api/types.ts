@@ -2548,6 +2548,7 @@ export interface FingerprintCriterion {
 }
 
 export interface VideoFilterCriteria {
+  ids?: number[];
   title?: string;
   code?: string;
   path?: string;
@@ -2609,6 +2610,12 @@ export interface VideoFilterCriteria {
   orientationCriterion?: StringCriterion;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
+}
+
+export interface VideoAggregate {
+  count: number;
+  duration: number;
+  fileSize: number;
 }
 
 export interface PerformerFilterCriteria {

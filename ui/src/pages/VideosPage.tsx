@@ -66,6 +66,28 @@ const SEARCH_MODE_OPTIONS = [
   { value: "visual", label: "Visual", title: "Visual semantic search" },
 ];
 
+function VideoAggregateMetadata({ aggregate, loading }: { aggregate?: { duration: number; fileSize: number }; loading: boolean }) {
+  if (loading) return <span className="text-muted">Calculating…</span>;
+  if (!aggregate) return null;
+  return (
+    <span className="whitespace-nowrap text-xs text-muted">
+      {formatAggregateDuration(aggregate.duration)} · {formatFileSize(aggregate.fileSize)}
+    </span>
+  );
+}
+
+function formatAggregateDuration(totalSeconds: number) {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainder = seconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${remainder}s`;
+  return `${remainder}s`;
+}
+
 const VISUAL_MATCH_SORT_OPTION = { value: "visual_match", label: "Visual Match" };
 const INCLUDE_COMPILATIONS_FILTER_KEY = "includeCompilationGroups";
 const IS_VR_FILTER_KEY = "isVrCriterion";
@@ -376,6 +398,16 @@ export function VideosPage({ onNavigate }: Props) {
   const includeCompilationGroups = isIncludeCompilationGroupsEnabled(normalizedObjectFilter[INCLUDE_COMPILATIONS_FILTER_KEY]);
   const canShowCompilationGroups = !infinitePageSize && includeCompilationGroups && searchMode === "text" && !hasCompilationBlockingObjectFilter && (displayMode === "grid" || displayMode === "list");
 
+  const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
+  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+    queryKey: ["videos", "aggregate", aggregateFilter, backendObjectFilter],
+    queryFn: () => videos.aggregate({
+      findFilter: aggregateFilter,
+      objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+    }),
+    enabled: !visualSearchActive && !canShowCompilationGroups,
+  });
+
   useEffect(() => {
     if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
       return;
@@ -510,6 +542,12 @@ export function VideosPage({ onNavigate }: Props) {
   const batchDownloadStorageKey = getBatchDownloadOptionsStorageKey("page-videos");
   const [batchDownloadOptions, setBatchDownloadOptions] = useState<BatchDownloadOptions>(() => loadStoredBatchDownloadOptions(batchDownloadStorageKey));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
+  const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
+    queryKey: ["videos", "aggregate", "selection", selectedIdList],
+    queryFn: () => videos.aggregate({ objectFilter: { ids: selectedIdList } }),
+    enabled: selectedIdList.length > 0,
+  });
 
   useEffect(() => {
     setBatchDownloadOptions(loadStoredBatchDownloadOptions(batchDownloadStorageKey));
@@ -683,6 +721,9 @@ export function VideosPage({ onNavigate }: Props) {
     </Suspense>
     <ListPage
       title="Videos"
+      metadataByline={!visualSearchActive && !canShowCompilationGroups ? (
+        <VideoAggregateMetadata aggregate={filteredAggregate} loading={filteredAggregateLoading} />
+      ) : undefined}
       pageKey="videos"
       filterMode="videos"
       filter={filter}
@@ -735,6 +776,7 @@ export function VideosPage({ onNavigate }: Props) {
       )}
       onNew={canWriteVideo ? () => setShowCreate(true) : undefined}
       selectedIds={selectedIds}
+      selectionMetadata={<VideoAggregateMetadata aggregate={selectedAggregate} loading={selectedAggregateLoading} />}
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={

@@ -166,6 +166,39 @@ public class VideoRepository : IVideoRepository
         return (sorted, totalCount);
     }
 
+    public async Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
+
+        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
+        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
+            _db,
+            EntityKinds.Video,
+            currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
+            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
+            ct);
+        var query = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
+        query = ApplyFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = ApplyVideoSearch(query, findFilter?.Q);
+
+        return await query.AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(group => new VideoAggregate(group.Count(), group.Sum(video => video.MaxDuration), group.Sum(video => video.MaxFileSize)))
+            .SingleOrDefaultAsync(ct)
+            ?? new VideoAggregate(0, 0, 0);
+    }
+
     private IQueryable<Video> ApplyFilters(IQueryable<Video> query, VideoFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null) return query;

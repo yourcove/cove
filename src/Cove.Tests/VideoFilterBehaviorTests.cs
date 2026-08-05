@@ -538,6 +538,25 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task AggregateAsync_SumsOnlyVideosMatchingTheActiveFilter()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            new Video { Title = "included", Organized = true, MaxDuration = 90.5, MaxFileSize = 1_500 },
+            new Video { Title = "also included", Organized = true, MaxDuration = 29.5, MaxFileSize = 2_500 },
+            new Video { Title = "excluded", Organized = false, MaxDuration = 600, MaxFileSize = 50_000 });
+        await context.SaveChangesAsync();
+
+        var aggregate = await new VideoRepository(context).AggregateAsync(
+            new VideoFilter { Organized = true },
+            new FindFilter());
+
+        Assert.Equal(2, aggregate.Count);
+        Assert.Equal(120, aggregate.Duration);
+        Assert.Equal(4_000, aggregate.FileSize);
+    }
+
+    [Fact]
     public async Task TagsCriterion_UsesThresholdQualifiedDerivedTagApplications()
     {
         await using var context = CreateContext();
@@ -1357,6 +1376,9 @@ public class VideoFilterBehaviorTests
             LastFindFilter = findFilter;
             return Task.FromResult<(IReadOnlyList<Video>, int)>((Array.Empty<Video>(), 0));
         }
+
+        public Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+            => Task.FromResult(new VideoAggregate(0, 0, 0));
 
         public Task<Video?> GetByIdAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Video>> GetAllAsync(CancellationToken ct = default) => throw new NotSupportedException();

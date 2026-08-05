@@ -67,6 +67,7 @@ import type {
   PerformerScrapeRequest,
   FilteredQueryRequest,
   VideoFilterCriteria,
+  VideoAggregate,
   PerformerFilterCriteria,
   TagFilterCriteria,
   StudioFilterCriteria,
@@ -355,6 +356,8 @@ export const videos = {
     request<PaginatedResponse<VideoListEntry>>(`/videos/with-compilations${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
     request<PaginatedResponse<Video>>("/videos/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
+    request<VideoAggregate>("/videos/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Video>(`/videos/${id}`),
   create: (data: VideoCreate) => request<Video>("/videos", { method: "POST", body: JSON.stringify(data) }),
   createFromFile: (data: FileBackedCreate) => request<Video>("/videos/from-file", { method: "POST", body: JSON.stringify(data) }),

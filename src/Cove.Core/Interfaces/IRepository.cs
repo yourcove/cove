@@ -16,10 +16,13 @@ public interface IRepository<T> where T : class
 public interface IVideoRepository : IRepository<Video>
 {
     Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<Video?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns VideoPerformer join rows (with Performer.RemoteIds included) for the given video IDs.</summary>
     Task<IReadOnlyList<VideoPerformer>> GetVideoPerformersAsync(IReadOnlyList<int> videoIds, CancellationToken ct = default);
 }
+
+public sealed record VideoAggregate(int Count, double Duration, long FileSize);
 
 public interface IPerformerRepository : IRepository<Performer>
 {
