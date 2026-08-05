@@ -2942,7 +2942,12 @@ export interface GroupFilterCriteria {
 export interface FilteredQueryRequest<T = Record<string, unknown>> {
   findFilter?: FindFilter;
   objectFilter?: T;
+  ids?: number[];
 }
+
+export interface ImageAggregate { count: number; fileSize: number }
+export interface AudioAggregate { count: number; duration: number; fileSize: number }
+export interface TextAggregate { count: number; fileSize: number }
 
 // ===== Bulk Edit Types =====
 

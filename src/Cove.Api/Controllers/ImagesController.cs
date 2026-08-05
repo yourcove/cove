@@ -66,6 +66,14 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return Ok(new PaginatedResponse<ImageDto>(dtos, totalCount, findFilter.Page, findFilter.PerPage));
     }
 
+    [HttpPost("aggregate")]
+    public async Task<ActionResult<ImageAggregate>> Aggregate([FromBody] FilteredQueryRequest<ImageFilter> req, CancellationToken ct)
+    {
+        var filter = req.ObjectFilter ?? new ImageFilter();
+        if (req.Ids is { Count: > 0 }) filter.Ids = req.Ids;
+        return Ok(await imageRepo.AggregateAsync(filter, req.FindFilter, ct));
+    }
+
     [HttpGet("{id:int}")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<ImageDto>> GetById(int id, CancellationToken ct)

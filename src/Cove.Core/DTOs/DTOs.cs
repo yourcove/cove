@@ -13,6 +13,7 @@ public class FilteredQueryRequest<TFilter> where TFilter : class, new()
 {
     public FindFilter? FindFilter { get; set; }
     public TFilter? ObjectFilter { get; set; }
+    public List<int>? Ids { get; set; }
 }
 
 // ===== VIDEO DTOs =====

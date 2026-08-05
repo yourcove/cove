@@ -76,6 +76,7 @@ public interface IGalleryRepository : IRepository<Gallery>
 public interface IImageRepository : IRepository<Image>
 {
     Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<Image?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns ImagePerformer join rows (with Performer.RemoteIds included) for the given image IDs.</summary>
     Task<IReadOnlyList<ImagePerformer>> GetImagePerformersAsync(IReadOnlyList<int> imageIds, CancellationToken ct = default);
@@ -84,6 +85,10 @@ public interface IImageRepository : IRepository<Image>
     /// <summary>Adds an ImageTag join row (change-tracked). Call SaveChangesAsync on any repo to commit.</summary>
     void AddTagLink(int imageId, int tagId);
 }
+
+public sealed record ImageAggregate(int Count, long FileSize);
+public sealed record AudioAggregate(int Count, double Duration, long FileSize);
+public sealed record TextAggregate(int Count, long FileSize);
 
 public interface IGroupRepository : IRepository<Group>
 {

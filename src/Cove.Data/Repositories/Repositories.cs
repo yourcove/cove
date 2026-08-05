@@ -2264,6 +2264,46 @@ public class ImageRepository : IImageRepository
         return (sorted, totalCount);
     }
 
+    public async Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
+
+        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
+        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
+            _db, EntityKinds.Image,
+            currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
+            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true, ct);
+        var query = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
+        query = ApplyImageFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        var imageBase = query;
+        var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
+            image => image.Title, image => image.Details, image => image.Code,
+            image => image.Photographer, image => image.FileSearchText, image => image.SearchText);
+        query = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
+            tagSelectors: [image => image.ImageTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
+            performerSelectors: [image => image.ImagePerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, imageBase, findFilter?.Q, image => image.Files);
+
+        return await query.AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(group => new ImageAggregate(
+                group.Count(),
+                group.Sum(image => image.MaxFileSize)))
+            .SingleOrDefaultAsync(ct)
+            ?? new ImageAggregate(0, 0);
+    }
+
     private IQueryable<Image> ApplyImageFilters(IQueryable<Image> query, ImageFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)
     {
         if (filter == null) return query;

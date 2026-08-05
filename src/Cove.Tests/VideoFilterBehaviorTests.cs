@@ -557,6 +557,38 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task MediaAggregates_SumFilteredImageAudioAndTextMetrics()
+    {
+        await using var context = CreateContext();
+        var image = new Image { Title = "image", MaxFileSize = 4_000 };
+        image.Files.Add(new ImageFile { Path = "/media/image.jpg", Basename = "image.jpg", Width = 2_000, Height = 1_000, Size = 4_000 });
+        context.Images.AddRange(image, new Image { Title = "excluded image", MaxFileSize = 90_000 });
+        var audio = new Audio { Title = "audio", MaxDuration = 75.5, MaxFileSize = 5_000 };
+        var excludedAudio = new Audio { Title = "excluded audio", MaxDuration = 900, MaxFileSize = 90_000 };
+        var text = new TextDocument { Title = "text", MaxFileSize = 6_000 };
+        var excludedText = new TextDocument { Title = "excluded text", MaxFileSize = 90_000 };
+        context.Audios.AddRange(audio, excludedAudio);
+        context.TextDocuments.AddRange(text, excludedText);
+        await context.SaveChangesAsync();
+
+        var imageAggregate = await new ImageRepository(context).AggregateAsync(
+            new ImageFilter { Ids = [image.Id] }, new FindFilter());
+        Assert.Equal(1, imageAggregate.Count);
+        Assert.Equal(4_000, imageAggregate.FileSize);
+
+        var audioResponse = await new AudiosController(context, null!, null!, null!, null!, null).Aggregate(
+            new FilteredQueryRequest<AudioFilter> { Ids = [audio.Id] }, CancellationToken.None);
+        var audioAggregate = Assert.IsType<AudioAggregate>(Assert.IsType<OkObjectResult>(audioResponse.Result).Value);
+        Assert.Equal(75.5, audioAggregate.Duration);
+        Assert.Equal(5_000, audioAggregate.FileSize);
+
+        var textResponse = await new TextsController(context, null!, null!, null!, null!, null!, null).Aggregate(
+            new FilteredQueryRequest<TextDocumentFilter> { Ids = [text.Id] }, CancellationToken.None);
+        var textAggregate = Assert.IsType<TextAggregate>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
+        Assert.Equal(6_000, textAggregate.FileSize);
+    }
+
+    [Fact]
     public async Task TagsCriterion_UsesThresholdQualifiedDerivedTagApplications()
     {
         await using var context = CreateContext();

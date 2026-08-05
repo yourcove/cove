@@ -51,6 +51,7 @@ import {
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { getLoadError } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
@@ -65,28 +66,6 @@ const SEARCH_MODE_OPTIONS = [
   { value: "text", label: "Text", title: "Text search" },
   { value: "visual", label: "Visual", title: "Visual semantic search" },
 ];
-
-function VideoAggregateMetadata({ aggregate, loading }: { aggregate?: { duration: number; fileSize: number }; loading: boolean }) {
-  if (loading) return <span className="text-muted">Calculating…</span>;
-  if (!aggregate) return null;
-  return (
-    <span className="whitespace-nowrap text-xs text-muted">
-      {formatAggregateDuration(aggregate.duration)} · {formatFileSize(aggregate.fileSize)}
-    </span>
-  );
-}
-
-function formatAggregateDuration(totalSeconds: number) {
-  const seconds = Math.max(0, Math.round(totalSeconds));
-  const days = Math.floor(seconds / 86_400);
-  const hours = Math.floor((seconds % 86_400) / 3_600);
-  const minutes = Math.floor((seconds % 3_600) / 60);
-  const remainder = seconds % 60;
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${remainder}s`;
-  return `${remainder}s`;
-}
 
 const VISUAL_MATCH_SORT_OPTION = { value: "visual_match", label: "Visual Match" };
 const INCLUDE_COMPILATIONS_FILTER_KEY = "includeCompilationGroups";
@@ -722,7 +701,7 @@ export function VideosPage({ onNavigate }: Props) {
     <ListPage
       title="Videos"
       metadataByline={!visualSearchActive && !canShowCompilationGroups ? (
-        <VideoAggregateMetadata aggregate={filteredAggregate} loading={filteredAggregateLoading} />
+        <MediaAggregateMetadata duration={filteredAggregate?.duration} fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />
       ) : undefined}
       pageKey="videos"
       filterMode="videos"
@@ -776,7 +755,7 @@ export function VideosPage({ onNavigate }: Props) {
       )}
       onNew={canWriteVideo ? () => setShowCreate(true) : undefined}
       selectedIds={selectedIds}
-      selectionMetadata={<VideoAggregateMetadata aggregate={selectedAggregate} loading={selectedAggregateLoading} />}
+      selectionMetadata={<MediaAggregateMetadata duration={selectedAggregate?.duration} fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={
