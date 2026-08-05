@@ -1019,17 +1019,19 @@ public class SegmentCoreControllerTests
             new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())),
             new MemoryCache(new MemoryCacheOptions()));
 
-        var filteredResult = await controller.List(q: null, ids: null, videoId: video.Id, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: "highlight", sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: true, minConfidence: 0.8f, minDurationSec: 5, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: "duration", direction: "desc", page: 1, perPage: 20, cancellationToken: CancellationToken.None);
+        var filteredResult = await controller.List(q: null, ids: null, videoId: video.Id, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: "highlight", sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: true, minConfidence: 0.8f, minDurationSec: 5, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: "duration", direction: "desc", page: 1, perPage: 20, includeAggregate: true, cancellationToken: CancellationToken.None);
         var filteredOk = Assert.IsType<OkObjectResult>(filteredResult.Result);
         var filteredPage = Assert.IsType<PaginatedResponse<SegmentRecordDto>>(filteredOk.Value);
         var filtered = Assert.Single(filteredPage.Items);
         Assert.Equal("Tagged beat", filtered.Title);
+        Assert.Equal(9, filteredPage.AggregateDuration);
 
         var sortedResult = await controller.List(q: null, ids: null, videoId: video.Id, videoIds: null, videoTitle: null, tagId: null, tagIds: null, kind: null, sourceKey: null, sourceCategory: null, refIds: null, performerIds: null, tagged: null, minConfidence: null, minDurationSec: null, confidence: null, confidence2: null, confidenceModifier: null, durationSec: null, durationSec2: null, durationModifier: null, sort: "duration", direction: "asc", page: 1, perPage: 20, cancellationToken: CancellationToken.None);
         var sortedOk = Assert.IsType<OkObjectResult>(sortedResult.Result);
         var sortedPage = Assert.IsType<PaginatedResponse<SegmentRecordDto>>(sortedOk.Value);
 
         Assert.Equal(3, sortedPage.Items.Count);
+        Assert.Null(sortedPage.AggregateDuration);
         Assert.Equal(new[] { "Short beat", "Tagged beat", "Long beat" }, sortedPage.Items.Select(item => item.Title).ToArray());
     }
 
@@ -1227,10 +1229,14 @@ public class SegmentCoreControllerTests
         var page1Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 1, 1, "title", "asc", null, null, null, null), CancellationToken.None);
         var page2Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 2, 1, "title", "asc", null, null, null, null), CancellationToken.None);
         var page3Result = await controller.SearchSpans(new SegmentSpanSearchRequestDto(profile.Id, null, 3, 1, "title", "asc", null, null, null, null), CancellationToken.None);
+        var aggregateResult = await controller.CountSpans(
+            new SegmentSpanSearchRequestDto(profile.Id, null, 1, 1, "title", "asc", null, null, null, null),
+            CancellationToken.None);
 
         var page1 = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(page1Result.Result).Value);
         var page2 = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(page2Result.Result).Value);
         var page3 = Assert.IsType<SegmentSpanSearchResponseDto>(Assert.IsType<OkObjectResult>(page3Result.Result).Value);
+        var aggregate = Assert.IsType<SegmentSpanCountResponseDto>(Assert.IsType<OkObjectResult>(aggregateResult.Result).Value);
 
         // The fast browse path serves pages via early termination and defers the exact count: a page that
         // stops early reports TotalCount -1 (unknown) with HasMore=true, while the final page resolves the
@@ -1241,6 +1247,8 @@ public class SegmentCoreControllerTests
         Assert.True(page2.HasMore);
         Assert.Equal(3, page3.TotalCount);
         Assert.False(page3.HasMore);
+        Assert.Equal(3, aggregate.TotalCount);
+        Assert.Equal(9, aggregate.Duration);
 
         Assert.Single(page1.Items);
         Assert.Single(page2.Items);

@@ -1246,6 +1246,7 @@ export interface SegmentSpanSearchResponse {
 
 export interface SegmentSpanCountResponse {
   totalCount: number;
+  duration: number;
 }
 
 export interface SegmentDistinctValue {
@@ -1713,6 +1714,7 @@ export interface PaginatedResponse<T> {
   totalCount: number;
   page: number;
   perPage: number;
+  aggregateDuration?: number;
 }
 
 export interface Stats {
@@ -2747,6 +2749,7 @@ export interface StudioFilterCriteria {
 }
 
 export interface GalleryFilterCriteria {
+  ids?: number[];
   title?: string;
   organized?: boolean;
   studioId?: number;
@@ -2948,6 +2951,7 @@ export interface FilteredQueryRequest<T = Record<string, unknown>> {
 export interface ImageAggregate { count: number; fileSize: number }
 export interface AudioAggregate { count: number; duration: number; fileSize: number }
 export interface TextAggregate { count: number; fileSize: number }
+export interface GalleryAggregate { count: number; fileSize: number }
 
 // ===== Bulk Edit Types =====
 

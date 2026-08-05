@@ -70,8 +70,11 @@ public interface IStudioRepository : IRepository<Studio>
 public interface IGalleryRepository : IRepository<Gallery>
 {
     Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<GalleryAggregate> AggregateAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<Gallery?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
 }
+
+public sealed record GalleryAggregate(int Count, long FileSize);
 
 public interface IImageRepository : IRepository<Image>
 {
@@ -390,6 +393,7 @@ public class StudioFilter
 
 public class GalleryFilter
 {
+    public List<int>? Ids { get; set; }
     public string? Title { get; set; }
     public int? Rating { get; set; }
     public bool? Organized { get; set; }

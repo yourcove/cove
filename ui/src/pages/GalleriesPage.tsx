@@ -23,6 +23,7 @@ import { WallMediaCard } from "../components/WallMediaCard";
 import { BatchDownloadOptionsDialog } from "../components/BatchDownloadOptionsDialog";
 import { GalleryDownloadDialog } from "../components/GalleryDownloadDialog";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
@@ -91,6 +92,17 @@ export function GalleriesPage({ onNavigate }: Props) {
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
+  const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
+  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+    queryKey: ["galleries", "aggregate", aggregateFilter, objectFilter],
+    queryFn: () => galleries.aggregate({ findFilter: aggregateFilter, objectFilter: hasObjectFilter ? objectFilter as GalleryFilterCriteria : undefined }),
+  });
+  const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
+  const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
+    queryKey: ["galleries", "aggregate", "selection", selectedIdList],
+    queryFn: () => galleries.aggregate({ ids: selectedIdList }),
+    enabled: selectedIdList.length > 0,
+  });
   const selectedGallery = selectedIds.size === 1 ? items.find((gallery) => selectedIds.has(gallery.id)) : undefined;
   const selectedDownloadTargets = useMemo(() => getUndownloadedSelectionItems(items, selectedIds), [items, selectedIds]);
   const canDownloadSelectedGallery = canDownloadGallery && selectedDownloadTargets.length > 0;
@@ -193,6 +205,7 @@ export function GalleriesPage({ onNavigate }: Props) {
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       onNew={canWriteGallery ? () => setShowCreate(true) : undefined}
+      metadataByline={<MediaAggregateMetadata fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />}
       wallColumnCount={wallColumnCount}
       onWallColumnCountChange={setWallColumnCount}
 
@@ -201,6 +214,7 @@ export function GalleriesPage({ onNavigate }: Props) {
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} />}
+      selectionMetadata={<MediaAggregateMetadata fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
     >
       {displayMode === "tagger" ? (
         <ScraperEntityTagger

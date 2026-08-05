@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { AddToGroupDialog, type AddToGroupEntry } from "../components/AddToGroupDialog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { getDefaultFilter } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
@@ -563,6 +564,24 @@ export function SegmentsPage({ onNavigate }: Props) {
     enabled: rawQueryEnabled && !infinitePageSize,
   });
 
+  const rawAggregateQuery = useRawSegmentsQuery({
+    pageNumber: 1,
+    perPage: 1,
+    q,
+    videoTitle,
+    videoTagIds,
+    videoTagDepth,
+    sort: "updated_at",
+    direction: "desc",
+    seed: undefined,
+    includeVideoIds: videoSelection.includeIds,
+    excludeVideoIds: videoSelection.excludeIds,
+    rawSegmentIds,
+    rawFilter: combinedRawSegmentFilter,
+    enabled: rawQueryEnabled,
+    includeAggregate: true,
+  });
+
   const derivedInfiniteQuery = usePaginatedInfiniteQuery<DerivedSpanItem>({
     queryKey: ["segments-page", "search", "infinite", activeProfileId, q, videoTitle, videoTagIds.join(","), videoTagDepth, sort, direction, seed, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), appliedQuery ?? null, combinedRawSegmentFilter],
     queryFn: queryDerivedSpansPage,
@@ -598,7 +617,7 @@ export function SegmentsPage({ onNavigate }: Props) {
   // that keeps the pager's "next" enabled while there's more. The exact value replaces it on arrival.
   const spansPageTotal = infinitePageSize ? derivedInfiniteQuery.totalCount : (segmentsWindowQuery.data?.totalCount ?? 0);
   const spansHasMore = !infinitePageSize && (segmentsWindowQuery.data?.hasMore ?? false);
-  const spansTotalCount = spansCountQuery.data
+  const spansTotalCount = spansCountQuery.data?.totalCount
     ?? (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
   const totalCount = isRawView
     ? (infinitePageSize ? rawInfiniteQuery.totalCount : rawSegmentsQuery.data?.totalCount ?? 0)
@@ -670,6 +689,12 @@ export function SegmentsPage({ onNavigate }: Props) {
       derivedQuery: item.derivedQuery,
     })), [selectedIds, spanSelectionItems]);
   const selectedRawSegments = useMemo(() => rawSelectionItems.filter((item) => selectedIds.has(item.id)), [rawSelectionItems, selectedIds]);
+  const selectedDuration = useMemo(() => isRawView
+    ? selectedRawSegments.reduce((total, item) => total + Math.max(0, (item.endSec ?? item.startSec) - item.startSec), 0)
+    : spanSelectionItems
+        .filter((item) => selectedIds.has(item.id))
+        .reduce((total, item) => total + Math.max(0, item.span.endSec - item.span.startSec), 0),
+  [isRawView, selectedIds, selectedRawSegments, spanSelectionItems]);
   const handleSelectNone = useCallback(() => {
     setSelectedMatchingItems(null);
     selectNone();
@@ -763,7 +788,10 @@ export function SegmentsPage({ onNavigate }: Props) {
           setActiveProfileId(typeof options.profileId === "number" ? options.profileId : undefined);
         }}
         customFilterSections={customFilterSections}
-        metadataByline={null}
+        metadataByline={<MediaAggregateMetadata
+          duration={isRawView ? rawAggregateQuery.data?.duration : spansCountQuery.data?.duration}
+          loading={isRawView ? rawAggregateQuery.isLoading : spansCountQuery.isLoading}
+        />}
         renderOperations={() => (
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg border border-border bg-card/70 p-1 text-xs">
@@ -831,6 +859,7 @@ export function SegmentsPage({ onNavigate }: Props) {
             ) : null}
           </>
         }
+        selectionMetadata={<MediaAggregateMetadata duration={selectedDuration} loading={false} />}
       >
         {firstQueryError ? (
           <div className="mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

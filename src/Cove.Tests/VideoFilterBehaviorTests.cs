@@ -557,7 +557,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task MediaAggregates_SumFilteredImageAudioAndTextMetrics()
+    public async Task MediaAggregates_SumFilteredImageAudioTextAndGalleryMetrics()
     {
         await using var context = CreateContext();
         var image = new Image { Title = "image", MaxFileSize = 4_000 };
@@ -569,6 +569,12 @@ public class VideoFilterBehaviorTests
         var excludedText = new TextDocument { Title = "excluded text", MaxFileSize = 90_000 };
         context.Audios.AddRange(audio, excludedAudio);
         context.TextDocuments.AddRange(text, excludedText);
+        var folder = new Folder { Path = "/media", ModTime = DateTime.UtcNow };
+        var gallery = new Gallery { Title = "gallery", Organized = true };
+        gallery.Files.Add(new GalleryFile { Basename = "gallery.zip", Path = "/media/gallery.zip", ParentFolder = folder, Size = 7_000 });
+        var excludedGallery = new Gallery { Title = "excluded gallery", Organized = false };
+        excludedGallery.Files.Add(new GalleryFile { Basename = "excluded.zip", Path = "/media/excluded.zip", ParentFolder = folder, Size = 90_000 });
+        context.Galleries.AddRange(gallery, excludedGallery);
         await context.SaveChangesAsync();
 
         var imageAggregate = await new ImageRepository(context).AggregateAsync(
@@ -586,6 +592,11 @@ public class VideoFilterBehaviorTests
             new FilteredQueryRequest<TextDocumentFilter> { Ids = [text.Id] }, CancellationToken.None);
         var textAggregate = Assert.IsType<TextAggregate>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
         Assert.Equal(6_000, textAggregate.FileSize);
+
+        var galleryAggregate = await new GalleryRepository(context).AggregateAsync(
+            new GalleryFilter { Ids = [gallery.Id] }, new FindFilter());
+        Assert.Equal(1, galleryAggregate.Count);
+        Assert.Equal(7_000, galleryAggregate.FileSize);
     }
 
     [Fact]

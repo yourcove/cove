@@ -71,6 +71,7 @@ import type {
   ImageAggregate,
   AudioAggregate,
   TextAggregate,
+  GalleryAggregate,
   PerformerFilterCriteria,
   TagFilterCriteria,
   StudioFilterCriteria,
@@ -518,6 +519,7 @@ export const segmentLibrary = {
     updatedAt?: string;
     updatedAt2?: string;
     updatedAtModifier?: string;
+    includeAggregate?: boolean;
   }) =>
     request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`),
   get: (id: number) => requestOptional<SegmentRecord>(`/segments/${id}`),
@@ -811,6 +813,8 @@ export const galleries = {
     request<PaginatedResponse<Gallery>>(`/galleries${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
     request<PaginatedResponse<Gallery>>("/galleries/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
+    request<GalleryAggregate>("/galleries/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Gallery>(`/galleries/${id}`),
   getLikeCount: (id: number) => request<number>(`/galleries/${id}/like-count`),
   create: (data: GalleryCreate) => request<Gallery>("/galleries", { method: "POST", body: JSON.stringify(data) }),

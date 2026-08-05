@@ -1067,7 +1067,8 @@ public class VideoFileConfiguration : IEntityTypeConfiguration<VideoFile>
     {
         // Composite (VideoId, Path) lets MIN(Path) WHERE VideoId = ? be answered
         // by an Index Only Scan, which is what the video-list "path" sort relies on.
-        builder.HasIndex(v => new { v.VideoId, v.Path });
+        builder.HasIndex(v => new { v.VideoId, v.Path })
+            .HasFilter("\"VideoId\" IS NOT NULL");
     }
 }
 
@@ -1075,12 +1076,14 @@ public class ImageFileConfiguration : IEntityTypeConfiguration<ImageFile>
 {
     public void Configure(EntityTypeBuilder<ImageFile> builder)
     {
-        builder.HasIndex(i => new { i.ImageId, i.Path });
+        builder.HasIndex(i => new { i.ImageId, i.Path })
+            .HasFilter("\"ImageId\" IS NOT NULL");
         // The image-list "title" sort falls back to MIN/MAX(Basename) WHERE ImageId = ? (images have no
         // denormalized title). Without this, that correlated subquery scans files per row and the list times
-        // out. (ImageId, Basename) lets it be answered by an index seek. ImageId is null for non-image files,
-        // so this effectively only indexes image files.
-        builder.HasIndex(i => new { i.ImageId, i.Basename });
+        // out. (ImageId, Basename) lets it be answered by an index seek. PostgreSQL indexes nulls, so
+        // explicitly exclude non-image files.
+        builder.HasIndex(i => new { i.ImageId, i.Basename })
+            .HasFilter("\"ImageId\" IS NOT NULL");
     }
 }
 
@@ -1088,7 +1091,9 @@ public class GalleryFileConfiguration : IEntityTypeConfiguration<GalleryFile>
 {
     public void Configure(EntityTypeBuilder<GalleryFile> builder)
     {
-        builder.HasIndex(g => new { g.GalleryId, g.Path });
+        builder.HasIndex(g => new { g.GalleryId, g.Path })
+            .IncludeProperties(g => new { g.Size, g.ModTime })
+            .HasFilter("\"GalleryId\" IS NOT NULL");
     }
 }
 
@@ -1096,7 +1101,8 @@ public class AudioFileConfiguration : IEntityTypeConfiguration<AudioFile>
 {
     public void Configure(EntityTypeBuilder<AudioFile> builder)
     {
-        builder.HasIndex(file => new { file.AudioId, file.Path });
+        builder.HasIndex(file => new { file.AudioId, file.Path })
+            .HasFilter("\"AudioId\" IS NOT NULL");
     }
 }
 
@@ -1104,7 +1110,8 @@ public class TextFileConfiguration : IEntityTypeConfiguration<TextFile>
 {
     public void Configure(EntityTypeBuilder<TextFile> builder)
     {
-        builder.HasIndex(file => new { file.TextDocumentId, file.Path });
+        builder.HasIndex(file => new { file.TextDocumentId, file.Path })
+            .HasFilter("\"TextDocumentId\" IS NOT NULL");
     }
 }
 

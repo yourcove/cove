@@ -1542,7 +1542,7 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task<int> CountAsync(CancellationToken ct = default) => await _db.Galleries.CountAsync(ct);
 
-    public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    private async Task<IQueryable<Gallery>> BuildFilteredQueryAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -1561,6 +1561,7 @@ public class GalleryRepository : IGalleryRepository
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
         if (filter != null)
         {
+            if (filter.Ids?.Count > 0) query = query.Where(g => filter.Ids.Contains(g.Id));
             if (!string.IsNullOrEmpty(filter.Title)) query = query.Where(g => g.Title != null && EF.Functions.ILike(g.Title, $"%{filter.Title}%"));
             if (filter.Organized.HasValue) query = query.Where(g => g.Organized == filter.Organized.Value);
             if (filter.StudioId.HasValue) query = query.Where(g => g.StudioId == filter.StudioId.Value);
@@ -1705,6 +1706,25 @@ public class GalleryRepository : IGalleryRepository
                 (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm)))).Distinct();
         }
 
+        return query;
+    }
+
+    public async Task<GalleryAggregate> AggregateAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
+        return await query
+            .GroupBy(_ => 1)
+            .Select(group => new GalleryAggregate(
+                group.Count(),
+                group.SelectMany(gallery => gallery.Files).Sum(file => file.Size)))
+            .FirstOrDefaultAsync(ct)
+            ?? new GalleryAggregate(0, 0);
+    }
+
+    public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
+        var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
         var totalCount = await query.CountAsync(ct);
         var multiSortRegistry = CreateGalleryMultiSortRegistry(currentUserId);
         var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
