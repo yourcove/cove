@@ -91,6 +91,15 @@ afterEach(() => {
 });
 
 describe("VideoCard navigation", () => {
+  it("shows the video placeholder when the cover image fails to load", () => {
+    const { container } = render(<VideoCard video={baseVideo as any} onClick={vi.fn()} />);
+
+    fireEvent.error(container.querySelector(".video-card-preview-image")!);
+
+    expect(container.querySelector(".video-card-cover-fallback")).toBeVisible();
+    expect(container.querySelector(".video-card-preview-image")).not.toBeInTheDocument();
+  });
+
   it("renders the main video surface as a real link", () => {
     const onClick = vi.fn();
     render(<VideoCard video={baseVideo as any} onClick={onClick} />);

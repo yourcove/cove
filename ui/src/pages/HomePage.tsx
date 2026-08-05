@@ -4,12 +4,13 @@ import { videos, performers, studios, tags, galleries, groups, savedFilters } fr
 import type { AffinityHostType, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter } from "../api/types";
 import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { RatingBanner } from "../components/Rating";
-import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers } from "lucide-react";
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { readAuthenticatedUserHomePageContent, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
+import { VideoCoverImage } from "../components/VideoCoverImage";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -217,7 +218,7 @@ function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string;
     >
       <div className="relative aspect-video bg-black">
         {videoId > 0 ? (
-          <img src={`/api/stream/video/${videoId}/screenshot`} alt={title} className="h-full w-full object-cover" loading="lazy" />
+          <VideoCoverImage src={`/api/stream/video/${videoId}/screenshot`} alt={title} className="h-full w-full object-cover" fallbackClassName="video-recommendation-cover-fallback" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-accent">
             {hostType === "audio" ? <Headphones className="h-10 w-10" /> : <Layers className="h-10 w-10" />}
@@ -535,7 +536,7 @@ function VideoRecommendationCard({ video, engagement, onNavigate }: { video: Vid
       style={{ scrollSnapAlign: "start" }}
     >
       <div className="relative aspect-video bg-black">
-        <img src={screenshotUrl} alt={screenshotAlt} className="w-full h-full object-cover" loading="lazy" />
+        <VideoCoverImage src={screenshotUrl} alt={screenshotAlt} className="h-full w-full object-cover" fallbackClassName="video-recommendation-cover-fallback" loading="lazy" />
         {/* Resolution + duration overlay */}
         <div className="absolute bottom-0 right-0 flex items-center gap-0.5 p-1 text-xs text-white">
           {resLabel && <span className="bg-black/70 px-1 py-0.5 rounded font-bold">{resLabel}</span>}

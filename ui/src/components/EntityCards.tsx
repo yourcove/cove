@@ -18,6 +18,7 @@ import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, TagMediaHover, type EntityMediaFit } from "./EntityMedia";
+import { VideoCoverImage } from "./VideoCoverImage";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
@@ -47,10 +48,11 @@ function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUr
 
   return (
     <>
-      <img
+      <VideoCoverImage
         src={coverUrl}
         alt={coverAlt}
         className="video-card-preview-image h-full w-full"
+        fallbackClassName="video-card-cover-fallback"
         style={{ objectFit: fit }}
         loading="lazy"
       />
