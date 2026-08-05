@@ -27,7 +27,7 @@ describe("buildRawSegmentListOptions", () => {
       durationCriterion: { value: 5, value2: 10, modifier: "BETWEEN" },
     };
 
-    expect(buildRawSegmentListOptions({
+    const options = buildRawSegmentListOptions({
       pageNumber: 2,
       perPage: 24,
       q: "search",
@@ -41,7 +41,10 @@ describe("buildRawSegmentListOptions", () => {
       excludeVideoIds: [12],
       rawSegmentIds: [100, 101],
       rawFilter,
-    })).toMatchObject({
+    });
+
+    expect(options.includeAggregate).toBe(false);
+    expect(options).toMatchObject({
       q: "search",
       ids: "100,101",
       videoIds: "10,11",
@@ -87,5 +90,20 @@ describe("buildRawSegmentListOptions", () => {
       page: 2,
       perPage: 24,
     });
+
+    expect(buildRawSegmentListOptions({
+      pageNumber: 1,
+      perPage: 1,
+      q: "",
+      videoTitle: "",
+      videoTagIds: [],
+      sort: "updated_at",
+      direction: "desc",
+      includeVideoIds: [],
+      excludeVideoIds: [],
+      rawSegmentIds: [],
+      rawFilter,
+      includeAggregate: true,
+    }).includeAggregate).toBe(true);
   });
 });

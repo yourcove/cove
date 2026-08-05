@@ -134,6 +134,40 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         return Ok(new PaginatedResponse<AudioDto>(dtos, totalCount, page, perPage));
     }
 
+    [HttpPost("aggregate")]
+    public async Task<ActionResult<AudioAggregate>> Aggregate([FromBody] FilteredQueryRequest<AudioFilter> req, CancellationToken ct)
+    {
+        var findFilter = req.FindFilter ?? new FindFilter();
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.TagsCriterion))
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter!.TagsCriterion!, ct);
+            req.ObjectFilter.TagsCriterion = expandedTags.Criterion;
+        }
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter!.StudiosCriterion!, ct);
+            req.ObjectFilter.StudiosCriterion = expandedStudios.Criterion;
+        }
+
+        var audioBase = db.Audios.AsNoTracking().AsQueryable();
+        var audioText = FullTextSearchHelpers.Apply(db, audioBase, findFilter.Q,
+            audio => audio.Title, audio => audio.Code, audio => audio.Details,
+            audio => audio.FileSearchText, audio => audio.SearchText);
+        var query = FullTextSearchHelpers.ApplyRelationalMatches(audioText, audioBase, findFilter.Q,
+            tagSelectors: [audio => audio.AudioTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
+            performerSelectors: [audio => audio.AudioPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter.Q, audio => audio.Files);
+        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        if (req.Ids is { Count: > 0 }) query = query.Where(audio => req.Ids.Contains(audio.Id));
+
+        return Ok(await query.GroupBy(_ => 1)
+            .Select(group => new AudioAggregate(group.Count(), group.Sum(audio => audio.MaxDuration), group.Sum(audio => audio.MaxFileSize)))
+            .SingleOrDefaultAsync(ct)
+            ?? new AudioAggregate(0, 0, 0));
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<AudioDto>> GetById(int id, CancellationToken ct)
     {

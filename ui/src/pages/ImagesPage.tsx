@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, images } from "../api/client";
 import type { DeleteEntityOptions, EntityEngagement, FindFilter, Image, ImageFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
@@ -32,6 +32,7 @@ import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/Vir
 import { useAppConfig } from "../state/AppConfigContext";
 import { IMAGE_MULTI_SORT_KEYS, IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 const Lightbox = lazy(() => import("../components/Lightbox").then((module) => ({ default: module.Lightbox })));
 const ImageCreateModal = lazy(() => import("./ImageEditModal").then((module) => ({ default: module.ImageCreateModal })));
@@ -194,6 +195,18 @@ export function ImagesPage({ onNavigate }: Props) {
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter, searchMode }), [listData.infiniteFilterKey, objectFilter, searchMode]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
+  const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
+  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+    queryKey: ["images", "aggregate", aggregateFilter, objectFilter],
+    queryFn: () => images.aggregate({ findFilter: aggregateFilter, objectFilter: hasObjectFilter ? objectFilter as ImageFilterCriteria : undefined }),
+    enabled: !visualSearchActive,
+  });
+  const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
+  const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
+    queryKey: ["images", "aggregate", "selection", selectedIdList],
+    queryFn: () => images.aggregate({ ids: selectedIdList }),
+    enabled: selectedIdList.length > 0,
+  });
   const selectedVisibleImages = useMemo(() => items.filter((item) => selectedIds.has(item.id)), [items, selectedIds]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -261,6 +274,7 @@ export function ImagesPage({ onNavigate }: Props) {
     </Suspense>
     <ListPage
       title="Images"
+      metadataByline={!visualSearchActive ? <MediaAggregateMetadata fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} /> : undefined}
       pageKey="images"
       filterMode="images"
       filter={filter}
@@ -293,6 +307,7 @@ export function ImagesPage({ onNavigate }: Props) {
       selectAllMatchingLabel="Select shown"
 
       selectedIds={selectedIds}
+      selectionMetadata={<MediaAggregateMetadata fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={

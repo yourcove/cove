@@ -538,6 +538,68 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task AggregateAsync_SumsOnlyVideosMatchingTheActiveFilter()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            new Video { Title = "included", Organized = true, MaxDuration = 90.5, MaxFileSize = 1_500 },
+            new Video { Title = "also included", Organized = true, MaxDuration = 29.5, MaxFileSize = 2_500 },
+            new Video { Title = "excluded", Organized = false, MaxDuration = 600, MaxFileSize = 50_000 });
+        await context.SaveChangesAsync();
+
+        var aggregate = await new VideoRepository(context).AggregateAsync(
+            new VideoFilter { Organized = true },
+            new FindFilter());
+
+        Assert.Equal(2, aggregate.Count);
+        Assert.Equal(120, aggregate.Duration);
+        Assert.Equal(4_000, aggregate.FileSize);
+    }
+
+    [Fact]
+    public async Task MediaAggregates_SumFilteredImageAudioTextAndGalleryMetrics()
+    {
+        await using var context = CreateContext();
+        var image = new Image { Title = "image", MaxFileSize = 4_000 };
+        image.Files.Add(new ImageFile { Path = "/media/image.jpg", Basename = "image.jpg", Width = 2_000, Height = 1_000, Size = 4_000 });
+        context.Images.AddRange(image, new Image { Title = "excluded image", MaxFileSize = 90_000 });
+        var audio = new Audio { Title = "audio", MaxDuration = 75.5, MaxFileSize = 5_000 };
+        var excludedAudio = new Audio { Title = "excluded audio", MaxDuration = 900, MaxFileSize = 90_000 };
+        var text = new TextDocument { Title = "text", MaxFileSize = 6_000 };
+        var excludedText = new TextDocument { Title = "excluded text", MaxFileSize = 90_000 };
+        context.Audios.AddRange(audio, excludedAudio);
+        context.TextDocuments.AddRange(text, excludedText);
+        var folder = new Folder { Path = "/media", ModTime = DateTime.UtcNow };
+        var gallery = new Gallery { Title = "gallery", Organized = true };
+        gallery.Files.Add(new GalleryFile { Basename = "gallery.zip", Path = "/media/gallery.zip", ParentFolder = folder, Size = 7_000 });
+        var excludedGallery = new Gallery { Title = "excluded gallery", Organized = false };
+        excludedGallery.Files.Add(new GalleryFile { Basename = "excluded.zip", Path = "/media/excluded.zip", ParentFolder = folder, Size = 90_000 });
+        context.Galleries.AddRange(gallery, excludedGallery);
+        await context.SaveChangesAsync();
+
+        var imageAggregate = await new ImageRepository(context).AggregateAsync(
+            new ImageFilter { Ids = [image.Id] }, new FindFilter());
+        Assert.Equal(1, imageAggregate.Count);
+        Assert.Equal(4_000, imageAggregate.FileSize);
+
+        var audioResponse = await new AudiosController(context, null!, null!, null!, null!, null).Aggregate(
+            new FilteredQueryRequest<AudioFilter> { Ids = [audio.Id] }, CancellationToken.None);
+        var audioAggregate = Assert.IsType<AudioAggregate>(Assert.IsType<OkObjectResult>(audioResponse.Result).Value);
+        Assert.Equal(75.5, audioAggregate.Duration);
+        Assert.Equal(5_000, audioAggregate.FileSize);
+
+        var textResponse = await new TextsController(context, null!, null!, null!, null!, null!, null).Aggregate(
+            new FilteredQueryRequest<TextDocumentFilter> { Ids = [text.Id] }, CancellationToken.None);
+        var textAggregate = Assert.IsType<TextAggregate>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
+        Assert.Equal(6_000, textAggregate.FileSize);
+
+        var galleryAggregate = await new GalleryRepository(context).AggregateAsync(
+            new GalleryFilter { Ids = [gallery.Id] }, new FindFilter());
+        Assert.Equal(1, galleryAggregate.Count);
+        Assert.Equal(7_000, galleryAggregate.FileSize);
+    }
+
+    [Fact]
     public async Task TagsCriterion_UsesThresholdQualifiedDerivedTagApplications()
     {
         await using var context = CreateContext();
@@ -1357,6 +1419,9 @@ public class VideoFilterBehaviorTests
             LastFindFilter = findFilter;
             return Task.FromResult<(IReadOnlyList<Video>, int)>((Array.Empty<Video>(), 0));
         }
+
+        public Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+            => Task.FromResult(new VideoAggregate(0, 0, 0));
 
         public Task<Video?> GetByIdAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Video>> GetAllAsync(CancellationToken ct = default) => throw new NotSupportedException();

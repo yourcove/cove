@@ -18,6 +18,7 @@ interface UseRawSegmentsQueryOptions {
   rawSegmentIds: number[];
   rawFilter: RawSegmentFilterValue;
   enabled: boolean;
+  includeAggregate?: boolean;
 }
 
 type RawSegmentListOptions = NonNullable<Parameters<typeof segmentLibrary.list>[0]>;
@@ -36,6 +37,7 @@ export function buildRawSegmentListOptions({
   excludeVideoIds,
   rawSegmentIds,
   rawFilter,
+  includeAggregate = false,
 }: Omit<UseRawSegmentsQueryOptions, "enabled">): RawSegmentListOptions {
   return {
     q: q || undefined,
@@ -85,6 +87,7 @@ export function buildRawSegmentListOptions({
     seed,
     page: pageNumber,
     perPage,
+    includeAggregate,
   };
 }
 
@@ -103,6 +106,7 @@ export function useRawSegmentsQuery({
   rawSegmentIds,
   rawFilter,
   enabled,
+  includeAggregate = false,
 }: UseRawSegmentsQueryOptions) {
   return useQuery({
     queryKey: [
@@ -121,8 +125,9 @@ export function useRawSegmentsQuery({
       excludeVideoIds.join(","),
       rawSegmentIds.join(","),
       rawFilter,
+      includeAggregate,
     ],
-    queryFn: async (): Promise<{ items: RawSegmentItem[]; totalCount: number }> => {
+    queryFn: async (): Promise<{ items: RawSegmentItem[]; totalCount: number; duration: number }> => {
       const response = await segmentLibrary.list(buildRawSegmentListOptions({
         pageNumber,
         perPage,
@@ -137,6 +142,7 @@ export function useRawSegmentsQuery({
         excludeVideoIds,
         rawSegmentIds,
         rawFilter,
+        includeAggregate,
       }));
 
       return {
@@ -147,6 +153,7 @@ export function useRawSegmentsQuery({
           videoTitle: item.hostTitle?.trim() || `Video #${item.hostId}`,
         })),
         totalCount: response.totalCount,
+        duration: response.aggregateDuration ?? 0,
       };
     },
     enabled,

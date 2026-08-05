@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SegmentsPage } from "../pages/SegmentsPage";
 
+const useRawSegmentsQueryMock = vi.hoisted(() => vi.fn(() => ({ data: { items: [], totalCount: 0, duration: 3600 }, isLoading: false })));
+const useDerivedSpansQueryMock = vi.hoisted(() => vi.fn(() => ({ data: { items: [], totalCount: 0 }, isLoading: false })));
+
 vi.mock("../api/client", () => ({
   faces: { list: vi.fn().mockResolvedValue({ items: [] }) },
   videos: { get: vi.fn(), segments: { delete: vi.fn() } },
@@ -52,11 +55,11 @@ vi.mock("../hooks/usePaginatedInfiniteQuery", () => ({
   }),
 }));
 vi.mock("../pages/segments/useDerivedSpansQuery", () => ({
-  useDerivedSpansQuery: () => ({ data: { items: [], totalCount: 0 }, isLoading: false }),
-  useDerivedSpansCountQuery: () => ({ data: 0 }),
+  useDerivedSpansQuery: useDerivedSpansQueryMock,
+  useDerivedSpansCountQuery: () => ({ data: { totalCount: 0, duration: 0 }, isLoading: false }),
 }));
 vi.mock("../pages/segments/useRawSegmentsQuery", () => ({
-  useRawSegmentsQuery: () => ({ data: { items: [], totalCount: 0 }, isLoading: false }),
+  useRawSegmentsQuery: useRawSegmentsQueryMock,
 }));
 vi.mock("../pages/segments/SegmentsPageList", () => ({ SegmentsPageList: () => null }));
 vi.mock("../components/AddToGroupDialog", () => ({ AddToGroupDialog: () => null }));
@@ -64,8 +67,45 @@ vi.mock("../components/ConfirmDialog", () => ({ ConfirmDialog: () => null }));
 
 describe("SegmentsPage saved-filter modes", () => {
   beforeEach(() => {
+    useRawSegmentsQueryMock.mockClear();
+    useDerivedSpansQueryMock.mockClear();
     localStorage.clear();
     window.history.replaceState({}, "", "/segments");
+  });
+
+  it("forwards the active sort to the finite derived query", async () => {
+    window.history.replaceState({}, "", "/segments?sort=span_duration&direction=asc&seed=2468&perPage=24");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SegmentsPage onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(useDerivedSpansQueryMock).toHaveBeenCalledWith(expect.objectContaining({
+      sort: "span_duration",
+      direction: "asc",
+      seed: 2468,
+    })));
+  });
+
+  it("requests a dedicated aggregate for a direct raw infinite view", async () => {
+    window.history.replaceState({}, "", "/segments?segmentsView=raw&perPage=infinite");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SegmentsPage onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(useRawSegmentsQueryMock).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      includeAggregate: true,
+      pageNumber: 1,
+      perPage: 1,
+    })));
   });
 
   it("keeps segment and raw-segment defaults in separate modes", async () => {

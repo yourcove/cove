@@ -52,6 +52,7 @@ interface ListPageProps {
   onSelectNone?: () => void;
   onInvertSelection?: () => void;
   selectionActions?: ReactNode;
+  selectionMetadata?: ReactNode;
   selectAllLabel?: string;
   selectAllPending?: boolean;
   selectAllMatchingLabel?: string;
@@ -552,6 +553,7 @@ export function ListPage({
   onSelectNone,
   onInvertSelection,
   selectionActions,
+  selectionMetadata,
   selectAllLabel = "Select all",
   selectAllPending = false,
   selectAllMatchingLabel = "Select all matching",
@@ -1116,19 +1118,23 @@ export function ListPage({
 
       {/* Selection bar */}
       {showSelectionBar && (
-        <div className="flex items-center gap-3 bg-card/80 border border-border rounded-lg px-3 py-1.5 mx-1 mt-1">
-          <span className="text-xs text-secondary">
-            {selectedIds!.size} selected
-          </span>
-          {onSelectAll && <button onClick={onSelectAll} disabled={selectAllPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">{selectAllPending ? "Selecting..." : selectAllLabel}</button>}
-          {onSelectAllMatching && (
-            <button onClick={onSelectAllMatching} disabled={selectAllMatchingPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">
-              {selectAllMatchingPending ? "Selecting..." : selectAllMatchingLabel}
-            </button>
-          )}
-          {onInvertSelection && <button onClick={onInvertSelection} className="text-xs text-secondary hover:text-foreground">Invert</button>}
-          {onSelectNone && <button onClick={onSelectNone} className="text-xs text-secondary hover:text-foreground">Deselect all</button>}
-          {selectionActions}
+        <div className="grid grid-cols-1 items-center gap-2 bg-card/80 border border-border rounded-lg px-3 py-1.5 mx-1 mt-1 sm:grid-cols-[1fr_auto_1fr]">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-secondary">
+            <span>{selectedIds!.size} selected</span>
+            {selectionMetadata}
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {onSelectAll && <button onClick={onSelectAll} disabled={selectAllPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">{selectAllPending ? "Selecting..." : selectAllLabel}</button>}
+            {onSelectAllMatching && (
+              <button onClick={onSelectAllMatching} disabled={selectAllMatchingPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">
+                {selectAllMatchingPending ? "Selecting..." : selectAllMatchingLabel}
+              </button>
+            )}
+            {onInvertSelection && <button onClick={onInvertSelection} className="text-xs text-secondary hover:text-foreground">Invert</button>}
+            {onSelectNone && <button onClick={onSelectNone} className="text-xs text-secondary hover:text-foreground">Deselect all</button>}
+            {selectionActions}
+          </div>
+          <div className="hidden sm:block" aria-hidden="true" />
         </div>
       )}
 

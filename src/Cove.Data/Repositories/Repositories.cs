@@ -1542,7 +1542,7 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task<int> CountAsync(CancellationToken ct = default) => await _db.Galleries.CountAsync(ct);
 
-    public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    private async Task<IQueryable<Gallery>> BuildFilteredQueryAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -1561,6 +1561,7 @@ public class GalleryRepository : IGalleryRepository
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
         if (filter != null)
         {
+            if (filter.Ids?.Count > 0) query = query.Where(g => filter.Ids.Contains(g.Id));
             if (!string.IsNullOrEmpty(filter.Title)) query = query.Where(g => g.Title != null && EF.Functions.ILike(g.Title, $"%{filter.Title}%"));
             if (filter.Organized.HasValue) query = query.Where(g => g.Organized == filter.Organized.Value);
             if (filter.StudioId.HasValue) query = query.Where(g => g.StudioId == filter.StudioId.Value);
@@ -1705,6 +1706,25 @@ public class GalleryRepository : IGalleryRepository
                 (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm)))).Distinct();
         }
 
+        return query;
+    }
+
+    public async Task<GalleryAggregate> AggregateAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
+        return await query
+            .GroupBy(_ => 1)
+            .Select(group => new GalleryAggregate(
+                group.Count(),
+                group.SelectMany(gallery => gallery.Files).Sum(file => file.Size)))
+            .FirstOrDefaultAsync(ct)
+            ?? new GalleryAggregate(0, 0);
+    }
+
+    public async Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
+        var currentUserId = EngagementQueryHelpers.CurrentUserId(_db) ?? -1;
         var totalCount = await query.CountAsync(ct);
         var multiSortRegistry = CreateGalleryMultiSortRegistry(currentUserId);
         var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
@@ -2262,6 +2282,46 @@ public class ImageRepository : IImageRepository
         var sorted = items.OrderBy(i => orderMap.GetValueOrDefault(i.Id, int.MaxValue)).ToList();
 
         return (sorted, totalCount);
+    }
+
+    public async Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
+            filter.TagsCriterion = expandedTags.Criterion;
+        }
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
+            filter.StudiosCriterion = expandedStudios.Criterion;
+        }
+
+        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
+        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
+            _db, EntityKinds.Image,
+            currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
+            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true, ct);
+        var query = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
+        query = ApplyImageFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        var imageBase = query;
+        var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
+            image => image.Title, image => image.Details, image => image.Code,
+            image => image.Photographer, image => image.FileSearchText, image => image.SearchText);
+        query = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
+            tagSelectors: [image => image.ImageTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
+            performerSelectors: [image => image.ImagePerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, imageBase, findFilter?.Q, image => image.Files);
+
+        return await query.AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(group => new ImageAggregate(
+                group.Count(),
+                group.Sum(image => image.MaxFileSize)))
+            .SingleOrDefaultAsync(ct)
+            ?? new ImageAggregate(0, 0);
     }
 
     private IQueryable<Image> ApplyImageFilters(IQueryable<Image> query, ImageFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

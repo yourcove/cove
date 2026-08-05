@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Headphones, Mic2, MonitorPlay, PlayCircle } from "lucide-react";
 import { audios, system } from "../api/client";
 import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
@@ -30,6 +30,7 @@ import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { AUDIO_MULTI_SORT_KEYS, AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 const SORT_OPTIONS = AUDIO_SORT_OPTIONS;
 
@@ -75,6 +76,17 @@ export function AudiosPage({ onNavigate }: Props) {
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
+  const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
+  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+    queryKey: ["audios", "aggregate", aggregateFilter, objectFilter],
+    queryFn: () => audios.aggregate({ findFilter: aggregateFilter, objectFilter: hasObjectFilter ? objectFilter as AudioFilterCriteria : undefined }),
+  });
+  const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
+  const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
+    queryKey: ["audios", "aggregate", "selection", selectedIdList],
+    queryFn: () => audios.aggregate({ ids: selectedIdList }),
+    enabled: selectedIdList.length > 0,
+  });
   const { hasPermission } = useAuth();
   const canWriteAudio = canWriteEntity("audio", hasPermission);
   const handleSelectAllMatching = async () => {
@@ -91,6 +103,7 @@ export function AudiosPage({ onNavigate }: Props) {
     {showCreate ? <AudioCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "audio", id })} /> : null}
     <ListPage
       title="Audios"
+      metadataByline={<MediaAggregateMetadata duration={filteredAggregate?.duration} fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />}
       pageKey="audios"
       filterMode="audios"
       filter={filter}
@@ -116,6 +129,7 @@ export function AudiosPage({ onNavigate }: Props) {
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       selectedIds={selectedIds}
+      selectionMetadata={<MediaAggregateMetadata duration={selectedAggregate?.duration} fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
       onSelectAll={listData.infinitePageSize ? handleSelectAllMatching : selectAll}
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}

@@ -187,6 +187,40 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         return Ok(new PaginatedResponse<TextDocumentDto>(dtos, totalCount, page, perPage));
     }
 
+    [HttpPost("aggregate")]
+    public async Task<ActionResult<TextAggregate>> Aggregate([FromBody] FilteredQueryRequest<TextDocumentFilter> req, CancellationToken ct)
+    {
+        var findFilter = req.FindFilter ?? new FindFilter();
+        ExpandedHierarchyCriterion? expandedTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.TagsCriterion))
+        {
+            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, req.ObjectFilter!.TagsCriterion!, ct);
+            req.ObjectFilter.TagsCriterion = expandedTags.Criterion;
+        }
+        ExpandedHierarchyCriterion? expandedStudios = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.StudiosCriterion))
+        {
+            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(db, req.ObjectFilter!.StudiosCriterion!, ct);
+            req.ObjectFilter.StudiosCriterion = expandedStudios.Criterion;
+        }
+
+        var textBase = db.TextDocuments.AsNoTracking().AsQueryable();
+        var textQuery = FullTextSearchHelpers.Apply(db, textBase, findFilter.Q,
+            text => text.Title, text => text.Code, text => text.Details,
+            text => text.FileSearchText, text => text.SearchText);
+        var query = FullTextSearchHelpers.ApplyRelationalMatches(textQuery, textBase, findFilter.Q,
+            tagSelectors: [text => text.TextTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
+            performerSelectors: [text => text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
+        query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
+        query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        if (req.Ids is { Count: > 0 }) query = query.Where(text => req.Ids.Contains(text.Id));
+
+        return Ok(await query.GroupBy(_ => 1)
+            .Select(group => new TextAggregate(group.Count(), group.Sum(text => text.MaxFileSize)))
+            .SingleOrDefaultAsync(ct)
+            ?? new TextAggregate(0, 0));
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<TextDocumentDto>> GetById(int id, CancellationToken ct)
     {

@@ -65,6 +65,14 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         return Ok(new PaginatedResponse<GalleryDto>(dtos, totalCount, findFilter.Page, findFilter.PerPage));
     }
 
+    [HttpPost("aggregate")]
+    public async Task<ActionResult<GalleryAggregate>> Aggregate([FromBody] FilteredQueryRequest<GalleryFilter> req, CancellationToken ct)
+    {
+        var filter = req.ObjectFilter ?? new GalleryFilter();
+        if (req.Ids is { Count: > 0 }) filter.Ids = req.Ids;
+        return Ok(await galleryRepo.AggregateAsync(filter, req.FindFilter, ct));
+    }
+
     [HttpGet("{id:int}")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<GalleryDto>> GetById(int id, CancellationToken ct)

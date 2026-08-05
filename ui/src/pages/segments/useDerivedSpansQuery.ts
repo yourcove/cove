@@ -159,13 +159,13 @@ export function useDerivedSpansCountQuery(options: UseDerivedSpansQueryOptions) 
       "segments-page", "count", activeProfileId, q, videoTitle, videoTagIds.join(","), videoTagDepth,
       includeVideoIds.join(","), excludeVideoIds.join(","), appliedQuery ?? null, rawFilter,
     ],
-    queryFn: async (): Promise<number> => {
-      if (activeProfileId == null) return 0;
+    queryFn: async () => {
+      if (activeProfileId == null) return { totalCount: 0, duration: 0 };
       const response = await segmentSpans.count(buildSpanSearchRequest({
         activeProfileId, pageNumber: 1, perPage: options.perPage, q, videoTitle, videoTagIds, videoTagDepth,
         sort: options.sort, direction: options.direction, seed: options.seed, includeVideoIds, excludeVideoIds, appliedQuery, rawFilter,
       }));
-      return response.totalCount;
+      return response;
     },
     enabled: enabled && activeProfileId != null,
     staleTime: 30_000,

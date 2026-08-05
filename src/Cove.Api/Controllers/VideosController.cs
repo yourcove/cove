@@ -250,6 +250,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         return Ok(result);
     }
 
+    [HttpPost("aggregate")]
+    public async Task<ActionResult<VideoAggregate>> Aggregate([FromBody] FilteredQueryRequest<VideoFilter> req, CancellationToken ct)
+        => Ok(await videoRepo.AggregateAsync(req.ObjectFilter, req.FindFilter, ct));
+
     [HttpGet("{id:int}")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<VideoDto>> GetById(int id, CancellationToken ct)

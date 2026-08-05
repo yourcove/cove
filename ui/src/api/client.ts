@@ -67,6 +67,11 @@ import type {
   PerformerScrapeRequest,
   FilteredQueryRequest,
   VideoFilterCriteria,
+  VideoAggregate,
+  ImageAggregate,
+  AudioAggregate,
+  TextAggregate,
+  GalleryAggregate,
   PerformerFilterCriteria,
   TagFilterCriteria,
   StudioFilterCriteria,
@@ -355,6 +360,8 @@ export const videos = {
     request<PaginatedResponse<VideoListEntry>>(`/videos/with-compilations${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
     request<PaginatedResponse<Video>>("/videos/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
+    request<VideoAggregate>("/videos/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Video>(`/videos/${id}`),
   create: (data: VideoCreate) => request<Video>("/videos", { method: "POST", body: JSON.stringify(data) }),
   createFromFile: (data: FileBackedCreate) => request<Video>("/videos/from-file", { method: "POST", body: JSON.stringify(data) }),
@@ -512,6 +519,7 @@ export const segmentLibrary = {
     updatedAt?: string;
     updatedAt2?: string;
     updatedAtModifier?: string;
+    includeAggregate?: boolean;
   }) =>
     request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`),
   get: (id: number) => requestOptional<SegmentRecord>(`/segments/${id}`),
@@ -805,6 +813,8 @@ export const galleries = {
     request<PaginatedResponse<Gallery>>(`/galleries${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
     request<PaginatedResponse<Gallery>>("/galleries/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
+    request<GalleryAggregate>("/galleries/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Gallery>(`/galleries/${id}`),
   getLikeCount: (id: number) => request<number>(`/galleries/${id}/like-count`),
   create: (data: GalleryCreate) => request<Gallery>("/galleries", { method: "POST", body: JSON.stringify(data) }),
@@ -843,6 +853,8 @@ export const images = {
     request<PaginatedResponse<Image>>(`/images${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
     request<PaginatedResponse<Image>>("/images/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
+    request<ImageAggregate>("/images/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Image>(`/images/${id}`),
   create: (data: ImageCreate) => request<Image>("/images", { method: "POST", body: JSON.stringify(data) }),
   createFromFile: (data: FileBackedCreate) => request<Image>("/images/from-file", { method: "POST", body: JSON.stringify(data) }),
@@ -884,6 +896,8 @@ export const audios = {
     request<PaginatedResponse<Audio>>(`/audios${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<AudioFilterCriteria>) =>
     request<PaginatedResponse<Audio>>("/audios/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<AudioFilterCriteria>) =>
+    request<AudioAggregate>("/audios/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Audio>(`/audios/${id}`),
   create: (data: AudioCreate) => request<Audio>("/audios", { method: "POST", body: JSON.stringify(data) }),
   createFromFile: (data: FileBackedCreate) => request<Audio>("/audios/from-file", { method: "POST", body: JSON.stringify(data) }),
@@ -910,6 +924,8 @@ export const texts = {
     request<PaginatedResponse<TextDocument>>(`/texts${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<TextFilterCriteria>) =>
     request<PaginatedResponse<TextDocument>>("/texts/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+  aggregate: (req: FilteredQueryRequest<TextFilterCriteria>) =>
+    request<TextAggregate>("/texts/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<TextDocument>(`/texts/${id}`),
   content: (id: number) => request<TextContent>(`/texts/${id}/content`),
   create: (data: TextCreate) => request<TextDocument>("/texts", { method: "POST", body: JSON.stringify(data) }),

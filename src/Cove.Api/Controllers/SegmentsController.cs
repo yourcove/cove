@@ -71,6 +71,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         [FromQuery] int? tagDepth = null,
         [FromQuery] string? videoTagIds = null,
         [FromQuery] int? videoTagDepth = null,
+        [FromQuery] bool includeAggregate = false,
         CancellationToken cancellationToken = default)
     {
         page = Math.Max(page, 1);
@@ -276,6 +277,11 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             : await segmentQuery
                 .Where(segment => db.Videos.Any(video => video.Id == segment.HostId))
                 .CountAsync(cancellationToken);
+        double? aggregateDuration = includeAggregate
+            ? await query.SumAsync(
+                item => Math.Max(0, (item.Segment.EndSec ?? item.Segment.StartSec) - item.Segment.StartSec),
+                cancellationToken)
+            : null;
 
 
         var orderedQuery = ApplyOrdering(query, sortKey, descending, seed);
@@ -284,7 +290,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
             .Take(perPage)
             .ToListAsync(cancellationToken);
 
-        return Ok(new PaginatedResponse<SegmentRecordDto>(items.Select(item => MapToDto(item)).ToList(), totalCount, page, perPage));
+        return Ok(new PaginatedResponse<SegmentRecordDto>(items.Select(item => MapToDto(item)).ToList(), totalCount, page, perPage, aggregateDuration));
     }
 
     [HttpGet("{id:int}")]
@@ -758,8 +764,8 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var version = await GetSegmentsVersionAsync(ct);
         var cacheKey = $"spans-count:{version}:{BuildSpanCountKey(request)}";
         var canCache = request.VideoTagIds is not { Length: > 0 };
-        if (canCache && memoryCache.TryGetValue<int>(cacheKey, out var cachedCount))
-            return Ok(new SegmentSpanCountResponseDto(cachedCount));
+        if (canCache && memoryCache.TryGetValue<SegmentSpanCountResponseDto>(cacheKey, out var cachedAggregate))
+            return Ok(cachedAggregate);
 
         var videoList = await BuildSpanVideoListAsync(request, sort, descending, ct);
         var profileId = await spanResolver.ResolveProfileIdAsync(request.Profile, ct);
@@ -767,10 +773,12 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var videoMap = videoList.ToDictionary(v => v.Id);
         var (allItems, _) = await ResolveAndFilterSpansAsync(videoList, request, profileId, derivedQueryRequest, videoMap, ct);
 
-        var total = allItems.Count;
+        var aggregate = new SegmentSpanCountResponseDto(
+            allItems.Count,
+            allItems.Sum(item => Math.Max(0, item.Span.EndSec - item.Span.StartSec)));
         if (canCache)
-            memoryCache.Set(cacheKey, total, TimeSpan.FromMinutes(30));
-        return Ok(new SegmentSpanCountResponseDto(total));
+            memoryCache.Set(cacheKey, aggregate, TimeSpan.FromMinutes(30));
+        return Ok(aggregate);
     }
 
     private async Task<SegmentSpanSearchRequestDto> ExpandSpanTagFiltersAsync(
@@ -895,7 +903,9 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
     {
         // Cheap fingerprint of the segments table: count covers add/remove, max(updated_at) covers edits.
         var count = await db.Segments.CountAsync(ct);
-        var maxUpdated = await db.Segments.MaxAsync(s => (DateTimeOffset?)s.UpdatedAt, ct);
+        var maxUpdated = db.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true
+            ? (await db.Segments.Select(segment => segment.UpdatedAt).ToListAsync(ct)).Select(value => (DateTimeOffset?)value).Max()
+            : await db.Segments.MaxAsync(s => (DateTimeOffset?)s.UpdatedAt, ct);
         return $"{count}:{maxUpdated?.UtcTicks ?? 0}";
     }
 

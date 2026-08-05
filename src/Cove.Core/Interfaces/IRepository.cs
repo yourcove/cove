@@ -16,10 +16,13 @@ public interface IRepository<T> where T : class
 public interface IVideoRepository : IRepository<Video>
 {
     Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<Video?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns VideoPerformer join rows (with Performer.RemoteIds included) for the given video IDs.</summary>
     Task<IReadOnlyList<VideoPerformer>> GetVideoPerformersAsync(IReadOnlyList<int> videoIds, CancellationToken ct = default);
 }
+
+public sealed record VideoAggregate(int Count, double Duration, long FileSize);
 
 public interface IPerformerRepository : IRepository<Performer>
 {
@@ -67,12 +70,16 @@ public interface IStudioRepository : IRepository<Studio>
 public interface IGalleryRepository : IRepository<Gallery>
 {
     Task<(IReadOnlyList<Gallery> Items, int TotalCount)> FindAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<GalleryAggregate> AggregateAsync(GalleryFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<Gallery?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
 }
+
+public sealed record GalleryAggregate(int Count, long FileSize);
 
 public interface IImageRepository : IRepository<Image>
 {
     Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
     Task<Image?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns ImagePerformer join rows (with Performer.RemoteIds included) for the given image IDs.</summary>
     Task<IReadOnlyList<ImagePerformer>> GetImagePerformersAsync(IReadOnlyList<int> imageIds, CancellationToken ct = default);
@@ -81,6 +88,10 @@ public interface IImageRepository : IRepository<Image>
     /// <summary>Adds an ImageTag join row (change-tracked). Call SaveChangesAsync on any repo to commit.</summary>
     void AddTagLink(int imageId, int tagId);
 }
+
+public sealed record ImageAggregate(int Count, long FileSize);
+public sealed record AudioAggregate(int Count, double Duration, long FileSize);
+public sealed record TextAggregate(int Count, long FileSize);
 
 public interface IGroupRepository : IRepository<Group>
 {
@@ -382,6 +393,7 @@ public class StudioFilter
 
 public class GalleryFilter
 {
+    public List<int>? Ids { get; set; }
     public string? Title { get; set; }
     public int? Rating { get; set; }
     public bool? Organized { get; set; }

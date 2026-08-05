@@ -13,6 +13,7 @@ public class FilteredQueryRequest<TFilter> where TFilter : class, new()
 {
     public FindFilter? FindFilter { get; set; }
     public TFilter? ObjectFilter { get; set; }
+    public List<int>? Ids { get; set; }
 }
 
 // ===== VIDEO DTOs =====
@@ -692,7 +693,7 @@ public record SegmentSpanSearchResponseDto(
     int PerPage,
     bool HasMore = false);
 
-public record SegmentSpanCountResponseDto(int TotalCount);
+public record SegmentSpanCountResponseDto(int TotalCount, double Duration);
 
 public static class ResolvedSpanKeys
 {
@@ -1173,7 +1174,12 @@ public record AiDataSummaryDto(
 
 public record AiDataPurgeResultDto(IReadOnlyDictionary<string, int> RemovedCounts);
 
-public record PaginatedResponse<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PerPage);
+public record PaginatedResponse<T>(
+    IReadOnlyList<T> Items,
+    int TotalCount,
+    int Page,
+    int PerPage,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? AggregateDuration = null);
 
 public record StatsDto(
     int VideoCount,

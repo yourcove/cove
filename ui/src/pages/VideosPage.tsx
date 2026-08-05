@@ -51,6 +51,7 @@ import {
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { getLoadError } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
@@ -376,6 +377,16 @@ export function VideosPage({ onNavigate }: Props) {
   const includeCompilationGroups = isIncludeCompilationGroupsEnabled(normalizedObjectFilter[INCLUDE_COMPILATIONS_FILTER_KEY]);
   const canShowCompilationGroups = !infinitePageSize && includeCompilationGroups && searchMode === "text" && !hasCompilationBlockingObjectFilter && (displayMode === "grid" || displayMode === "list");
 
+  const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
+  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+    queryKey: ["videos", "aggregate", aggregateFilter, backendObjectFilter],
+    queryFn: () => videos.aggregate({
+      findFilter: aggregateFilter,
+      objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+    }),
+    enabled: !visualSearchActive && !canShowCompilationGroups,
+  });
+
   useEffect(() => {
     if (!visualSimilarityAvailable || searchMode !== "visual" || !filter.sorts || filter.sorts.length <= 1) {
       return;
@@ -510,6 +521,12 @@ export function VideosPage({ onNavigate }: Props) {
   const batchDownloadStorageKey = getBatchDownloadOptionsStorageKey("page-videos");
   const [batchDownloadOptions, setBatchDownloadOptions] = useState<BatchDownloadOptions>(() => loadStoredBatchDownloadOptions(batchDownloadStorageKey));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
+  const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
+    queryKey: ["videos", "aggregate", "selection", selectedIdList],
+    queryFn: () => videos.aggregate({ objectFilter: { ids: selectedIdList } }),
+    enabled: selectedIdList.length > 0,
+  });
 
   useEffect(() => {
     setBatchDownloadOptions(loadStoredBatchDownloadOptions(batchDownloadStorageKey));
@@ -683,6 +700,9 @@ export function VideosPage({ onNavigate }: Props) {
     </Suspense>
     <ListPage
       title="Videos"
+      metadataByline={!visualSearchActive && !canShowCompilationGroups ? (
+        <MediaAggregateMetadata duration={filteredAggregate?.duration} fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />
+      ) : undefined}
       pageKey="videos"
       filterMode="videos"
       filter={filter}
@@ -735,6 +755,7 @@ export function VideosPage({ onNavigate }: Props) {
       )}
       onNew={canWriteVideo ? () => setShowCreate(true) : undefined}
       selectedIds={selectedIds}
+      selectionMetadata={<MediaAggregateMetadata duration={selectedAggregate?.duration} fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={

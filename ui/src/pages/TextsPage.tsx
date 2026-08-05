@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpenText, FileText } from "lucide-react";
 import { system, texts } from "../api/client";
 import type { DownloaderMatch, TextCreate, TextDocument, TextFilterCriteria } from "../api/types";
@@ -30,6 +30,7 @@ import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { TEXT_MULTI_SORT_KEYS, TEXT_SORT_OPTIONS } from "../components/textSortOptions";
+import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
 const SORT_OPTIONS = TEXT_SORT_OPTIONS;
 
@@ -74,6 +75,17 @@ export function TextsPage({ onNavigate }: Props) {
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
+  const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
+  const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
+    queryKey: ["texts", "aggregate", aggregateFilter, objectFilter],
+    queryFn: () => texts.aggregate({ findFilter: aggregateFilter, objectFilter: hasObjectFilter ? objectFilter as TextFilterCriteria : undefined }),
+  });
+  const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
+  const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
+    queryKey: ["texts", "aggregate", "selection", selectedIdList],
+    queryFn: () => texts.aggregate({ ids: selectedIdList }),
+    enabled: selectedIdList.length > 0,
+  });
   const textIds = useMemo(() => items.map((t) => t.id) ?? [], [items]);
   const { engagementById: textEngagement } = useEntityEngagementBatch("text", textIds);
   const { hasPermission } = useAuth();
@@ -92,6 +104,7 @@ export function TextsPage({ onNavigate }: Props) {
     {showCreate ? <TextCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "text", id })} /> : null}
     <ListPage
       title="Texts"
+      metadataByline={<MediaAggregateMetadata fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />}
       pageKey="texts"
       filterMode="texts"
       filter={filter}
@@ -117,6 +130,7 @@ export function TextsPage({ onNavigate }: Props) {
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       selectedIds={selectedIds}
+      selectionMetadata={<MediaAggregateMetadata fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
       onSelectAll={listData.infinitePageSize ? handleSelectAllMatching : selectAll}
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
