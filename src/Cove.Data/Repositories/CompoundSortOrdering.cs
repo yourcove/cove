@@ -35,6 +35,27 @@ public static class CompoundSortOrdering
         => ordered is null ? query.OrderBy(idSelector) : ordered.ThenBy(idSelector);
 }
 
+public sealed class CompoundSortRegistry<TEntity> where TEntity : class
+{
+    private readonly IReadOnlyDictionary<string, Action<CompoundSortQuery<TEntity>, bool>> _handlers;
+
+    public CompoundSortRegistry(IEnumerable<KeyValuePair<string, Action<CompoundSortQuery<TEntity>, bool>>> handlers)
+    {
+        _handlers = handlers.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IReadOnlySet<string> SupportedKeys => _handlers.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    public List<SortClause> Normalize(IEnumerable<SortClause>? clauses)
+        => CompoundSortOrdering.Normalize(clauses, SupportedKeys);
+
+    public void Apply(CompoundSortQuery<TEntity> query, IEnumerable<SortClause> clauses)
+    {
+        foreach (var clause in clauses)
+            _handlers[clause.Key](query, clause.Direction == Cove.Core.Enums.SortDirection.Desc);
+    }
+}
+
 public sealed class CompoundSortQuery<TEntity> where TEntity : class
 {
     private sealed class SortRow

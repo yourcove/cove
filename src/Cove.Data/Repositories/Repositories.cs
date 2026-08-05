@@ -1513,13 +1513,6 @@ public class StudioRepository : IStudioRepository
 
 public class GalleryRepository : IGalleryRepository
 {
-    private static readonly HashSet<string> GalleryMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "updated_at", "created_at", "date", "studio", "file_mod_time", "file_count", "path", "title",
-        "code", "photographer", "organized", "image_count", "video_count", "performer_count", "tag_count", "rating",
-        "like_counter",
-    };
-
     private readonly CoveContext _db;
     public GalleryRepository(CoveContext db) => _db = db;
 
@@ -1726,14 +1719,15 @@ public class GalleryRepository : IGalleryRepository
         }
 
         var totalCount = await query.CountAsync(ct);
-        var sortClauses = CompoundSortOrdering.Normalize(findFilter?.Sorts, GalleryMultiSortKeys);
+        var multiSortRegistry = CreateGalleryMultiSortRegistry(currentUserId);
+        var sortClauses = multiSortRegistry.Normalize(findFilter?.Sorts);
         var primarySort = sortClauses.FirstOrDefault();
         var hasExplicitSort = sortClauses.Count > 0 || !string.IsNullOrWhiteSpace(findFilter?.Sort);
         var sort = primarySort?.Key ?? findFilter?.Sort ?? "updated_at";
         var desc = primarySort?.Direction == Core.Enums.SortDirection.Desc
             || (primarySort is null && findFilter?.Direction == Core.Enums.SortDirection.Desc);
         query = sortClauses.Count > 1
-            ? ApplyGalleryMultiSort(query, sortClauses)
+            ? ApplyGalleryMultiSort(query, sortClauses, multiSortRegistry)
             : FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Gallery, sort, desc)
             : sort switch
@@ -1820,52 +1814,49 @@ public class GalleryRepository : IGalleryRepository
             : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
     }
 
-    private IQueryable<Gallery> ApplyGalleryMultiSort(IQueryable<Gallery> query, IReadOnlyList<SortClause> clauses)
+    private CompoundSortRegistry<Gallery> CreateGalleryMultiSortRegistry(int currentUserId)
+        => new(new Dictionary<string, Action<CompoundSortQuery<Gallery>, bool>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["updated_at"] = (compound, desc) => compound.Append(gallery => gallery.UpdatedAt, desc),
+            ["rating"] = (compound, desc) => compound.AppendRating(desc),
+            ["created_at"] = (compound, desc) => compound.Append(gallery => gallery.CreatedAt, desc),
+            ["date"] = (compound, desc) => compound.Append(gallery => gallery.Date, desc),
+            ["studio"] = (compound, desc) =>
+            {
+                compound.Append(gallery => gallery.Studio == null ? 1 : 0, false);
+                compound.Append(gallery => gallery.Studio != null ? gallery.Studio.Name : null, desc);
+            },
+            ["file_mod_time"] = (compound, desc) => compound.Append(gallery => gallery.Files.Select(file => (DateTime?)file.ModTime).Max() ?? (gallery.Folder != null ? (DateTime?)gallery.Folder.ModTime : null), desc),
+            ["file_count"] = (compound, desc) => compound.Append(gallery => gallery.Files.Count, desc),
+            ["path"] = (compound, desc) => compound.Append(gallery => gallery.Folder != null ? gallery.Folder.Path : gallery.Files.Select(file => file.Path).OrderBy(path => path).FirstOrDefault(), desc),
+            ["title"] = (compound, desc) => compound.Append(gallery => gallery.Title, desc),
+            ["code"] = (compound, desc) => compound.Append(gallery => gallery.Code, desc),
+            ["photographer"] = (compound, desc) => compound.Append(gallery => gallery.Photographer, desc),
+            ["organized"] = (compound, desc) => compound.Append(gallery => gallery.Organized, desc),
+            ["image_count"] = (compound, desc) => compound.Append(gallery => gallery.ImageCount, desc),
+            ["video_count"] = (compound, desc) => compound.Append(gallery => gallery.VideoCount, desc),
+            ["performer_count"] = (compound, desc) => compound.Append(gallery => gallery.PerformerCount, desc),
+            ["tag_count"] = (compound, desc) => compound.Append(gallery => gallery.TagCount, desc),
+            ["like_counter"] = (compound, desc) => compound.Append(gallery =>
+                gallery.ImageGalleries.Select(link => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Image && affinity.HostId == link.ImageId)
+                    .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()
+                + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities
+                    .Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId)
+                    .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum(), desc),
+        });
+
+    private IQueryable<Gallery> ApplyGalleryMultiSort(
+        IQueryable<Gallery> query,
+        IReadOnlyList<SortClause> clauses,
+        CompoundSortRegistry<Gallery> registry)
     {
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Gallery>.Create(
             _db, query, userId, null, RatingHostType.Gallery,
             includeAffinity: false,
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
-        foreach (var clause in clauses)
-        {
-            var desc = clause.Direction == Core.Enums.SortDirection.Desc;
-            switch (clause.Key.ToLowerInvariant())
-            {
-                case "updated_at": compound.Append(gallery => gallery.UpdatedAt, desc); break;
-                case "rating": compound.AppendRating(desc); break;
-                case "created_at": compound.Append(gallery => gallery.CreatedAt, desc); break;
-                case "date": compound.Append(gallery => gallery.Date, desc); break;
-                case "studio":
-                    compound.Append(gallery => gallery.Studio == null ? 1 : 0, false);
-                    compound.Append(gallery => gallery.Studio != null ? gallery.Studio.Name : null, desc);
-                    break;
-                case "file_mod_time":
-                    compound.Append(gallery => gallery.Files.Select(file => (DateTime?)file.ModTime).Max() ?? (gallery.Folder != null ? (DateTime?)gallery.Folder.ModTime : null), desc);
-                    break;
-                case "file_count": compound.Append(gallery => gallery.Files.Count, desc); break;
-                case "path":
-                    compound.Append(gallery => gallery.Folder != null ? gallery.Folder.Path : gallery.Files.Select(file => file.Path).OrderBy(path => path).FirstOrDefault(), desc);
-                    break;
-                case "title": compound.Append(gallery => gallery.Title, desc); break;
-                case "code": compound.Append(gallery => gallery.Code, desc); break;
-                case "photographer": compound.Append(gallery => gallery.Photographer, desc); break;
-                case "organized": compound.Append(gallery => gallery.Organized, desc); break;
-                case "image_count": compound.Append(gallery => gallery.ImageCount, desc); break;
-                case "video_count": compound.Append(gallery => gallery.VideoCount, desc); break;
-                case "performer_count": compound.Append(gallery => gallery.PerformerCount, desc); break;
-                case "tag_count": compound.Append(gallery => gallery.TagCount, desc); break;
-                case "like_counter":
-                    compound.Append(gallery =>
-                        gallery.ImageGalleries.Select(link => _db.UserEntityAffinities
-                            .Where(affinity => affinity.UserId == userId && affinity.HostType == AffinityHostType.Image && affinity.HostId == link.ImageId)
-                            .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()
-                        + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities
-                            .Where(affinity => affinity.UserId == userId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId)
-                            .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum(), desc);
-                    break;
-            }
-        }
+        registry.Apply(compound, clauses);
 
         return compound.Finish(gallery => gallery.Id);
     }
