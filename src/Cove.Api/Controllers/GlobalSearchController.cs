@@ -56,7 +56,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Video>(
             "video", EntityKinds.Video, Permissions.VideosRead, term, perType,
             query => ApplyVideoSearch(query, term),
-            query => FullTextSearchHelpers.OrderByRelevance(db, query, term),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, video => video.Title),
             video => new SearchProjection
             {
                 Id = video.Id,
@@ -69,7 +69,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Performer>(
             "performer", EntityKinds.Performer, Permissions.PerformersRead, term, perType,
             query => ApplyPerformerSearch(query, term),
-            query => query.OrderBy(performer => performer.Name).ThenBy(performer => performer.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, performer => performer.Name),
             performer => new SearchProjection
             {
                 Id = performer.Id,
@@ -81,7 +81,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Studio>(
             "studio", EntityKinds.Studio, Permissions.StudiosRead, term, perType,
             query => ApplyStudioSearch(query, term),
-            query => query.OrderBy(studio => studio.Name).ThenBy(studio => studio.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, studio => studio.Name),
             studio => new SearchProjection
             {
                 Id = studio.Id,
@@ -93,7 +93,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Tag>(
             "tag", EntityKinds.Tag, Permissions.TagsRead, term, perType,
             query => ApplyTagSearch(query, term),
-            query => query.OrderBy(tag => tag.Name).ThenBy(tag => tag.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, tag => tag.Name),
             tag => new SearchProjection
             {
                 Id = tag.Id,
@@ -105,7 +105,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Gallery>(
             "gallery", EntityKinds.Gallery, Permissions.GalleriesRead, term, perType,
             query => ApplyGallerySearch(query, term),
-            query => query.OrderBy(gallery => gallery.Title).ThenBy(gallery => gallery.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, gallery => gallery.Title),
             gallery => new SearchProjection
             {
                 Id = gallery.Id,
@@ -119,7 +119,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Image>(
             "image", EntityKinds.Image, Permissions.ImagesRead, term, perType,
             query => ApplyImageSearch(query, term),
-            query => query.OrderBy(image => image.Title).ThenBy(image => image.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, image => image.Title),
             image => new SearchProjection
             {
                 Id = image.Id,
@@ -132,7 +132,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Group>(
             "group", EntityKinds.Group, Permissions.GroupsRead, term, perType,
             query => ApplyGroupSearch(query, term),
-            query => query.OrderBy(group => group.Name).ThenBy(group => group.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, group => group.Name),
             group => new SearchProjection
             {
                 Id = group.Id,
@@ -144,7 +144,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<Audio>(
             "audio", EntityKinds.Audio, Permissions.AudiosRead, term, perType,
             query => ApplyAudioSearch(query, term),
-            query => query.OrderBy(audio => audio.Title).ThenBy(audio => audio.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, audio => audio.Title),
             audio => new SearchProjection
             {
                 Id = audio.Id,
@@ -157,7 +157,7 @@ public sealed class GlobalSearchController(
         await AddGroupAsync<TextDocument>(
             "text", EntityKinds.Text, Permissions.TextsRead, term, perType,
             query => ApplyTextSearch(query, term),
-            query => query.OrderBy(text => text.Title).ThenBy(text => text.Id),
+            query => FullTextSearchHelpers.OrderByExactThenRelevance(db, query, term, text => text.Title),
             text => new SearchProjection
             {
                 Id = text.Id,

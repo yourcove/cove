@@ -67,4 +67,48 @@ public sealed class GlobalSearchSmokeTests
         Assert.DoesNotContain(result.Groups, group => group.Type == "video");
         Assert.Contains(result.Groups, group => group.Type == "performer");
     }
+
+    [Fact]
+    public async Task ExactVideoTitleRanksAheadOfBroaderMatches()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.Videos.AddRange(
+                new Video { Title = "Remembered Scene", SearchText = "Remembered Scene" },
+                new Video { Title = "Remembered Scene With Many More Words", SearchText = "Remembered Scene Remembered Scene" });
+            await db.SaveChangesAsync();
+        });
+        using var client = factory.CreateAuthenticatedClient();
+
+        var response = await client.GetAsync("/api/search/global?q=remembered+scene&perType=8");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var videos = Assert.Single(result!.Groups, group => group.Type == "video").Items;
+        Assert.Equal("Remembered Scene", videos[0].Title);
+    }
+
+    [Fact]
+    public async Task ExactGalleryTitleRanksAheadOfBroaderMatches()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        await factory.ResetDatabaseAsync();
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.Galleries.AddRange(
+                new Gallery { Title = "Remembered Gallery", SearchText = "Remembered Gallery" },
+                new Gallery { Title = "Remembered Gallery With Many More Words", SearchText = "Remembered Gallery Remembered Gallery" });
+            await db.SaveChangesAsync();
+        });
+        using var client = factory.CreateAuthenticatedClient();
+
+        var response = await client.GetAsync("/api/search/global?q=remembered+gallery&perType=8");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var galleries = Assert.Single(result!.Groups, group => group.Type == "gallery").Items;
+        Assert.Equal("Remembered Gallery", galleries[0].Title);
+    }
 }
