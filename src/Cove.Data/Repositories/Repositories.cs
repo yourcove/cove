@@ -1844,6 +1844,20 @@ public class GalleryRepository : IGalleryRepository
                 + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities
                     .Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId)
                     .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum(), desc),
+            ["last_like_at"] = (compound, desc) => compound.Append(gallery =>
+                gallery.ImageGalleries.Select(link => _db.Interactions
+                    .Where(interaction => interaction.UserId == currentUserId
+                        && interaction.HostType == InteractionHostType.Image
+                        && interaction.HostId == link.ImageId
+                        && interaction.Kind == InteractionKind.LikeCount)
+                    .Max(interaction => (DateTime?)interaction.At))
+                    .Concat(gallery.VideoGalleries.Select(link => _db.Interactions
+                        .Where(interaction => interaction.UserId == currentUserId
+                            && interaction.HostType == InteractionHostType.Video
+                            && interaction.HostId == link.VideoId
+                            && interaction.Kind == InteractionKind.LikeCount)
+                        .Max(interaction => (DateTime?)interaction.At)))
+                    .Max(), desc),
         });
 
     private IQueryable<Gallery> ApplyGalleryMultiSort(

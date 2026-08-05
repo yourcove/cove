@@ -541,6 +541,53 @@ public class EntityListSortBehaviorHarnessTests
         Assert.Equal(expectedIds, actualIds);
     }
 
+    [Fact]
+    public async Task BackendsAcceptEverySharedFrontendCompoundSortKey()
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        var catalogs = new[]
+        {
+            (Entity: "galleries", File: "gallerySortOptions.ts", Excluded: new HashSet<string>(["typical_resolution", "random"], StringComparer.OrdinalIgnoreCase)),
+            (Entity: "performers", File: "performerSortOptions.ts", Excluded: new HashSet<string>(["career_length", "measurements", "random"], StringComparer.OrdinalIgnoreCase)),
+            (Entity: "studios", File: "studioSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
+            (Entity: "images", File: "imageSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
+            (Entity: "audios", File: "audioSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
+            (Entity: "texts", File: "textSortOptions.ts", Excluded: new HashSet<string>(["random"], StringComparer.OrdinalIgnoreCase)),
+        };
+
+        foreach (var catalog in catalogs)
+        {
+            var optionsPath = FindRepositoryFile("ui", "src", "components", catalog.File);
+            var source = await File.ReadAllTextAsync(optionsPath);
+            var advertisedKeys = System.Text.RegularExpressions.Regex.Matches(source, "value:\\s*\"([^\"]+)\"")
+                .Select(match => match.Groups[1].Value)
+                .Where(key => !catalog.Excluded.Contains(key))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var key in advertisedKeys)
+            {
+                var secondaryKey = key.Equals(advertisedKeys[0], StringComparison.OrdinalIgnoreCase)
+                    ? advertisedKeys[1]
+                    : advertisedKeys[0];
+                var findFilter = new FindFilter
+                {
+                    Page = 1,
+                    PerPage = 50,
+                    Sorts =
+                    [
+                        new SortClause(key, CoveSortDirection.Desc),
+                        new SortClause(secondaryKey, CoveSortDirection.Asc),
+                    ],
+                };
+
+                var exception = await Record.ExceptionAsync(() => ExecuteCompoundSortAsync(fixture.Context, catalog.Entity, findFilter));
+                Assert.Null(exception);
+            }
+        }
+    }
+
     [Theory]
     [MemberData(nameof(FilterRows))]
     public async Task RepresentativeFiltersMatchSeededFixtureSet(FilterProbe probe)
@@ -598,6 +645,31 @@ public class EntityListSortBehaviorHarnessTests
 
     private static bool IsBehaviorTested(EntityListSortDefinition sort)
         => sort.KnownBrokenReason is null && !SortRowsWithBehaviorExemptions.Contains(sort.RowId);
+
+    private static string FindRepositoryFile(params string[] relativeSegments)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
+        {
+            var candidate = Path.Combine([directory.FullName, .. relativeSegments]);
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        throw new FileNotFoundException($"Could not locate repository file '{Path.Combine(relativeSegments)}'.");
+    }
+
+    private static async Task ExecuteCompoundSortAsync(CoveContext context, string entity, FindFilter findFilter)
+    {
+        switch (entity)
+        {
+            case "galleries": await new GalleryRepository(context).FindAsync(null, findFilter); break;
+            case "performers": await new PerformerRepository(context).FindAsync(null, findFilter); break;
+            case "studios": await new StudioRepository(context).FindAsync(null, findFilter); break;
+            case "images": await new ImageRepository(context).FindAsync(null, findFilter); break;
+            case "audios": await QueryFilteredAudioIdsAsync(context, new AudioFilter(), findFilter); break;
+            case "texts": await QueryFilteredTextIdsAsync(context, new TextDocumentFilter(), findFilter); break;
+            default: throw new InvalidOperationException($"No compound-sort contract query configured for '{entity}'.");
+        }
+    }
 
     private static async Task<IReadOnlyList<int>> QueryIdsAsync(CoveContext context, string entity, string sortKey, CoveSortDirection direction)
     {
