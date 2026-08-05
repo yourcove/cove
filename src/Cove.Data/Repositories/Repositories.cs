@@ -1517,6 +1517,7 @@ public class GalleryRepository : IGalleryRepository
     {
         "updated_at", "created_at", "date", "studio", "file_mod_time", "file_count", "path", "title",
         "code", "photographer", "organized", "image_count", "video_count", "performer_count", "tag_count", "rating",
+        "like_counter",
     };
 
     private readonly CoveContext _db;
@@ -1854,6 +1855,15 @@ public class GalleryRepository : IGalleryRepository
                 case "video_count": compound.Append(gallery => gallery.VideoCount, desc); break;
                 case "performer_count": compound.Append(gallery => gallery.PerformerCount, desc); break;
                 case "tag_count": compound.Append(gallery => gallery.TagCount, desc); break;
+                case "like_counter":
+                    compound.Append(gallery =>
+                        gallery.ImageGalleries.Select(link => _db.UserEntityAffinities
+                            .Where(affinity => affinity.UserId == userId && affinity.HostType == AffinityHostType.Image && affinity.HostId == link.ImageId)
+                            .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()
+                        + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities
+                            .Where(affinity => affinity.UserId == userId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId)
+                            .Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum(), desc);
+                    break;
             }
         }
 

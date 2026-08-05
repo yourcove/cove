@@ -1490,7 +1490,6 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
       )}
       footer={hasFooter ? (
         <>
-            {likeCount > 0 ? <LikeCounter count={likeCount} /> : null}
             {gallery.imageCount > 0 ? (
               <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={gallery.imageCount} title="Images" wide preferBelow>
                 <ImagesPopoverContent filter={{ galleryId: gallery.id }} />
@@ -1508,6 +1507,7 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
               onNavigate={onNavigate}
             />
             {gallery.organized ? <span className="p-1 text-muted" title="Organized"><Box className="w-3.5 h-3.5" /></span> : null}
+            {likeCount > 0 ? <LikeCounter count={likeCount} /> : null}
         </>
       ) : null}
     />

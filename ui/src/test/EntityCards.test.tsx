@@ -277,7 +277,7 @@ describe("PerformerTile", () => {
 
 describe("GalleryTile", () => {
   it("shows the aggregate like count from gallery engagement", () => {
-    render(
+    const { container } = render(
       <GalleryTile
         gallery={baseGallery as any}
         engagement={{ likeCount: 6 } as any}
@@ -286,6 +286,7 @@ describe("GalleryTile", () => {
     );
 
     expect(screen.getByTitle("Likes: 6")).toBeInTheDocument();
+    expect(container.querySelector(".card-popovers")?.lastElementChild).toBe(screen.getByTitle("Likes: 6"));
   });
 
   it("uses media-enabled tag links in the shared reference popover", () => {

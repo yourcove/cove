@@ -501,6 +501,46 @@ public class EntityListSortBehaviorHarnessTests
         Assert.Equal([entityIds[1], entityIds[0], entityIds[2]], actualIds);
     }
 
+    [Fact]
+    public async Task GalleryCompoundLikeSortUsesLikeCountBeforeSecondaryDate()
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var galleriesByLikes = fixture.Galleries
+            .OrderByDescending(gallery =>
+                gallery.ImageGalleries.Sum(link => fixture.Affinity(AffinityHostType.Image, link.ImageId).LikeCount)
+                + gallery.VideoGalleries.Sum(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LikeCount))
+            .ToArray();
+        galleriesByLikes[0].Date = new DateOnly(2020, 1, 1);
+        galleriesByLikes[1].Date = new DateOnly(2030, 1, 1);
+        galleriesByLikes[2].Date = new DateOnly(2025, 1, 1);
+        await fixture.Context.SaveChangesAsync();
+
+        var findFilter = new FindFilter
+        {
+            Page = 1,
+            PerPage = 50,
+            Sorts =
+            [
+                new SortClause("like_counter", CoveSortDirection.Desc),
+                new SortClause("date", CoveSortDirection.Desc),
+            ],
+        };
+
+        var actualIds = (await new GalleryRepository(fixture.Context).FindAsync(null, findFilter)).Items.Select(item => item.Id).ToArray();
+        var expectedIds = fixture.Galleries
+            .OrderByDescending(gallery =>
+                gallery.ImageGalleries.Sum(link => fixture.Affinity(AffinityHostType.Image, link.ImageId).LikeCount)
+                + gallery.VideoGalleries.Sum(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LikeCount))
+            .ThenByDescending(gallery => gallery.Date)
+            .ThenBy(gallery => gallery.Id)
+            .Select(gallery => gallery.Id)
+            .ToArray();
+
+        Assert.Equal(expectedIds, actualIds);
+    }
+
     [Theory]
     [MemberData(nameof(FilterRows))]
     public async Task RepresentativeFiltersMatchSeededFixtureSet(FilterProbe probe)
