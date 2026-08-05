@@ -31,6 +31,24 @@ export interface Video {
   imagePath?: string | null;
 }
 
+export type GlobalSearchEntityType = "video" | "performer" | "studio" | "tag" | "gallery" | "image" | "group" | "audio" | "text";
+
+export interface GlobalSearchItem {
+  id: number;
+  title: string;
+  subtitle?: string | null;
+}
+
+export interface GlobalSearchGroup {
+  type: GlobalSearchEntityType;
+  items: GlobalSearchItem[];
+}
+
+export interface GlobalSearchResponse {
+  groups: GlobalSearchGroup[];
+  failedTypes: GlobalSearchEntityType[];
+}
+
 export interface VideoListEntry {
   kind: "video" | "compilation";
   id: number;

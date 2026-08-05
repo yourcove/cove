@@ -15,6 +15,10 @@ public class FilteredQueryRequest<TFilter> where TFilter : class, new()
     public TFilter? ObjectFilter { get; set; }
 }
 
+public record GlobalSearchItemDto(int Id, string Title, string? Subtitle);
+public record GlobalSearchGroupDto(string Type, IReadOnlyList<GlobalSearchItemDto> Items);
+public record GlobalSearchResponseDto(IReadOnlyList<GlobalSearchGroupDto> Groups, IReadOnlyList<string> FailedTypes);
+
 // ===== VIDEO DTOs =====
 public record VideoDto(
     int Id, string? Title, string? Code, string? Details, string? Director,
