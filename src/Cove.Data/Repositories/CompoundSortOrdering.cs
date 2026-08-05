@@ -5,16 +5,26 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Repositories;
 
+public sealed class UnsupportedCompoundSortException(string key)
+    : Exception($"Compound sort key '{key}' is not supported.")
+{
+    public string Key { get; } = key;
+}
+
 public static class CompoundSortOrdering
 {
     public static List<SortClause> Normalize(IEnumerable<SortClause>? clauses, IReadOnlySet<string> supportedKeys)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return (clauses ?? [])
-            .Where(clause => clause is not null
-                && !string.IsNullOrWhiteSpace(clause.Key)
-                && supportedKeys.Contains(clause.Key)
-                && seen.Add(clause.Key))
+        var candidates = (clauses ?? [])
+            .Where(clause => clause is not null && !string.IsNullOrWhiteSpace(clause.Key))
+            .ToList();
+        var unsupported = candidates.FirstOrDefault(clause => !supportedKeys.Contains(clause.Key));
+        if (unsupported is not null)
+            throw new UnsupportedCompoundSortException(unsupported.Key);
+
+        return candidates
+            .Where(clause => seen.Add(clause.Key))
             .Take(SortClause.MaxClauses)
             .ToList();
     }
