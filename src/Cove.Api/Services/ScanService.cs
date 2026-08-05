@@ -26,6 +26,8 @@ public partial class ScanService(
     TextExtractionService textExtractionService,
     ZipGalleryReader zipGalleryReader,
     ExtensionManager extensionManager,
+    IMediaProbeService mediaProbeService,
+    IScanFileValidator fileValidator,
     ILogger<ScanService> logger) : IScanService
 {
     // Striped lock pool: serializes concurrent creation of the same folder path. A fixed pool keeps
@@ -50,12 +52,6 @@ public partial class ScanService(
     // the whole scan. Scan runs as a background job, so a generous per-command timeout is appropriate.
     private static readonly TimeSpan ScanCommandTimeout = TimeSpan.FromMinutes(5);
 
-    // Resolving ffprobe walks PATH doing a File.Exists per entry. That is cheap once but was being
-    // repeated for every single file (millions of redundant syscalls on a large scan). The resolved
-    // path cannot change within a scan, so cache it after the first lookup.
-    private readonly object _ffprobeResolveLock = new();
-    private string? _cachedFfprobePath;
-    private bool _ffprobeResolved;
     /// <summary>
     /// Resolves the max degree of parallelism from config.
     /// -1 means use all processors; 0 or 1 means single-threaded; >1 means that many threads.
@@ -75,7 +71,7 @@ public partial class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var (videoFile, _) = await ProcessVideoFileAsync(db, path, videoId, ct);
+        var (videoFile, _, _) = await ProcessVideoFileAsync(db, path, videoId, ct);
         await db.SaveChangesAsync(ct);
 
         var resolvedVideoId = videoFile.VideoId;
@@ -97,7 +93,7 @@ public partial class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var (image, _) = await ProcessImageFileAsync(db, path, imageId, ct);
+        var (image, _, _) = await ProcessImageFileAsync(db, path, imageId, ct);
         await db.SaveChangesAsync(ct);
 
         if (image.Id == 0)
@@ -139,7 +135,7 @@ public partial class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var (audio, _) = await ProcessAudioFileAsync(db, path, audioId, ct);
+        var (audio, _, _) = await ProcessAudioFileAsync(db, path, audioId, ct);
         await db.SaveChangesAsync(ct);
 
         if (audio.Id == 0)
@@ -160,7 +156,7 @@ public partial class ScanService(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var (textDocument, _) = await ProcessTextFileAsync(db, path, textDocumentId, ct);
+        var (textDocument, _, _) = await ProcessTextFileAsync(db, path, textDocumentId, ct);
         await db.SaveChangesAsync(ct);
 
         if (textDocument.Id == 0)
@@ -207,6 +203,12 @@ public partial class ScanService(
             var ignoreRuleCache = new Dictionary<string, List<IgnoreRule>>(StringComparer.OrdinalIgnoreCase);
 
             var scanStopwatch = Stopwatch.StartNew();
+            var importedCount = 0;
+            var updatedCount = 0;
+            var invalidMediaSkippedCount = 0;
+            var deferredFileCount = 0;
+            var failedCount = 0;
+            var assetGenerationFailureCount = 0;
 
             // Phase 1: Discover files
             progress.Report(0, "Discovering files...");
@@ -361,7 +363,6 @@ public partial class ScanService(
                 var modTimeChangedCount = 0;
                 var rescanForcedCount = 0;
                 var typeMismatchCount = 0;
-                var failedCount = 0;
                 var processStopwatch = Stopwatch.StartNew();
                 var lastProcessProgressAt = DateTime.MinValue;
                 var progressLock = new object();
@@ -403,6 +404,8 @@ public partial class ScanService(
                         var changeReason = GetKnownFileChangeReason(existingFile!, file, options.Rescan);
                         if (changeReason == ScanFileChangeReason.Unchanged)
                         {
+                            if (NeedsRequestedVideoAsset(existingFile!, options, thumbnailService))
+                                processedVideoPaths.TryAdd(file.Path, 0);
                             skippedUnchangedCount++;
                             processedCount++;
                             ReportProcessingProgress(false);
@@ -510,37 +513,65 @@ public partial class ScanService(
 
                         // Stage one file's entities into the worker context (no save). Appends the event
                         // to fire once persisted. Galleries are excluded here as they commit internally.
-                        async Task StageAsync((DiscoveredFile File, bool IsKnownFile, bool ContentChanged) work, List<Action> events)
+                        async Task<bool> StageAsync((DiscoveredFile File, bool IsKnownFile, bool ContentChanged) work, List<Action> events)
                         {
                             var file = work.File;
                             var isKnownFile = work.IsKnownFile;
                             var contentChanged = work.ContentChanged;
                             var folderId = ResolveFolderId(file);
+                            var kind = GetExpectedFileKind(file.Extension, videoExts, imageExts, galleryExts, audioExts, textExts);
+                            var validation = await fileValidator.ValidateAsync(
+                                file.Path,
+                                file.Size,
+                                file.ObservedModTime,
+                                ToScanMediaKind(kind),
+                                ct);
+                            if (!RecordValidationOutcome(file, validation))
+                                return false;
 
                             if (videoExts.Contains(file.Extension))
                             {
                                 processedVideoPaths.TryAdd(file.Path, 0);
-                                var (videoFile, relinked) = await ProcessVideoFileAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
-                                events.Add(() => { if (videoFile.VideoId.HasValue) PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked); });
+                                var (videoFile, relinked, moved) = await ProcessVideoFileAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, videoProbeJson: validation.ProbeJson);
+                                events.Add(() =>
+                                {
+                                    RecordPersistedFile(isKnownFile || moved);
+                                    if (videoFile.VideoId.HasValue)
+                                        PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked);
+                                });
                             }
                             else if (imageExts.Contains(file.Extension))
                             {
                                 processedImagePaths.TryAdd(file.Path, 0);
-                                var (image, relinked) = await ProcessImageFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
-                                events.Add(() => PublishScanEntityEvent("Image", image.Id, isKnownFile || relinked));
+                                var (image, relinked, moved) = await ProcessImageFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                events.Add(() =>
+                                {
+                                    RecordPersistedFile(isKnownFile || moved);
+                                    PublishScanEntityEvent("Image", image.Id, isKnownFile || relinked);
+                                });
                             }
                             else if (audioExts.Contains(file.Extension))
                             {
                                 processedAudioPaths.TryAdd(file.Path, 0);
-                                var (audio, relinked) = await ProcessAudioFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
-                                events.Add(() => PublishScanEntityEvent("Audio", audio.Id, isKnownFile || relinked));
+                                var (audio, relinked, moved) = await ProcessAudioFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, mediaProbeJson: validation.ProbeJson);
+                                events.Add(() =>
+                                {
+                                    RecordPersistedFile(isKnownFile || moved);
+                                    PublishScanEntityEvent("Audio", audio.Id, isKnownFile || relinked);
+                                });
                             }
                             else if (textExts.Contains(file.Extension))
                             {
                                 processedTextPaths.TryAdd(file.Path, 0);
-                                var (textDocument, relinked) = await ProcessTextFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
-                                events.Add(() => PublishScanEntityEvent("Text", textDocument.Id, isKnownFile || relinked));
+                                var (textDocument, relinked, moved) = await ProcessTextFileAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                events.Add(() =>
+                                {
+                                    RecordPersistedFile(isKnownFile || moved);
+                                    PublishScanEntityEvent("Text", textDocument.Id, isKnownFile || relinked);
+                                });
                             }
+
+                            return true;
                         }
 
                         // Process a single item in its own transaction. Used for galleries (which commit
@@ -553,14 +584,26 @@ public partial class ScanService(
                             {
                                 if (galleryExts.Contains(file.Extension))
                                 {
-                                    var gallery = await ProcessGalleryFileAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file));
+                                    var validation = await fileValidator.ValidateAsync(
+                                        file.Path,
+                                        file.Size,
+                                        file.ObservedModTime,
+                                        ScanMediaKind.Gallery,
+                                        ct);
+                                    if (!RecordValidationOutcome(file, validation))
+                                        return;
+
+                                    var gallery = await ProcessGalleryFileAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries);
                                     await workerDb.SaveChangesAsync(ct);
+                                    RecordPersistedFile(isKnownFile);
                                     PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);
                                 }
                                 else
                                 {
                                     var events = new List<Action>(1);
-                                    await StageAsync(work, events);
+                                    var staged = await StageAsync(work, events);
+                                    if (!staged)
+                                        return;
                                     await workerDb.SaveChangesAsync(ct);
                                     foreach (var publish in events)
                                         publish();
@@ -624,10 +667,13 @@ public partial class ScanService(
                             {
                                 try
                                 {
-                                    await StageAsync(item, batchEvents);
-                                    batchItems.Add(item);
-                                    if (batchItems.Count >= ScanSaveBatchSize)
-                                        await FlushBatchAsync();
+                                    var staged = await StageAsync(item, batchEvents);
+                                    if (staged)
+                                    {
+                                        batchItems.Add(item);
+                                        if (batchItems.Count >= ScanSaveBatchSize)
+                                            await FlushBatchAsync();
+                                    }
                                 }
                                 catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                                 {
@@ -663,11 +709,15 @@ public partial class ScanService(
                 ReportProcessingProgress(true);
 
                 logger.LogInformation(
-                    "Scan phase processing completed in {ElapsedMs} ms. Checked {CheckedCount} files; skipped {SkippedCount} unchanged; processed {ChangedOrNewCount} changed/new; new={NewFileCount}, metadataProbe={MetadataProbeCount}, sizeChanged={SizeChangedCount}, modTimeChanged={ModTimeChangedCount}, rescanForced={RescanForcedCount}, typeMismatch={TypeMismatchCount}, failed={FailedCount}.",
+                    "Scan phase processing completed in {ElapsedMs} ms. Checked {CheckedCount} files; skipped {SkippedCount} unchanged; processed {ChangedOrNewCount} changed/new; imported={ImportedCount}, updated={UpdatedCount}, invalidMediaSkipped={InvalidMediaSkippedCount}, deferred={DeferredFileCount}, new={NewFileCount}, metadataProbe={MetadataProbeCount}, sizeChanged={SizeChangedCount}, modTimeChanged={ModTimeChangedCount}, rescanForced={RescanForcedCount}, typeMismatch={TypeMismatchCount}, failed={FailedCount}.",
                     processStopwatch.ElapsedMilliseconds,
                     processedCount,
                     skippedUnchangedCount,
                     changedOrNewCount,
+                    importedCount,
+                    updatedCount,
+                    invalidMediaSkippedCount,
+                    deferredFileCount,
                     newFileCount,
                     metadataProbeCount,
                     sizeChangedCount,
@@ -683,7 +733,7 @@ public partial class ScanService(
                     await CreateGalleriesFromFoldersAsync(db, cfg.CreateGalleriesFromFolders, ct);
                 }
 
-                await GenerateRequestedAssetsAsync(
+                var assetSummary = await GenerateRequestedAssetsAsync(
                     db,
                     progress,
                     new HashSet<string>(processedVideoPaths.Keys, StringComparer.OrdinalIgnoreCase),
@@ -693,6 +743,7 @@ public partial class ScanService(
                     options,
                     thumbnailService,
                     ct);
+                assetGenerationFailureCount += assetSummary.FailedItems;
             }
 
             // Phase 5: Extension scan participants
@@ -729,11 +780,48 @@ public partial class ScanService(
                 }
             }
 
-            logger.LogInformation("Scan completed. Processed {Count} core files, {ParticipantCount} extension participant(s)", files.Count, participants.Count);
+            var completionSummary = $"Scan complete: {importedCount:N0} imported, {updatedCount:N0} updated, {FormatCount(invalidMediaSkippedCount, "invalid media file", "invalid media files")} skipped, {FormatCount(deferredFileCount, "unsettled file", "unsettled files")} deferred, {FormatCount(failedCount, "file failure", "file failures")}, {FormatCount(assetGenerationFailureCount, "asset generation failure", "asset generation failures")}.";
+            progress.Report(1, completionSummary);
+            logger.LogInformation("Scan completed. {Summary} Processed {Count} core files, {ParticipantCount} extension participant(s)", completionSummary, files.Count, participants.Count);
             logger.LogInformation("Scan total elapsed time: {ElapsedMs} ms", scanStopwatch.ElapsedMilliseconds);
             eventBus.Publish(new CoveEvent(EventType.ScanCompleted));
+
+            void RecordPersistedFile(bool isKnownFile)
+            {
+                if (isKnownFile)
+                    Interlocked.Increment(ref updatedCount);
+                else
+                    Interlocked.Increment(ref importedCount);
+            }
+
+            bool RecordValidationOutcome(DiscoveredFile file, ScanFileValidationResult validation)
+            {
+                switch (validation.Status)
+                {
+                    case ScanFileValidationStatus.Ready:
+                        return true;
+                    case ScanFileValidationStatus.Deferred:
+                        Interlocked.Increment(ref deferredFileCount);
+                        logger.LogInformation("Deferring unsettled scan file; it will be retried on the next scan. Path={Path}, Reason={Reason}", file.Path, validation.Reason);
+                        progress.Report(0.85, $"Deferred unsettled file {Path.GetFileName(file.Path)}: {validation.Reason}");
+                        return false;
+                    case ScanFileValidationStatus.Invalid:
+                        Interlocked.Increment(ref invalidMediaSkippedCount);
+                        logger.LogWarning("Skipping invalid media file; it will be retried on the next scan. Path={Path}, Reason={Reason}", file.Path, validation.Reason);
+                        progress.Report(0.85, $"Skipped invalid media file {Path.GetFileName(file.Path)}: {validation.Reason}");
+                        return false;
+                    default:
+                        Interlocked.Increment(ref failedCount);
+                        logger.LogError("Unable to validate scan file. Path={Path}, Reason={Reason}", file.Path, validation.Reason);
+                        progress.Report(0.85, $"Failed to validate {Path.GetFileName(file.Path)}: {validation.Reason}");
+                        return false;
+                }
+            }
         });
     }
+
+    private static string FormatCount(int count, string singular, string plural)
+        => $"{count:N0} {(count == 1 ? singular : plural)}";
 
     private bool TryCreateDiscoveredFile(string path, string extension, out DiscoveredFile discoveredFile)
     {
@@ -745,7 +833,7 @@ public partial class ScanService(
                 normalizedPath,
                 NormalizeStoredFilePath(normalizedPath),
                 extension,
-                new FileStat(fileInfo.Length, NormalizeFileModTime(fileInfo.LastWriteTimeUtc)));
+                new FileStat(fileInfo.Length, NormalizeFileModTime(fileInfo.LastWriteTimeUtc), fileInfo.LastWriteTimeUtc));
             return true;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or FileNotFoundException or DirectoryNotFoundException)
@@ -824,6 +912,32 @@ public partial class ScanService(
         "Text" => ExistingFileKind.Text,
         _ => ExistingFileKind.Unknown,
     };
+
+    private static ScanMediaKind ToScanMediaKind(ExistingFileKind kind) => kind switch
+    {
+        ExistingFileKind.Video => ScanMediaKind.Video,
+        ExistingFileKind.Image => ScanMediaKind.Image,
+        ExistingFileKind.Gallery => ScanMediaKind.Gallery,
+        ExistingFileKind.Audio => ScanMediaKind.Audio,
+        ExistingFileKind.Text => ScanMediaKind.Text,
+        _ => throw new InvalidOperationException("Unsupported scan media type"),
+    };
+
+    private static bool NeedsRequestedVideoAsset(
+        ExistingFileScanInfo existingFile,
+        ScanOperationOptions options,
+        IThumbnailService thumbnailService)
+    {
+        if (existingFile.Kind != ExistingFileKind.Video || !existingFile.MediaEntityId.HasValue)
+            return false;
+
+        var videoId = existingFile.MediaEntityId.Value;
+        return (options.GenerateCovers && !File.Exists(thumbnailService.GetThumbnailPathForVideo(videoId)))
+            || (options.GeneratePreviews && !File.Exists(thumbnailService.GetPreviewPath(videoId)))
+            || (options.GenerateSprites
+                && (!File.Exists(thumbnailService.GetSpritePath(videoId))
+                    || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))));
+    }
 
     private static async Task AddExistingBaseFilesAsync(
         CoveContext db,
@@ -937,7 +1051,8 @@ public partial class ScanService(
                 ExistingFileKind.Video,
                 file.Size,
                 file.ModTime,
-                file.Width <= 0 || file.Height <= 0 || file.Duration <= 0))
+                file.Width <= 0 || file.Height <= 0 || file.Duration <= 0,
+                file.VideoId))
             .ToListAsync(ct);
 
         foreach (var row in rows)
@@ -1004,7 +1119,7 @@ public partial class ScanService(
             index[row.StoredPath] = row;
     }
 
-    private async Task GenerateRequestedAssetsAsync(
+    private async Task<AssetGenerationSummary> GenerateRequestedAssetsAsync(
         CoveContext db,
         Cove.Core.Interfaces.IJobProgress progress,
         HashSet<string> processedVideoPaths,
@@ -1023,8 +1138,10 @@ public partial class ScanService(
         if ((!generateVideoAssets && !generateImageAssets && !generateAudioAssets && !generateTextAssets)
             || (processedVideoPaths.Count == 0 && processedImagePaths.Count == 0 && processedAudioPaths.Count == 0 && processedTextPaths.Count == 0))
         {
-            return;
+            return new AssetGenerationSummary(0);
         }
+
+        var failedItems = 0;
 
         if (generateVideoAssets && processedVideoPaths.Count > 0)
         {
@@ -1068,6 +1185,14 @@ public partial class ScanService(
             {
                 var done = Interlocked.Increment(ref completed);
                 var videoId = videoFile.VideoId!.Value;
+                var thumbnailPath = thumbnailService.GetThumbnailPathForVideo(videoId);
+                var previewPath = thumbnailService.GetPreviewPath(videoId);
+                var spritePath = thumbnailService.GetSpritePath(videoId);
+                var spriteVttPath = thumbnailService.GetSpriteVttPath(videoId);
+                var needsCover = options.GenerateCovers && !File.Exists(thumbnailPath);
+                var needsPreview = options.GeneratePreviews && !File.Exists(previewPath);
+                var needsSprite = options.GenerateSprites && (!File.Exists(spritePath) || !File.Exists(spriteVttPath));
+                var failedThisVideo = false;
 
                 progress.Report(0.92 + (0.06 * done / total), $"Generating video assets ({done}/{videoFiles.Count})");
 
@@ -1080,21 +1205,17 @@ public partial class ScanService(
                 {
                 if (options.GenerateCovers)
                 {
-                    var thumbnailPath = thumbnailService.GetThumbnailPathForVideo(videoId);
-                    if (!File.Exists(thumbnailPath))
+                    if (needsCover)
                         await thumbnailService.GenerateVideoThumbnailAsync(videoId, null, token);
                 }
                 if (options.GeneratePreviews)
                 {
-                    var previewPath = thumbnailService.GetPreviewPath(videoId);
-                    if (!File.Exists(previewPath))
+                    if (needsPreview)
                         await thumbnailService.GenerateVideoPreviewAsync(videoId, token);
                 }
                 if (options.GenerateSprites)
                 {
-                    var spritePath = thumbnailService.GetSpritePath(videoId);
-                    var spriteVttPath = thumbnailService.GetSpriteVttPath(videoId);
-                    if (!File.Exists(spritePath) || !File.Exists(spriteVttPath))
+                    if (needsSprite)
                         await thumbnailService.GenerateVideoSpriteAsync(videoId, token);
                 }
                 if (options.GeneratePhashes
@@ -1123,6 +1244,10 @@ public partial class ScanService(
                         }
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisVideo = true;
+                    }
                 }
                 if (options.GenerateMd5
                     && videoFile.ParentFolder != null
@@ -1150,6 +1275,10 @@ public partial class ScanService(
                         }
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisVideo = true;
+                    }
                 }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1158,13 +1287,24 @@ public partial class ScanService(
                 }
                 catch (Exception ex)
                 {
-                    Interlocked.Increment(ref failed);
+                    failedThisVideo = true;
                     logger.LogWarning(ex, "Failed generating assets for video {VideoId}; skipping", videoId);
                 }
+
+                if ((needsCover && !File.Exists(thumbnailPath))
+                    || (needsPreview && !File.Exists(previewPath))
+                    || (needsSprite && (!File.Exists(spritePath) || !File.Exists(spriteVttPath))))
+                {
+                    failedThisVideo = true;
+                }
+
+                if (failedThisVideo)
+                    Interlocked.Increment(ref failed);
             });
 
             if (failed > 0)
                 logger.LogWarning("Video asset generation completed with {Failed} failed of {Total} videos", failed, videoFiles.Count);
+            failedItems += failed;
         }
 
         if (generateImageAssets && processedImagePaths.Count > 0)
@@ -1196,6 +1336,7 @@ public partial class ScanService(
             {
                 var done = Interlocked.Increment(ref completed);
                 progress.Report(0.98 + (0.01 * done / total), $"Generating image assets ({done}/{imageFiles.Count})");
+                var failedThisImage = false;
 
                 if (imageFile.ParentFolder == null)
                     return;
@@ -1205,7 +1346,8 @@ public partial class ScanService(
                 {
                 if (options.GenerateImageThumbnails && imageFile.ImageId.HasValue)
                 {
-                    await thumbnailService.GenerateImageThumbnailAsync(imageFile.ImageId.Value, overwrite: false, ct: token);
+                    if (!await thumbnailService.GenerateImageThumbnailAsync(imageFile.ImageId.Value, overwrite: false, ct: token))
+                        failedThisImage = true;
                 }
 
                 if (options.GenerateImagePhashes
@@ -1232,6 +1374,10 @@ public partial class ScanService(
                             });
                         }
                         await innerDb.SaveChangesAsync(token);
+                    }
+                    else
+                    {
+                        failedThisImage = true;
                     }
                 }
 
@@ -1260,6 +1406,10 @@ public partial class ScanService(
                         }
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisImage = true;
+                    }
                 }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1268,13 +1418,17 @@ public partial class ScanService(
                 }
                 catch (Exception ex)
                 {
-                    Interlocked.Increment(ref failed);
+                    failedThisImage = true;
                     logger.LogWarning(ex, "Failed generating assets for image {ImageId}; skipping", imageFile.ImageId);
                 }
+
+                if (failedThisImage)
+                    Interlocked.Increment(ref failed);
             });
 
             if (failed > 0)
                 logger.LogWarning("Image asset generation completed with {Failed} failed of {Total} images", failed, imageFiles.Count);
+            failedItems += failed;
         }
 
         if (generateAudioAssets && processedAudioPaths.Count > 0)
@@ -1306,6 +1460,7 @@ public partial class ScanService(
             {
                 var done = Interlocked.Increment(ref completed);
                 progress.Report(0.99, $"Generating audio fingerprints ({done}/{audioFiles.Count})");
+                var failedThisAudio = false;
 
                 if (audioFile.ParentFolder == null)
                     return;
@@ -1327,6 +1482,10 @@ public partial class ScanService(
                         else innerDb.FileFingerprints.Add(new FileFingerprint { FileId = audioFile.Id, Type = "phash", Value = phash });
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisAudio = true;
+                    }
                 }
 
                 if (options.GenerateMd5
@@ -1342,6 +1501,10 @@ public partial class ScanService(
                         else innerDb.FileFingerprints.Add(new FileFingerprint { FileId = audioFile.Id, Type = "md5", Value = md5 });
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisAudio = true;
+                    }
                 }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1350,13 +1513,17 @@ public partial class ScanService(
                 }
                 catch (Exception ex)
                 {
-                    Interlocked.Increment(ref failed);
+                    failedThisAudio = true;
                     logger.LogWarning(ex, "Failed generating audio fingerprints for file {FileId}; skipping", audioFile.Id);
                 }
+
+                if (failedThisAudio)
+                    Interlocked.Increment(ref failed);
             });
 
             if (failed > 0)
                 logger.LogWarning("Audio fingerprint generation completed with {Failed} failed of {Total} files", failed, audioFiles.Count);
+            failedItems += failed;
         }
 
         if (generateTextAssets && processedTextPaths.Count > 0)
@@ -1388,6 +1555,7 @@ public partial class ScanService(
             {
                 var done = Interlocked.Increment(ref completed);
                 progress.Report(0.99, $"Generating text fingerprints ({done}/{textFiles.Count})");
+                var failedThisText = false;
 
                 if (textFile.ParentFolder == null)
                     return;
@@ -1409,6 +1577,10 @@ public partial class ScanService(
                         else innerDb.FileFingerprints.Add(new FileFingerprint { FileId = textFile.Id, Type = "phash", Value = phash });
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisText = true;
+                    }
                 }
 
                 if (options.GenerateMd5
@@ -1424,6 +1596,10 @@ public partial class ScanService(
                         else innerDb.FileFingerprints.Add(new FileFingerprint { FileId = textFile.Id, Type = "md5", Value = md5 });
                         await innerDb.SaveChangesAsync(token);
                     }
+                    else
+                    {
+                        failedThisText = true;
+                    }
                 }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1432,14 +1608,20 @@ public partial class ScanService(
                 }
                 catch (Exception ex)
                 {
-                    Interlocked.Increment(ref failed);
+                    failedThisText = true;
                     logger.LogWarning(ex, "Failed generating text fingerprints for file {FileId}; skipping", textFile.Id);
                 }
+
+                if (failedThisText)
+                    Interlocked.Increment(ref failed);
             });
 
             if (failed > 0)
                 logger.LogWarning("Text fingerprint generation completed with {Failed} failed of {Total} files", failed, textFiles.Count);
+            failedItems += failed;
         }
+
+        return new AssetGenerationSummary(failedItems);
     }
 
     /// <summary>
@@ -1731,7 +1913,7 @@ public partial class ScanService(
         }
     }
 
-    private async Task<(VideoFile File, bool Relinked)> ProcessVideoFileAsync(
+    private async Task<(VideoFile File, bool Relinked, bool Moved)> ProcessVideoFileAsync(
         CoveContext db,
         string path,
         int? videoId,
@@ -1744,7 +1926,8 @@ public partial class ScanService(
         int? parentFolderId = null,
         bool contentChanged = false,
         ScanOperationOptions? scanOptions = null,
-        MoveDetectionIndex? moveIndex = null)
+        MoveDetectionIndex? moveIndex = null,
+        string? videoProbeJson = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -1789,7 +1972,10 @@ public partial class ScanService(
             // never captured (e.g. FFprobe was unavailable on the initial scan).
             if (contentChanged || NeedsVideoMetadataProbe(existing))
             {
-                await ProbeVideoAsync(existing, path, ct);
+                if (videoProbeJson != null)
+                    ApplyFfprobeMetadata(existing, videoProbeJson);
+                else
+                    await ProbeVideoAsync(existing, path, ct);
             }
 
             if (contentChanged)
@@ -1807,7 +1993,7 @@ public partial class ScanService(
                 SyncVideoCaptions(existing, path, captionFilesByDir);
             }
 
-            return (existing, false);
+            return (existing, false, false);
         }
 
         // No row at this path. Before creating a fresh entity, check whether this file's content already
@@ -1823,7 +2009,7 @@ public partial class ScanService(
                     if (syncCaptions)
                         SyncVideoCaptions(match, path, captionFilesByDir);
                     TraceVideoFileRelinked(path, match.Path);
-                    return (match, true);
+                    return (match, true, true);
                 }
 
                 // Duplicate: identical content already on disk — add this file to the same video entity.
@@ -1837,9 +2023,9 @@ public partial class ScanService(
                     VideoId = match.VideoId,
                 };
                 db.VideoFiles.Add(duplicateFile);
-                await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir);
+                await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir, videoProbeJson);
                 TraceVideoFileDuplicateAttached(path, match.VideoId);
-                return (duplicateFile, true);
+                return (duplicateFile, true, false);
             }
         }
 
@@ -1871,10 +2057,10 @@ public partial class ScanService(
             db.VideoFiles.Add(videoFile);
         }
 
-        await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir);
+        await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir, videoProbeJson);
 
         TraceVideoFileAdded(path);
-        return (videoFile, false);
+        return (videoFile, false, false);
     }
 
     // Delete a changed video's stale visual assets (cover/preview/sprite) so the generation phase
@@ -1974,10 +2160,14 @@ public partial class ScanService(
         VideoFile videoFile,
         string path,
         CancellationToken ct,
-        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null)
+        ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
+        string? videoProbeJson = null)
     {
         // Probe with FFprobe for metadata
-        await ProbeVideoAsync(videoFile, path, ct);
+        if (videoProbeJson != null)
+            ApplyFfprobeMetadata(videoFile, videoProbeJson);
+        else
+            await ProbeVideoAsync(videoFile, path, ct);
 
         // Compute oshash fingerprint
         var oshash = await ComputeOshashAsync(path, ct);
@@ -2101,7 +2291,7 @@ public partial class ScanService(
         }
     }
 
-    private async Task<(Image Entity, bool Relinked)> ProcessImageFileAsync(
+    private async Task<(Image Entity, bool Relinked, bool Moved)> ProcessImageFileAsync(
         CoveContext db,
         string path,
         int? imageId,
@@ -2147,7 +2337,7 @@ public partial class ScanService(
                     await thumbnailService.DeleteImageGeneratedFilesAsync(changedImageId, ct);
             }
 
-            return (existing.Image ?? throw new InvalidOperationException($"Image file {path} is not attached to an image"), false);
+            return (existing.Image ?? throw new InvalidOperationException($"Image file {path} is not attached to an image"), false, false);
         }
 
         // Content already in the library: re-link a moved image, or attach a duplicate to its entity.
@@ -2162,7 +2352,7 @@ public partial class ScanService(
                     if (isMove)
                     {
                         TraceImageFileRelinked(path, match.Path);
-                        return (parentImage, true);
+                        return (parentImage, true, true);
                     }
 
                     var duplicateFile = new ImageFile
@@ -2177,7 +2367,7 @@ public partial class ScanService(
                     db.ImageFiles.Add(duplicateFile);
                     await EnrichImageFileAsync(duplicateFile, path, ct);
                     TraceImageFileDuplicateAttached(path, matchedImageId);
-                    return (parentImage, true);
+                    return (parentImage, true, false);
                 }
             }
         }
@@ -2220,7 +2410,7 @@ public partial class ScanService(
         await EnrichImageFileAsync(imageFile, path, ct);
 
         TraceImageFileAdded(path);
-        return (image, false);
+        return (image, false, false);
     }
 
     // Compute the always-on identity fingerprint (oshash) plus the optional md5 for a new image file.
@@ -2246,7 +2436,8 @@ public partial class ScanService(
         CancellationToken ct,
         FileStat? fileStat = null,
         Dictionary<string, Folder>? folderCache = null,
-        int? parentFolderId = null)
+        int? parentFolderId = null,
+        IReadOnlyList<ZipEntryInfo>? prevalidatedEntries = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -2325,7 +2516,8 @@ public partial class ScanService(
         try
         {
             // Get all images from the zip, sorted by path
-            var imageEntries = await zipGalleryReader.GetImageEntriesAsync(path, ct);
+            var imageEntries = prevalidatedEntries?.ToList()
+                ?? await zipGalleryReader.GetImageEntriesAsync(path, ct);
 
             if (imageEntries.Count == 0)
             {
@@ -2422,7 +2614,7 @@ public partial class ScanService(
         return gallery;
     }
 
-    private async Task<(Audio Entity, bool Relinked)> ProcessAudioFileAsync(
+    private async Task<(Audio Entity, bool Relinked, bool Moved)> ProcessAudioFileAsync(
         CoveContext db,
         string path,
         int? audioId,
@@ -2433,7 +2625,8 @@ public partial class ScanService(
         int? parentFolderId = null,
         bool contentChanged = false,
         ScanOperationOptions? scanOptions = null,
-        MoveDetectionIndex? moveIndex = null)
+        MoveDetectionIndex? moveIndex = null,
+        string? mediaProbeJson = null)
     {
         var stat = fileStat ?? GetFileStat(path);
         var dirPath = NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -2455,12 +2648,12 @@ public partial class ScanService(
             existing.Path = BaseFileEntity.ComputePath(dirPath, basename);
 
             var existingAudio = existing.Audio ?? throw new InvalidOperationException($"Audio file {path} is not attached to an audio entity");
-            await EnrichAudioFileAsync(existingAudio, existing, path, ct);
+            await EnrichAudioFileAsync(existingAudio, existing, path, ct, mediaProbeJson);
             // A re-encode invalidates the stored phash; blank it so the generation phase recomputes it.
             if (contentChanged && scanOptions?.GenerateAudioPhashes == true)
                 BlankFingerprint(existing, "phash");
             RefreshAudioSummary(existingAudio);
-            return (existingAudio, false);
+            return (existingAudio, false, false);
         }
 
         // Content already in the library: re-link a moved audio file, or attach a duplicate to its entity.
@@ -2476,7 +2669,7 @@ public partial class ScanService(
                     {
                         TraceAudioFileRelinked(path, match.Path);
                         RefreshAudioSummary(parentAudio);
-                        return (parentAudio, true);
+                        return (parentAudio, true, true);
                     }
 
                     var duplicateFile = new AudioFile
@@ -2489,10 +2682,10 @@ public partial class ScanService(
                         Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                     };
                     parentAudio.Files.Add(duplicateFile);
-                    await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct);
+                    await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct, mediaProbeJson);
                     RefreshAudioSummary(parentAudio);
                     TraceAudioFileDuplicateAttached(path, matchedAudioId);
-                    return (parentAudio, true);
+                    return (parentAudio, true, false);
                 }
             }
         }
@@ -2528,14 +2721,14 @@ public partial class ScanService(
             db.Audios.Add(audio);
         }
 
-        await EnrichAudioFileAsync(audio, audioFile, path, ct);
+        await EnrichAudioFileAsync(audio, audioFile, path, ct, mediaProbeJson);
         RefreshAudioSummary(audio);
 
         TraceAudioFileAdded(path);
-        return (audio, false);
+        return (audio, false, false);
     }
 
-    private async Task<(TextDocument Entity, bool Relinked)> ProcessTextFileAsync(
+    private async Task<(TextDocument Entity, bool Relinked, bool Moved)> ProcessTextFileAsync(
         CoveContext db,
         string path,
         int? textDocumentId,
@@ -2573,7 +2766,7 @@ public partial class ScanService(
             if (contentChanged && scanOptions?.GenerateTextPhashes == true)
                 BlankFingerprint(existing, "phash");
             RefreshTextSummary(existingDocument);
-            return (existingDocument, false);
+            return (existingDocument, false, false);
         }
 
         // Content already in the library: re-link a moved text file, or attach a duplicate to its entity.
@@ -2589,7 +2782,7 @@ public partial class ScanService(
                     {
                         TraceTextFileRelinked(path, match.Path);
                         RefreshTextSummary(parentDocument);
-                        return (parentDocument, true);
+                        return (parentDocument, true, true);
                     }
 
                     var duplicateFile = new TextFile
@@ -2605,7 +2798,7 @@ public partial class ScanService(
                     await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct);
                     RefreshTextSummary(parentDocument);
                     TraceTextFileDuplicateAttached(path, matchedTextId);
-                    return (parentDocument, true);
+                    return (parentDocument, true, false);
                 }
             }
         }
@@ -2645,12 +2838,14 @@ public partial class ScanService(
         RefreshTextSummary(textDocument);
 
         TraceTextFileAdded(path);
-        return (textDocument, false);
+        return (textDocument, false, false);
     }
 
-    private async Task EnrichAudioFileAsync(Audio audio, AudioFile audioFile, string path, CancellationToken ct)
+    private async Task EnrichAudioFileAsync(Audio audio, AudioFile audioFile, string path, CancellationToken ct, string? mediaProbeJson = null)
     {
-        var metadata = await ProbeAudioAsync(audioFile, path, ct);
+        var metadata = mediaProbeJson == null
+            ? await ProbeAudioAsync(audioFile, path, ct)
+            : ApplyAudioProbeMetadata(audioFile, mediaProbeJson);
         var fallbackTitle = Path.GetFileNameWithoutExtension(path);
 
         if (string.IsNullOrWhiteSpace(audio.Title) || string.Equals(audio.Title, fallbackTitle, StringComparison.OrdinalIgnoreCase))
@@ -2706,111 +2901,89 @@ public partial class ScanService(
 
     private async Task<AudioProbeMetadata> ProbeAudioAsync(AudioFile audioFile, string path, CancellationToken ct)
     {
-        var ffprobePath = FindFfprobe();
-        if (ffprobePath == null)
+        try
         {
-            logger.LogDebug("FFprobe not found, skipping audio metadata probe for {Path}", path);
+            var result = await mediaProbeService.ProbeAsync(path, ct);
+            if (result.Status != MediaProbeStatus.Success || string.IsNullOrWhiteSpace(result.Json))
+            {
+                logger.LogDebug("FFprobe did not return audio metadata for {Path}: {Reason}", path, result.Reason);
+                return new AudioProbeMetadata(null);
+            }
+
+            return ApplyAudioProbeMetadata(audioFile, result.Json);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogDebug(ex, "FFprobe failed for audio {Path}", path);
             return new AudioProbeMetadata(null);
         }
+    }
 
+    private static AudioProbeMetadata ApplyAudioProbeMetadata(AudioFile audioFile, string json)
+    {
         audioFile.HasVideoTrack = false;
         audioFile.AudioCodec = string.Empty;
         audioFile.SampleRate = null;
         audioFile.Channels = null;
 
-        try
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        string? title = null;
+        if (root.TryGetProperty("format", out var format))
         {
-            using var process = new System.Diagnostics.Process
+            if (format.TryGetProperty("duration", out var dur))
             {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = ffprobePath,
-                    Arguments = $"-v quiet -print_format json -show_format -show_streams \"{path}\"",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                }
-            };
-
-            process.Start();
-            var json = await process.StandardOutput.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
-
-            if (process.ExitCode != 0 || string.IsNullOrEmpty(json))
-                return new AudioProbeMetadata(null);
-
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            string? title = null;
-            if (root.TryGetProperty("format", out var format))
+                if (double.TryParse(dur.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var duration))
+                    audioFile.Duration = duration;
+            }
+            if (format.TryGetProperty("bit_rate", out var br))
             {
-                if (format.TryGetProperty("duration", out var dur))
+                if (long.TryParse(br.GetString(), out var bitrate))
+                    audioFile.BitRate = bitrate;
+            }
+            if (format.TryGetProperty("tags", out var tags)
+                && tags.TryGetProperty("title", out var titleProp))
+                title = titleProp.GetString();
+        }
+
+        if (root.TryGetProperty("streams", out var streams))
+        {
+            foreach (var stream in streams.EnumerateArray())
+            {
+                var codecType = stream.TryGetProperty("codec_type", out var typeProp) ? typeProp.GetString() : null;
+                if (codecType == "audio" && string.IsNullOrWhiteSpace(audioFile.AudioCodec))
                 {
-                    if (double.TryParse(dur.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var duration))
-                        audioFile.Duration = duration;
+                    if (stream.TryGetProperty("codec_name", out var codecName))
+                        audioFile.AudioCodec = codecName.GetString() ?? string.Empty;
+                    if (stream.TryGetProperty("sample_rate", out var sampleRateProp)
+                        && int.TryParse(sampleRateProp.GetString(), out var sampleRate))
+                        audioFile.SampleRate = sampleRate;
+                    if (stream.TryGetProperty("channels", out var channelsProp) && channelsProp.TryGetInt32(out var channels))
+                        audioFile.Channels = channels;
+                    if (audioFile.BitRate == 0
+                        && stream.TryGetProperty("bit_rate", out var streamBitrateProp)
+                        && long.TryParse(streamBitrateProp.GetString(), out var streamBitrate))
+                        audioFile.BitRate = streamBitrate;
                 }
-                if (format.TryGetProperty("bit_rate", out var br))
+                else if (codecType == "video")
                 {
-                    if (long.TryParse(br.GetString(), out var bitrate))
-                        audioFile.BitRate = bitrate;
-                }
-                if (format.TryGetProperty("tags", out var tags))
-                {
-                    if (tags.TryGetProperty("title", out var titleProp))
-                        title = titleProp.GetString();
+                    // Audio container album art is a "video" stream flagged attached_pic; don't treat it as a real video track.
+                    var isAttachedPic = stream.TryGetProperty("disposition", out var disposition)
+                        && disposition.TryGetProperty("attached_pic", out var attachedPic)
+                        && attachedPic.TryGetInt32(out var attachedPicFlag)
+                        && attachedPicFlag == 1;
+                    var streamCodec = stream.TryGetProperty("codec_name", out var videoCodecName)
+                        ? videoCodecName.GetString()
+                        : null;
+                    var isImageCodec = streamCodec is "mjpeg" or "png" or "bmp" or "gif" or "webp" or "tiff" or "jpeg";
+                    if (!isAttachedPic && !isImageCodec)
+                        audioFile.HasVideoTrack = true;
                 }
             }
-
-            if (root.TryGetProperty("streams", out var streams))
-            {
-                foreach (var stream in streams.EnumerateArray())
-                {
-                    var codecType = stream.TryGetProperty("codec_type", out var typeProp) ? typeProp.GetString() : null;
-                    if (codecType == "audio" && string.IsNullOrWhiteSpace(audioFile.AudioCodec))
-                    {
-                        if (stream.TryGetProperty("codec_name", out var codecName))
-                            audioFile.AudioCodec = codecName.GetString() ?? string.Empty;
-                        if (stream.TryGetProperty("sample_rate", out var sampleRateProp))
-                        {
-                            if (int.TryParse(sampleRateProp.GetString(), out var sampleRate))
-                                audioFile.SampleRate = sampleRate;
-                        }
-                        if (stream.TryGetProperty("channels", out var channelsProp) && channelsProp.TryGetInt32(out var channels))
-                            audioFile.Channels = channels;
-                        if (audioFile.BitRate == 0 && stream.TryGetProperty("bit_rate", out var streamBitrateProp))
-                        {
-                            if (long.TryParse(streamBitrateProp.GetString(), out var streamBitrate))
-                                audioFile.BitRate = streamBitrate;
-                        }
-                    }
-                    else if (codecType == "video")
-                    {
-                        // Audio container album art is a "video" stream flagged attached_pic; don't treat it as a real video track.
-                        var isAttachedPic = stream.TryGetProperty("disposition", out var disposition)
-                            && disposition.TryGetProperty("attached_pic", out var attachedPic)
-                            && attachedPic.TryGetInt32(out var attachedPicFlag)
-                            && attachedPicFlag == 1;
-                        // Some encoders embed cover art as an image-codec video stream without the attached_pic
-                        // disposition. Treat single-image codecs (mjpeg/png/etc.) as album art, not a real video track.
-                        var streamCodec = stream.TryGetProperty("codec_name", out var videoCodecName)
-                            ? videoCodecName.GetString()
-                            : null;
-                        var isImageCodec = streamCodec is "mjpeg" or "png" or "bmp" or "gif" or "webp" or "tiff" or "jpeg";
-                        if (!isAttachedPic && !isImageCodec)
-                            audioFile.HasVideoTrack = true;
-                    }
-                }
-            }
-
-            return new AudioProbeMetadata(title);
         }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "FFprobe failed for audio {Path}", path);
-            return new AudioProbeMetadata(null);
-        }
+
+        return new AudioProbeMetadata(title);
     }
 
     private static void RefreshAudioSummary(Audio audio)
@@ -3028,40 +3201,9 @@ public partial class ScanService(
 
     private async Task ProbeVideoAsync(VideoFile videoFile, string path, CancellationToken ct)
     {
-        var ffprobePath = FindFfprobe();
-        if (ffprobePath == null)
-        {
-            logger.LogDebug("FFprobe not found, skipping metadata probe for {Path}", path);
-            return;
-        }
-
-        try
-        {
-            using var process = new System.Diagnostics.Process
-            {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = ffprobePath,
-                    Arguments = $"-v quiet -print_format json -show_format -show_streams \"{path}\"",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            var json = await process.StandardOutput.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
-
-            if (process.ExitCode != 0 || string.IsNullOrEmpty(json)) return;
-
-            ApplyFfprobeMetadata(videoFile, json);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "FFprobe failed for {Path}", path);
-        }
+        var result = await mediaProbeService.ProbeAsync(path, ct);
+        if (result.Status == MediaProbeStatus.Success && result.Json != null)
+            ApplyFfprobeMetadata(videoFile, result.Json);
     }
 
     /// <summary>
@@ -3112,46 +3254,6 @@ public partial class ScanService(
                 }
             }
         }
-    }
-
-    private string? FindFfprobe()
-    {
-        if (_ffprobeResolved)
-            return _cachedFfprobePath;
-
-        lock (_ffprobeResolveLock)
-        {
-            if (_ffprobeResolved)
-                return _cachedFfprobePath;
-
-            _cachedFfprobePath = ResolveFfprobePath();
-            _ffprobeResolved = true;
-            return _cachedFfprobePath;
-        }
-    }
-
-    private string? ResolveFfprobePath()
-    {
-        // Check configured FFmpeg path directory for ffprobe
-        if (!string.IsNullOrEmpty(config.FfmpegPath))
-        {
-            var dir = Path.GetDirectoryName(config.FfmpegPath);
-            if (dir != null)
-            {
-                var probe = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
-                if (File.Exists(probe)) return probe;
-            }
-        }
-
-        // Search PATH
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (var dir in pathEnv.Split(Path.PathSeparator))
-        {
-            var probe = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
-            if (File.Exists(probe)) return probe;
-        }
-
-        return null;
     }
 
     private static bool IsExcluded(string path, List<string> patterns)
@@ -3293,7 +3395,7 @@ public partial class ScanService(
                         normalizedPath,
                         NormalizeStoredFilePath(normalizedPath),
                         ext,
-                        new FileStat(fileInfo.Length, NormalizeFileModTime(fileInfo.LastWriteTimeUtc)));
+                        new FileStat(fileInfo.Length, NormalizeFileModTime(fileInfo.LastWriteTimeUtc), fileInfo.LastWriteTimeUtc));
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or FileNotFoundException or DirectoryNotFoundException)
                 {
@@ -3503,7 +3605,7 @@ public partial class ScanService(
     private static FileStat GetFileStat(string path)
     {
         var fileInfo = new FileInfo(path);
-        return new FileStat(fileInfo.Length, NormalizeFileModTime(fileInfo.LastWriteTimeUtc));
+        return new FileStat(fileInfo.Length, NormalizeFileModTime(fileInfo.LastWriteTimeUtc), fileInfo.LastWriteTimeUtc);
     }
 
     private static DateTime NormalizeFileModTime(DateTime modTime)
@@ -3658,8 +3760,16 @@ public partial class ScanService(
     }
 
     private enum ExistingFileKind { Unknown, Video, Image, Gallery, Audio, Text }
-    private sealed record ExistingFileScanInfo(string StoredPath, int Id, ExistingFileKind Kind, long Size, DateTime ModTime, bool NeedsMetadataProbe);
+    private sealed record ExistingFileScanInfo(
+        string StoredPath,
+        int Id,
+        ExistingFileKind Kind,
+        long Size,
+        DateTime ModTime,
+        bool NeedsMetadataProbe,
+        int? MediaEntityId = null);
     private sealed record AudioProbeMetadata(string? Title);
+    private sealed record AssetGenerationSummary(int FailedItems);
     private enum ScanFileChangeReason { Unchanged, RescanForced, MetadataProbe, SizeChanged, ModTimeChanged }
     private sealed record ActiveIgnoreRuleSet(string Directory, IReadOnlyList<IgnoreRule> Rules);
     private sealed record DirectoryScanFrame(string Path, IReadOnlyList<ActiveIgnoreRuleSet> IgnoreRuleSets);
@@ -3748,9 +3858,10 @@ public partial class ScanService(
     {
         public long Size => Stat.Size;
         public DateTime ModTime => Stat.ModTime;
+        public DateTime ObservedModTime => Stat.ObservedModTime;
     }
 
-    private readonly record struct FileStat(long Size, DateTime ModTime);
+    private readonly record struct FileStat(long Size, DateTime ModTime, DateTime ObservedModTime);
     private record IgnoreRule(string Pattern, bool Negated);
     private record ScanTarget(string Path, bool ExcludeVideo, bool ExcludeImage, bool ExcludeAudio, bool ExcludeText, bool IsFile);
 
