@@ -176,6 +176,7 @@ export default defineConfig({
               items: [
                 { link: '/docs/developer/getting-started/local-development/', label: 'Run Cove locally' },
                 { link: '/docs/developer/contributing/core-development/', label: 'Core contribution policy' },
+                { link: '/docs/developer/contributing/scan-stress-testing/', label: 'Test filesystem scanning' },
               ],
             },
             {

@@ -1,0 +1,187 @@
+---
+title: Run a real-world scan stress campaign
+description: Exercise filesystem scanning with real media, overlapping writes, moves, replacements, and repeatable acceptance criteria.
+---
+
+Use this campaign when a Cove change affects file discovery, readiness validation, move detection, batching, generated media, or unchanged-directory skipping. It complements automated tests with real filesystem operations and real media containers while keeping the procedure independent of any one media library.
+
+The tracked campaign describes fixture roles and observable results. Keep the mapping from those roles to local source paths in a private, ignored manifest. Never publish source paths, original media names, library entity identifiers, or unsanitized logs.
+
+## Choose the campaign depth
+
+The core campaign is the normal release gate for scanner changes. Add the extended variants that exercise the behavior being changed instead of running every combination for every pull request.
+
+| Change area | Required scenarios |
+| --- | --- |
+| General scan processing or batching | Stable control, overlapping direct copies, move plus duplicate, final convergence |
+| File readiness or media probing | Stable control, overlapping direct copies, paused incomplete containers, constant-size writes, final convergence |
+| Move detection or file identity | Same-directory rename, cross-directory move, concurrent duplicates, move plus duplicate |
+| Changed-file handling | In-place overwrite, atomic replacement, preserved timestamps, generated-asset refresh |
+| Directory skipping | Verification cycle, direct copy that finishes without another directory modification, policy invalidation, forced scan |
+| Generated media | Stable control, unchanged file with a missing asset, changed-content refresh, final convergence |
+
+Run the complete matrix before merging a change that crosses several of these boundaries or changes the scanner's core reconciliation model.
+
+## Prepare a disposable campaign
+
+Use a read-only source corpus and a separate disposable target library. The target must have enough free space for concurrent copies, preallocated variants, and generated assets. Do not point destructive test operations at the source corpus.
+
+Record the Cove commit, operating system, filesystem type, scan concurrency, move-detection setting, enabled asset options, and available storage before starting. Use a fresh target and a database state that can be discarded. Enable enough logging to distinguish deferred, invalid, imported, updated, and failed outcomes, but sanitize logs before sharing them.
+
+For each selected source, record a private verification checksum before the campaign. Computing that checksum is test-harness work; it does not imply that Cove should read or hash every byte during an ordinary scan.
+
+## Describe fixtures by capability
+
+Give each selected source a neutral alias based on the behavior it can exercise. The procedure and result report use only these aliases.
+
+| Fixture role | Selection guidance |
+| --- | --- |
+| `stable-control` | A modest, known-good file that probes quickly and can generate the requested assets |
+| `large-growing-copy` | A file large enough that a throttled copy can reliably overlap a scan |
+| `declared-length-container` | A container whose header declares a whole-file or segment length |
+| `open-ended-container` | A valid format without a dependable required whole-file length marker |
+| `constant-size-candidate` | A file suitable for testing a preallocated destination |
+| `preserved-time-candidate` | A file whose source modification time can be copied to the destination |
+| `identity-source` | A stable file used for rename, move, and duplicate reconciliation |
+| `replacement-source` | Different content used to replace an already-known path |
+
+One source can fill several roles. Prefer a corpus that covers ISO base media, EBML, ASF, and an open-ended stream family when those validators are in scope. Record only aggregate size and format distribution in a publishable report; keep the role-to-path mapping private.
+
+## Establish the baseline
+
+Start with an empty target. Place the stable control in the library using a completed ordinary copy, then run a scan with the asset options relevant to the change.
+
+Verify that Cove creates one media record, reports usable technical metadata, and writes nonempty requested assets. Confirm the target bytes match the private source checksum. Run another ordinary scan and establish the expected steady-state result before introducing concurrency.
+
+This baseline distinguishes a campaign setup or codec problem from behavior caused by an interrupted filesystem operation.
+
+## Run the core scenarios
+
+### Overlap direct copies with a scan
+
+Start two or more bandwidth-limited copies directly to supported final names. Stagger their start times so the destinations are at different completion percentages, then start a scan while all destinations are still growing.
+
+The overlapping scan must not report a changing destination as a successful import. It may defer the file or reject an incomplete container, but it must leave that directory eligible for another inspection. Allow each copy to complete independently and scan again. Every completed target must eventually import once, match its private verification checksum, and produce the requested assets.
+
+Include one naturally long ordinary copy when practical. It guards against a test helper accidentally creating filesystem behavior unlike a normal external copy.
+
+### Finalize through a temporary name
+
+Copy a source under an unsupported temporary extension. A scan during the copy must ignore it. After the copy completes, atomically rename it to its supported final name and scan again. The completed file should import without depending on a recent source modification time.
+
+As an extended variant, rename the destination early while the writer keeps its open file descriptor. A scan during the remaining writes must not accept it as complete; a later scan must import it after the writer closes.
+
+### Reconcile moves and duplicates
+
+Import the identity source and record a private logical identity marker without publishing a database identifier. Exercise these transitions independently:
+
+1. Rename it within the same directory.
+2. Move it into a different directory or subtree.
+3. Create two copies while the original remains available.
+4. Move the original and create another copy before one parallel scan.
+
+Renames and moves must preserve the media identity and remove the stale path. Copies must attach to that same media record. The combined move-and-copy case must converge on one media record regardless of worker ordering.
+
+### Replace known content
+
+Test both an in-place overwrite and an atomic replacement of a known path. Start a scan during the in-place write, then another after completion. The changing version must not be treated as a completed refresh. After completion, Cove must preserve the path's media identity while refreshing size, technical metadata, fingerprints, and requested generated assets.
+
+If the replacement has the same size and a restored or older modification time, use **Force rescan (ignore mtime)** and record that condition explicitly. An ordinary scan cannot reliably distinguish that replacement from unchanged immutable media.
+
+### Reach final convergence
+
+After all writers have closed and all moves have finished, run scans until the directory-verification cycle is complete. The final ordinary scan must report no imports, updates, deferred files, invalid files, file failures, or asset-generation failures. A further unchanged scan should exercise directory skipping where it is eligible.
+
+## Add readiness variants
+
+Readiness changes require tests that pause a write longer than the quiet period. A quiet partial file is intentionally harder than an actively growing file because time and file statistics alone can make it appear complete.
+
+| Variant | Expected observation |
+| --- | --- |
+| Growing destination | Deferred because before-and-after statistics change |
+| Quiet truncated declared-length container | Rejected or deferred by its bounded declared-length check |
+| Quiet truncated open-ended container | May pass its normal parser or probe; record this bounded limitation |
+| Preallocated constant-size destination | May appear complete during a long pause if its early structure is usable |
+| Preserved old timestamp | Still receives format validation when it is new or otherwise selected for processing |
+
+Do not turn these variants into a requirement for full-payload validation. The campaign should detect correctness gaps while preserving the scanner's bounded-I/O design. If a format has no trustworthy whole-file length, document the residual rather than imposing a check that rejects valid media or reads the full payload.
+
+## Verify unchanged-directory behavior
+
+Exercise directory skipping as a state transition, not as one isolated scan:
+
+1. Run a full ordinary scan that observes the directory.
+2. Run the required unchanged verification scan.
+3. Confirm a later ordinary scan can skip the directory.
+4. Create a supported destination and begin writing it directly.
+5. Scan while it is incomplete and confirm the directory remains pending.
+6. Let the writer finish without creating, deleting, or renaming another directory entry.
+7. Scan again and confirm Cove still retries and imports the completed file.
+8. Complete another verification pass and confirm skipping resumes.
+
+Also change one scan-policy input, such as the selected root, media exclusions, supported extensions, ignore policy, selective scope, forced-rescan option, or asset-generation option. The changed policy must invalidate an otherwise reusable directory state.
+
+## Check every campaign invariant
+
+A campaign passes only when all applicable invariants hold:
+
+- Changing media is never reported as a successful completed import.
+- Deferred, invalid, unreadable, and failed files remain eligible for retry.
+- Every completed target eventually imports without direct database repair.
+- Completed target bytes match the private source checksum.
+- Technical metadata and requested generated assets are present after convergence.
+- Moves preserve identity; duplicates attach to that identity.
+- Changed content refreshes fingerprints, metadata, and requested assets.
+- Overlapping scan requests do not create duplicate records or lose work.
+- Directory skipping resumes only after a successful verification cycle.
+- Normal validation remains bounded; full-file verification is outside the scan hot path.
+- The final steady-state scan reports no work and no failures.
+
+Record scan durations for the initial import, overlap recovery, verification, and skipped steady state. Compare them with a baseline from the same machine and storage rather than imposing one universal duration across filesystems.
+
+## Record a reusable result
+
+Keep the role-to-source mapping, checksums, internal URLs, entity identifiers, and raw logs private. A publishable campaign record can use this template:
+
+```text
+# Real-world scan campaign
+
+Commit:
+Date:
+Operating system and filesystem:
+Corpus summary: <count, aggregate size, format families>
+Scan configuration: <parallelism, identity, and asset options>
+
+## Scenario results
+
+| Scenario | Variants | Result | Duration | Notes |
+| --- | --- | --- | --- | --- |
+| Stable control | ... | Pass/Fail | ... | ... |
+| Overlapping direct copies | ... | Pass/Fail | ... | ... |
+| Move and duplicate | ... | Pass/Fail | ... | ... |
+| Replacement | ... | Pass/Fail | ... | ... |
+| Directory verification | ... | Pass/Fail | ... | ... |
+| Final convergence | ... | Pass/Fail | ... | ... |
+
+## Automated verification
+
+- Focused tests:
+- Complete test suite:
+- Documentation or build checks:
+
+## Bounded residuals
+
+- <Behavior that cannot be distinguished without unbounded payload work>
+
+## Follow-up
+
+- <Regression tests or implementation changes produced by the campaign>
+```
+
+When a campaign exposes a defect, first reduce it to the smallest reliable timeline and add an automated regression test where practical. Keep the real-world scenario in the campaign because it continues to validate filesystem timing, container behavior, and concurrency that a synthetic fixture may not reproduce.
+
+## Related documentation
+
+- [Scans](../../../reference/scans/)
+- [Run Cove locally](../../getting-started/local-development/)
+- [Core contribution and version policy](../core-development/)
