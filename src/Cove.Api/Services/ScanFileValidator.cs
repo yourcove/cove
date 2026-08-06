@@ -59,6 +59,9 @@ public sealed class ScanFileValidator(
     TimeProvider timeProvider) : IScanFileValidator
 {
     private const int MaxIsoBmffTopLevelBoxes = 4_096;
+    private const int MaxAsfHeaderBytes = 64 * 1024;
+    private const int MaxAsfHeaderObjects = 4_096;
+    private const int MaxEbmlHeaderBytes = 64 * 1024;
     private const int MaxSvgBoundaryBytes = 64 * 1024;
     public static readonly TimeSpan FileQuietPeriod = TimeSpan.FromSeconds(2);
 
@@ -428,6 +431,21 @@ public sealed class ScanFileValidator(
             return await ValidateRiffLengthAsync(path, ct);
         }
 
+        if (extension.Equals(".wmv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".asf", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".wma", StringComparison.OrdinalIgnoreCase))
+        {
+            return await ValidateAsfLengthAsync(path, ct);
+        }
+
+        if (extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".webm", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".mka", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".weba", StringComparison.OrdinalIgnoreCase))
+        {
+            return await ValidateMatroskaLengthAsync(path, ct);
+        }
+
         return null;
     }
 
@@ -501,6 +519,133 @@ public sealed class ScanFileValidator(
             return "the RIFF container is shorter than its declared size";
 
         return null;
+    }
+
+    private static async Task<string?> ValidateAsfLengthAsync(string path, CancellationToken ct)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, useAsync: true);
+        if (stream.Length < 30)
+            return null;
+
+        var prefix = new byte[30];
+        await stream.ReadExactlyAsync(prefix, ct);
+        ReadOnlySpan<byte> headerObjectId = [0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c];
+        if (!prefix.AsSpan(0, 16).SequenceEqual(headerObjectId))
+            return null;
+
+        var declaredHeaderSize = BinaryPrimitives.ReadUInt64LittleEndian(prefix.AsSpan(16, 8));
+        if (declaredHeaderSize < 30)
+            return "the ASF container declares an invalid header size";
+        if (declaredHeaderSize > (ulong)stream.Length)
+            return "the ASF container is shorter than its declared header";
+
+        var objectCount = BinaryPrimitives.ReadUInt32LittleEndian(prefix.AsSpan(24, 4));
+        var bytesToRead = (int)Math.Min((ulong)MaxAsfHeaderBytes, declaredHeaderSize);
+        var header = new byte[bytesToRead];
+        prefix.CopyTo(header, 0);
+        if (bytesToRead > prefix.Length)
+            await stream.ReadExactlyAsync(header.AsMemory(prefix.Length), ct);
+
+        ReadOnlySpan<byte> filePropertiesObjectId = [0xa1, 0xdc, 0xab, 0x8c, 0x47, 0xa9, 0xcf, 0x11, 0x8e, 0xe4, 0x00, 0xc0, 0x0c, 0x20, 0x53, 0x65];
+        long offset = 30;
+        var objectsToInspect = Math.Min(objectCount, (uint)MaxAsfHeaderObjects);
+        for (var index = 0u; index < objectsToInspect && offset + 24 <= header.Length; index++)
+        {
+            var objectSize = BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan((int)offset + 16, 8));
+            if (objectSize < 24)
+                return "the ASF container declares an invalid header object size";
+            if (objectSize > declaredHeaderSize - (ulong)offset)
+                return "the ASF header object exceeds the declared header size";
+
+            if (header.AsSpan((int)offset, 16).SequenceEqual(filePropertiesObjectId))
+            {
+                if (objectSize < 104)
+                    return "the ASF file properties object is truncated";
+                if (offset + 48 > header.Length)
+                    return declaredHeaderSize <= MaxAsfHeaderBytes
+                        ? "the ASF file properties object is truncated"
+                        : null;
+
+                var declaredFileSize = BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan((int)offset + 40, 8));
+                if (declaredFileSize > (ulong)stream.Length)
+                    return "the ASF container is shorter than the size declared by its file properties";
+                return null;
+            }
+
+            if (objectSize > (ulong)(header.Length - offset))
+                return null;
+            offset += (long)objectSize;
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> ValidateMatroskaLengthAsync(string path, CancellationToken ct)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, useAsync: true);
+        var bytesToRead = (int)Math.Min(stream.Length, MaxEbmlHeaderBytes);
+        if (bytesToRead < 5)
+            return null;
+
+        var header = new byte[bytesToRead];
+        await stream.ReadExactlyAsync(header, ct);
+        ReadOnlySpan<byte> ebmlHeaderId = [0x1a, 0x45, 0xdf, 0xa3];
+        if (!header.AsSpan(0, 4).SequenceEqual(ebmlHeaderId)
+            || !TryReadEbmlSize(header.AsSpan(4), out var ebmlHeaderSize, out var ebmlSizeLength, out var ebmlSizeUnknown)
+            || ebmlSizeUnknown)
+        {
+            return null;
+        }
+
+        var segmentOffset = 4L + ebmlSizeLength + (long)ebmlHeaderSize;
+        if (segmentOffset < 0 || segmentOffset + 5 > header.Length)
+            return null;
+
+        ReadOnlySpan<byte> segmentId = [0x18, 0x53, 0x80, 0x67];
+        if (!header.AsSpan((int)segmentOffset, 4).SequenceEqual(segmentId)
+            || !TryReadEbmlSize(header.AsSpan((int)segmentOffset + 4), out var segmentSize, out var segmentSizeLength, out var segmentSizeUnknown)
+            || segmentSizeUnknown)
+        {
+            return null;
+        }
+
+        var segmentDataOffset = segmentOffset + 4 + segmentSizeLength;
+        if (segmentSize > (ulong)(stream.Length - segmentDataOffset))
+            return "the Matroska container is shorter than its declared segment";
+
+        return null;
+    }
+
+    private static bool TryReadEbmlSize(
+        ReadOnlySpan<byte> bytes,
+        out ulong value,
+        out int encodedLength,
+        out bool isUnknown)
+    {
+        value = 0;
+        encodedLength = 0;
+        isUnknown = false;
+        if (bytes.IsEmpty || bytes[0] == 0)
+            return false;
+
+        var marker = 0x80;
+        encodedLength = 1;
+        while ((bytes[0] & marker) == 0)
+        {
+            marker >>= 1;
+            encodedLength++;
+        }
+
+        if (encodedLength > 8 || bytes.Length < encodedLength)
+            return false;
+
+        value = (ulong)(bytes[0] & (marker - 1));
+        for (var index = 1; index < encodedLength; index++)
+            value = (value << 8) | bytes[index];
+
+        var unknownValue = (1UL << (encodedLength * 7)) - 1;
+        isUnknown = value == unknownValue;
+        return true;
     }
 
     private static ObservedFileStat GetFileStat(string path)

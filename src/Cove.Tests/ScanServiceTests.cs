@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using Cove.Core.Events;
 using Cove.Api.Services;
 using Cove.Core.Entities;
@@ -165,6 +167,92 @@ public class ScanServiceTests
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
             Assert.Contains("more than 4,096 top-level boxes", failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsTruncatedFiniteMatroskaSegmentWithoutReadingPayload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-truncated-{Guid.NewGuid():N}.mkv");
+        try
+        {
+            await File.WriteAllBytesAsync(path,
+            [
+                0x1a, 0x45, 0xdf, 0xa3, 0x84, 0x42, 0x86, 0x81, 0x01,
+                0x18, 0x53, 0x80, 0x67, 0x90,
+                0, 0, 0, 0, 0, 0, 0, 0,
+            ]);
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Contains("shorter than its declared segment", failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(0x88)]
+    [InlineData(0xff)]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsCompleteOrUnknownLengthMatroskaSegment(byte encodedSegmentSize)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-matroska-{Guid.NewGuid():N}.mkv");
+        try
+        {
+            await File.WriteAllBytesAsync(path,
+            [
+                0x1a, 0x45, 0xdf, 0xa3, 0x84, 0x42, 0x86, 0x81, 0x01,
+                0x18, 0x53, 0x80, 0x67, encodedSegmentSize,
+                0, 0, 0, 0, 0, 0, 0, 0,
+            ]);
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Null(failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ValidateDeclaredContainerLengthAsync_RejectsTruncatedAsfFilePropertiesSizeWithoutReadingPayload()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-truncated-{Guid.NewGuid():N}.wmv");
+        try
+        {
+            await File.WriteAllBytesAsync(path, CreateAsfHeaderWithFileProperties(declaredFileSize: 200));
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Contains("shorter than the size declared by its file properties", failure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(134L)]
+    public async Task ValidateDeclaredContainerLengthAsync_AcceptsCompleteOrStreamingAsfFile(long declaredFileSize)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cove-asf-{Guid.NewGuid():N}.wmv");
+        try
+        {
+            await File.WriteAllBytesAsync(path, CreateAsfHeaderWithFileProperties((ulong)declaredFileSize));
+
+            var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
+
+            Assert.Null(failure);
         }
         finally
         {
@@ -924,6 +1012,64 @@ public class ScanServiceTests
         {
             Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task StartScan_AttachesDuplicateToMovedEntityWhenMoveAndCopyAppearTogether()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var originalPath = Path.Combine(tempRoot, "original.mp4");
+            await WriteValidVideoAsync(originalPath, minimumLength: 70_000);
+
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            int originalFileId;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                originalFileId = (await db.VideoFiles.SingleAsync()).Id;
+            }
+
+            var movedPath = Path.Combine(tempRoot, "moved.mp4");
+            var copiedPath = Path.Combine(tempRoot, "copied.mp4");
+            File.Move(originalPath, movedPath);
+            File.Copy(movedPath, copiedPath);
+
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(1, await verificationDb.Videos.CountAsync());
+            var files = await verificationDb.VideoFiles.OrderBy(file => file.Basename).ToListAsync();
+            Assert.Equal(2, files.Count);
+            Assert.Contains(files, file => file.Id == originalFileId);
+            Assert.Single(files.Select(file => file.VideoId).Distinct());
+            Assert.Contains(files, file => file.Basename == "moved.mp4");
+            Assert.Contains(files, file => file.Basename == "copied.mp4");
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private static byte[] CreateAsfHeaderWithFileProperties(ulong declaredFileSize)
+    {
+        var bytes = new byte[134];
+        new byte[] { 0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c }.CopyTo(bytes, 0);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(16, 8), 134);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(24, 4), 1);
+        bytes[28] = 1;
+        bytes[29] = 2;
+        new byte[] { 0xa1, 0xdc, 0xab, 0x8c, 0x47, 0xa9, 0xcf, 0x11, 0x8e, 0xe4, 0x00, 0xc0, 0x0c, 0x20, 0x53, 0x65 }.CopyTo(bytes, 30);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(46, 8), 104);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(70, 8), declaredFileSize);
+        return bytes;
     }
 
     private static async Task<TestEnvironment> CreateBareEnvironmentAsync(

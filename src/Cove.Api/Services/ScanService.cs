@@ -2113,12 +2113,10 @@ public partial class ScanService(
         // Candidate rows carry the same oshash. Exclude zip-backed entries (their on-disk identity is the
         // archive, not a movable loose file). ParentFolder is deliberately NOT included: a move re-point
         // sets the FK and nulls the navigation so ComputeFilePaths derives the NEW path from the new id.
-        var candidates = (await trackedSet
+        var candidates = await trackedSet
             .Where(f => f.ZipFileId == null
                 && f.Fingerprints.Any(fp => fp.Type == "oshash" && fp.Value == oshash))
-            .ToListAsync(ct))
-            .Where(candidate => !moveIndex.ClaimedFileIds.ContainsKey(candidate.Id))
-            .ToList();
+            .ToListAsync(ct);
 
         if (candidates.Count == 0)
             return (null, false);
@@ -2133,8 +2131,18 @@ public partial class ScanService(
         if (missing.Count == 1)
         {
             var claim = missing[0];
-            if (!moveIndex.ClaimedFileIds.TryAdd(claim.Id, 0))
-                return (null, false); // lost the race to another worker
+            if (!moveIndex.ClaimedFilePaths.TryAdd(claim.Id, path)
+                && (!moveIndex.ClaimedFilePaths.TryGetValue(claim.Id, out var claimedPath)
+                    || !string.Equals(claimedPath, path, FilesystemPaths.PathComparison)))
+            {
+                // Another worker already re-linked this exact file during the same scan. This path is
+                // therefore a simultaneous duplicate of that move; attach it to the claimed entity
+                // instead of creating a second entity just because the move has not committed yet.
+                return (claim, false);
+            }
+
+            // If this path already owns the claim, a failed batched save is retrying the same move.
+            // Re-apply it so the fallback preserves file-row identity instead of inserting a duplicate.
 
             // Re-point the existing row to the new location. Null the navigation so the path recompute in
             // CoveContext.ComputeFilePaths batch-loads the NEW folder's path (it trusts a non-null nav).
@@ -3751,12 +3759,13 @@ public partial class ScanService(
     private record CaptionSidecar(string Filename, string LanguageCode, string CaptionType);
 
     // Shared, worker-safe state for move/rename detection. Enabled is decided once per scan (only when
-    // the library already has files to move to/from). ClaimedFileIds prevents two workers from both
-    // re-pointing the same now-missing record when a file's bytes appear at more than one new location.
+    // the library already has files to move to/from). ClaimedFilePaths prevents two workers from both
+    // re-pointing the same now-missing record when a file's bytes appear at more than one new location,
+    // while allowing the claiming path to retry after a failed batched save.
     private sealed class MoveDetectionIndex
     {
         public required bool Enabled { get; init; }
-        public ConcurrentDictionary<int, byte> ClaimedFileIds { get; } = new();
+        public ConcurrentDictionary<int, string> ClaimedFilePaths { get; } = new();
     }
 
     private enum ExistingFileKind { Unknown, Video, Image, Gallery, Audio, Text }
