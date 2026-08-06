@@ -289,7 +289,7 @@ export function EntityReferenceSelector({
               key={option.id}
               {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
               type="button"
-              className={`flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-card" : ""}`}
+              className={`flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <span className="truncate">{option.label}</span>
@@ -302,7 +302,7 @@ export function EntityReferenceSelector({
               {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
               type="button"
               disabled={createMutation.isPending}
-              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-card" : ""}`}
+              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
             >
               {createMutation.isPending ? (
                 <span className="text-muted">Creating...</span>
@@ -520,7 +520,7 @@ export function EntityReferenceMultiSelector({
               key={option.id}
               {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[index])}
               type="button"
-              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-card ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-card" : ""}`}
+              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${autocomplete.activeKey === autocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
             >
               <span className="inline-flex items-center gap-2">
                 <Plus className="h-3 w-3" />
@@ -534,7 +534,7 @@ export function EntityReferenceMultiSelector({
               {...autocomplete.getOptionProps<HTMLButtonElement>(autocompleteItems[autocompleteItems.length - 1])}
               type="button"
               disabled={createMutation.isPending}
-              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-card" : ""}`}
+              className={`flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm disabled:opacity-50 ${autocomplete.activeKey === autocompleteItems[autocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
             >
               {createMutation.isPending ? (
                 <span className="text-muted">Creating...</span>
