@@ -175,9 +175,10 @@ export function useAutocomplete<T>({
           break;
         }
         case "Escape":
-          if (!isOpen) return;
+          if (!isOpen && inputValue.length === 0) return;
           event.preventDefault();
           event.stopPropagation();
+          onInputValueChange("");
           close();
           break;
         case "Tab":
