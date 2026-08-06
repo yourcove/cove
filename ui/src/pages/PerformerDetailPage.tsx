@@ -2,7 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { audios, faces, galleries, groups, images, performers, videos, texts, entityImages } from "../api/client";
 import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Calendar, ExternalLink, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreHorizontal, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, ThumbsUp, Trash2, Users, UserRound } from "lucide-react";
+import { Calendar, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, ThumbsUp, Trash2, Users, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -38,11 +38,11 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
-import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { getLoadError } from "../utils/queryLoadState";
 import { sortSeededRandom } from "../utils/seededRandomSort";
+import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 
 interface Props {
   id: number;
@@ -69,9 +69,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [scrapeOpen, setScrapeOpen] = useState(false);
   const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
-  const [urlsExpanded, setUrlsExpanded] = useState(false);
-  const [urlsOverflowing, setUrlsOverflowing] = useState(false);
-  const urlsRef = useRef<HTMLDivElement>(null);
   const { allTabs: performerTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("performer", [
     { key: "videos", label: "Videos", count: performer?.videoCount },
     { key: "galleries", label: "Galleries", count: performer?.galleryCount },
@@ -157,29 +154,6 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showOpsMenu]);
-
-  useEffect(() => {
-    setUrlsExpanded(false);
-  }, [id]);
-
-  useEffect(() => {
-    const element = urlsRef.current;
-    if (!element || urlsExpanded) {
-      return;
-    }
-
-    const updateOverflow = () => setUrlsOverflowing(element.scrollHeight > element.clientHeight + 1);
-    updateOverflow();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateOverflow);
-      return () => window.removeEventListener("resize", updateOverflow);
-    }
-
-    const observer = new ResizeObserver(updateOverflow);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [performer?.urls, urlsExpanded]);
 
   useEffect(() => {
     if (visiblePerformerTabs.length > 0 && !visiblePerformerTabs.some((tab) => tab.key === activeTab)) {
@@ -287,26 +261,12 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
 
             {(performer.urls.length > 0 || performer.remoteIds.length > 0) ? (
               <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="urls" block className="mt-4 space-y-2">
-                <div ref={urlsRef} className={`flex flex-wrap gap-2 ${urlsExpanded ? "" : "max-h-[4.5rem] overflow-hidden"}`}>
-                  <MetadataServerLinks remoteIds={performer.remoteIds} entityType="performers" metadataServers={config?.scraping?.metadataServers} />
-                  {performer.urls.map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover">
-                      <ExternalLink className="h-3 w-3" />
-                      {(() => { try { return new URL(url).hostname.replace("www.", ""); } catch { return url; } })()}
-                    </a>
-                  ))}
-                </div>
-                {urlsOverflowing || urlsExpanded ? (
-                  <button
-                    type="button"
-                    onClick={() => setUrlsExpanded((value) => !value)}
-                    className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1 text-xs text-secondary hover:border-accent/60 hover:text-foreground"
-                    aria-expanded={urlsExpanded}
-                    aria-label={urlsExpanded ? "Show fewer URLs" : "Show all URLs"}
-                  >
-                    {urlsExpanded ? "Show less" : <MoreHorizontal className="h-4 w-4" />}
-                  </button>
-                ) : null}
+                <PerformerExternalLinks
+                  key={id}
+                  remoteIds={performer.remoteIds}
+                  urls={performer.urls}
+                  metadataServers={config?.scraping?.metadataServers}
+                />
               </FieldProvenanceHover>
             ) : null}
 
