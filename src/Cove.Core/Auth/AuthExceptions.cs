@@ -18,6 +18,11 @@ public class UnauthorizedException : Exception
     public UnauthorizedException(string message = "Authentication required.") : base(message) { }
 }
 
+public class RefreshTokenConflictException : Exception
+{
+    public RefreshTokenConflictException(string message = "Refresh token was already rotated by another request.") : base(message) { }
+}
+
 /// <summary>(EntityKind, EntityId) reference used by content-rule and override checks.</summary>
 public readonly record struct EntityRef(string Kind, string Id)
 {

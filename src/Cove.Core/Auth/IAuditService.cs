@@ -32,6 +32,7 @@ public static class AuditActions
     public const string LoginLockout = "login.lockout";
     public const string Logout = "logout";
     public const string TokenRefresh = "token.refresh";
+    public const string TokenRefreshConflict = "token.refresh.conflict";
     public const string TokenRefreshReuse = "token.refresh.reuse";
     public const string TokenIssue = "token.issue";
     public const string TokenRevoke = "token.revoke";
