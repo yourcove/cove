@@ -13,7 +13,52 @@ Scans operate on configured roots and supported file patterns. File type, path l
 
 A scan can create records for newly recognized files, refresh technical metadata, associate sidecars, notice unavailable paths, and queue configured analysis or generated-media work. Existing user metadata and relationships are record data and are not simply replaced because a file is observed again.
 
-Renames and moves can be matched only when Cove has enough stable evidence. Treat large filesystem reorganizations as a controlled operation with a current backup and verify the resulting associations.
+### File identity and changed content
+
+Cove first matches a discovered file by its path. When that directory is inspected, a different size or meaningfully newer modified time causes Cove to update the existing file record and refresh its technical metadata and OShash instead of creating a new media record. A same-size replacement whose modified time is unchanged or older is indistinguishable from an unchanged file during an ordinary scan; use **Force rescan (ignore mtime)** after that kind of replacement.
+
+When a file appears at a new path, Cove can use its OShash fingerprint to reconcile it with existing content. OShash combines the file size with samples from the beginning and end of the file, making it a fast identity heuristic rather than a full-file checksum:
+
+- If exactly one matching file's old path is gone, Cove treats the change as a move or rename and repoints that file record.
+- If a matching file still exists, Cove treats the new path as a duplicate file attached to the same media record.
+- If Cove cannot make one confident match, it imports the path as new content.
+
+Treat large filesystem reorganizations as a controlled operation with a current backup and verify the resulting associations.
+
+## File readiness and bounded validation
+
+Cove checks new and changed files before importing them. Binary media must be non-empty and must have kept the same modified time for a short quiet period. Cove records the size and modified time during discovery, performs format-specific validation, and checks those values again afterward. A file that changes during that interval is deferred to the next scan.
+
+The format checks are deliberately bounded so scanning does not read every byte of a large library. Video and audio files receive cheap declared-container-length checks where the format supports them, followed by a time-limited FFprobe check for a usable stream. Images are identified and common end markers or declared sizes are checked. Gallery archives use their central directory, while PDF, EPUB, and SVG files receive inexpensive boundary or structure checks. Formats without a reliable declared whole-file length still rely on the quiet period, the before-and-after file statistics, and their normal parser or media probe.
+
+Deferred, incomplete, invalid, unreadable, and failed files are not treated as successfully scanned. Cove leaves their directory pending so a later scan inspects the files again rather than allowing the directory optimization to hide them.
+
+## Unchanged-directory optimization
+
+Media libraries normally contain immutable source files: a movie, song, image, or document is copied into place and then left unchanged. Ordinary scans use that contract to avoid repeatedly reading file details from directories Cove has already verified.
+
+A directory becomes eligible in two stages:
+
+1. Cove fully enumerates its direct files and records the directory's modified time and the active scan policy.
+2. A later ordinary scan must find the same directory modified time, no new or changed files, and no deferred, invalid, unreadable, or failed files. Only then is the directory verified unchanged.
+
+On subsequent ordinary scans, Cove can skip direct-file enumeration while the current directory modified time exactly matches the verified value. It still enumerates child directories and checks each child's own state, because changing a file inside an existing child does not update the parent's modified time.
+
+The verification includes a short timestamp safety window, and changes to supported extensions, exclusion patterns, library roots, per-root media exclusions, or the active selective-scan scope invalidate the stored scan-policy signature. This prevents a narrow selective scan from hiding media during a later broader scan. Directories controlled by `.coveignore`, `.stashignore`, `.forcegallery`, or `.nogallery` files remain on the conservative full-enumeration path. A library root that is itself a symbolic link, or a directory containing symbolic-link media files, is also not cached because the target can change without updating the link's directory entry.
+
+Directory skipping is disabled when **Force rescan (ignore mtime)** or any generated-asset option is selected. Asset scans therefore still inspect known files for missing covers, previews, sprites, thumbnails, or fingerprints.
+
+### Copies that overlap a scan
+
+Creating, deleting, moving, or renaming a directory entry normally updates that directory's modified time. Copying directly to a final filename has one important wrinkle: creating the destination updates the directory, but continuing to write that existing destination changes only the file's size and modified time.
+
+If a scan encounters that partial file, Cove defers it or rejects its incomplete container and leaves the directory unverified. The next scan enumerates the directory again even though the directory modified time did not advance while the copy finished. After the completed file is imported, one later unchanged pass is required before the directory can be skipped again.
+
+When possible, copy to a temporary filename or unsupported extension and atomically rename it to the final media filename after the copy completes. Cove also supports direct-to-final-name copies, but the temporary-name pattern keeps partial files out of every media scanner.
+
+### In-place edits
+
+Editing the bytes of an existing file does not normally update its directory's modified time. This is outside the immutable-source contract used by the optimization. If your workflow rewrites or replaces files at the same path, run a selective scan with **Force rescan (ignore mtime)** for those folders. A forced scan keeps the existing file identity when the path is unchanged and refreshes its OShash and metadata from the new bytes.
 
 ## Access and effects
 

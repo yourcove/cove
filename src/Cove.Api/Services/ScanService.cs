@@ -1,6 +1,8 @@
 using System.IO.Enumeration;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,6 +42,8 @@ public partial class ScanService(
     private static SemaphoreSlim GetFolderCreationLock(string dirPath)
         => FolderCreationLocks[(uint)StringComparer.OrdinalIgnoreCase.GetHashCode(dirPath) % (uint)FolderCreationLocks.Length];
     private static readonly TimeSpan FileModTimeUnchangedTolerance = TimeSpan.FromMilliseconds(1);
+    private static readonly TimeSpan DirectoryModTimeSafetyWindow = TimeSpan.FromSeconds(5);
+    private const int DirectoryScanSignatureVersion = 1;
 
     // Number of changed/new files a worker accumulates before flushing them to the database in a
     // single transaction. Each Postgres commit is a network round-trip + fsync, so committing once
@@ -191,6 +195,27 @@ public partial class ScanService(
             var audioExts = new HashSet<string>(cfg.AudioExtensions, StringComparer.OrdinalIgnoreCase);
             var textExts = new HashSet<string>(cfg.TextExtensions, StringComparer.OrdinalIgnoreCase);
             var allExts = videoExts.Union(imageExts).Union(galleryExts).Union(audioExts).Union(textExts).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var scanStartedAt = DateTime.UtcNow;
+            var directorySkippingEnabled = !RequiresFullFileDiscovery(options);
+            var directoryScanSignature = ComputeDirectoryScanSignature(cfg, scanTargets);
+            var directoryScanStates = new Dictionary<string, DirectoryScanState>(FilesystemPaths.PathComparer);
+            if (directorySkippingEnabled)
+            {
+                await using var stateScope = scopeFactory.CreateAsyncScope();
+                var stateDb = stateScope.ServiceProvider.GetRequiredService<CoveContext>();
+                if (stateDb.Database.IsRelational())
+                    stateDb.Database.SetCommandTimeout(ScanCommandTimeout);
+                directoryScanStates = await LoadDirectoryScanStatesAsync(stateDb, ct);
+            }
+            else
+            {
+                logger.LogInformation("Directory scan cache bypassed because this scan requested forced file discovery or generated assets.");
+            }
+            var directoryScanContext = new DirectoryScanContext(
+                directorySkippingEnabled,
+                scanStartedAt,
+                directoryScanSignature,
+                directoryScanStates);
             // Per-directory cache of caption sidecar files (.vtt/.srt), shared across workers,
             // so each directory is enumerated once per scan instead of once per video.
             var captionFilesByDir = new ConcurrentDictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
@@ -272,6 +297,7 @@ public partial class ScanService(
                     cfg,
                     ignoreRuleCache,
                     discoveryProgress,
+                    directoryScanContext,
                     ct))
                 {
                     files.Add(discoveredFile);
@@ -280,10 +306,11 @@ public partial class ScanService(
             discoveryProgress.Complete();
 
             logger.LogInformation(
-                "Scan phase discovery completed in {ElapsedMs} ms. Discovered {FileCount} media files across {DirectoryCount} directories; skipped {IgnoredPathCount} ignored paths and {UnsupportedFileCount} unsupported files.",
+                "Scan phase discovery completed in {ElapsedMs} ms. Discovered {FileCount} media files across {DirectoryCount} directories; skipped file enumeration in {UnchangedDirectoryCount} verified unchanged directories, {IgnoredPathCount} ignored paths, and {UnsupportedFileCount} unsupported files.",
                 scanStopwatch.ElapsedMilliseconds,
                 files.Count,
                 discoveryProgress.DirectoryCount,
+                discoveryProgress.UnchangedDirectoryCount,
                 discoveryProgress.IgnoredPathCount,
                 discoveryProgress.UnsupportedFileCount);
 
@@ -449,6 +476,7 @@ public partial class ScanService(
                             && expectedKind != ExistingFileKind.Unknown
                             && existingFile.Kind != expectedKind)
                         {
+                            directoryScanContext.MarkRequiresConfirmation(file.Path);
                             typeMismatchCount++;
                             logger.LogWarning(
                                 "Skipping changed scan path because it already exists as {ExistingKind} but extension maps to {ExpectedKind}: {Path}",
@@ -466,6 +494,7 @@ public partial class ScanService(
                         TraceNewFileClassified(file.StoredPath);
                     }
 
+                    directoryScanContext.MarkRequiresConfirmation(file.Path);
                     changedOrNewCount++;
                     filesToProcess.Add((file, isKnownFile, contentChanged));
                 }
@@ -611,6 +640,7 @@ public partial class ScanService(
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                             {
+                                directoryScanContext.MarkRequiresConfirmation(file.Path);
                                 Interlocked.Increment(ref failedCount);
                                 logger.LogError(ex, "Error processing file: {Path}", file.Path);
                             }
@@ -681,6 +711,7 @@ public partial class ScanService(
                                     // whole pending batch, count this file as failed, and re-stage the
                                     // previously-good items one at a time. Rare: the hot path (new files,
                                     // ffprobe errors are swallowed internally) does not throw here.
+                                    directoryScanContext.MarkRequiresConfirmation(file.Path);
                                     Interlocked.Increment(ref failedCount);
                                     logger.LogError(ex, "Error processing file: {Path}", file.Path);
                                     workerDb.ChangeTracker.Clear();
@@ -746,6 +777,9 @@ public partial class ScanService(
                 assetGenerationFailureCount += assetSummary.FailedItems;
             }
 
+            if (directorySkippingEnabled)
+                await PersistDirectoryScanStatesAsync(directoryScanContext, ct);
+
             // Phase 5: Extension scan participants
             var participants = extensionManager.GetScanParticipants()
                 .Select(participant => (
@@ -801,16 +835,19 @@ public partial class ScanService(
                     case ScanFileValidationStatus.Ready:
                         return true;
                     case ScanFileValidationStatus.Deferred:
+                        directoryScanContext.MarkRequiresConfirmation(file.Path);
                         Interlocked.Increment(ref deferredFileCount);
                         logger.LogInformation("Deferring unsettled scan file; it will be retried on the next scan. Path={Path}, Reason={Reason}", file.Path, validation.Reason);
                         progress.Report(0.85, $"Deferred unsettled file {Path.GetFileName(file.Path)}: {validation.Reason}");
                         return false;
                     case ScanFileValidationStatus.Invalid:
+                        directoryScanContext.MarkRequiresConfirmation(file.Path);
                         Interlocked.Increment(ref invalidMediaSkippedCount);
                         logger.LogWarning("Skipping invalid media file; it will be retried on the next scan. Path={Path}, Reason={Reason}", file.Path, validation.Reason);
                         progress.Report(0.85, $"Skipped invalid media file {Path.GetFileName(file.Path)}: {validation.Reason}");
                         return false;
                     default:
+                        directoryScanContext.MarkRequiresConfirmation(file.Path);
                         Interlocked.Increment(ref failedCount);
                         logger.LogError("Unable to validate scan file. Path={Path}, Reason={Reason}", file.Path, validation.Reason);
                         progress.Report(0.85, $"Failed to validate {Path.GetFileName(file.Path)}: {validation.Reason}");
@@ -3286,6 +3323,238 @@ public partial class ScanService(
             || (galleryExts.Contains(extension) && IsExcluded(path, cfg.ExcludeGalleryPatterns));
     }
 
+    private static bool RequiresFullFileDiscovery(ScanOperationOptions options)
+    {
+        return options.Rescan
+            || options.GenerateCovers
+            || options.GeneratePreviews
+            || options.GenerateSprites
+            || options.GeneratePhashes
+            || options.GenerateMd5
+            || options.GenerateImageThumbnails
+            || options.GenerateImagePhashes
+            || options.GenerateAudioPhashes
+            || options.GenerateTextPhashes;
+    }
+
+    private static string ComputeDirectoryScanSignature(
+        CoveConfiguration cfg,
+        IReadOnlyCollection<ScanTarget> scanTargets)
+    {
+        var value = new StringBuilder();
+        value.Append("version=").Append(DirectoryScanSignatureVersion).Append('\n');
+        AppendValues("video", cfg.VideoExtensions);
+        AppendValues("image", cfg.ImageExtensions);
+        AppendValues("gallery", cfg.GalleryExtensions);
+        AppendValues("audio", cfg.AudioExtensions);
+        AppendValues("text", cfg.TextExtensions);
+        AppendValues("exclude", cfg.ExcludePatterns);
+        AppendValues("exclude-image", cfg.ExcludeImagePatterns);
+        AppendValues("exclude-gallery", cfg.ExcludeGalleryPatterns);
+        value.Append("create-folder-galleries=").Append(cfg.CreateGalleriesFromFolders).Append('\n');
+
+        foreach (var path in cfg.CovePaths
+            .OrderBy(item => item.Path, StringComparer.Ordinal)
+            .ThenBy(item => item.ExcludeVideo)
+            .ThenBy(item => item.ExcludeImage)
+            .ThenBy(item => item.ExcludeAudio)
+            .ThenBy(item => item.ExcludeText))
+        {
+            value.Append("root=")
+                .Append(path.Path.Replace('\\', '/'))
+                .Append('|').Append(path.ExcludeVideo)
+                .Append('|').Append(path.ExcludeImage)
+                .Append('|').Append(path.ExcludeAudio)
+                .Append('|').Append(path.ExcludeText)
+                .Append('\n');
+        }
+
+        // A selective scan can inherit a different per-root exclusion policy than a later full
+        // scan, especially when configured roots overlap. Keep its checkpoint scoped to the exact
+        // targets that established it so it can never hide files from a broader later scan.
+        foreach (var target in scanTargets
+            .OrderBy(item => item.Path, StringComparer.Ordinal)
+            .ThenBy(item => item.ExcludeVideo)
+            .ThenBy(item => item.ExcludeImage)
+            .ThenBy(item => item.ExcludeAudio)
+            .ThenBy(item => item.ExcludeText)
+            .ThenBy(item => item.IsFile))
+        {
+            value.Append("target=")
+                .Append(target.Path.Replace('\\', '/'))
+                .Append('|').Append(target.ExcludeVideo)
+                .Append('|').Append(target.ExcludeImage)
+                .Append('|').Append(target.ExcludeAudio)
+                .Append('|').Append(target.ExcludeText)
+                .Append('|').Append(target.IsFile)
+                .Append('\n');
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString()))).ToLowerInvariant();
+
+        void AppendValues(string name, IEnumerable<string> values)
+        {
+            foreach (var item in values
+                .Select(item => item.Trim().ToLowerInvariant())
+                .Where(item => item.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal))
+            {
+                value.Append(name).Append('=').Append(item).Append('\n');
+            }
+        }
+    }
+
+    private static async Task<Dictionary<string, DirectoryScanState>> LoadDirectoryScanStatesAsync(
+        CoveContext db,
+        CancellationToken ct)
+    {
+        var persistedRows = await db.Folders
+            .AsNoTracking()
+            .Where(folder => folder.ZipFileId == null)
+            .Select(folder => new
+            {
+                folder.Id,
+                folder.Path,
+                folder.ModTime,
+                folder.ScanVerifiedAt,
+                folder.ScanSignature,
+            })
+            .ToListAsync(ct);
+
+        var result = new Dictionary<string, DirectoryScanState>(FilesystemPaths.PathComparer);
+        foreach (var persisted in persistedRows)
+        {
+            var row = new DirectoryScanState(
+                persisted.Id,
+                persisted.Path,
+                NormalizeDirectoryModTime(persisted.ModTime),
+                persisted.ScanVerifiedAt,
+                persisted.ScanSignature);
+            var canonicalPath = TryCanonicalizeStoredFolderPath(row.StoredPath);
+            if (canonicalPath == null)
+                continue;
+
+            if (!result.TryGetValue(canonicalPath, out var existing)
+                || (row.ScanVerifiedAt ?? DateTime.MinValue) > (existing.ScanVerifiedAt ?? DateTime.MinValue))
+            {
+                result[canonicalPath] = row with { StoredPath = canonicalPath };
+            }
+        }
+
+        return result;
+    }
+
+    private async Task PersistDirectoryScanStatesAsync(DirectoryScanContext context, CancellationToken ct)
+    {
+        var observations = context.Observations
+            .Where(observation => observation.FullyEnumerated
+                || (observation.Skipped && observation.RequiresConfirmation))
+            .ToList();
+        if (observations.Count == 0)
+            return;
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        if (db.Database.IsRelational())
+            db.Database.SetCommandTimeout(ScanCommandTimeout);
+
+        var foldersByPath = new Dictionary<string, Folder>(FilesystemPaths.PathComparer);
+        var knownIds = observations
+            .Select(observation => observation.FolderId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        foreach (var chunk in knownIds.Chunk(1000))
+        {
+            var folders = await db.Folders.Where(folder => chunk.Contains(folder.Id)).ToListAsync(ct);
+            foreach (var folder in folders)
+            {
+                var canonicalPath = TryCanonicalizeStoredFolderPath(folder.Path);
+                if (canonicalPath != null)
+                    foldersByPath.TryAdd(canonicalPath, folder);
+            }
+        }
+
+        var missingPaths = observations
+            .Select(observation => observation.StoredPath)
+            .Where(path => !foldersByPath.ContainsKey(path))
+            .Distinct(FilesystemPaths.PathComparer)
+            .ToList();
+        foreach (var chunk in missingPaths.Chunk(1000))
+        {
+            var folders = await db.Folders.Where(folder => chunk.Contains(folder.Path)).ToListAsync(ct);
+            foreach (var folder in folders)
+            {
+                var canonicalPath = TryCanonicalizeStoredFolderPath(folder.Path);
+                if (canonicalPath != null)
+                    foldersByPath.TryAdd(canonicalPath, folder);
+            }
+        }
+
+        var verifiedCount = 0;
+        var dirtyCount = 0;
+        foreach (var observation in observations)
+        {
+            if (!foldersByPath.TryGetValue(observation.StoredPath, out var folder))
+                continue;
+
+            var currentMetadata = TryGetDirectoryMetadata(observation.FilesystemPath);
+            var currentModTime = currentMetadata?.ModTime ?? observation.ObservedModTime;
+            var canVerify = observation.FullyEnumerated
+                && !observation.RequiresConfirmation
+                && !observation.BlocksCache
+                && observation.ObservedModTime.HasValue
+                && currentMetadata != null
+                && !currentMetadata.IsReparsePoint
+                && currentMetadata.ModTime == observation.ObservedModTime.Value
+                && currentMetadata.ModTime <= context.ScanStartedAt - DirectoryModTimeSafetyWindow;
+
+            if (currentModTime.HasValue)
+                folder.ModTime = currentModTime.Value;
+            folder.ScanSignature = context.Signature;
+            folder.ScanVerifiedAt = canVerify ? context.ScanStartedAt : null;
+            if (canVerify)
+                verifiedCount++;
+            else
+                dirtyCount++;
+        }
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation(
+            "Directory scan state updated: {VerifiedCount} verified unchanged, {DirtyCount} left pending confirmation.",
+            verifiedCount,
+            dirtyCount);
+    }
+
+    private static DirectoryMetadata? TryGetDirectoryMetadata(string directory)
+    {
+        try
+        {
+            var info = new DirectoryInfo(directory);
+            info.Refresh();
+            if (!info.Exists)
+                return null;
+
+            return new DirectoryMetadata(
+                NormalizeDirectoryModTime(info.LastWriteTimeUtc),
+                (info.Attributes & FileAttributes.ReparsePoint) != 0);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    private static DateTime NormalizeDirectoryModTime(DateTime modTime)
+    {
+        var utc = modTime.Kind == DateTimeKind.Utc ? modTime : modTime.ToUniversalTime();
+        // PostgreSQL timestamps have microsecond precision. Match that precision so an ext4/NTFS
+        // directory change within the same second still invalidates the cache after round-tripping.
+        return new DateTime(utc.Ticks - (utc.Ticks % 10), DateTimeKind.Utc);
+    }
+
     private IEnumerable<DiscoveredFile> DiscoverFilesSafely(
         ScanTarget scanTarget,
         HashSet<string> allExts,
@@ -3297,10 +3566,11 @@ public partial class ScanService(
         CoveConfiguration cfg,
         Dictionary<string, List<IgnoreRule>> ruleCache,
         ScanDiscoveryProgress discoveryProgress,
+        DirectoryScanContext directoryScanContext,
         CancellationToken ct)
     {
         var pending = new Stack<DirectoryScanFrame>();
-        pending.Push(CreateDirectoryScanFrame(scanTarget.Path, []));
+        pending.Push(CreateDirectoryScanFrame(scanTarget.Path, [], inheritedIgnoreFileInScope: false));
 
         while (pending.Count > 0)
         {
@@ -3308,16 +3578,35 @@ public partial class ScanService(
             var frame = pending.Pop();
             var directory = frame.Path;
             discoveryProgress.RecordDirectory(directory);
+            var observation = directoryScanContext.ObserveDirectory(
+                directory,
+                frame.HasIgnoreFileInScope || frame.HasLocalGalleryControlFile);
 
             List<FileSystemInfo> entries;
             try
             {
-                entries = new DirectoryInfo(directory)
-                    .EnumerateFileSystemInfos("*", new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false })
-                    .ToList();
+                var directoryInfo = new DirectoryInfo(directory);
+                var enumerationOptions = new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false };
+                if (directoryScanContext.CanSkipFileEnumeration(observation))
+                {
+                    entries = directoryInfo
+                        .EnumerateDirectories("*", enumerationOptions)
+                        .Cast<FileSystemInfo>()
+                        .ToList();
+                    observation.MarkSkipped();
+                    discoveryProgress.RecordUnchangedDirectory();
+                }
+                else
+                {
+                    entries = directoryInfo
+                        .EnumerateFileSystemInfos("*", enumerationOptions)
+                        .ToList();
+                    observation.MarkFullyEnumerated();
+                }
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
             {
+                observation.MarkRequiresConfirmation();
                 discoveryProgress.RecordUnreadablePath(directory);
                 logger.LogWarning(ex, "Skipping unreadable scan directory: {Path}", directory);
                 continue;
@@ -3335,6 +3624,7 @@ public partial class ScanService(
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
                 {
+                    observation.MarkRequiresConfirmation();
                     discoveryProgress.RecordUnreadablePath(path);
                     logger.LogWarning(ex, "Skipping unreadable scan path: {Path}", path);
                     continue;
@@ -3355,9 +3645,14 @@ public partial class ScanService(
                         continue;
                     }
 
-                    pending.Push(CreateDirectoryScanFrame(path, frame.IgnoreRuleSets));
+                    pending.Push(CreateDirectoryScanFrame(path, frame.IgnoreRuleSets, frame.HasIgnoreFileInScope));
                     continue;
                 }
+
+                // The link target can change without changing this directory entry's timestamp.
+                // Keep scanning directories containing file symlinks instead of trusting their mtime.
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    observation.MarkBlocksCache();
 
                 var ext = Path.GetExtension(path);
                 if (!allExts.Contains(ext))
@@ -3407,6 +3702,7 @@ public partial class ScanService(
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or FileNotFoundException or DirectoryNotFoundException)
                 {
+                    observation.MarkRequiresConfirmation();
                     discoveryProgress.RecordUnreadablePath(path);
                     logger.LogWarning(ex, "Skipping unreadable scan file: {Path}", path);
                     continue;
@@ -3417,16 +3713,24 @@ public partial class ScanService(
             }
         }
 
-        DirectoryScanFrame CreateDirectoryScanFrame(string directory, IReadOnlyList<ActiveIgnoreRuleSet> inheritedRuleSets)
+        DirectoryScanFrame CreateDirectoryScanFrame(
+            string directory,
+            IReadOnlyList<ActiveIgnoreRuleSet> inheritedRuleSets,
+            bool inheritedIgnoreFileInScope)
         {
-            var rules = GetIgnoreRules(NormalizePath(directory), ruleCache);
+            var normalizedDirectory = NormalizePath(directory);
+            var hasLocalIgnoreFile = FolderIgnoreFileNames.Any(fileName => File.Exists(Path.Combine(normalizedDirectory, fileName)));
+            var hasIgnoreFileInScope = inheritedIgnoreFileInScope || hasLocalIgnoreFile;
+            var hasLocalGalleryControlFile = File.Exists(Path.Combine(normalizedDirectory, ".forcegallery"))
+                || File.Exists(Path.Combine(normalizedDirectory, ".nogallery"));
+            var rules = GetIgnoreRules(normalizedDirectory, ruleCache);
             if (rules.Count == 0)
-                return new DirectoryScanFrame(directory, inheritedRuleSets);
+                return new DirectoryScanFrame(directory, inheritedRuleSets, hasIgnoreFileInScope, hasLocalGalleryControlFile);
 
             var ruleSets = new List<ActiveIgnoreRuleSet>(inheritedRuleSets.Count + 1);
             ruleSets.AddRange(inheritedRuleSets);
-            ruleSets.Add(new ActiveIgnoreRuleSet(NormalizePath(directory), rules));
-            return new DirectoryScanFrame(directory, ruleSets);
+            ruleSets.Add(new ActiveIgnoreRuleSet(normalizedDirectory, rules));
+            return new DirectoryScanFrame(directory, ruleSets, hasIgnoreFileInScope, hasLocalGalleryControlFile);
         }
     }
 
@@ -3781,7 +4085,115 @@ public partial class ScanService(
     private sealed record AssetGenerationSummary(int FailedItems);
     private enum ScanFileChangeReason { Unchanged, RescanForced, MetadataProbe, SizeChanged, ModTimeChanged }
     private sealed record ActiveIgnoreRuleSet(string Directory, IReadOnlyList<IgnoreRule> Rules);
-    private sealed record DirectoryScanFrame(string Path, IReadOnlyList<ActiveIgnoreRuleSet> IgnoreRuleSets);
+    private sealed record DirectoryScanFrame(
+        string Path,
+        IReadOnlyList<ActiveIgnoreRuleSet> IgnoreRuleSets,
+        bool HasIgnoreFileInScope,
+        bool HasLocalGalleryControlFile);
+    private sealed record DirectoryMetadata(DateTime ModTime, bool IsReparsePoint);
+    private sealed record DirectoryScanState(
+        int FolderId,
+        string StoredPath,
+        DateTime ModTime,
+        DateTime? ScanVerifiedAt,
+        string? ScanSignature);
+
+    private sealed class DirectoryScanObservation(
+        string filesystemPath,
+        string storedPath,
+        int? folderId,
+        DateTime? observedModTime,
+        bool isReparsePoint)
+    {
+        private int _blocksCache;
+        private int _fullyEnumerated;
+        private int _requiresConfirmation;
+        private int _skipped;
+
+        public string FilesystemPath { get; } = filesystemPath;
+        public string StoredPath { get; } = storedPath;
+        public int? FolderId { get; } = folderId;
+        public DateTime? ObservedModTime { get; } = observedModTime;
+        public bool IsReparsePoint { get; } = isReparsePoint;
+        public bool BlocksCache => Volatile.Read(ref _blocksCache) != 0;
+        public bool FullyEnumerated => Volatile.Read(ref _fullyEnumerated) != 0;
+        public bool RequiresConfirmation => Volatile.Read(ref _requiresConfirmation) != 0;
+        public bool Skipped => Volatile.Read(ref _skipped) != 0;
+
+        public void MarkBlocksCache() => Interlocked.Exchange(ref _blocksCache, 1);
+        public void MarkFullyEnumerated() => Interlocked.Exchange(ref _fullyEnumerated, 1);
+        public void MarkRequiresConfirmation() => Interlocked.Exchange(ref _requiresConfirmation, 1);
+        public void MarkSkipped() => Interlocked.Exchange(ref _skipped, 1);
+    }
+
+    private sealed class DirectoryScanContext(
+        bool enabled,
+        DateTime scanStartedAt,
+        string signature,
+        IReadOnlyDictionary<string, DirectoryScanState> states)
+    {
+        private readonly ConcurrentDictionary<string, DirectoryScanObservation> _observations =
+            new(FilesystemPaths.PathComparer);
+
+        public bool Enabled { get; } = enabled;
+        public DateTime ScanStartedAt { get; } = scanStartedAt;
+        public string Signature { get; } = signature;
+        public IEnumerable<DirectoryScanObservation> Observations => _observations.Values;
+
+        public DirectoryScanObservation ObserveDirectory(string filesystemPath, bool blocksCache)
+        {
+            var storedPath = NormalizeStoredFolderPath(filesystemPath);
+            states.TryGetValue(storedPath, out var state);
+            var metadata = TryGetDirectoryMetadata(filesystemPath);
+            var observation = _observations.GetOrAdd(storedPath, _ => new DirectoryScanObservation(
+                filesystemPath,
+                storedPath,
+                state?.FolderId,
+                metadata?.ModTime,
+                metadata?.IsReparsePoint == true));
+
+            if (blocksCache)
+                observation.MarkBlocksCache();
+            if (metadata == null
+                || (state != null && state.ModTime != metadata.ModTime))
+            {
+                observation.MarkRequiresConfirmation();
+            }
+
+            return observation;
+        }
+
+        public bool CanSkipFileEnumeration(DirectoryScanObservation observation)
+        {
+            if (!Enabled
+                || observation.BlocksCache
+                || observation.RequiresConfirmation
+                || observation.IsReparsePoint
+                || !observation.ObservedModTime.HasValue
+                || !states.TryGetValue(observation.StoredPath, out var state)
+                || !state.ScanVerifiedAt.HasValue
+                || !string.Equals(state.ScanSignature, Signature, StringComparison.Ordinal)
+                || state.ModTime != observation.ObservedModTime.Value)
+            {
+                return false;
+            }
+
+            return observation.ObservedModTime.Value
+                <= state.ScanVerifiedAt.Value - DirectoryModTimeSafetyWindow;
+        }
+
+        public void MarkRequiresConfirmation(string filePath)
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrWhiteSpace(directory))
+                return;
+
+            var storedPath = NormalizeStoredFolderPath(directory);
+            if (_observations.TryGetValue(storedPath, out var observation))
+                observation.MarkRequiresConfirmation();
+        }
+    }
+
     private sealed class ScanDiscoveryProgress(Cove.Core.Interfaces.IJobProgress progress, ILogger<ScanService> logger)
     {
         private readonly Stopwatch _elapsed = Stopwatch.StartNew();
@@ -3789,6 +4201,7 @@ public partial class ScanService(
         private DateTime _lastLogReport = DateTime.MinValue;
 
         public int DirectoryCount { get; private set; }
+        public int UnchangedDirectoryCount { get; private set; }
         public int MediaFileCount { get; private set; }
         public int UnsupportedFileCount { get; private set; }
         public int IgnoredPathCount { get; private set; }
@@ -3798,6 +4211,11 @@ public partial class ScanService(
         {
             DirectoryCount++;
             ReportIfDue(path);
+        }
+
+        public void RecordUnchangedDirectory()
+        {
+            UnchangedDirectoryCount++;
         }
 
         public void RecordMediaFile(string path)
@@ -3825,7 +4243,10 @@ public partial class ScanService(
 
         public void Complete()
         {
-            progress.Report(0.10, $"Discovered {MediaFileCount:N0} media files in {DirectoryCount:N0} folders.");
+            var message = $"Discovered {MediaFileCount:N0} media files in {DirectoryCount:N0} folders.";
+            if (UnchangedDirectoryCount > 0)
+                message += $" {UnchangedDirectoryCount:N0} unchanged {(UnchangedDirectoryCount == 1 ? "folder" : "folders")} skipped.";
+            progress.Report(0.10, message);
         }
 
         private void ReportIfDue(string? path)
@@ -3841,10 +4262,11 @@ public partial class ScanService(
             {
                 _lastLogReport = now;
                 logger.LogDebug(
-                    "Scan discovery progress after {ElapsedMs} ms: {MediaFileCount} media files, {DirectoryCount} directories, {IgnoredPathCount} ignored, {UnsupportedFileCount} unsupported, {UnreadablePathCount} unreadable. Current path: {Path}",
+                    "Scan discovery progress after {ElapsedMs} ms: {MediaFileCount} media files, {DirectoryCount} directories, {UnchangedDirectoryCount} verified unchanged directories skipped, {IgnoredPathCount} ignored, {UnsupportedFileCount} unsupported, {UnreadablePathCount} unreadable. Current path: {Path}",
                     _elapsed.ElapsedMilliseconds,
                     MediaFileCount,
                     DirectoryCount,
+                    UnchangedDirectoryCount,
                     IgnoredPathCount,
                     UnsupportedFileCount,
                     UnreadablePathCount,
@@ -3855,6 +4277,8 @@ public partial class ScanService(
         private string BuildMessage(string? path)
         {
             var message = $"Discovering files: {MediaFileCount:N0} media files, {DirectoryCount:N0} folders";
+            if (UnchangedDirectoryCount > 0)
+                message += $", {UnchangedDirectoryCount:N0} unchanged skipped";
             if (IgnoredPathCount > 0)
                 message += $", {IgnoredPathCount:N0} ignored";
             if (!string.IsNullOrWhiteSpace(path))

@@ -657,6 +657,346 @@ public class ScanServiceTests
     }
 
     [Fact]
+    public async Task StartScan_VerifiesUnchangedDirectoryBeforeSkippingItsFiles()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "known.mp4");
+            await WriteValidVideoAsync(videoPath);
+            Directory.SetLastWriteTimeUtc(tempRoot, DateTime.UtcNow.AddMinutes(-10));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+
+            environment.Service.StartScan();
+
+            await using (var firstScope = environment.Services.CreateAsyncScope())
+            {
+                var firstDb = firstScope.ServiceProvider.GetRequiredService<CoveContext>();
+                Assert.Null((await firstDb.Folders.SingleAsync()).ScanVerifiedAt);
+            }
+
+            environment.Service.StartScan();
+
+            await using (var secondScope = environment.Services.CreateAsyncScope())
+            {
+                var secondDb = secondScope.ServiceProvider.GetRequiredService<CoveContext>();
+                Assert.NotNull((await secondDb.Folders.SingleAsync()).ScanVerifiedAt);
+            }
+
+            environment.Service.StartScan();
+
+            Assert.Contains(environment.JobService.SubTasks, message => message.Contains("1 unchanged folder skipped", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_RetriesCompletedCopyAfterPartialFileMadeVerifiedDirectoryDirty()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "known.mp4"));
+            var firstDirectoryModTime = DateTime.UtcNow.AddMinutes(-20);
+            Directory.SetLastWriteTimeUtc(tempRoot, firstDirectoryModTime);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            var copyingPath = Path.Combine(tempRoot, "copying.mp4");
+            await File.WriteAllBytesAsync(copyingPath, []);
+            var copyStartedDirectoryModTime = DateTime.UtcNow.AddMinutes(-10);
+            Directory.SetLastWriteTimeUtc(tempRoot, copyStartedDirectoryModTime);
+
+            environment.Service.StartScan();
+
+            await using (var partialScope = environment.Services.CreateAsyncScope())
+            {
+                var partialDb = partialScope.ServiceProvider.GetRequiredService<CoveContext>();
+                Assert.Null((await partialDb.Folders.SingleAsync()).ScanVerifiedAt);
+            }
+
+            await WriteValidVideoAsync(copyingPath);
+            Assert.Equal(copyStartedDirectoryModTime, Directory.GetLastWriteTimeUtc(tempRoot));
+
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync());
+            Assert.Contains("1 imported", environment.JobService.LatestSubTask);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ForceRescanBypassesVerifiedDirectory()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "known.mp4"));
+            Directory.SetLastWriteTimeUtc(tempRoot, DateTime.UtcNow.AddMinutes(-10));
+            var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot, probe);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+            Assert.Equal(1, probe.CallCount);
+
+            environment.Service.StartScan(new ScanOperationOptions { Rescan = true });
+
+            Assert.Equal(2, probe.CallCount);
+            Assert.Contains("1 updated", environment.JobService.LatestSubTask);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_AssetGenerationBypassesVerifiedDirectory()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "known.mp4"));
+            Directory.SetLastWriteTimeUtc(tempRoot, DateTime.UtcNow.AddMinutes(-10));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            environment.Service.StartScan(new ScanOperationOptions { GenerateCovers = true });
+
+            Assert.Equal(1, environment.ThumbnailService.VideoThumbnailCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ScanPolicyChangeInvalidatesVerifiedDirectory()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "known.mp4"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "later.covevideo"));
+            Directory.SetLastWriteTimeUtc(tempRoot, DateTime.UtcNow.AddMinutes(-10));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            environment.Config.VideoExtensions.Add(".covevideo");
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_SelectiveScanCheckpointDoesNotHideFilesFromLaterFullScan()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var nestedRoot = Path.Combine(tempRoot, "nested");
+        Directory.CreateDirectory(nestedRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(nestedRoot, "known.mp4"));
+            await WriteValidImageAsync(Path.Combine(nestedRoot, "not-selected.jpg"));
+            Directory.SetLastWriteTimeUtc(nestedRoot, DateTime.UtcNow.AddMinutes(-10));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Config.CovePaths.Add(new CovePath { Path = nestedRoot, ExcludeImage = true });
+
+            var selectiveOptions = new ScanOperationOptions { Paths = [nestedRoot] };
+            environment.Service.StartScan(selectiveOptions);
+            environment.Service.StartScan(selectiveOptions);
+            environment.Service.StartScan(selectiveOptions);
+
+            await using (var selectiveScope = environment.Services.CreateAsyncScope())
+            {
+                var selectiveDb = selectiveScope.ServiceProvider.GetRequiredService<CoveContext>();
+                Assert.Single(await selectiveDb.VideoFiles.ToListAsync());
+                Assert.Empty(await selectiveDb.ImageFiles.ToListAsync());
+                Assert.Contains(environment.JobService.SubTasks, message => message.Contains("1 unchanged folder skipped", StringComparison.Ordinal));
+            }
+
+            environment.Service.StartScan();
+
+            await using var fullScope = environment.Services.CreateAsyncScope();
+            var fullDb = fullScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Single(await fullDb.ImageFiles.ToListAsync());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_TraversesVerifiedParentToFindChangesInExistingChildDirectory()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var childDirectory = Path.Combine(tempRoot, "child");
+        Directory.CreateDirectory(childDirectory);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "parent.mp4"));
+            await WriteValidVideoAsync(Path.Combine(childDirectory, "child.mp4"));
+            var oldModTime = DateTime.UtcNow.AddMinutes(-10);
+            Directory.SetLastWriteTimeUtc(childDirectory, oldModTime);
+            Directory.SetLastWriteTimeUtc(tempRoot, oldModTime);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            var parentModTime = Directory.GetLastWriteTimeUtc(tempRoot);
+            await WriteValidVideoAsync(Path.Combine(childDirectory, "new-child.mp4"));
+            Assert.Equal(parentModTime, Directory.GetLastWriteTimeUtc(tempRoot));
+
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(3, await verificationDb.VideoFiles.CountAsync());
+            Assert.Contains(environment.JobService.SubTasks, message => message.Contains("1 unchanged folder skipped", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_DoesNotVerifyDirectoriesControlledByIgnoreFiles()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "known.mp4"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "later.mp4"));
+            var ignorePath = Path.Combine(tempRoot, ".coveignore");
+            await File.WriteAllTextAsync(ignorePath, "later.mp4\n");
+            Directory.SetLastWriteTimeUtc(tempRoot, DateTime.UtcNow.AddMinutes(-10));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            await using (var ignoredScope = environment.Services.CreateAsyncScope())
+            {
+                var ignoredDb = ignoredScope.ServiceProvider.GetRequiredService<CoveContext>();
+                Assert.Null((await ignoredDb.Folders.SingleAsync()).ScanVerifiedAt);
+                Assert.Single(await ignoredDb.VideoFiles.ToListAsync());
+            }
+
+            File.Delete(ignorePath);
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_DoesNotVerifySymlinkLibraryRoot()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var targetDirectory = Path.Combine(tempRoot, "target");
+        var linkedDirectory = Path.Combine(tempRoot, "linked");
+        Directory.CreateDirectory(targetDirectory);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(targetDirectory, "known.mp4"));
+            Directory.SetLastWriteTimeUtc(targetDirectory, DateTime.UtcNow.AddMinutes(-10));
+            Directory.CreateSymbolicLink(linkedDirectory, targetDirectory);
+            await using var environment = await CreateBareEnvironmentAsync(linkedDirectory);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Null((await verificationDb.Folders.SingleAsync()).ScanVerifiedAt);
+            Assert.Single(await verificationDb.VideoFiles.ToListAsync());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_DoesNotVerifyDirectoryContainingSymlinkedMediaFile()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var libraryRoot = Path.Combine(tempRoot, "library");
+        var sourceRoot = Path.Combine(tempRoot, "source");
+        Directory.CreateDirectory(libraryRoot);
+        Directory.CreateDirectory(sourceRoot);
+
+        try
+        {
+            var sourcePath = Path.Combine(sourceRoot, "known.mp4");
+            await WriteValidVideoAsync(sourcePath);
+            File.CreateSymbolicLink(Path.Combine(libraryRoot, "linked.mp4"), sourcePath);
+            Directory.SetLastWriteTimeUtc(libraryRoot, DateTime.UtcNow.AddMinutes(-10));
+            await using var environment = await CreateBareEnvironmentAsync(libraryRoot);
+
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Null((await verificationDb.Folders.SingleAsync()).ScanVerifiedAt);
+            Assert.Single(await verificationDb.VideoFiles.ToListAsync());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StartScan_RepairsExistingBrokenVideoAfterCopyCompletes()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1123,7 +1463,7 @@ public class ScanServiceTests
             new ScanFileValidator(probeService, galleryReader, clock),
             NullLogger<ScanService>.Instance);
 
-        return new TestEnvironment(provider, service, jobService, thumbnailService);
+        return new TestEnvironment(provider, service, jobService, thumbnailService, config);
     }
 
     private static async Task<TestEnvironment> CreateEnvironmentAsync(
@@ -1214,7 +1554,7 @@ public class ScanServiceTests
             new ScanFileValidator(probeService, galleryReader, clock),
             NullLogger<ScanService>.Instance);
 
-        return new TestEnvironment(provider, service, jobService, thumbnailService);
+        return new TestEnvironment(provider, service, jobService, thumbnailService, config);
     }
 
     private static string NormalizeStoredFolderPath(string path)
@@ -1265,8 +1605,17 @@ public class ScanServiceTests
     private sealed class ImmediateJobService : IJobService
     {
         private int _nextId;
+        private readonly ConcurrentQueue<string> _subTasks = new();
 
-        public string? LatestSubTask { get; set; }
+        public string? LatestSubTask { get; private set; }
+        public IReadOnlyList<string> SubTasks => _subTasks.ToArray();
+
+        public void RecordSubTask(string? subTask)
+        {
+            LatestSubTask = subTask;
+            if (subTask != null)
+                _subTasks.Enqueue(subTask);
+        }
 
         public string Enqueue(string type, string description, Func<Cove.Core.Interfaces.IJobProgress, CancellationToken, Task> work, bool exclusive = true)
         {
@@ -1289,7 +1638,7 @@ public class ScanServiceTests
     {
         public void Report(double progress, string? subTask = null)
         {
-            owner.LatestSubTask = subTask;
+            owner.RecordSubTask(subTask);
         }
     }
 
@@ -1368,12 +1717,14 @@ public class ScanServiceTests
         ServiceProvider services,
         ScanService service,
         ImmediateJobService jobService,
-        NoOpThumbnailService thumbnailService) : IAsyncDisposable
+        NoOpThumbnailService thumbnailService,
+        CoveConfiguration config) : IAsyncDisposable
     {
         public ServiceProvider Services { get; } = services;
         public ScanService Service { get; } = service;
         public ImmediateJobService JobService { get; } = jobService;
         public NoOpThumbnailService ThumbnailService { get; } = thumbnailService;
+        public CoveConfiguration Config { get; } = config;
 
         public async ValueTask DisposeAsync()
         {

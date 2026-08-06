@@ -64,7 +64,7 @@ The scan records file paths, media types, file details, and processing state. It
 - **No items appear:** recheck the configured container path, the Docker volume mount, the per-path media exclusions, and the configured file extensions.
 - **Only some files appear:** inspect the scan job error and Cove logs for unreadable paths, unsupported files, or exclude-pattern matches.
 - **Generated assets fail:** verify the generated path is writable and review the FFmpeg messages in **Settings → System Info → Logs**.
-- **A moved or unchanged file was skipped:** select only its folder and retry with **Force rescan (ignore mtime)**. Do not force-rescan the whole library unless it is necessary.
+- **A moved, replaced, or unchanged file was skipped:** select only its folder and retry with **Force rescan (ignore mtime)**. This is especially important after editing or replacing file bytes in place. Do not force-rescan the whole library unless it is necessary. See [Scans](../../../reference/scans/) for file identity, interrupted-copy handling, and unchanged-directory verification.
 - **The job is still running:** do not queue repeated full scans. Use **Settings → Operations → Jobs** to monitor or cancel the existing job first.
 
 Once the representative folder is correct, repeat the scan with additional folders or leave **Selective scan** empty to process the whole library. Then continue to [Explore your library](../../../tutorial/explore-your-library/) to turn those scanned records into a familiar, usable library.

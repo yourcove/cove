@@ -7,6 +7,8 @@ public class Folder
     public int? ParentFolderId { get; set; }
     public int? ZipFileId { get; set; }
     public DateTime ModTime { get; set; }
+    public DateTime? ScanVerifiedAt { get; set; }
+    public string? ScanSignature { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -129,4 +131,3 @@ public class VideoCaption
     public string Filename { get; set; } = string.Empty; // Sidecar caption filename
     public VideoFile? File { get; set; }
 }
-
