@@ -1,9 +1,9 @@
-// Tracks how many full-screen overlays (e.g. the image lightbox) are currently open.
+// Tracks how many keyboard-owning overlays (e.g. the filter dialog or image lightbox) are open.
 //
 // Global keyboard shortcuts (list pagination, app navigation) are registered as window-level
 // keydown listeners and fire in registration order, so a modal that opens later cannot rely on
 // stopPropagation to silence them. Instead those shortcut handlers consult this counter and bail
-// while an overlay owns the keyboard — e.g. lightbox arrow keys must not also page the list behind it.
+// while an overlay owns the keyboard — e.g. dialog arrow keys must not also page the list behind it.
 
 let openOverlayCount = 0;
 

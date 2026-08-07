@@ -2,7 +2,7 @@ import { Star } from "lucide-react";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Field } from "./EditModal";
 import type { FieldProvenance, RatingStarPrecision, RatingSystemOptions } from "../api/types";
-import { useAppConfig } from "../state/AppConfigContext";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { authStore } from "../auth/authStore";
 import { RATING_OPTIONS_CHANGE_EVENT, readStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 
@@ -123,7 +123,7 @@ export function getRatingInputLabel(options?: RatingSystemOptions) {
 }
 
 export function useRatingOptions() {
-  const { config } = useAppConfig();
+  const config = useOptionalAppConfig()?.config;
   const [overrideVersion, setOverrideVersion] = useState(0);
 
   useEffect(() => {
@@ -150,9 +150,9 @@ export function useRatingOptions() {
   }, [config?.ui.ratingSystemOptions, overrideVersion]);
 }
 
-function StaticStars({ value, sizeClass }: { value: number; sizeClass: string }) {
+export function RatingStars({ value, sizeClass }: { value: number; sizeClass: string }) {
   return (
-    <span className="flex items-center gap-0.5 text-accent">
+    <span className="flex items-center gap-0.5 text-accent" aria-hidden="true" data-rating-stars>
       {Array.from({ length: 5 }, (_, index) => {
         const fill = Math.max(0, Math.min(1, value - index));
         return (
@@ -234,7 +234,7 @@ export function RatingBadge({ rating }: { rating?: number }) {
 
   return (
     <span className="flex items-center gap-1 text-xs font-medium text-accent">
-      {options.type === "stars" ? <StaticStars value={displayValue} sizeClass="h-3 w-3" /> : <Star className="h-3 w-3 fill-current" />}
+      {options.type === "stars" ? <RatingStars value={displayValue} sizeClass="h-3 w-3" /> : <Star className="h-3 w-3 fill-current" />}
       <span>{label}</span>
     </span>
   );
@@ -307,7 +307,7 @@ export function RatingField({ value, onChange, fieldProvenance, fieldKey = "rati
         <RatingNumberInput value={value} onChange={onChange} options={options} />
         {options.type === "stars" && displayValue !== null && (
           <div className="flex items-center gap-2 text-sm text-secondary">
-            <StaticStars value={displayValue} sizeClass="h-4 w-4" />
+            <RatingStars value={displayValue} sizeClass="h-4 w-4" />
             <span>{formatDisplayRating(value, options)}</span>
           </div>
         )}
@@ -350,7 +350,7 @@ export function InteractiveRating({ value, onChange, readOnly = false }: { value
     if (readOnly) {
       return (
         <div className="flex items-center gap-2">
-          <StaticStars value={displayValue} sizeClass="h-5 w-5" />
+          <RatingStars value={displayValue} sizeClass="h-5 w-5" />
           {label ? <span className="text-sm text-secondary">{label}</span> : <span className="text-sm text-secondary">Unrated</span>}
         </div>
       );

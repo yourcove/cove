@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode, type Ref } from "react";
+import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, ChevronDown, ChevronRight, Search, Pin, PinOff, Plus, Minus, Star } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi } from "../api/client";
-import { GroupedTagOptionList } from "./TagSelector";
+import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
 import { EntityReferenceSelector } from "./EntityReferenceSelector";
+import { formatHumanDuration } from "../utils/durationFormat";
 import {
   convertToRatingFormat,
   convertFromRatingFormat,
@@ -39,6 +40,10 @@ import type {
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { rankByLabel } from "../utils/searchRanking";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
+import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { getMultiIdModifierLabel } from "../utils/filterModifierLabels";
+import { pushOverlay } from "../utils/overlayState";
 
 // ===== Criterion definitions =====
 
@@ -721,9 +726,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
-  const preselectedCriterionRef = useRef<HTMLDivElement>(null);
+  const [navigatorFocusId, setNavigatorFocusId] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const criterionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pinButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingPinFocusRef = useRef<string | null>(null);
+  const wasOpenRef = useRef(false);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
-  const [lastSyncedFilterSignature, setLastSyncedFilterSignature] = useState(activeFilterSignature);
+  const lastActiveFilterSignatureRef = useRef(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem("filter-pinned");
@@ -735,6 +747,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 
   const togglePin = useCallback(
     (id: string) => {
+      pendingPinFocusRef.current = id;
       setPinnedIds((prev) => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
@@ -746,53 +759,203 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     []
   );
 
+  useEffect(() => {
+    const id = pendingPinFocusRef.current;
+    if (!id) return;
+    pendingPinFocusRef.current = null;
+    criterionButtonRefs.current.get(id)?.focus();
+  }, [pinnedIds]);
+
   const filteredCriteria = useMemo(() => {
-    const q = search.toLowerCase();
-    const filtered = q ? criteria.filter((c) => c.label.toLowerCase().includes(q)) : criteria;
-    // Sort: pinned first, then alphabetical
-    return [...filtered].sort((a, b) => {
-      const ap = pinnedIds.has(a.id) ? 0 : 1;
-      const bp = pinnedIds.has(b.id) ? 0 : 1;
-      if (ap !== bp) return ap - bp;
-      return a.label.localeCompare(b.label);
-    });
-  }, [criteria, search, pinnedIds]);
-
-  // Auto-expand preselected criterion when dialog opens
-  useEffect(() => {
-    if (open && preselectCriterion) {
-      setSearch("");
-      setExpandedCriterion(preselectCriterion);
-    }
-  }, [open, preselectCriterion]);
-
-  useEffect(() => {
-    if (open && preselectCriterion && expandedCriterion === preselectCriterion && search === "") {
-      preselectedCriterionRef.current?.scrollIntoView?.({ block: "center", inline: "nearest" });
-    }
-  }, [expandedCriterion, open, preselectCriterion, search]);
-
-  useEffect(() => {
-    if (open) {
-      if (lastSyncedFilterSignature !== activeFilterSignature) {
-        setEditFilter(JSON.parse(activeFilterSignature) as Record<string, unknown>);
-        setLastSyncedFilterSignature(activeFilterSignature);
-      }
-      return;
-    }
-
-    if (lastSyncedFilterSignature !== activeFilterSignature) {
-      setEditFilter(JSON.parse(activeFilterSignature) as Record<string, unknown>);
-    }
-
-    setLastSyncedFilterSignature(activeFilterSignature);
-  }, [activeFilterSignature, lastSyncedFilterSignature, open]);
+    const q = search.trim().toLowerCase();
+    return (q ? criteria.filter((c) => c.label.toLowerCase().includes(q)) : criteria)
+      .slice()
+      .sort((a, b) => {
+        const aExact = Boolean(q) && a.label.toLowerCase() === q;
+        const bExact = Boolean(q) && b.label.toLowerCase() === q;
+        if (aExact !== bExact) return aExact ? -1 : 1;
+        return a.label.localeCompare(b.label);
+      });
+  }, [criteria, search]);
 
   const activeCriterionCount = useMemo(() => {
     const criteriaCount = criteria.filter((criterion) => isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)).length;
     const customCount = (customSections ?? []).filter((section) => section.isActive(editFilter[section.filterKey])).length;
     return criteriaCount + customCount;
   }, [criteria, customSections, editFilter]);
+
+  const activeEditFilter = useMemo(() => {
+    const sectionFilter: Record<string, unknown> = {};
+    for (const section of customSections ?? []) {
+      const value = section.sanitize ? section.sanitize(editFilter[section.filterKey]) : editFilter[section.filterKey];
+      if (section.isActive(value)) sectionFilter[section.filterKey] = value;
+    }
+    return sanitizeFilterCriteria(editFilter, criteria, sectionFilter);
+  }, [criteria, customSections, editFilter]);
+
+  type NavigatorItem =
+    | { kind: "criterion"; id: string; label: string; active: boolean; pinned: boolean; criterion: CriterionDefinition }
+    | { kind: "custom"; id: string; label: string; active: boolean; pinned: false; section: FilterDialogCustomSection };
+
+  const navigatorGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const sortItems = (a: NavigatorItem, b: NavigatorItem) => {
+      const aExact = Boolean(q) && a.label.toLowerCase() === q;
+      const bExact = Boolean(q) && b.label.toLowerCase() === q;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    };
+    const criterionItems: NavigatorItem[] = filteredCriteria.map((criterion) => ({
+      kind: "criterion",
+      id: criterion.id,
+      label: criterion.label,
+      active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion),
+      pinned: pinnedIds.has(criterion.id),
+      criterion,
+    }));
+    const customItems: NavigatorItem[] = (customSections ?? [])
+      .filter((section) => !q || section.label.toLowerCase().includes(q))
+      .map((section) => ({
+        kind: "custom",
+        id: section.id,
+        label: section.label,
+        active: section.isActive(editFilter[section.filterKey]),
+        pinned: false,
+        section,
+      }));
+    const items = [...customItems, ...criterionItems];
+    const active = items.filter((item) => item.active).sort(sortItems);
+    const pinned = items.filter((item) => !item.active && item.pinned).sort(sortItems);
+    const remaining = items.filter((item) => !item.active && !item.pinned).sort(sortItems);
+    return [
+      { label: "Active", items: active },
+      { label: "Pinned", items: pinned },
+      { label: "All filters", items: remaining },
+    ].filter((group) => group.items.length > 0);
+  }, [customSections, editFilter, filteredCriteria, pinnedIds, search]);
+
+  const visibleNavigatorItems = useMemo(() => navigatorGroups.flatMap((group) => group.items), [navigatorGroups]);
+  const rovingNavigatorId = navigatorFocusId && visibleNavigatorItems.some((item) => item.id === navigatorFocusId)
+    ? navigatorFocusId
+    : expandedCriterion && visibleNavigatorItems.some((item) => item.id === expandedCriterion)
+    ? expandedCriterion
+    : visibleNavigatorItems[0]?.id;
+  const selectedItem = useMemo(() => {
+    if (!expandedCriterion) return undefined;
+    const section = (customSections ?? []).find((item) => item.id === expandedCriterion);
+    if (section) {
+      return {
+        kind: "custom" as const,
+        id: section.id,
+        label: section.label,
+        active: section.isActive(editFilter[section.filterKey]),
+        pinned: false as const,
+        section,
+      };
+    }
+    const criterion = criteria.find((item) => item.id === expandedCriterion);
+    return criterion ? {
+      kind: "criterion" as const,
+      id: criterion.id,
+      label: criterion.label,
+      active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion),
+      pinned: pinnedIds.has(criterion.id),
+      criterion,
+    } : undefined;
+  }, [criteria, customSections, editFilter, expandedCriterion, pinnedIds]);
+
+  const cloneActiveFilter = useCallback(() => JSON.parse(activeFilterSignature) as Record<string, unknown>, [activeFilterSignature]);
+
+  const focusFirstEditorControl = useCallback(() => {
+    window.setTimeout(() => {
+      const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+      (panel?.querySelector<HTMLElement>("[data-filter-primary-control]")
+        ?? panel?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])"))?.focus();
+    }, 0);
+  }, []);
+
+  const selectNavigatorItem = useCallback((id: string) => {
+    setExpandedCriterion(id);
+    focusFirstEditorControl();
+  }, [focusFirstEditorControl]);
+
+  useEffect(() => {
+    if (lastActiveFilterSignatureRef.current !== activeFilterSignature) {
+      lastActiveFilterSignatureRef.current = activeFilterSignature;
+      setEditFilter(cloneActiveFilter());
+    }
+  }, [activeFilterSignature, cloneActiveFilter]);
+
+  useEffect(() => {
+    if (!open) return;
+    return pushOverlay();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      if (wasOpenRef.current) {
+        setEditFilter(cloneActiveFilter());
+        setSearch("");
+        setExpandedCriterion(null);
+        setNavigatorFocusId(null);
+        previousFocusRef.current?.focus();
+      }
+      wasOpenRef.current = false;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setEditFilter(cloneActiveFilter());
+      setSearch("");
+      setNavigatorFocusId(null);
+      const firstActive = criteria.find((criterion) => isCriterionValueValid(getCriterionFilterValue(activeFilter, criterion), criterion))?.id
+        ?? (customSections ?? []).find((section) => section.isActive(activeFilter[section.filterKey]))?.id;
+      const nextSelected = preselectCriterion ?? firstActive ?? null;
+      setExpandedCriterion(nextSelected);
+      window.setTimeout(() => {
+        if (nextSelected && preselectCriterion) focusFirstEditorControl();
+        else searchRef.current?.focus();
+        if (nextSelected) criterionButtonRefs.current.get(nextSelected)?.scrollIntoView?.({ block: "center", inline: "nearest" });
+      }, 0);
+    }
+    wasOpenRef.current = true;
+  }, [activeFilter, cloneActiveFilter, criteria, customSections, focusFirstEditorControl, open, preselectCriterion]);
+
+  const dismiss = useCallback(() => {
+    setEditFilter(cloneActiveFilter());
+    setSearch("");
+    setExpandedCriterion(null);
+    setNavigatorFocusId(null);
+    onClose();
+  }, [cloneActiveFilter, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dismiss();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]):not([tabindex='-1']), input:not([disabled]):not([tabindex='-1']), select:not([disabled]):not([tabindex='-1']), textarea:not([disabled]):not([tabindex='-1']), [tabindex]:not([tabindex='-1'])",
+      )).filter((element) => !element.closest("[hidden]") && element.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dismiss, open]);
 
   const handleRemoveCriterion = useCallback((criterion: CriterionDefinition, criterionId?: string) => {
     setEditFilter((prev) => removeCriterionFilterValue(prev, criterion));
@@ -823,322 +986,306 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     });
   }, []);
 
-  const handleApply = () => {
-    const sectionFilter: Record<string, unknown> = {};
-    for (const section of customSections ?? []) {
-      const value = section.sanitize ? section.sanitize(editFilter[section.filterKey]) : editFilter[section.filterKey];
-      if (section.isActive(value)) {
-        sectionFilter[section.filterKey] = value;
-      }
+  const handleEditChip = useCallback((key: string) => {
+    const customSection = (customSections ?? []).find((section) => section.filterKey === key);
+    const criterion = criteria.find((item) => item.id === key
+      || item.filterKey === key
+      || item.secondaryFilterKey === key
+      || item.auxiliaryToggleKey === key);
+    const nextId = customSection?.id ?? criterion?.id;
+    if (nextId) {
+      setSearch("");
+      selectNavigatorItem(nextId);
+    }
+  }, [criteria, customSections, selectNavigatorItem]);
+
+  const handleRemoveChip = useCallback((key: string) => {
+    const customSection = (customSections ?? []).find((section) => section.filterKey === key);
+    if (customSection) {
+      setEditFilter((current) => {
+        const next = { ...current };
+        delete next[customSection.filterKey];
+        return next;
+      });
+      return;
     }
 
-    const nextFilter = sanitizeFilterCriteria(editFilter, criteria, sectionFilter);
+    const criterion = criteria.find((item) => item.id === key
+      || item.filterKey === key
+      || item.secondaryFilterKey === key
+      || item.auxiliaryToggleKey === key);
+    if (criterion) {
+      if (criterion.auxiliaryToggleKey === key) {
+        setEditFilter((current) => {
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
+      } else {
+        handleRemoveCriterion(criterion);
+      }
+      return;
+    }
 
-    onApply(nextFilter);
+    setEditFilter((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, [criteria, customSections, handleRemoveCriterion]);
+
+  const handleApply = () => {
+    onApply(activeEditFilter);
     onClose();
   };
 
   const handleClear = () => {
     setEditFilter({});
+    setExpandedCriterion(null);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
   };
-
-  const hasWideCustomFieldLayout = (customSections ?? []).some((section) => section.id === "custom-fields");
 
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 md:p-4"
       onMouseDown={(event) => {
         backdropPointerDownRef.current = event.target === event.currentTarget;
       }}
       onClick={(event) => {
         if (event.target === event.currentTarget && backdropPointerDownRef.current) {
-          onClose();
+          dismiss();
         }
 
         backdropPointerDownRef.current = false;
       }}
     >
       <div
-        className={`bg-surface border border-border sm:rounded-lg shadow-xl w-full ${hasWideCustomFieldLayout ? "sm:w-[min(92vw,56rem)] sm:max-w-none" : "sm:max-w-lg"} h-[85vh] sm:h-auto sm:max-h-[80vh] flex flex-col rounded-t-lg`}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="filter-dialog-title"
+        className="filter-dialog flex h-[100dvh] w-full flex-col overflow-hidden border-border bg-surface shadow-2xl md:h-[min(88dvh,52rem)] md:w-[min(94vw,72rem)] md:rounded-2xl md:border"
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            handleApply();
+          }
+        }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-foreground">Edit Filter</h2>
+        <div className="flex min-h-16 items-center justify-between border-b border-border px-4 pt-[env(safe-area-inset-top)] md:px-6 md:pt-0">
+          <div className="flex min-w-0 items-center gap-2">
+            {selectedItem ? (
+              <button type="button" onClick={() => { setExpandedCriterion(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground md:hidden" aria-label="Back to filter criteria">
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            ) : null}
+            <h2 id="filter-dialog-title" className="truncate text-lg font-semibold text-foreground">Filters</h2>
+            {selectedItem ? <span className="truncate text-sm text-secondary md:hidden">{selectedItem.label}</span> : null}
             {activeCriterionCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-accent text-white text-[10px] font-bold">
+              <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-white" aria-label={`${activeCriterionCount} active filters`}>
                 {activeCriterionCount}
               </span>
             )}
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-card rounded text-muted hover:text-foreground">
-            <X className="w-4 h-4" />
+          <button type="button" onClick={dismiss} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground" aria-label="Close filters">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Search criteria */}
-        <div className="px-4 py-2 border-b border-border">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search criteria..."
-              className="w-full bg-input border border-border rounded pl-7 pr-3 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-            />
-          </div>
-        </div>
+        <ActiveObjectFilterChips
+          criteriaDefinitions={criteria}
+          objectFilter={activeEditFilter}
+          customFilterSections={customSections}
+          onEdit={handleEditChip}
+          onRemove={handleRemoveChip}
+          onClearAll={handleClear}
+          rovingKeyboardAccess
+          onFocusFallback={() => {
+            const criterionButton = expandedCriterion ? criterionButtonRefs.current.get(expandedCriterion) : undefined;
+            if (criterionButton) criterionButton.focus();
+            else searchRef.current?.focus();
+          }}
+          onFocusKey={(key) => {
+            const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button[data-active-filter-key]");
+            Array.from(buttons ?? []).find((button) => button.dataset.activeFilterKey === key)?.focus();
+          }}
+          ariaLabel="Selected filters"
+          className="!mx-0 !mt-0 max-h-[min(12rem,35dvh)] shrink-0 overflow-y-auto !rounded-none !border-x-0 !border-t-0 px-3 py-2 md:px-4"
+        />
 
-        {/* Active filter tags */}
-        {activeCriterionCount > 0 && (
-          <div className="px-4 py-2 border-b border-border flex flex-wrap gap-1">
-            {(customSections ?? [])
-              .filter((section) => section.isActive(editFilter[section.filterKey]))
-              .map((section) => (
-                <span
-                  key={section.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-accent/20 text-accent border border-accent/30"
-                >
-                  {section.label}
-                  <button
-                    onClick={() => setEditFilter((current) => {
-                      const next = { ...current };
-                      delete next[section.filterKey];
-                      return next;
-                    })}
-                    aria-label={`Remove ${section.label} filter chip`}
-                    className="hover:text-white"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-            {criteria
-              .filter((c) => isCriterionValueValid(getCriterionFilterValue(editFilter, c), c))
-              .map((c) => (
-                <span
-                  key={c.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-accent/20 text-accent border border-accent/30"
-                >
-                  {c.label}
-                  <button
-                    onClick={() => handleRemoveCriterion(c, c.id)}
-                    aria-label={`Remove ${c.label} filter chip`}
-                    className="hover:text-white"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-          </div>
-        )}
-
-        {/* Criterion list */}
-        <div className="flex-1 overflow-y-auto px-2 py-1">
-          {(customSections ?? []).map((section) => {
-            const value = editFilter[section.filterKey] ?? section.defaultValue;
-            const isActive = section.isActive(editFilter[section.filterKey]);
-            const isExpanded = expandedCriterion === section.id;
-
-            return (
-              <div ref={section.id === preselectCriterion ? preselectedCriterionRef : undefined} key={section.id} className={`rounded mb-0.5 ${isActive ? "bg-accent/5 border border-accent/20" : ""}`}>
-                <div
-                  className="flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-card/50 rounded"
-                  onClick={() => setExpandedCriterion(isExpanded ? null : section.id)}
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="w-3 h-3 text-muted flex-shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3 h-3 text-muted flex-shrink-0" />
-                  )}
-                  <span className={`text-xs flex-1 ${isActive ? "text-accent font-medium" : "text-foreground"}`}>
-                    {section.label}
-                  </span>
-                  {isActive ? (
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setEditFilter((current) => {
-                          const next = { ...current };
-                          delete next[section.filterKey];
-                          return next;
-                        });
-                      }}
-                      aria-label={`Remove ${section.label} filter row`}
-                      className="p-0.5 rounded hover:bg-red-900/20 text-muted hover:text-red-400"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  ) : null}
-                </div>
-                {isExpanded ? (
-                  <div className="px-3 pb-2">
-                    {section.renderEditor(value, (nextValue) => {
-                      setEditFilter((current) => {
-                        const next = { ...current };
-                        const shouldKeepDraft = section.shouldKeepDraft ?? section.isActive;
-                        if (shouldKeepDraft(nextValue)) {
-                          next[section.filterKey] = nextValue;
-                        } else {
-                          delete next[section.filterKey];
-                        }
-                        return next;
-                      });
+        <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
+          <aside className={`${selectedItem ? "hidden md:flex" : "flex"} min-h-0 flex-col border-border md:border-r`} aria-label="Filter criteria">
+            <div className="border-b border-border p-3 md:p-4">
+              <label className="relative block">
+                <span className="sr-only">Search filter criteria</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <input
+                  ref={searchRef}
+                  type="search"
+                  aria-label="Search filter criteria"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowDown" || visibleNavigatorItems.length === 0) return;
+                    event.preventDefault();
+                    criterionButtonRefs.current.get(visibleNavigatorItems[0].id)?.focus();
+                  }}
+                  placeholder="Search filters"
+                  className="min-h-11 w-full rounded-lg border border-border bg-input py-2 pl-10 pr-3 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
+                />
+              </label>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2 md:p-3" role="tablist" aria-label="Available filter criteria" aria-orientation="vertical">
+              {navigatorGroups.map((group) => (
+                <section key={group.label} className="mb-4" aria-label={group.label}>
+                  <h3 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">{group.label}</h3>
+                  <div className="space-y-1">
+                    {group.items.map((item) => {
+                      const selected = item.id === expandedCriterion;
+                      const supported = item.kind === "custom" || item.criterion.supported !== false;
+                      const rowStateClass = selected
+                        ? "border-accent bg-accent/15 text-foreground"
+                        : item.active
+                        ? "border-accent/30 bg-accent/5 text-foreground hover:bg-card"
+                        : "border-transparent text-secondary hover:border-border hover:bg-card hover:text-foreground";
+                      return (
+                        <div key={item.id} role="presentation" className={`flex min-h-11 w-full items-stretch overflow-hidden rounded-lg border text-sm transition ${rowStateClass} ${supported ? "" : "cursor-not-allowed opacity-60"}`}>
+                          <button
+                            ref={(element) => { if (element) criterionButtonRefs.current.set(item.id, element); else criterionButtonRefs.current.delete(item.id); }}
+                            type="button"
+                            role="tab"
+                            id={`filter-tab-${item.id}`}
+                            aria-selected={selected}
+                            aria-controls="filter-editor-panel"
+                            aria-disabled={!supported || undefined}
+                            tabIndex={item.id === rovingNavigatorId ? 0 : -1}
+                            onClick={() => { if (supported) selectNavigatorItem(item.id); }}
+                            onFocus={() => setNavigatorFocusId(item.id)}
+                            onKeyDown={(event) => {
+                              const index = visibleNavigatorItems.findIndex((candidate) => candidate.id === item.id);
+                              if (event.key === "ArrowRight" && item.kind === "criterion" && supported) {
+                                event.preventDefault();
+                                pinButtonRefs.current.get(item.id)?.focus();
+                                return;
+                              }
+                              if (event.key === "ArrowUp" && index === 0) {
+                                event.preventDefault();
+                                searchRef.current?.focus();
+                                return;
+                              }
+                              let nextIndex: number | undefined;
+                              if (event.key === "ArrowDown") nextIndex = Math.min(visibleNavigatorItems.length - 1, index + 1);
+                              if (event.key === "ArrowUp") nextIndex = Math.max(0, index - 1);
+                              if (event.key === "Home") nextIndex = 0;
+                              if (event.key === "End") nextIndex = visibleNavigatorItems.length - 1;
+                              if (nextIndex !== undefined) {
+                                event.preventDefault();
+                                criterionButtonRefs.current.get(visibleNavigatorItems[nextIndex].id)?.focus();
+                              }
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                            title={supported ? undefined : item.kind === "criterion" ? item.criterion.unsupportedReason : undefined}
+                          >
+                            <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                            {!supported ? <span className="text-[10px] uppercase tracking-wide text-muted">Unavailable</span> : null}
+                          </button>
+                          {item.kind === "criterion" && supported ? (
+                            <button
+                              ref={(element) => { if (element) pinButtonRefs.current.set(item.id, element); else pinButtonRefs.current.delete(item.id); }}
+                              type="button"
+                              onClick={() => togglePin(item.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "ArrowLeft" || event.key === "Escape") {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  criterionButtonRefs.current.get(item.id)?.focus();
+                                }
+                              }}
+                              tabIndex={-1}
+                              aria-label={`${item.pinned ? "Unpin" : "Pin"} ${item.label}`}
+                              aria-pressed={item.pinned}
+                              title={`${item.pinned ? "Unpin" : "Pin"} ${item.label}`}
+                              className={`group flex w-10 shrink-0 items-center justify-center border-l text-muted transition hover:bg-background/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${selected ? "border-accent/40" : "border-border/60"} ${item.pinned ? "opacity-100" : "opacity-100 md:opacity-0 md:hover:opacity-100 md:focus-visible:opacity-100"}`}
+                            >
+                              {item.pinned ? (
+                                <>
+                                  <Pin className="h-4 w-4 group-hover:hidden group-focus-visible:hidden" />
+                                  <PinOff className="hidden h-4 w-4 group-hover:block group-focus-visible:block" />
+                                </>
+                              ) : <Pin className="h-4 w-4" />}
+                            </button>
+                          ) : null}
+                        </div>
+                      );
                     })}
                   </div>
-                ) : null}
-              </div>
-            );
-          })}
+                </section>
+              ))}
+              {visibleNavigatorItems.length === 0 ? <div className="px-4 py-10 text-center text-sm text-muted">No filters match “{search}”.</div> : null}
+            </div>
+          </aside>
 
-          {showCustomSectionDivider && customSections && customSections.length > 0 ? <div className="border-t border-border my-1" /> : null}
-
-          {/* Pinned divider */}
-          {filteredCriteria.some((c) => pinnedIds.has(c.id)) && filteredCriteria.some((c) => !pinnedIds.has(c.id)) && (
-            <>
-              {filteredCriteria
-                .filter((c) => pinnedIds.has(c.id))
-                .map((criterion) => (
-                  <CriterionRow
-                    key={criterion.id}
-                    rowRef={criterion.id === preselectCriterion ? preselectedCriterionRef : undefined}
-                    criterion={criterion}
-                    value={getCriterionFilterValue(editFilter, criterion)}
-                    auxiliaryToggleChecked={criterion.auxiliaryToggleKey ? Boolean(editFilter[criterion.auxiliaryToggleKey]) : undefined}
-                    onAuxiliaryToggleChange={(checked) => handleSetAuxiliaryToggle(criterion, checked)}
-                    onChange={(v) => handleSetCriterion(criterion, v)}
-                    onRemove={() => handleRemoveCriterion(criterion, criterion.id)}
-                    expanded={expandedCriterion === criterion.id}
-                    onToggleExpand={() => setExpandedCriterion(expandedCriterion === criterion.id ? null : criterion.id)}
-                    pinned
-                    onTogglePin={() => togglePin(criterion.id)}
+          <main className={`${selectedItem ? "flex" : "hidden md:flex"} min-h-0 min-w-0 flex-col`}>
+            {selectedItem ? (
+              <div
+                id="filter-editor-panel"
+                role="tabpanel"
+                aria-labelledby={`filter-tab-${selectedItem.id}`}
+                aria-label={selectedItem.label}
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 md:p-6"
+              >
+                {selectedItem.kind === "custom" ? selectedItem.section.renderEditor(
+                  editFilter[selectedItem.section.filterKey] ?? selectedItem.section.defaultValue,
+                  (nextValue) => {
+                    setEditFilter((current) => {
+                      const next = { ...current };
+                      const shouldKeepDraft = selectedItem.section.shouldKeepDraft ?? selectedItem.section.isActive;
+                      if (shouldKeepDraft(nextValue)) next[selectedItem.section.filterKey] = nextValue;
+                      else delete next[selectedItem.section.filterKey];
+                      return next;
+                    });
+                  },
+                ) : selectedItem.criterion.supported === false ? (
+                  <div className="rounded-xl border border-border bg-card p-4 text-sm text-secondary">{selectedItem.criterion.unsupportedReason ?? "This filter is not currently available."}</div>
+                ) : (
+                  <CriterionEditor
+                    criterion={selectedItem.criterion}
+                    value={getCriterionFilterValue(editFilter, selectedItem.criterion)}
+                    auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean(editFilter[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
+                    onAuxiliaryToggleChange={(checked) => handleSetAuxiliaryToggle(selectedItem.criterion, checked)}
+                    onChange={(value) => handleSetCriterion(selectedItem.criterion, value)}
                   />
-                ))}
-              <div className="border-t border-border my-1" />
-            </>
-          )}
-          {filteredCriteria
-            .filter((c) => !(pinnedIds.has(c.id) && filteredCriteria.some((c2) => pinnedIds.has(c2.id)) && filteredCriteria.some((c2) => !pinnedIds.has(c2.id))))
-            .map((criterion) => (
-              <CriterionRow
-                key={criterion.id}
-                rowRef={criterion.id === preselectCriterion ? preselectedCriterionRef : undefined}
-                criterion={criterion}
-                value={getCriterionFilterValue(editFilter, criterion)}
-                auxiliaryToggleChecked={criterion.auxiliaryToggleKey ? Boolean(editFilter[criterion.auxiliaryToggleKey]) : undefined}
-                onAuxiliaryToggleChange={(checked) => handleSetAuxiliaryToggle(criterion, checked)}
-                onChange={(v) => handleSetCriterion(criterion, v)}
-                onRemove={() => handleRemoveCriterion(criterion, criterion.id)}
-                expanded={expandedCriterion === criterion.id}
-                onToggleExpand={() => setExpandedCriterion(expandedCriterion === criterion.id ? null : criterion.id)}
-                pinned={pinnedIds.has(criterion.id)}
-                onTogglePin={() => togglePin(criterion.id)}
-              />
-            ))}
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center p-8 text-center">
+                <div className="max-w-sm">
+                  <Search className="mx-auto mb-3 h-8 w-8 text-muted" />
+                  <h3 className="text-lg font-semibold text-foreground">Choose a filter</h3>
+                  <p className="mt-1 text-sm text-secondary">Search or select a criterion to configure it. Changes are applied only when you choose Apply.</p>
+                </div>
+              </div>
+            )}
+          </main>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-          <button
-            onClick={handleClear}
-            className="px-3 py-1 rounded text-xs text-secondary hover:text-foreground hover:bg-card"
-          >
-            Clear All
-          </button>
+        <div className="flex min-h-16 items-center justify-end gap-3 border-t border-border px-4 pb-[env(safe-area-inset-bottom)] md:px-6 md:pb-0">
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="px-3 py-1 rounded text-xs text-secondary hover:text-foreground border border-border">
+            <button type="button" onClick={dismiss} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">
               Cancel
             </button>
-            <button onClick={handleApply} className="px-4 py-1 rounded text-xs font-medium bg-accent hover:bg-accent-hover text-white">
+            <button type="button" onClick={handleApply} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover">
               Apply
             </button>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ===== Criterion Row =====
-
-function CriterionRow({
-  rowRef,
-  criterion,
-  value,
-  auxiliaryToggleChecked,
-  onAuxiliaryToggleChange,
-  onChange,
-  onRemove,
-  expanded,
-  onToggleExpand,
-  pinned,
-  onTogglePin,
-}: {
-  rowRef?: Ref<HTMLDivElement>;
-  criterion: CriterionDefinition;
-  value: unknown;
-  auxiliaryToggleChecked?: boolean;
-  onAuxiliaryToggleChange?: (checked: boolean) => void;
-  onChange: (v: unknown) => void;
-  onRemove: () => void;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  pinned: boolean;
-  onTogglePin: () => void;
-}) {
-  const hasDraftValue = value !== undefined;
-  const isSupported = criterion.supported !== false;
-  const isActive = isCriterionValueValid(value, criterion);
-
-  return (
-    <div ref={rowRef} className={`rounded mb-0.5 ${isActive ? "bg-accent/5 border border-accent/20" : ""}`}>
-      <div
-        className={`flex items-center gap-1 px-2 py-1.5 rounded ${isSupported ? "cursor-pointer hover:bg-card/50" : "cursor-not-allowed opacity-60"}`}
-        onClick={isSupported ? onToggleExpand : undefined}
-        title={isSupported ? undefined : criterion.unsupportedReason ?? "This criterion is not supported yet"}
-      >
-        {expanded ? (
-          <ChevronDown className="w-3 h-3 text-muted flex-shrink-0" />
-        ) : (
-          <ChevronRight className="w-3 h-3 text-muted flex-shrink-0" />
-        )}
-        <span className={`text-xs flex-1 ${isActive ? "text-accent font-medium" : "text-foreground"}`}>
-          {criterion.label}
-        </span>
-        {!isSupported && <span className="rounded border border-border px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted">Unsupported</span>}
-        <button
-          onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-          className={`p-0.5 rounded hover:bg-card ${pinned ? "text-accent" : "text-muted opacity-40 hover:opacity-100 focus-visible:opacity-100"}`}
-          title={pinned ? "Unpin" : "Pin"}
-        >
-          {pinned ? <Pin className="w-3 h-3" /> : <PinOff className="w-3 h-3" />}
-        </button>
-        {hasDraftValue && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            aria-label={`Remove ${criterion.label} filter row`}
-            className="p-0.5 rounded hover:bg-red-900/20 text-muted hover:text-red-400"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        )}
-      </div>
-      {expanded && isSupported && (
-        <div className="px-3 pb-2">
-          <CriterionEditor
-            criterion={criterion}
-            value={value}
-            auxiliaryToggleChecked={auxiliaryToggleChecked}
-            onAuxiliaryToggleChange={onAuxiliaryToggleChange}
-            onChange={onChange}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -1208,19 +1355,26 @@ function CriterionEditor({
 
 function BoolEditor({ value, onChange }: { value?: BoolCriterion; onChange: (v: unknown) => void }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="space-y-2" role="group" aria-label="Value">
+      <div className="text-sm font-medium text-secondary">Value</div>
+      <div className="flex flex-wrap items-center gap-2">
       <button
+        type="button"
+        aria-pressed={value?.value === true}
         onClick={() => onChange({ value: true })}
-        className={`px-3 py-1 rounded text-xs border ${value?.value === true ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
+        className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${value?.value === true ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
       >
         True
       </button>
       <button
+        type="button"
+        aria-pressed={value?.value === false}
         onClick={() => onChange({ value: false })}
-        className={`px-3 py-1 rounded text-xs border ${value?.value === false ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
+        className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${value?.value === false ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
       >
         False
       </button>
+      </div>
     </div>
   );
 }
@@ -1256,47 +1410,46 @@ export function NumberEditor({
     <div className="space-y-2">
       <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => update({ modifier: m })} />
       {!isNull && (
-        <div className="flex items-center gap-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           {type === "duration" ? (
-            <DurationInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}><DurationInput value={value?.value} onChange={(v) => update({ value: v })} ariaLabel={isBetween ? "Minimum" : "Value"} /></LabeledControl>
           ) : type === "resolution" ? (
-            <ResolutionSelect value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
+            <LabeledControl label="Value"><ResolutionSelect value={value?.value ?? 0} onChange={(v) => update({ value: v })} /></LabeledControl>
           ) : type === "careerLength" ? (
-            <CareerLengthInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}><CareerLengthInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} /></LabeledControl>
           ) : (
-            <input
-              type="number"
-              value={value?.value ?? ""}
-              onChange={(e) => update({ value: e.target.value === "" ? undefined : Number(e.target.value) })}
-              className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-            />
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}>
+              <input
+                aria-label={isBetween ? "Minimum" : "Value"}
+                type="number"
+                value={value?.value ?? ""}
+                onChange={(e) => update({ value: e.target.value === "" ? undefined : Number(e.target.value) })}
+                className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+              />
+            </LabeledControl>
           )}
           {isBetween && (
-            <>
-              <span className="text-xs text-muted">and</span>
+            <div>
               {type === "duration" ? (
-                <DurationInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} />
+                <LabeledControl label="Maximum"><DurationInput value={value?.value2} onChange={(v) => update({ value2: v })} ariaLabel="Maximum" /></LabeledControl>
               ) : type === "careerLength" ? (
-                <CareerLengthInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} />
+                <LabeledControl label="Maximum"><CareerLengthInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} /></LabeledControl>
               ) : (
-                <input
-                  type="number"
-                  value={value?.value2 ?? ""}
-                  onChange={(e) => update({ value2: e.target.value === "" ? undefined : Number(e.target.value) })}
-                  className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-                />
+                <LabeledControl label="Maximum">
+                  <input aria-label="Maximum" type="number" value={value?.value2 ?? ""} onChange={(e) => update({ value2: e.target.value === "" ? undefined : Number(e.target.value) })} className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm" />
+                </LabeledControl>
               )}
-            </>
+            </div>
           )}
         </div>
       )}
       {auxiliaryToggleLabel && onAuxiliaryToggleChange && (
-        <label className="flex items-center gap-2 text-xs text-secondary">
+        <label className="flex min-h-9 items-center gap-2 text-sm text-secondary">
           <input
             type="checkbox"
             checked={Boolean(auxiliaryToggleChecked)}
             onChange={(event) => onAuxiliaryToggleChange(event.target.checked)}
-            className="h-3.5 w-3.5 rounded border-border bg-input text-accent focus:ring-accent"
+            className="h-5 w-5 rounded border-border bg-input text-accent focus:ring-accent"
           />
           <span>{auxiliaryToggleLabel}</span>
         </label>
@@ -1427,14 +1580,14 @@ function TagDurationClauseEditor({
             value={clause.tagId}
             onChange={(tagId, option) => update({ tagId }, tagId && option ? { [String(tagId)]: option.label } : undefined)}
             placeholder="Search tags"
-            inputClassName="w-full rounded border border-border bg-input px-2 py-1 text-xs text-foreground outline-none focus:border-accent"
+            inputClassName="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground outline-none focus:border-accent md:text-sm"
             excludeIds={excludedTagIds}
           />
         </div>
         <select
           value={unit}
           onChange={(event) => setUnit(event.target.value as TagDurationClause["unit"])}
-          className="rounded border border-border bg-input px-2 py-1 text-xs text-foreground outline-none focus:border-accent"
+          className="min-h-11 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground outline-none focus:border-accent md:text-sm"
           aria-label="Tag duration unit"
         >
           <option value="seconds">Seconds</option>
@@ -1470,16 +1623,13 @@ function RatingStarInput({
   displayValue,
   onChangeDisplay,
   step,
-  sizeClass,
 }: {
   displayValue: number;
   onChangeDisplay: (v: number) => void;
   step: number;
-  sizeClass?: string;
 }) {
   const [hoverValue, setHoverValue] = useState<number | null>(null);
   const activeValue = hoverValue ?? displayValue;
-  const cls = sizeClass ?? "h-4 w-4";
 
   return (
     <div className="flex items-center gap-0.5" onMouseLeave={() => setHoverValue(null)}>
@@ -1487,6 +1637,7 @@ function RatingStarInput({
         <button
           key={star}
           type="button"
+          aria-label={`Set rating to ${star}`}
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
@@ -1496,21 +1647,25 @@ function RatingStarInput({
           }}
           onMouseLeave={() => setHoverValue(null)}
           onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-            const segments = Math.max(1, Math.ceil(ratio / step));
-            const frac = Math.min(1, Number((segments * step).toFixed(2)));
-            const next = star - 1 + frac;
+            const next = e.detail === 0
+              ? star
+              : (() => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                const segments = Math.max(1, Math.ceil(ratio / step));
+                const frac = Math.min(1, Number((segments * step).toFixed(2)));
+                return star - 1 + frac;
+              })();
             onChangeDisplay(next === displayValue ? 0 : next);
           }}
-          className="relative text-accent transition-transform hover:scale-110"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-accent transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <Star className={`${cls} text-muted`} />
+          <Star className="h-7 w-7 text-muted" />
           <span
-            className="absolute inset-y-0 left-0 overflow-hidden"
-            style={{ width: `${Math.max(0, Math.min(1, activeValue - (star - 1))) * 100}%` }}
+            className="absolute left-1 top-1 h-7 overflow-hidden"
+            style={{ width: `${Math.max(0, Math.min(1, activeValue - (star - 1))) * 1.75}rem` }}
           >
-            <Star className={`${cls} fill-current text-accent`} />
+            <Star className="h-7 w-7 fill-current text-accent" />
           </span>
         </button>
       ))}
@@ -1562,7 +1717,7 @@ function RatingFilterInput({
         const v = Number(e.target.value);
         if (Number.isFinite(v)) setDisplay(v);
       }}
-      className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+      className="min-h-11 w-28 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
     />
   );
 }
@@ -1604,13 +1759,16 @@ function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion;
     <div className="space-y-2">
       <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
       {!isNull && (
-        <input
-          type="text"
-          value={value?.value ?? ""}
-          onChange={(e) => onChange({ value: e.target.value, modifier })}
-          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-          placeholder="Value..."
-        />
+        <LabeledControl label="Value">
+          <input
+            aria-label="Value"
+            type="text"
+            value={value?.value ?? ""}
+            onChange={(e) => onChange({ value: e.target.value, modifier })}
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+            placeholder="Enter a value"
+          />
+        </LabeledControl>
       )}
     </div>
   );
@@ -1661,7 +1819,7 @@ export function RemoteIdFilterEditor({
         aria-label="Metadata Service"
         value={selectedEndpoint}
         onChange={(event) => onChange({ value: value?.value ?? "", endpoint: event.target.value, modifier })}
-        className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent disabled:opacity-60"
+        className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none disabled:opacity-60 md:text-sm"
       >
         <option value="">Any metadata service</option>
         {options.map((option) => (
@@ -1674,7 +1832,7 @@ export function RemoteIdFilterEditor({
           aria-label="Remote ID value"
           value={value?.value ?? ""}
           onChange={(event) => onChange({ value: event.target.value, endpoint: selectedEndpoint, modifier })}
-          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+          className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
           placeholder="Value..."
         />
       )}
@@ -1702,7 +1860,7 @@ function HashEditor({
       <select
         value={hashType}
         onChange={(event) => onChange({ type: event.target.value, value: value?.value ?? "", modifier })}
-        className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+        className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -1710,13 +1868,16 @@ function HashEditor({
       </select>
       <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(nextModifier) => onChange({ type: hashType, value: value?.value ?? "", modifier: nextModifier })} />
       {!isNull && (
-        <input
-          type="text"
-          value={value?.value ?? ""}
-          onChange={(event) => onChange({ type: hashType, value: event.target.value, modifier })}
-          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-          placeholder="Hash value..."
-        />
+        <LabeledControl label="Value">
+          <input
+            type="text"
+            aria-label="Value"
+            value={value?.value ?? ""}
+            onChange={(event) => onChange({ type: hashType, value: event.target.value, modifier })}
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
+            placeholder="Hash value..."
+          />
+        </LabeledControl>
       )}
     </div>
   );
@@ -1735,7 +1896,7 @@ function EnumEditor({ value, onChange, options, modifiers }: { value?: StringCri
         <select
           value={value?.value ?? ""}
           onChange={(e) => onChange({ value: e.target.value, modifier })}
-          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+          className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
         >
           <option value="">Select...</option>
           {options.map((opt) => (
@@ -1805,7 +1966,7 @@ function MultiEnumEditor({ value, onChange, options }: { value?: StringCriterion
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Match mode">
         {([
           ["include", "Any Of"],
           ["exclude", "None Of"],
@@ -1815,7 +1976,7 @@ function MultiEnumEditor({ value, onChange, options }: { value?: StringCriterion
           <button
             key={mode}
             onClick={() => buildCriterion(selectedValues, mode)}
-            className={`px-2 py-0.5 rounded text-[10px] border ${
+            className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${
               selectionMode === mode
                 ? "bg-accent text-white border-accent"
                 : "border-border text-secondary hover:text-foreground hover:border-accent/50"
@@ -1831,12 +1992,12 @@ function MultiEnumEditor({ value, onChange, options }: { value?: StringCriterion
             const checked = selectedValues.includes(option.value);
 
             return (
-              <label key={option.value} className="flex items-center gap-2 rounded border border-border bg-input px-2 py-1 text-xs text-foreground">
+              <label key={option.value} className="flex min-h-9 items-center gap-2 rounded-lg border border-border bg-input px-3 py-1.5 text-sm text-foreground">
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleValue(option.value)}
-                  className="accent-accent h-3.5 w-3.5"
+                  className="h-5 w-5 accent-accent"
                 />
                 <span>{option.label}</span>
               </label>
@@ -1859,21 +2020,24 @@ function DateEditor({ value, onChange, modifiers }: { value?: DateCriterion; onC
     <div className="space-y-2">
       <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
       {!isNull && (
-        <div className="flex items-center gap-2">
-          <IsoDateInput
-            value={value?.value ?? ""}
-            onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
-            className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-          />
+        <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
+          <LabeledControl label={isBetween ? "Minimum" : "Value"}>
+            <IsoDateInput
+              aria-label={isBetween ? "Minimum" : "Value"}
+              value={value?.value ?? ""}
+              onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
+              className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+            />
+          </LabeledControl>
           {isBetween && (
-            <>
-              <span className="text-xs text-muted">and</span>
+            <LabeledControl label="Maximum">
               <IsoDateInput
+                aria-label="Maximum"
                 value={value?.value2 ?? ""}
                 onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
-                className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
               />
-            </>
+            </LabeledControl>
           )}
         </div>
       )}
@@ -1914,23 +2078,26 @@ function TimestampEditor({ value, onChange, modifiers }: { value?: TimestampCrit
         }}
       />
       {!isNull && (
-        <div className="flex items-center gap-2">
-          <IsoDateInput
-            pickerType="datetime-local"
-            value={value?.value ?? ensureTimestampValue(value?.value)}
-            onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
-            className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-          />
+        <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
+          <LabeledControl label={isBetween ? "Minimum" : "Value"}>
+            <IsoDateInput
+              aria-label={isBetween ? "Minimum" : "Value"}
+              pickerType="datetime-local"
+              value={value?.value ?? ensureTimestampValue(value?.value)}
+              onChange={(e) => onChange({ value: e.target.value, value2: value?.value2, modifier })}
+              className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+            />
+          </LabeledControl>
           {isBetween && (
-            <>
-              <span className="text-xs text-muted">and</span>
+            <LabeledControl label="Maximum">
               <IsoDateInput
+                aria-label="Maximum"
                 pickerType="datetime-local"
                 value={value?.value2 ?? ensureTimestampValue(value?.value2)}
                 onChange={(e) => onChange({ value: value?.value, value2: e.target.value, modifier })}
-                className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
               />
-            </>
+            </LabeledControl>
           )}
         </div>
       )}
@@ -1951,6 +2118,15 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
   const includeHierarchy = (value as any)?.depth === -1;
   const existingNames: Record<string, string> = (value as any)?._names ?? {};
   const [searchText, setSearchText] = useState("");
+  const [activeResultIndex, setActiveResultIndex] = useState(-1);
+  const [pendingNullModifier, setPendingNullModifier] = useState<CriterionModifier | null>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const selectedButtonRefs = useRef(new Map<number, HTMLButtonElement>());
+  const pendingSelectedRemovalRef = useRef<{ id: number | null; label: string } | null>(null);
+  const [selectedValueFocusId, setSelectedValueFocusId] = useState<number | null>(() => includedIds[0] ?? excludedIds[0] ?? null);
+  const [selectionAnnouncement, setSelectionAnnouncement] = useState("");
+  const selectedValueInstructionsId = useId();
   const trimmedSearchText = searchText.trim();
 
   const { data: entities, isPlaceholderData, isFetching } = useQuery({
@@ -1975,6 +2151,19 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
   });
 
   const selectedIds = useMemo(() => Array.from(new Set([...includedIds, ...excludedIds])), [excludedIds, includedIds]);
+  const selectedIdsSignature = selectedIds.join(",");
+  useEffect(() => {
+    if (selectedValueFocusId != null && selectedIds.includes(selectedValueFocusId)) return;
+    setSelectedValueFocusId(selectedIds[0] ?? null);
+  }, [selectedIdsSignature, selectedValueFocusId]);
+  useEffect(() => {
+    const pending = pendingSelectedRemovalRef.current;
+    if (!pending) return;
+    pendingSelectedRemovalRef.current = null;
+    setSelectionAnnouncement(`Removed ${pending.label}. ${selectedIds.length} selected.`);
+    if (pending.id != null) selectedButtonRefs.current.get(pending.id)?.focus();
+    else searchInputRef.current?.focus();
+  }, [selectedIdsSignature]);
   const missingSelectedIds = useMemo(() => {
     const availableIds = new Set((entities as any[] | undefined)?.map((entity) => entity.id) ?? []);
     return selectedIds.filter((id) => !existingNames[String(id)] && !availableIds.has(id));
@@ -2021,10 +2210,33 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
     return q ? rankByLabel(available as any[], searchText, (entity) => entity.name || entity.title || entity.label || entity.performerName || "") : available;
   }, [entities, entityType, searchText]);
 
+  const navigableEntities = useMemo(() => {
+    const visible = filteredEntities.slice(0, 50);
+    if (entityType === "tags" && !trimmedSearchText) {
+      return groupTagsForSelector(visible as any[]).flatMap((group) => group.tags);
+    }
+    return visible;
+  }, [entityType, filteredEntities, trimmedSearchText]);
+
+  useEffect(() => {
+    setActiveResultIndex((current) => current >= navigableEntities.length ? -1 : current);
+  }, [navigableEntities.length]);
+
+  useEffect(() => {
+    if (activeResultIndex < 0) return;
+    const activeEntity = navigableEntities[activeResultIndex] as any;
+    if (!activeEntity) return;
+    resultsRef.current
+      ?.querySelector<HTMLElement>(`#multi-id-result-${entityType}-${activeEntity.id}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeResultIndex, entityType, navigableEntities]);
+
   const addInclude = (id: number) => {
     const nextInc = includedIds.includes(id) ? includedIds : [...includedIds, id];
     const nextExc = excludedIds.filter((i) => i !== id);
     onChange(buildCriterion(nextInc, nextExc, modifier, includeHierarchy));
+    setSearchText("");
+    setActiveResultIndex(-1);
   };
 
   const addExclude = (id: number) => {
@@ -2035,6 +2247,8 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
     const nextInc = includedIds.filter((i) => i !== id);
     const nextExc = excludedIds.includes(id) ? excludedIds : [...excludedIds, id];
     onChange(buildCriterion(nextInc, nextExc, modifier, includeHierarchy));
+    setSearchText("");
+    setActiveResultIndex(-1);
   };
 
   const removeId = (id: number) => {
@@ -2044,6 +2258,46 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
   };
 
   const labels = getMultiIdEntityLabels(entityType);
+  const selectedCount = includedIds.length + excludedIds.length;
+  const selectNullModifier = (nextModifier: CriterionModifier) => {
+    if (selectedCount > 0) {
+      setPendingNullModifier(nextModifier);
+      return;
+    }
+
+    onChange({ modifier: nextModifier });
+  };
+  const matchModifiers = [
+    ...(includeModifiers.length > 0
+      ? [...includeModifiers].sort((a, b) => (a === "INCLUDES_ALL" ? -1 : b === "INCLUDES_ALL" ? 1 : 0))
+      : (["INCLUDES"] as CriterionModifier[])),
+    ...nullModifiers,
+  ];
+  const selectMatchModifier = (nextModifier: CriterionModifier) => {
+    if (NULL_VALUE_MODIFIERS.has(nextModifier)) {
+      selectNullModifier(nextModifier);
+      return;
+    }
+
+    onChange(buildCriterion(includedIds, excludedIds, nextModifier, includeHierarchy));
+  };
+  const handleMatchModeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const currentButton = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-match-modifier]");
+    if (!currentButton) return;
+    const currentModifier = currentButton.dataset.matchModifier as CriterionModifier;
+    const currentIndex = matchModifiers.indexOf(currentModifier);
+    if (currentIndex < 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextModifier = matchModifiers[(currentIndex + direction + matchModifiers.length) % matchModifiers.length];
+    event.currentTarget
+      .querySelector<HTMLButtonElement>(`button[data-match-modifier="${nextModifier}"]`)
+      ?.focus();
+    selectMatchModifier(nextModifier);
+  };
   const getName = (e: any) => e.name || e.title || e.label || e.performerName || labels.singular;
   const getSelectedName = (id: number, entity?: any) => {
     if (entity) return getName(entity);
@@ -2053,37 +2307,71 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
     if (missingIndex >= 0 && selectedEntityQueries[missingIndex]?.isError) return `Unavailable ${labels.singular}`;
     return `Loading ${labels.singular}...`;
   };
+  const focusSelectedValue = (id: number) => {
+    setSelectedValueFocusId(id);
+    selectedButtonRefs.current.get(id)?.focus();
+  };
+  const removeSelectedValue = (id: number) => {
+    const index = selectedIds.indexOf(id);
+    const nextId = selectedIds[index + 1] ?? selectedIds[index - 1] ?? null;
+    pendingSelectedRemovalRef.current = { id: nextId, label: getSelectedName(id) };
+    setSelectedValueFocusId(nextId);
+    removeId(id);
+  };
+  const handleSelectedValueKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, id: number) => {
+    const currentIndex = selectedIds.indexOf(id);
+    if (currentIndex < 0) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      focusSelectedValue(selectedIds[(currentIndex + direction + selectedIds.length) % selectedIds.length]);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusSelectedValue(event.key === "Home" ? selectedIds[0] : selectedIds[selectedIds.length - 1]);
+    } else if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      removeSelectedValue(id);
+    }
+  };
 
   return (
-    <div className="space-y-2">
-      {/* Include/Exclude mode toggle */}
-      <div className="flex flex-wrap gap-1">
-        {(includeModifiers.length > 0 ? includeModifiers : (["INCLUDES"] as CriterionModifier[])).map((m) => (
-          <button
-            key={m}
-            onClick={() => onChange(buildCriterion(includedIds, excludedIds, m, includeHierarchy))}
-            className={`px-2 py-0.5 rounded text-[10px] border ${
-              m === modifier
-                ? "bg-accent text-white border-accent"
-                : "border-border text-secondary hover:text-foreground hover:border-accent/50"
-            }`}
-          >
-            {MODIFIER_LABELS[m]}
-          </button>
-        ))}
-        {nullModifiers.map((m) => (
-          <button
-            key={m}
-            onClick={() => onChange({ modifier: m })}
-            className={`px-2 py-0.5 rounded text-[10px] border ${
-              m === modifier
-                ? "bg-accent text-white border-accent"
-                : "border-border text-secondary hover:text-foreground hover:border-accent/50"
-            }`}
-          >
-            {MODIFIER_LABELS[m]}
-          </button>
-        ))}
+    <div className="flex min-h-full flex-1 flex-col gap-2">
+      <div className="space-y-2">
+        <div className="text-sm font-medium text-secondary">Match</div>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Match mode" onKeyDown={handleMatchModeKeyDown}>
+            {matchModifiers.map((m) => (
+              <button
+                type="button"
+                key={m}
+                data-match-modifier={m}
+                onClick={() => selectMatchModifier(m)}
+                aria-pressed={m === modifier}
+                tabIndex={m === modifier ? 0 : -1}
+                className={`min-h-9 flex-1 whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm md:flex-none ${
+                  m === modifier
+                    ? "border-accent bg-accent text-white"
+                    : "border-border text-secondary hover:border-accent/50 hover:text-foreground"
+                }`}
+              >
+                {getMultiIdModifierLabel(m, entityType, MODIFIER_LABELS[m])}
+              </button>
+            ))}
+          </div>
+          {!isNullModifier && (entityType === "tags" || hierarchyToggleLabel) && (
+            <label className="flex min-h-9 cursor-pointer select-none items-center gap-2 text-sm text-secondary md:ml-auto">
+              <input
+                type="checkbox"
+                checked={includeHierarchy}
+                onChange={(e) => {
+                  onChange(buildCriterion(includedIds, excludedIds, modifier, e.target.checked));
+                }}
+                className="h-5 w-5 accent-accent"
+              />
+              {hierarchyToggleLabel ?? "Include sub-tags"}
+            </label>
+          )}
+        </div>
       </div>
       {isNullModifier ? (
         <div className="rounded border border-border/70 bg-input px-2 py-2 text-xs text-muted">
@@ -2091,30 +2379,166 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
         </div>
       ) : (
         <>
-      {/* Sub-tag checkbox (only for tags) */}
-      {(entityType === "tags" || hierarchyToggleLabel) && (
-        <label className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={includeHierarchy}
-            onChange={(e) => {
-              onChange(buildCriterion(includedIds, excludedIds, modifier, e.target.checked));
+      {/* Search + add */}
+      <div className="relative">
+        <input
+          ref={searchInputRef}
+          type="text"
+          role="combobox"
+          aria-label={`Search ${entityType}`}
+          aria-autocomplete="list"
+          aria-controls={`multi-id-results-${entityType}`}
+          aria-expanded={!isNullModifier}
+          aria-activedescendant={activeResultIndex >= 0 ? `multi-id-result-${entityType}-${navigableEntities[activeResultIndex]?.id}` : undefined}
+          data-filter-primary-control
+          value={searchText}
+          onChange={(e) => {
+            setSearchText(e.target.value);
+            setActiveResultIndex(-1);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && navigableEntities.length > 0) {
+              event.preventDefault();
+              setActiveResultIndex((current) => Math.min(navigableEntities.length - 1, current + 1));
+            } else if (event.key === "ArrowUp" && navigableEntities.length > 0) {
+              event.preventDefault();
+              setActiveResultIndex((current) => current <= 0 ? 0 : current - 1);
+            } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && navigableEntities.length > 0) {
+              event.preventDefault();
+              const entity = navigableEntities[activeResultIndex >= 0 ? activeResultIndex : 0] as any;
+              if (event.shiftKey && supportsExclude) addExclude(entity.id);
+              else addInclude(entity.id);
+            }
+          }}
+          placeholder={`Search ${entityType}...`}
+          className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
+        />
+      </div>
+      <p className="hidden text-xs text-muted md:block">Use ↑/↓ to choose, Enter to include, Shift+Enter to exclude. Ctrl/⌘+Enter applies.</p>
+      <div ref={resultsRef} id={`multi-id-results-${entityType}`} role="listbox" aria-label={`${labels.plural} results`} tabIndex={-1} className="max-h-64 shrink-0 overflow-y-auto rounded-lg border border-border bg-input" aria-busy={(isPlaceholderData || isFetching) || undefined}>
+        {!entities && trimmedSearchText && (
+          <div className="px-2 py-2 text-xs text-muted text-center">Searching…</div>
+        )}
+        {entityType === "tags" ? (
+          <GroupedTagOptionList
+            tags={navigableEntities as any[]}
+            maxItems={50}
+            className="border-0 bg-transparent"
+            preserveOrder={Boolean(searchText.trim())}
+            groupToggleTabIndex={-1}
+            groupHeadersInteractive={false}
+            renderTag={(entity: any) => {
+              const isIncluded = includedIds.includes(entity.id);
+              const isExcluded = excludedIds.includes(entity.id);
+              return (
+                <div
+                  id={`multi-id-result-${entityType}-${entity.id}`}
+                  role="option"
+                  aria-label={getName(entity)}
+                  aria-selected={isIncluded || isExcluded}
+                  aria-disabled={isPlaceholderData || undefined}
+                  onClick={() => { if (!isPlaceholderData) isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
+                  className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait opacity-50" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
+                >
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={(event) => { event.stopPropagation(); isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
+                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
+                    title="Include"
+                    aria-label={`Include ${getName(entity)}`}
+                    disabled={isPlaceholderData}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                  <span className="min-w-0 flex-1 truncate">{getName(entity)}</span>
+                  {supportsExclude && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={(event) => { event.stopPropagation(); isExcluded ? removeId(entity.id) : addExclude(entity.id); }}
+                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
+                      title="Exclude"
+                      aria-label={`Exclude ${getName(entity)}`}
+                      disabled={isPlaceholderData}
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              );
             }}
-            className="accent-accent w-3.5 h-3.5"
           />
-          {hierarchyToggleLabel ?? "Include sub-tags (child tags)"}
-        </label>
-      )}
+        ) : navigableEntities.map((entity: any) => {
+          const isIncluded = includedIds.includes(entity.id);
+          const isExcluded = excludedIds.includes(entity.id);
+          return (
+            <div
+              key={entity.id}
+              id={`multi-id-result-${entityType}-${entity.id}`}
+              role="option"
+              aria-label={getName(entity)}
+              aria-selected={isIncluded || isExcluded}
+              aria-disabled={isPlaceholderData || undefined}
+              onClick={() => { if (!isPlaceholderData) isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
+              className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait opacity-50" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
+            >
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={(event) => { event.stopPropagation(); isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
+                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
+                title="Include"
+                aria-label={`Include ${getName(entity)}`}
+                disabled={isPlaceholderData}
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+              <span className="min-w-0 flex-1 truncate">{getName(entity)}</span>
+              {supportsExclude && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={(event) => { event.stopPropagation(); isExcluded ? removeId(entity.id) : addExclude(entity.id); }}
+                  className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
+                  title="Exclude"
+                  aria-label={`Exclude ${getName(entity)}`}
+                  disabled={isPlaceholderData}
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {entities && filteredEntities.length === 0 && (
+          <div className="px-2 py-2 text-xs text-muted text-center">No results</div>
+        )}
+      </div>
       {/* Selected items: included */}
       {includedIds.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={`Included ${labels.plural}`}>
           {includedIds.map((id) => {
             const entity = entities?.find((e: any) => e.id === id);
             return (
-              <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-green-900/50 text-green-300 border border-green-700">
-                {getSelectedName(id, entity)}
-                <button onClick={() => removeId(id)} className="hover:text-red-400">
-                  <X className="w-2.5 h-2.5" />
+              <span key={id} className="inline-flex h-8 items-center overflow-hidden rounded-md border border-green-700 bg-green-900/50 pl-2 text-sm text-green-300 focus-within:ring-2 focus-within:ring-accent">
+                <span className="max-w-56 truncate">{getSelectedName(id, entity)}</span>
+                <button
+                  type="button"
+                  ref={(element) => {
+                    if (element) selectedButtonRefs.current.set(id, element);
+                    else selectedButtonRefs.current.delete(id);
+                  }}
+                  onClick={() => removeSelectedValue(id)}
+                  onFocus={() => setSelectedValueFocusId(id)}
+                  onKeyDown={(event) => handleSelectedValueKeyDown(event, id)}
+                  tabIndex={selectedValueFocusId === id || (selectedValueFocusId == null && id === selectedIds[0]) ? 0 : -1}
+                  className="ml-2 inline-flex h-8 w-8 items-center justify-center border-l border-green-700 hover:bg-red-500/10 hover:text-red-300 focus:outline-none"
+                  aria-label={`Remove ${getSelectedName(id, entity)}`}
+                  aria-describedby={selectedValueInstructionsId}
+                  aria-keyshortcuts="ArrowLeft ArrowRight Home End Delete Backspace"
+                >
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </span>
             );
@@ -2123,104 +2547,53 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
       )}
       {/* Selected items: excluded */}
       {supportsExclude && excludedIds.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={`Excluded ${labels.plural}`}>
           {excludedIds.map((id) => {
             const entity = entities?.find((e: any) => e.id === id);
             return (
-              <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-red-900/50 text-red-300 border border-red-700">
-                {getSelectedName(id, entity)}
-                <button onClick={() => removeId(id)} className="hover:text-red-400">
-                  <X className="w-2.5 h-2.5" />
+              <span key={id} className="inline-flex h-8 items-center overflow-hidden rounded-md border border-red-700 bg-red-900/50 pl-2 text-sm text-red-300 focus-within:ring-2 focus-within:ring-accent">
+                <span className="max-w-56 truncate">{getSelectedName(id, entity)}</span>
+                <button
+                  type="button"
+                  ref={(element) => {
+                    if (element) selectedButtonRefs.current.set(id, element);
+                    else selectedButtonRefs.current.delete(id);
+                  }}
+                  onClick={() => removeSelectedValue(id)}
+                  onFocus={() => setSelectedValueFocusId(id)}
+                  onKeyDown={(event) => handleSelectedValueKeyDown(event, id)}
+                  tabIndex={selectedValueFocusId === id || (selectedValueFocusId == null && id === selectedIds[0]) ? 0 : -1}
+                  className="ml-2 inline-flex h-8 w-8 items-center justify-center border-l border-red-700 hover:bg-red-500/10 hover:text-red-200 focus:outline-none"
+                  aria-label={`Remove ${getSelectedName(id, entity)}`}
+                  aria-describedby={selectedValueInstructionsId}
+                  aria-keyshortcuts="ArrowLeft ArrowRight Home End Delete Backspace"
+                >
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </span>
             );
           })}
         </div>
       )}
-      {/* Search + add */}
-      <div className="relative">
-        <input
-          type="text"
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          placeholder={`Search ${entityType}...`}
-          className="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-        />
-      </div>
-      <div className="max-h-32 overflow-y-auto border border-border rounded bg-input" aria-busy={(isPlaceholderData || isFetching) || undefined}>
-        {!entities && trimmedSearchText && (
-          <div className="px-2 py-2 text-xs text-muted text-center">Searching…</div>
-        )}
-        {entityType === "tags" ? (
-          <GroupedTagOptionList
-            tags={filteredEntities as any[]}
-            maxItems={50}
-            className="border-0 bg-transparent"
-            preserveOrder={Boolean(searchText.trim())}
-            renderTag={(entity: any) => {
-              const isIncluded = includedIds.includes(entity.id);
-              const isExcluded = excludedIds.includes(entity.id);
-              return (
-                <div className={`w-full px-2 py-1 text-xs flex items-center gap-1 ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}>
-                  <button
-                    onClick={() => isIncluded ? removeId(entity.id) : addInclude(entity.id)}
-                    className={`hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
-                    title="Include"
-                    disabled={isPlaceholderData}
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                  {supportsExclude && (
-                    <button
-                      onClick={() => isExcluded ? removeId(entity.id) : addExclude(entity.id)}
-                      className={`hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
-                      title="Exclude"
-                      disabled={isPlaceholderData}
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                  )}
-                  <span className="min-w-0 flex-1 truncate">{getName(entity)}</span>
-                </div>
-              );
-            }}
-          />
-        ) : filteredEntities.slice(0, 50).map((entity: any) => {
-          const isIncluded = includedIds.includes(entity.id);
-          const isExcluded = excludedIds.includes(entity.id);
-          return (
-            <div
-              key={entity.id}
-              className={`w-full px-2 py-1 text-xs flex items-center gap-1 ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
-            >
-              <button
-                onClick={() => isIncluded ? removeId(entity.id) : addInclude(entity.id)}
-                className={`hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
-                title="Include"
-                disabled={isPlaceholderData}
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-              {supportsExclude && (
-                <button
-                  onClick={() => isExcluded ? removeId(entity.id) : addExclude(entity.id)}
-                  className={`hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
-                  title="Exclude"
-                  disabled={isPlaceholderData}
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
-              )}
-              <span className="flex-1">{getName(entity)}</span>
-            </div>
-          );
-        })}
-        {entities && filteredEntities.length === 0 && (
-          <div className="px-2 py-2 text-xs text-muted text-center">No results</div>
-        )}
-      </div>
+      {selectedIds.length > 0 ? (
+        <p id={selectedValueInstructionsId} className="text-xs text-muted">Selected {labels.plural}: use ←/→ to review; Delete removes.</p>
+      ) : null}
+      <span className="sr-only" role="status" aria-live="polite">{selectionAnnouncement}</span>
         </>
       )}
+      <ConfirmDialog
+        open={pendingNullModifier !== null}
+        title={`Clear selected ${labels.plural}?`}
+        message={`Switching to ${pendingNullModifier ? getMultiIdModifierLabel(pendingNullModifier, entityType, MODIFIER_LABELS[pendingNullModifier]) : "this match mode"} will clear ${selectedCount} selected ${selectedCount === 1 ? labels.singular : labels.plural}.`}
+        confirmLabel="Clear selection"
+        onConfirm={() => {
+          if (pendingNullModifier) {
+            onChange({ modifier: pendingNullModifier });
+          }
+          setPendingNullModifier(null);
+        }}
+        onCancel={() => setPendingNullModifier(null)}
+      />
     </div>
   );
 }
@@ -2280,13 +2653,36 @@ async function getMultiIdEntityLabel(entityType: EntityType, id: number): Promis
 // ===== Shared Components =====
 
 function ModifierSelector({ modifiers, selected, onSelect }: { modifiers: CriterionModifier[]; selected: CriterionModifier; onSelect: (m: CriterionModifier) => void }) {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const currentButton = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-modifier]");
+    if (!currentButton) return;
+    const currentModifier = currentButton.dataset.modifier as CriterionModifier;
+    const currentIndex = modifiers.indexOf(currentModifier);
+    if (currentIndex < 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextModifier = modifiers[(currentIndex + direction + modifiers.length) % modifiers.length];
+    event.currentTarget.querySelector<HTMLButtonElement>(`button[data-modifier="${nextModifier}"]`)?.focus();
+    onSelect(nextModifier);
+  };
+
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="space-y-2" role="group" aria-label="Match">
+      <div className="text-sm font-medium text-secondary">Match</div>
+      <div className="flex flex-wrap gap-2" onKeyDown={handleKeyDown}>
       {modifiers.map((m) => (
         <button
+          type="button"
           key={m}
+          data-modifier={m}
+          aria-pressed={m === selected}
+          aria-keyshortcuts="ArrowLeft ArrowRight"
+          tabIndex={m === selected ? 0 : -1}
           onClick={() => onSelect(m)}
-          className={`px-2 py-0.5 rounded text-[10px] border ${
+          className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${
             m === selected
               ? "bg-accent text-white border-accent"
               : "border-border text-secondary hover:text-foreground hover:border-accent/50"
@@ -2295,7 +2691,17 @@ function ModifierSelector({ modifiers, selected, onSelect }: { modifiers: Criter
           {MODIFIER_LABELS[m]}
         </button>
       ))}
+      </div>
     </div>
+  );
+}
+
+function LabeledControl({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block space-y-1.5 text-sm font-medium text-secondary">
+      <span>{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -2310,39 +2716,49 @@ function formatDurationInputValue(value?: number) {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function parseDurationInputValue(value: string) {
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  const parts = trimmed.split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return undefined;
+  const seconds = parts.length === 3
+    ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+    : parts.length === 2
+      ? parts[0] * 60 + parts[1]
+      : parts[0];
+  return seconds >= 0 ? seconds : undefined;
+}
+
 function DurationInput({ value, onChange, ariaLabel }: { value?: number; onChange: (v: number | undefined) => void; ariaLabel?: string }) {
   const [inputText, setInputText] = useState(() => formatDurationInputValue(value));
+  const descriptionId = useId();
 
   useEffect(() => {
     setInputText(formatDurationInputValue(value));
   }, [value]);
 
-  const parse = (str: string) => {
-    const trimmed = str.trim();
-    if (trimmed === "") return undefined;
-    const parts = trimmed.split(":").map(Number);
-    if (parts.some((part) => !Number.isFinite(part))) return undefined;
-    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    return parts[0];
-  };
-
   const commit = (rawValue: string) => {
-    const parsed = parse(rawValue);
+    const parsed = parseDurationInputValue(rawValue);
     setInputText(formatDurationInputValue(parsed));
     onChange(parsed);
   };
 
+  const humanValue = formatHumanDuration(parseDurationInputValue(inputText));
+
   return (
-    <input
-      type="text"
-      value={inputText}
-      onChange={(event) => setInputText(event.target.value)}
-      onBlur={(event) => commit(event.target.value)}
-      placeholder="H:MM:SS"
-      aria-label={ariaLabel}
-      className="w-24 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
-    />
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <input
+        type="text"
+        value={inputText}
+        onChange={(event) => setInputText(event.target.value)}
+        onBlur={(event) => commit(event.target.value)}
+        placeholder="H:MM:SS"
+        aria-label={ariaLabel}
+        aria-describedby={humanValue ? descriptionId : undefined}
+        className="min-h-11 w-28 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+      />
+      {humanValue ? <span id={descriptionId} aria-live="polite" className="text-xs font-normal text-muted">{humanValue}</span> : null}
+    </span>
   );
 }
 
@@ -2357,7 +2773,7 @@ function PercentInput({ value, onChange, ariaLabel }: { value?: number; onChange
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
         aria-label={ariaLabel}
-        className="w-full rounded border border-border bg-input px-2 py-1 pr-6 text-xs text-foreground outline-none focus:border-accent"
+        className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 pr-8 text-base text-foreground outline-none focus:border-accent md:text-sm"
       />
       <span className="pointer-events-none absolute right-2 text-xs text-muted">%</span>
     </label>
@@ -2388,13 +2804,13 @@ function CareerLengthInput({ value, onChange }: { value: number; onChange: (v: n
         min={0}
         value={display === 0 ? "" : display}
         onChange={(e) => handleAmountChange(e.target.value === "" ? 0 : Number(e.target.value))}
-        className="w-20 bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+        className="min-h-11 w-24 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
       />
       <select
         value={unit}
         onChange={(e) => setUnit(e.target.value as "years" | "months")}
         aria-label="Career length unit"
-        className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+        className="min-h-11 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
       >
         <option value="years">Years</option>
         <option value="months">Months</option>
@@ -2408,7 +2824,7 @@ function ResolutionSelect({ value, onChange }: { value: number; onChange: (v: nu
     <select
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
-      className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+      className="min-h-11 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
     >
       {RESOLUTION_FILTER_OPTIONS.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
@@ -2428,19 +2844,21 @@ export function FilterButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`flex items-center gap-1 px-2 py-1 rounded text-xs border ${
+      aria-label={activeCount > 0 ? `Filters, ${activeCount} active` : "Filters"}
+      className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${
         activeCount > 0
           ? "border-accent bg-accent/10 text-accent"
           : "border-border bg-card/70 text-secondary hover:border-accent hover:text-foreground"
       }`}
     >
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg className="h-3.5 w-3.5" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
       </svg>
-      Filter
+      Filters
       {activeCount > 0 && (
-        <span className="px-1 py-0 rounded-full bg-accent text-white text-[10px] font-bold min-w-[16px] text-center">
+        <span className="min-w-[16px] rounded-full bg-accent px-1 py-0 text-center text-[10px] font-bold text-white" aria-hidden="true">
           {activeCount}
         </span>
       )}

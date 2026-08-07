@@ -255,39 +255,39 @@ function DerivedSpanQueryEditor({
       <p className="text-xs text-secondary">Build derived span combinations inside Filters so intersections, unions, and performer or face matches stay part of the page’s filter state.</p>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <label className="space-y-1 text-xs text-secondary">
-          <span className="font-semibold uppercase tracking-wide text-muted">Operator</span>
+        <label className="space-y-1.5 text-sm font-medium text-secondary">
+          <span>Operator</span>
           <select
             value={value.operator}
             onChange={(event) => onChange({ ...value, operator: event.target.value as SegmentSpanOperator })}
-            className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
           >
             <option value="intersection">Intersection</option>
             <option value="union">Union</option>
             <option value="difference">Difference</option>
           </select>
         </label>
-        <label className="space-y-1 text-xs text-secondary">
-          <span className="font-semibold uppercase tracking-wide text-muted">Merge gap (sec)</span>
+        <label className="space-y-1.5 text-sm font-medium text-secondary">
+          <span>Merge gap (sec)</span>
           <input
             type="number"
             min="0"
             step="0.1"
             value={value.mergeGapSec ?? ""}
             onChange={(event) => onChange({ ...value, mergeGapSec: parseOptionalNumber(event.target.value) })}
-            className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
             placeholder="Optional"
           />
         </label>
-        <label className="space-y-1 text-xs text-secondary">
-          <span className="font-semibold uppercase tracking-wide text-muted">Minimum duration (sec)</span>
+        <label className="space-y-1.5 text-sm font-medium text-secondary">
+          <span>Minimum duration (sec)</span>
           <input
             type="number"
             min="0"
             step="0.1"
             value={value.minDurationSec ?? ""}
             onChange={(event) => onChange({ ...value, minDurationSec: parseOptionalNumber(event.target.value) })}
-            className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
             placeholder="Optional"
           />
         </label>
@@ -295,14 +295,14 @@ function DerivedSpanQueryEditor({
 
       <div className="space-y-3">
         {value.operands.map((operand, index) => (
-          <div key={index} className="rounded-lg border border-border bg-card/60 p-3">
+          <div key={index} className="rounded-xl border border-border/70 bg-input/30 p-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted">Operand {index + 1}</div>
+              <div className="text-sm font-medium text-secondary">Operand {index + 1}</div>
               {value.operands.length > 2 ? (
                 <button
                   type="button"
                   onClick={() => onChange({ ...value, operands: value.operands.filter((_, operandIndex) => operandIndex !== index) })}
-                  className="text-xs text-secondary hover:text-foreground"
+                  className="min-h-9 rounded-lg px-3 py-1.5 text-sm text-secondary hover:bg-card hover:text-foreground"
                 >
                   Remove operand
                 </button>
@@ -310,12 +310,12 @@ function DerivedSpanQueryEditor({
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <label className="space-y-1 text-xs text-secondary">
-                <span className="font-semibold uppercase tracking-wide text-muted">Source</span>
+              <label className="space-y-1.5 text-sm font-medium text-secondary">
+                <span>Source</span>
                 <select
                   value={operand.sourceKey ?? ""}
                   onChange={(event) => updateOperand(index, { sourceKey: event.target.value || undefined })}
-                  className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
                 >
                   <option value="">Any source</option>
                   {optionsLoading && sourceOptions.length === 0 ? <option value="" disabled>Loading sources...</option> : null}
@@ -324,8 +324,8 @@ function DerivedSpanQueryEditor({
                   ))}
                 </select>
               </label>
-              <label className="space-y-1 text-xs text-secondary">
-                <span className="font-semibold uppercase tracking-wide text-muted">Kind</span>
+              <label className="space-y-1.5 text-sm font-medium text-secondary">
+                <span>Kind</span>
                 <select
                   value={operand.kind ?? ""}
                   onChange={(event) => {
@@ -338,7 +338,7 @@ function DerivedSpanQueryEditor({
                       faceIds: selectorKind === "face" ? operand.faceIds : [],
                     });
                   }}
-                  className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
                 >
                   <option value="">Any kind</option>
                   {optionsLoading && kindOptions.length === 0 ? <option value="" disabled>Loading kinds...</option> : null}
@@ -347,8 +347,8 @@ function DerivedSpanQueryEditor({
                   ))}
                 </select>
               </label>
-              <label className="space-y-1 text-xs text-secondary">
-                <span className="font-semibold uppercase tracking-wide text-muted">Minimum confidence</span>
+              <label className="space-y-1.5 text-sm font-medium text-secondary">
+                <span>Minimum confidence</span>
                 <input
                   type="number"
                   min="0"
@@ -356,7 +356,7 @@ function DerivedSpanQueryEditor({
                   step="0.01"
                   value={operand.minConfidence ?? ""}
                   onChange={(event) => updateOperand(index, { minConfidence: parseOptionalNumber(event.target.value) })}
-                  className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+                  className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
                   placeholder="Optional"
                 />
               </label>
@@ -370,7 +370,7 @@ function DerivedSpanQueryEditor({
       <button
         type="button"
         onClick={() => onChange({ ...value, operands: [...value.operands, createEmptyDerivedSpanOperand()] })}
-        className="rounded border border-border px-3 py-1.5 text-xs text-foreground hover:border-accent"
+        className="min-h-9 rounded-lg border border-border px-3 py-1.5 text-sm text-secondary hover:border-accent hover:text-foreground"
       >
         Add operand
       </button>
@@ -384,7 +384,7 @@ function OperandEntitySelector({ operand, onChange }: { operand: DerivedSpanOper
   if (selectorKind === "tag") {
     return (
       <div className="mt-3 max-w-xl space-y-1">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Tags</div>
+        <div className="text-sm font-medium text-secondary">Tags</div>
         <EntityMultiSelector entityType="tags" values={operand.tagIds} onChange={(tagIds) => onChange({ tagIds })} placeholder="Search tags..." emptyMessage="No tags found" />
       </div>
     );
@@ -393,7 +393,7 @@ function OperandEntitySelector({ operand, onChange }: { operand: DerivedSpanOper
   if (selectorKind === "performer") {
     return (
       <div className="mt-3 max-w-xl space-y-1">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Performers</div>
+        <div className="text-sm font-medium text-secondary">Performers</div>
         <EntityMultiSelector entityType="performers" values={operand.performerIds} onChange={(performerIds) => onChange({ performerIds })} placeholder="Search performers..." emptyMessage="No performers found" />
         <p className="text-[11px] text-muted">Performer matches use linked faces automatically.</p>
       </div>
@@ -403,14 +403,14 @@ function OperandEntitySelector({ operand, onChange }: { operand: DerivedSpanOper
   if (selectorKind === "face") {
     return (
       <div className="mt-3 max-w-xl space-y-1">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Faces</div>
+        <div className="text-sm font-medium text-secondary">Faces</div>
         <EntityMultiSelector entityType="faces" values={operand.faceIds} onChange={(faceIds) => onChange({ faceIds })} placeholder="Search faces..." emptyMessage="No faces found" />
       </div>
     );
   }
 
   return (
-    <div className="mt-3 rounded border border-border bg-surface/40 px-3 py-2 text-xs text-secondary">
+    <div className="mt-3 rounded-lg border border-border bg-surface/40 px-3 py-2 text-sm text-secondary">
       Select a segment type to choose matching tags, performers, or faces.
     </div>
   );

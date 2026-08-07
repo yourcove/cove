@@ -92,6 +92,8 @@ export function GroupedTagOptionList<TTag extends SelectableTag>({
   emptyText = "No tags found",
   renderTag,
   preserveOrder = false,
+  groupToggleTabIndex,
+  groupHeadersInteractive = true,
 }: {
   tags: TTag[];
   onSelect?: (tag: TTag) => void;
@@ -101,6 +103,8 @@ export function GroupedTagOptionList<TTag extends SelectableTag>({
   emptyText?: string;
   renderTag?: (tag: TTag) => ReactNode;
   preserveOrder?: boolean;
+  groupToggleTabIndex?: number;
+  groupHeadersInteractive?: boolean;
 }) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const selected = selectedIds ? new Set(selectedIds) : undefined;
@@ -144,18 +148,27 @@ export function GroupedTagOptionList<TTag extends SelectableTag>({
       {groupedTags.length === 0 ? <div className="px-2 py-2 text-center text-xs text-muted">{emptyText}</div> : null}
       {groupedTags.map((group) => (
         <div key={group.key} className="border-b border-border/60 last:border-b-0">
-          <button
-            type="button"
-            onClick={() => toggleGroup(group.key)}
-            aria-expanded={!collapsedGroups.has(group.key)}
-            className="sticky top-0 z-10 flex w-full items-center gap-2 bg-surface/95 px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted backdrop-blur hover:text-foreground"
-          >
-            {collapsedGroups.has(group.key) ? <ChevronRight className="h-3 w-3 flex-shrink-0" /> : <ChevronDown className="h-3 w-3 flex-shrink-0" />}
-            <span className="h-2.5 w-2.5 rounded-full border border-border" style={{ backgroundColor: group.color ?? "transparent" }} />
-            <span className="truncate">{group.label}</span>
-            <span className="ml-auto text-[10px] font-normal">{group.tags.length}</span>
-          </button>
-          {!collapsedGroups.has(group.key) && group.tags.map((tag) => renderTag ? (
+          {groupHeadersInteractive ? (
+            <button
+              type="button"
+              tabIndex={groupToggleTabIndex}
+              onClick={() => toggleGroup(group.key)}
+              aria-expanded={!collapsedGroups.has(group.key)}
+              className="sticky top-0 z-10 flex w-full items-center gap-2 bg-surface/95 px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted backdrop-blur hover:text-foreground"
+            >
+              {collapsedGroups.has(group.key) ? <ChevronRight className="h-3 w-3 flex-shrink-0" /> : <ChevronDown className="h-3 w-3 flex-shrink-0" />}
+              <span className="h-2.5 w-2.5 rounded-full border border-border" style={{ backgroundColor: group.color ?? "transparent" }} />
+              <span className="truncate">{group.label}</span>
+              <span className="ml-auto text-[10px] font-normal">{group.tags.length}</span>
+            </button>
+          ) : (
+            <div className="sticky top-0 z-10 flex w-full items-center gap-2 bg-surface/95 px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted backdrop-blur">
+              <span className="h-2.5 w-2.5 rounded-full border border-border" style={{ backgroundColor: group.color ?? "transparent" }} />
+              <span className="truncate">{group.label}</span>
+              <span className="ml-auto text-[10px] font-normal">{group.tags.length}</span>
+            </div>
+          )}
+          {(!groupHeadersInteractive || !collapsedGroups.has(group.key)) && group.tags.map((tag) => renderTag ? (
             <div key={tag.id}>{renderTag(tag)}</div>
           ) : (
             <button
