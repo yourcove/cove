@@ -1,18 +1,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoTagger } from "../components/VideoTagger";
 
 const mocks = vi.hoisted(() => ({
   findMetadataServerByIds: vi.fn(),
   importFromMetadataServer: vi.fn(),
+  videoObjectFit: "cover" as "cover" | "contain",
 }));
 
 vi.mock("../api/client", () => ({
+  entityImages: { videoCoverUrl: vi.fn(() => "/video-cover.jpg") },
   system: { listScrapers: vi.fn().mockResolvedValue([]) },
   scrapeAttempts: { resolveRelations: vi.fn() },
   videos: {
+    previewUrl: vi.fn(() => "/video-preview.mp4"),
     screenshotUrl: vi.fn(() => "/video-cover.jpg"),
     findMetadataServerByIds: mocks.findMetadataServerByIds,
     importFromMetadataServer: mocks.importFromMetadataServer,
@@ -28,6 +31,7 @@ vi.mock("../state/AppConfigContext", () => ({
           { name: "Second provider", endpoint: "https://second.example/graphql" },
         ],
       },
+      ui: { videoObjectFit: mocks.videoObjectFit },
     },
   }),
 }));
@@ -35,8 +39,14 @@ vi.mock("../state/AppConfigContext", () => ({
 describe("VideoTagger", () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
     mocks.findMetadataServerByIds.mockReset();
     mocks.importFromMetadataServer.mockReset();
+    mocks.videoObjectFit = "cover";
     mocks.importFromMetadataServer.mockResolvedValue({});
     mocks.findMetadataServerByIds.mockResolvedValue([{
       id: "first-video-id",
@@ -59,6 +69,36 @@ describe("VideoTagger", () => {
       fingerprints: [],
       fingerprintAlgorithms: [],
     }]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["cover", "contain"] as const)("renders the shared preview and scrub controls using %s fit", (fit) => {
+    mocks.videoObjectFit = fit;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [],
+    } as any;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    const thumbnailLink = screen.getByTitle("Open video Local video");
+    expect(thumbnailLink.querySelector(".video-card-preview-image")).toHaveStyle({ objectFit: fit });
+    expect(thumbnailLink.querySelector(".video-card-preview-video")).toHaveAttribute("src", "/video-preview.mp4");
+    expect(thumbnailLink.querySelector(".video-card-preview-video")).toHaveStyle({ objectFit: fit });
+    expect(thumbnailLink.querySelector(".cursor-ew-resize")).toBeInTheDocument();
   });
 
   it("clears results when the metadata provider changes", async () => {

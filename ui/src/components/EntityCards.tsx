@@ -17,8 +17,8 @@ import { BookmarkButton } from "./BookmarkButton";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
-import { EntityMedia, TagMediaHover, type EntityMediaFit } from "./EntityMedia";
-import { VideoCoverImage } from "./VideoCoverImage";
+import { EntityMedia, TagMediaHover } from "./EntityMedia";
+import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
@@ -28,37 +28,6 @@ function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageEle
 function useConfiguredImageFit() {
   const appConfig = useOptionalAppConfig();
   return appConfig?.config?.ui.imageObjectFit === "contain" ? "contain" as const : "cover" as const;
-}
-
-function VideoCardNativeMedia({ coverUrl, coverAlt, previewUrl, fit }: { coverUrl: string; coverAlt: string; previewUrl: string; fit: EntityMediaFit }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.intersectionRatio > 0) video.play().catch(() => {});
-        else video.pause();
-      });
-    });
-    observer.observe(video);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <>
-      <VideoCoverImage
-        src={coverUrl}
-        alt={coverAlt}
-        className="video-card-preview-image h-full w-full"
-        fallbackClassName="video-card-cover-fallback"
-        style={{ objectFit: fit }}
-        loading="lazy"
-      />
-      <video ref={videoRef} disableRemotePlayback playsInline muted loop preload="none" src={previewUrl} className="video-card-preview-video" style={{ objectFit: fit }} />
-    </>
-  );
 }
 
 function createNestedEntityNavigationHandlers<T extends HTMLAnchorElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
@@ -853,56 +822,17 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
     : undefined;
   const duration = clipDuration ?? file?.duration ?? 0;
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
-  const coverUrl = entityImages.videoCoverUrl(video.id, video.updatedAt, 1280);
-  const previewUrl = videos.previewUrl(video.id);
   const visibleResumeTime = typeof video.clipStartSec === "number" && typeof engagement?.resumeTime === "number"
     ? Math.max(0, engagement.resumeTime - video.clipStartSec)
     : engagement?.resumeTime;
   const progressPercent = duration > 0 && visibleResumeTime ? Math.min(100, (visibleResumeTime / duration) * 100) : 0;
   const cardTitle = video.title || file?.basename || "Untitled";
-  const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
-  const scrubPercent = duration > 0 && scrubSeconds != null ? Math.min(100, Math.max(0, ((scrubSeconds - (video.clipStartSec ?? 0)) / duration) * 100)) : 0;
-  const scrubTimestamp = scrubSeconds != null ? formatDuration(scrubSeconds) : null;
-  const scrubTimestampPercent = scrubSeconds != null ? Math.min(88, Math.max(12, scrubPercent)) : 0;
-  const scrubImageUrl = scrubSeconds != null ? videos.screenshotUrl(video.id, video.updatedAt, scrubSeconds) : null;
   const videoPreviewObjectFit = appConfig?.config?.ui.videoObjectFit === "contain" ? "contain" : "cover";
-  const coverAlt = video.imagePath ? video.title || "" : "";
-
-  const updateScrubPreview = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    if (duration <= 0) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const percent = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
-    const clipStart = video.clipStartSec ?? 0;
-    const nextSeconds = Math.round(clipStart + percent * duration);
-    setScrubSeconds((current) => current === nextSeconds ? current : nextSeconds);
-  }, [duration, video.clipStartSec]);
 
   return (
     <div onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined} className={`video-card relative cursor-pointer group rounded border bg-card overflow-hidden flex flex-col h-full ${selected ? "ring-2 ring-accent border-accent" : "border-border"}`}>
       <RouteCardLinkOverlay route={{ page: "video", id: video.id }} onClick={onClick} label={`Open video ${cardTitle}`} disabled={selecting} selectionSafeZone={selected !== undefined || selecting} />
-      <div className="video-card-preview card-media relative aspect-video bg-black overflow-hidden">
-        <EntityMedia
-          entityType="video"
-          entityId={video.id}
-          surface="card"
-          imageUrl={coverUrl}
-          alt={coverAlt}
-          fit={videoPreviewObjectFit}
-          loading="lazy"
-          className="video-card-preview-image h-full w-full"
-          renderDefault={() => (
-            <VideoCardNativeMedia coverUrl={coverUrl} coverAlt={coverAlt} previewUrl={previewUrl} fit={videoPreviewObjectFit} />
-          )}
-        />
-        {scrubImageUrl ? (
-          <img
-            src={scrubImageUrl}
-            alt=""
-            className="absolute inset-0 z-[7] h-full w-full"
-            style={{ objectFit: videoPreviewObjectFit }}
-            draggable={false}
-          />
-        ) : null}
+      <VideoPreviewThumbnail video={video} fit={videoPreviewObjectFit} enableScrubbing={!selecting}>
         {(selected !== undefined || selecting) && <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />}
         {!selecting && (
           <BookmarkButton
@@ -940,33 +870,8 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
         {progressPercent > 0 && (
           <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-black/40 z-[6]"><div className="h-full bg-accent" style={{ width: `${progressPercent}%` }} /></div>
         )}
-        {duration > 0 && !selecting ? (
-          <div
-            className="absolute inset-x-0 bottom-0 z-[9] h-10 cursor-ew-resize"
-            onMouseEnter={updateScrubPreview}
-            onMouseMove={updateScrubPreview}
-            onMouseLeave={() => setScrubSeconds(null)}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            aria-hidden="true"
-          >
-            {scrubTimestamp ? (
-              <div
-                className="pointer-events-none absolute bottom-4 -translate-x-1/2 whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-medium text-white shadow"
-                style={{ left: `${scrubTimestampPercent}%` }}
-              >
-                {scrubTimestamp}
-              </div>
-            ) : null}
-            <div className={`absolute inset-x-1 bottom-1 h-1 rounded-full bg-black/55 transition-opacity ${scrubSeconds != null ? "opacity-100" : "opacity-0"}`}>
-              <div className="h-full rounded-full bg-accent" style={{ width: `${scrubPercent}%` }} />
-            </div>
-          </div>
-        ) : null}
         <RatingBanner rating={engagement?.rating} />
-      </div>
+      </VideoPreviewThumbnail>
       <div className="card-body px-2.5 pt-2 pb-2 border-t border-border/50 flex-1 flex flex-col gap-1.5 min-h-0">
         <div>
           <p className="card-title font-semibold text-foreground line-clamp-2 group-hover:text-accent transition-colors leading-snug" title={cardTitle}>

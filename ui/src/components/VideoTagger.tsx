@@ -37,6 +37,8 @@ import {
   CloudUpload,
 } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
+import type { EntityMediaFit } from "./EntityMedia";
 
 interface VideoTaggerProps {
   videos: Video[];
@@ -365,6 +367,7 @@ async function runWithConcurrency<T>(
 export function VideoTagger({ videos: videoList, onNavigate, selectedIds, selecting = false, onSelect, mode = "bulk" }: VideoTaggerProps) {
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
+  const videoPreviewObjectFit: EntityMediaFit = config?.ui?.videoObjectFit === "contain" ? "contain" : "cover";
   const { data: scraperList = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers });
   const videoScrapers = scraperList.filter((scraper) => scraper.entityType.toLowerCase() === "video");
   const taggerSources: TaggerSource[] = [
@@ -850,6 +853,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
             source={selectedSource}
             metadataServers={metadataServers}
             taggerConfig={taggerConfig}
+            videoPreviewObjectFit={videoPreviewObjectFit}
             onNavigate={onNavigate}
             selected={selectedIds?.has(video.id) ?? false}
             selecting={selecting}
@@ -878,6 +882,7 @@ interface TaggerVideoRowProps {
   source?: TaggerSource;
   metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
+  videoPreviewObjectFit: EntityMediaFit;
   onNavigate?: (videoId: number) => void;
   selected?: boolean;
   selecting?: boolean;
@@ -899,6 +904,7 @@ function TaggerVideoRow({
   source,
   metadataServers,
   taggerConfig,
+  videoPreviewObjectFit,
   onNavigate,
   selected = false,
   selecting = false,
@@ -906,7 +912,6 @@ function TaggerVideoRow({
   detailMode = false,
 }: TaggerVideoRowProps) {
   const file = video.files[0];
-  const screenshotUrl = videos.screenshotUrl(video.id, video.updatedAt);
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
   const handleRefreshFromRemote = async (endpoint: string, remoteId: string) => {
     setRefreshBusyEndpoint(endpoint);
@@ -1064,28 +1069,19 @@ function TaggerVideoRow({
             <Check className="h-3 w-3" />
           </button>
         )}
-        {/* Video preview — compact */}
+        {/* Video preview */}
         <a
           {...videoLinkProps}
-          className="flex-shrink-0 w-32 block group/video"
+          className="video-card-preview-trigger block w-[10.5rem] flex-shrink-0 group/video"
           title={`Open video ${video.title || file?.basename || "Untitled"}`}
         >
-          <div className="relative aspect-video bg-card rounded overflow-hidden">
-            <img
-              src={screenshotUrl}
-              alt=""
-              className="w-full h-full object-cover"
-              loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
+          <VideoPreviewThumbnail video={video} fit={videoPreviewObjectFit} surface="list" coverWidth={640} className="rounded bg-card">
             {file && file.duration > 0 && (
-              <span className="absolute bottom-0.5 right-0.5 text-[8px] text-white bg-black/70 px-0.5 rounded">
+              <span className="video-specs-overlay absolute bottom-0.5 right-0.5 z-[5] rounded bg-black/70 px-0.5 text-[8px] text-white transition-opacity">
                 {formatDuration(file.duration)}
               </span>
             )}
-          </div>
+          </VideoPreviewThumbnail>
           <p className="text-[11px] text-accent mt-0.5 truncate font-medium leading-snug group-hover/video:underline">
             {video.title || file?.basename || "Untitled"}
           </p>

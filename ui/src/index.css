@@ -93,7 +93,9 @@ a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, o
   transition: opacity 0.15s ease-out;
 }
 .video-card:hover .video-card-preview-video,
-.video-card:active .video-card-preview-video {
+.video-card:active .video-card-preview-video,
+.video-card-preview-trigger:hover .video-card-preview-video,
+.video-card-preview-trigger:active .video-card-preview-video {
   opacity: 1;
   transition-delay: 0.2s;
 }
@@ -102,6 +104,7 @@ a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, o
 
 /* Video specs overlay — fade out on hover */
 .video-card:hover .video-specs-overlay,
+.video-card-preview-trigger:hover .video-specs-overlay,
 .video-card:hover .rating-banner-container {
   opacity: 0;
   transition: opacity 0.5s;
@@ -1216,7 +1219,9 @@ a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, o
   transition-delay: 0s;
 }
 .video-card:hover .video-card-preview-video,
-.video-card:active .video-card-preview-video {
+.video-card:active .video-card-preview-video,
+.video-card-preview-trigger:hover .video-card-preview-video,
+.video-card-preview-trigger:active .video-card-preview-video {
   top: 0;
   transition-delay: 0.2s;
 }
@@ -1228,6 +1233,7 @@ a, button { transition: color 0.15s, background-color 0.15s, box-shadow 0.15s, o
 
 /* Video specs overlay — fade out on hover to avoid cluttering the preview */
 .video-card:hover .video-specs-overlay,
+.video-card-preview-trigger:hover .video-specs-overlay,
 .video-card:hover .rating-banner-container {
   opacity: 0;
   transition: opacity 0.5s;
@@ -2420,4 +2426,3 @@ html[data-component-style*="animated"] .bg-accent:hover {
     background: color-mix(in srgb, var(--color-accent) 8%, transparent);
   }
 }
-
