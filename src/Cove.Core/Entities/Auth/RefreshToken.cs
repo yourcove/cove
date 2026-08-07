@@ -1,8 +1,8 @@
 namespace Cove.Core.Entities.Auth;
 
 /// <summary>
-/// Long-lived refresh token, rotated on every use. Reuse of an already-rotated token
-/// triggers chain revocation (compromise detection).
+/// Long-lived refresh token, rotated on every use. Near-simultaneous reuse is treated
+/// as a recoverable client race; older reuse triggers chain revocation.
 /// </summary>
 public class RefreshToken
 {

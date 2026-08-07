@@ -122,32 +122,96 @@ import { authStore } from "../auth/authStore";
 import { serializeSortClauses } from "../utils/sortClauses";
 
 let refreshInFlight: Promise<boolean> | null = null;
+const REFRESH_LOCK_NAME = "cove-auth-refresh";
+const REFRESH_SYNC_WAIT_MS = 5_000;
 
-async function tryRefresh(): Promise<boolean> {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    const refresh = authStore.getRefreshToken();
-    if (!refresh) return false;
-    try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: refresh }),
-      });
-      if (!res.ok) {
+function refreshTokenChanged(staleRefreshToken: string): boolean {
+  const current = authStore.getRefreshToken();
+  return current !== null && current !== staleRefreshToken;
+}
+
+async function waitForRefreshTokenChange(staleRefreshToken: string): Promise<boolean> {
+  if (refreshTokenChanged(staleRefreshToken)) return true;
+  if (typeof window === "undefined") return false;
+
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (changed: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("storage", onStorage);
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+      resolve(changed);
+    };
+    const check = () => {
+      if (refreshTokenChanged(staleRefreshToken)) finish(true);
+    };
+    const onStorage = () => check();
+    const intervalId = window.setInterval(check, 25);
+    const timeoutId = window.setTimeout(
+      () => finish(refreshTokenChanged(staleRefreshToken)),
+      REFRESH_SYNC_WAIT_MS,
+    );
+    window.addEventListener("storage", onStorage);
+    check();
+  });
+}
+
+async function refreshIfCurrent(rejectedAccessToken: string): Promise<boolean> {
+  const currentAccessToken = authStore.getAccessToken();
+  if (currentAccessToken && currentAccessToken !== rejectedAccessToken) {
+    return true;
+  }
+
+  const refresh = authStore.getRefreshToken();
+  if (!refresh) return false;
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: refresh }),
+    });
+    if (res.status === 409) {
+      const body = await res.json().catch(() => null) as { code?: string } | null;
+      if (body?.code === "REFRESH_TOKEN_ROTATED") {
+        if (await waitForRefreshTokenChange(refresh)) return true;
         authStore.clear();
         return false;
       }
-      const body = await res.json() as { token?: string; refreshToken?: string };
-      if (!body.token) return false;
-      authStore.setTokens(body.token, body.refreshToken ?? refresh);
-      return true;
-    } catch {
-      return false;
-    } finally {
-      // cleared by outer
     }
-  })();
+    if (!res.ok) {
+      authStore.clear();
+      return false;
+    }
+    const body = await res.json() as { token?: string; refreshToken?: string };
+    if (!body.token) return false;
+    authStore.setTokens(body.token, body.refreshToken ?? refresh);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function coordinatedRefresh(rejectedAccessToken: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    // Web Locks serialize refresh-token rotation across same-origin pages. The
+    // callback re-checks storage because another page may have refreshed first.
+    try {
+      return await navigator.locks.request(
+        REFRESH_LOCK_NAME,
+        () => refreshIfCurrent(rejectedAccessToken),
+      );
+    } catch {
+      // Treat a browser lock failure like an unsupported lock implementation.
+    }
+  }
+  return refreshIfCurrent(rejectedAccessToken);
+}
+
+async function tryRefresh(rejectedAccessToken: string): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = coordinatedRefresh(rejectedAccessToken);
   try { return await refreshInFlight; }
   finally { refreshInFlight = null; }
 }
@@ -168,7 +232,7 @@ export async function authedFetch(input: string, init?: RequestInit): Promise<Re
   }
   let res = await fetch(input, { ...init, headers });
   if (res.status === 401 && authMode === "bearer" && token && authStore.getRefreshToken()) {
-    const ok = await tryRefresh();
+    const ok = await tryRefresh(token);
     if (ok) {
       const retryToken = authStore.getAccessToken();
       const retryHeaders = new Headers(init?.headers ?? {});

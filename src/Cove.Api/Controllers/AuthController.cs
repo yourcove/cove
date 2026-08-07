@@ -206,6 +206,12 @@ public class AuthController : ControllerBase
                 user = pair.User,
             });
         }
+        catch (RefreshTokenConflictException ex)
+        {
+            await _audit.LogAsync(AuditActions.TokenRefreshConflict, AuditOutcomes.Deny,
+                CovePrincipal.Anonymous(ip, ua), null, null, new { ex.Message }, ct);
+            return Conflict(new { code = "REFRESH_TOKEN_ROTATED", message = ex.Message });
+        }
         catch (UnauthorizedException ex)
         {
             await _audit.LogAsync(AuditActions.TokenRefreshReuse, AuditOutcomes.Deny,

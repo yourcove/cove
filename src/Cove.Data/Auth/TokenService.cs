@@ -7,6 +7,7 @@ using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
@@ -17,6 +18,7 @@ public sealed class TokenService : ITokenService
     public const int DefaultRefreshDays = 30;
     public const string JwtIssuer = "Cove";
     public const string JwtAudience = "Cove";
+    public static readonly TimeSpan RefreshReuseGracePeriod = TimeSpan.FromSeconds(10);
     private const string SessionIdClaim = "cove_session_id";
 
     private readonly CoveContext _db;
@@ -68,30 +70,79 @@ public sealed class TokenService : ITokenService
 
     public async Task<TokenPair> RefreshAsync(string refreshToken, string? ip, string? userAgent, CancellationToken ct = default)
     {
+        var (newPlain, newHash) = NewOpaqueToken();
+        var refreshId = Guid.NewGuid();
+        var rotatedAt = DateTime.UtcNow;
+        var refreshExpires = rotatedAt.AddDays(GetRefreshTokenDays());
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var attempt = await strategy.ExecuteInTransactionAsync(
+            operation: operationCt => RefreshOnceAsync(
+                refreshToken, ip, userAgent, refreshId, newPlain, newHash,
+                rotatedAt, refreshExpires, operationCt),
+            verifySucceeded: verifyCt => _db.RefreshTokens.AsNoTracking()
+                .AnyAsync(t => t.Id == refreshId && t.TokenHash == newHash, verifyCt),
+            cancellationToken: ct);
+
+        if (attempt.Error is not null)
+            throw attempt.Error;
+        return attempt.Pair!;
+    }
+
+    private async Task<RefreshAttempt> RefreshOnceAsync(
+        string refreshToken,
+        string? ip,
+        string? userAgent,
+        Guid refreshId,
+        string newPlain,
+        string newHash,
+        DateTime rotatedAt,
+        DateTime refreshExpires,
+        CancellationToken ct)
+    {
+        var priorCandidate = _db.ChangeTracker.Entries<RefreshToken>()
+            .FirstOrDefault(entry => entry.Entity.Id == refreshId);
+        if (priorCandidate is not null)
+            priorCandidate.State = EntityState.Detached;
+
         var hash = HashToken(refreshToken);
-        var existing = await _db.RefreshTokens
-            .Include(t => t.User)
+        var existing = await _db.RefreshTokens.AsNoTracking()
             .FirstOrDefaultAsync(t => t.TokenHash == hash, ct)
+            ?? throw new UnauthorizedException("Invalid refresh token.");
+        var rootId = await FindChainRootIdAsync(existing, ct);
+        if (await LockRefreshTokenRootsAsync([rootId], ct) == 0)
+            throw new UnauthorizedException("Invalid refresh token.");
+
+        // Reload after taking the family-root lock so revocation and rotation
+        // decisions cannot race another operation in this token family.
+        existing = await _db.RefreshTokens.AsNoTracking()
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.Id == existing.Id, ct)
             ?? throw new UnauthorizedException("Invalid refresh token.");
 
         if (existing.RevokedAt is not null)
-        {
-            // Reuse-detection: already-rotated token presented again. Burn the chain.
-            await RevokeChainInternalAsync(existing, ct);
-            throw new UnauthorizedException("Refresh token reuse detected; chain revoked.");
-        }
+            return await HandleRevokedRefreshTokenAsync(existing, rootId, ct);
         if (existing.ExpiresAt < DateTime.UtcNow)
             throw new UnauthorizedException("Refresh token expired.");
         if (existing.User is null || !existing.User.IsActive || existing.User.IsLocked)
             throw new UnauthorizedException("Account is not active.");
 
-        // Mark current as revoked + rotate to a new child.
-        existing.RevokedAt = DateTime.UtcNow;
-        existing.LastUsedAt = DateTime.UtcNow;
+        var dto = await BuildUserDto(existing.User, ct);
 
-        var (newPlain, newHash) = NewOpaqueToken();
-        var refreshExpires = DateTime.UtcNow.AddDays(GetRefreshTokenDays());
-        var refreshId = Guid.NewGuid();
+        // Atomically claim this token so concurrent requests cannot both create a
+        // child. The execution strategy keeps this claim and child insert in one
+        // retriable transaction and verifies ambiguous commits by the fixed child ID.
+        var claimed = await _db.RefreshTokens
+            .Where(t => t.Id == existing.Id && t.RevokedAt == null)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(t => t.RevokedAt, rotatedAt)
+                .SetProperty(t => t.LastUsedAt, rotatedAt), ct);
+        if (claimed == 0)
+        {
+            var current = await _db.RefreshTokens.AsNoTracking()
+                .FirstAsync(t => t.Id == existing.Id, ct);
+            return await HandleRevokedRefreshTokenAsync(current, rootId, ct);
+        }
+
         var rotated = new RefreshToken
         {
             Id = refreshId,
@@ -100,50 +151,119 @@ public sealed class TokenService : ITokenService
             TokenHash = newHash,
             UserAgent = Trunc(userAgent, 500),
             Ip = Trunc(ip, 64),
-            CreatedAt = DateTime.UtcNow,
-            LastUsedAt = DateTime.UtcNow,
+            CreatedAt = rotatedAt,
+            LastUsedAt = rotatedAt,
             ExpiresAt = refreshExpires,
         };
         _db.RefreshTokens.Add(rotated);
 
-        var roleNames = await _db.UserRoleAssignments
-            .Where(r => r.UserId == existing.UserId)
-            .Select(r => r.Role!.Name)
-            .ToListAsync(ct);
-        var (jwt, jwtExpires) = IssueJwt(existing.UserId, existing.User.Username, roleNames, refreshId);
-
+        var (jwt, jwtExpires) = IssueJwt(existing.UserId, existing.User.Username, dto.Roles, refreshId);
         await _db.SaveChangesAsync(ct);
 
-        var dto = await BuildUserDto(existing.User, ct);
-        return new TokenPair(jwt, newPlain, jwtExpires, refreshExpires, dto);
+        return new RefreshAttempt(
+            new TokenPair(jwt, newPlain, jwtExpires, refreshExpires, dto),
+            null);
+    }
+
+    private async Task<RefreshAttempt> HandleRevokedRefreshTokenAsync(
+        RefreshToken existing,
+        Guid rootId,
+        CancellationToken ct)
+    {
+        var recentlyRotated = existing.RevokedAt >= DateTime.UtcNow.Subtract(RefreshReuseGracePeriod);
+        if (recentlyRotated)
+        {
+            var descendantIds = await GetChainIdsAsync(existing.Id, ct);
+            var hasActiveDescendant = await _db.RefreshTokens.AsNoTracking()
+                .AnyAsync(t => t.Id != existing.Id && descendantIds.Contains(t.Id) && t.RevokedAt == null, ct);
+            if (hasActiveDescendant)
+                return new RefreshAttempt(null, new RefreshTokenConflictException());
+        }
+
+        // Reuse outside the narrow race window remains compromise detection.
+        await RevokeChainRowsAsync(rootId, ct);
+        return new RefreshAttempt(
+            null,
+            new UnauthorizedException("Refresh token reuse detected; chain revoked."));
     }
 
     public async Task RevokeChainAsync(string refreshToken, CancellationToken ct = default)
     {
         var hash = HashToken(refreshToken);
-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
-        if (token is null) return;
-        await RevokeChainInternalAsync(token, ct);
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteInTransactionAsync(
+            operation: async operationCt =>
+            {
+                var token = await _db.RefreshTokens.AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.TokenHash == hash, operationCt);
+                if (token is null) return;
+                var rootId = await FindChainRootIdAsync(token, operationCt);
+                await LockRefreshTokenRootsAsync([rootId], operationCt);
+                await RevokeChainRowsAsync(rootId, operationCt);
+            },
+            verifySucceeded: _ => Task.FromResult(false),
+            cancellationToken: ct);
     }
 
-    private async Task RevokeChainInternalAsync(RefreshToken anyTokenInChain, CancellationToken ct)
+    private async Task<Guid> FindChainRootIdAsync(RefreshToken token, CancellationToken ct)
     {
-        // Walk to the chain root by repeatedly following ParentId, then revoke every descendant.
-        var rootId = anyTokenInChain.Id;
-        var current = anyTokenInChain;
-        while (current.ParentId is { } pid)
+        var rootId = token.Id;
+        var parentId = token.ParentId;
+        while (parentId is { } pid)
         {
-            var parent = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.Id == pid, ct);
+            var parent = await _db.RefreshTokens.AsNoTracking()
+                .Where(t => t.Id == pid)
+                .Select(t => new { t.Id, t.ParentId })
+                .FirstOrDefaultAsync(ct);
             if (parent is null) break;
             rootId = parent.Id;
-            current = parent;
+            parentId = parent.ParentId;
         }
-        // BFS down the chain
+        return rootId;
+    }
+
+    private async Task<int> LockRefreshTokenRootsAsync(IReadOnlyCollection<Guid> rootIds, CancellationToken ct)
+    {
+        var orderedRootIds = rootIds.Distinct().Order().ToArray();
+        if (orderedRootIds.Length == 0) return 0;
+
+        // PostgreSQL row locks serialize operations in one token family without
+        // creating a new MVCC row version solely for coordination. SQLite is used
+        // only by tests and does not support FOR UPDATE.
+        if (!string.Equals(_db.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
+            return await _db.RefreshTokens.CountAsync(t => orderedRootIds.Contains(t.Id), ct);
+
+        var transaction = _db.Database.CurrentTransaction
+            ?? throw new InvalidOperationException("Refresh-token family locks require an active transaction.");
+        var connection = _db.Database.GetDbConnection();
+        var locked = 0;
+        foreach (var rootId in orderedRootIds)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction.GetDbTransaction();
+            command.CommandText = """
+                SELECT "Id"
+                FROM refresh_tokens
+                WHERE "Id" = @id
+                FOR UPDATE
+                """;
+            var idParameter = command.CreateParameter();
+            idParameter.ParameterName = "id";
+            idParameter.Value = rootId;
+            command.Parameters.Add(idParameter);
+            if (await command.ExecuteScalarAsync(ct) is not null)
+                locked++;
+        }
+        return locked;
+    }
+
+    private async Task<HashSet<Guid>> GetChainIdsAsync(Guid rootId, CancellationToken ct)
+    {
         var ids = new HashSet<Guid> { rootId };
         var frontier = new List<Guid> { rootId };
         while (frontier.Count > 0)
         {
-            var children = await _db.RefreshTokens
+            var children = await _db.RefreshTokens.AsNoTracking()
                 .Where(t => t.ParentId != null && frontier.Contains(t.ParentId.Value))
                 .Select(t => t.Id)
                 .ToListAsync(ct);
@@ -151,19 +271,39 @@ public sealed class TokenService : ITokenService
             foreach (var c in children)
                 if (ids.Add(c)) frontier.Add(c);
         }
+        return ids;
+    }
+
+    private async Task RevokeChainRowsAsync(Guid rootId, CancellationToken ct)
+    {
+        var ids = await GetChainIdsAsync(rootId, ct);
         var now = DateTime.UtcNow;
         await _db.RefreshTokens
             .Where(t => ids.Contains(t.Id) && t.RevokedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), ct);
     }
 
-    public Task RevokeAllForUserAsync(int userId, CancellationToken ct = default)
+    public async Task RevokeAllForUserAsync(int userId, CancellationToken ct = default)
     {
-        var now = DateTime.UtcNow;
-        return _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.RevokedAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), ct);
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteInTransactionAsync(
+            operation: async operationCt =>
+            {
+                var rootIds = await _db.RefreshTokens.AsNoTracking()
+                    .Where(t => t.UserId == userId && t.ParentId == null)
+                    .Select(t => t.Id)
+                    .ToListAsync(operationCt);
+                await LockRefreshTokenRootsAsync(rootIds, operationCt);
+                var now = DateTime.UtcNow;
+                await _db.RefreshTokens
+                    .Where(t => t.UserId == userId && t.RevokedAt == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), operationCt);
+            },
+            verifySucceeded: _ => Task.FromResult(false),
+            cancellationToken: ct);
     }
+
+    private sealed record RefreshAttempt(TokenPair? Pair, Exception? Error);
 
     public async Task<CovePrincipal?> ResolveAsync(string? authorizationHeader, string? ip, string? userAgent, CancellationToken ct = default)
     {

@@ -3,7 +3,117 @@ import { extensions, globalSearch, groups } from "../api/client";
 
 describe("api client", () => {
   afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
     vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("coordinates token refresh across independent browser pages", async () => {
+    localStorage.setItem("cove_access_token", "expired-access-token");
+    localStorage.setItem("cove_refresh_token", "refresh-token");
+
+    let lockTail = Promise.resolve();
+    const lockRequest = vi.fn(<T>(_name: string, callback: () => Promise<T>): Promise<T> => {
+      const result = lockTail.then(callback);
+      lockTail = result.then(() => undefined, () => undefined);
+      return result;
+    });
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+
+    let refreshRequests = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        refreshRequests += 1;
+        return new Response(JSON.stringify({
+          token: "new-access-token",
+          refreshToken: "new-refresh-token",
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      const authorization = new Headers(init?.headers).get("Authorization");
+      return new Response(null, {
+        status: authorization === "Bearer new-access-token" ? 204 : 401,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.resetModules();
+    const firstPageClient = await import("../api/client");
+    vi.resetModules();
+    const secondPageClient = await import("../api/client");
+
+    const responses = await Promise.all([
+      firstPageClient.authedFetch("/api/first"),
+      secondPageClient.authedFetch("/api/second"),
+    ]);
+
+    expect(responses.map(response => response.status)).toEqual([204, 204]);
+    expect(refreshRequests).toBe(1);
+    expect(lockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers when another page wins a refresh race before its tokens arrive", async () => {
+    localStorage.setItem("cove_access_token", "expired-access-token");
+    localStorage.setItem("cove_refresh_token", "stale-refresh-token");
+    vi.stubGlobal("navigator", {});
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        setTimeout(() => {
+          localStorage.setItem("cove_access_token", "new-access-token");
+          localStorage.setItem("cove_refresh_token", "new-refresh-token");
+        }, 0);
+        return new Response(JSON.stringify({ code: "REFRESH_TOKEN_ROTATED" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const authorization = new Headers(init?.headers).get("Authorization");
+      return new Response(null, {
+        status: authorization === "Bearer new-access-token" ? 204 : 401,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.resetModules();
+    const { authedFetch } = await import("../api/client");
+
+    const response = await authedFetch("/api/resource");
+
+    expect(response.status).toBe(204);
+    expect(localStorage.getItem("cove_refresh_token")).toBe("new-refresh-token");
+  });
+
+  it("falls back when the browser refresh lock fails", async () => {
+    localStorage.setItem("cove_access_token", "expired-access-token");
+    localStorage.setItem("cove_refresh_token", "refresh-token");
+    vi.stubGlobal("navigator", {
+      locks: { request: vi.fn().mockRejectedValue(new Error("lock unavailable")) },
+    });
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input) === "/api/auth/refresh") {
+        return new Response(JSON.stringify({
+          token: "new-access-token",
+          refreshToken: "new-refresh-token",
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      const authorization = new Headers(init?.headers).get("Authorization");
+      return new Response(null, {
+        status: authorization === "Bearer new-access-token" ? 204 : 401,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.resetModules();
+    const { authedFetch } = await import("../api/client");
+
+    expect((await authedFetch("/api/resource")).status).toBe(204);
   });
 
   it("treats empty successful responses as void", async () => {

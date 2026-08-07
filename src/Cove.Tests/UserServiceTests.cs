@@ -217,6 +217,80 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task Recent_refresh_token_reuse_does_not_revoke_the_rotated_session()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new TestCoveContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await SeedOwnerAsync(db);
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var rotated = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test");
+
+        var exception = await Record.ExceptionAsync(
+            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test"));
+
+        Assert.IsType<RefreshTokenConflictException>(exception);
+        Assert.NotNull(await tokens.ResolveAsync($"Bearer {rotated.AccessToken}", "127.0.0.1", "test"));
+    }
+
+    [Fact]
+    public async Task Recent_refresh_token_reuse_preserves_an_active_later_descendant()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new TestCoveContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await SeedOwnerAsync(db);
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var firstRotation = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test");
+        var secondRotation = await tokens.RefreshAsync(firstRotation.RefreshToken, "127.0.0.1", "test");
+
+        await Assert.ThrowsAsync<RefreshTokenConflictException>(
+            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test"));
+
+        Assert.NotNull(await tokens.ResolveAsync($"Bearer {secondRotation.AccessToken}", "127.0.0.1", "test"));
+    }
+
+    [Fact]
+    public async Task Older_refresh_token_reuse_still_revokes_the_rotated_session()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new TestCoveContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await SeedOwnerAsync(db);
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var original = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var rotated = await tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test");
+        var originalEntity = await db.RefreshTokens.SingleAsync(token => token.ParentId == null);
+        originalEntity.RevokedAt = DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(1));
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedException>(
+            () => tokens.RefreshAsync(original.RefreshToken, "127.0.0.1", "test"));
+
+        Assert.Null(await tokens.ResolveAsync($"Bearer {rotated.AccessToken}", "127.0.0.1", "test"));
+    }
+
+    [Fact]
     public async Task ResolveAsync_rejects_jwt_after_auth_database_is_recreated()
     {
         await using var db = NewDb("token-db-recreated");
