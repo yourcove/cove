@@ -94,7 +94,10 @@ vi.mock("../components/useExtensionTabs", () => ({
 vi.mock("../router/RouteRegistry", () => ({ ExtensionSlot: () => null }));
 vi.mock("../hooks/useDocumentTitle", () => ({ useDocumentTitle: () => {} }));
 vi.mock("../components/BulkSelectionActions", () => ({ BulkSelectionActions: () => null }));
-vi.mock("../components/Rating", () => ({ InteractiveRating: () => null }));
+vi.mock("../components/Rating", () => ({
+  InteractiveRating: () => null,
+  useRatingOptions: () => ({ type: "stars", starPrecision: "full" }),
+}));
 vi.mock("../pages/TagEditModal", () => ({ TagEditModal: () => null }));
 vi.mock("../components/ConfirmDialog", () => ({ ConfirmDialog: () => null }));
 vi.mock("../components/DetailMergeDialog", () => ({ DetailMergeDialog: () => null }));

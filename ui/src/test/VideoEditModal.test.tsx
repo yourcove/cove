@@ -49,6 +49,16 @@ vi.mock("../state/AppConfigContext", () => ({
       },
     },
   }),
+  useOptionalAppConfig: () => ({
+    config: {
+      ui: {
+        ratingSystemOptions: {
+          type: "stars",
+          starPrecision: "full",
+        },
+      },
+    },
+  }),
 }));
 
 function renderModal(video: Video) {

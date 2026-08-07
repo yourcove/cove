@@ -7,7 +7,7 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
-import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 
@@ -232,7 +232,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         )}
 
         {criteriaDefinitions && onObjectFilterChange ? (
-          <FilterButton activeCount={Object.keys(activeObjectFilter).length} onClick={() => setFilterDialogOpen(true)} />
+          <FilterButton activeCount={countActiveObjectFilters(criteriaDefinitions, activeObjectFilter)} onClick={() => setFilterDialogOpen(true)} />
         ) : null}
 
         {filterMode ? (
@@ -305,13 +305,22 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           objectFilter={activeObjectFilter}
           className="mb-2"
           onEdit={(key) => {
-            const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.auxiliaryToggleKey === key);
+            const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
             setFilterDialogPreselect(criterion?.id ?? key);
             setFilterDialogOpen(true);
           }}
           onRemove={(key) => {
             const next = { ...activeObjectFilter };
-            delete next[key];
+            const criterion = criteriaDefinitions.find((item) => item.id === key
+              || item.filterKey === key
+              || item.secondaryFilterKey === key
+              || item.auxiliaryToggleKey === key);
+            if (criterion && criterion.auxiliaryToggleKey !== key) {
+              delete next[criterion.filterKey];
+              if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
+            } else {
+              delete next[key];
+            }
             onObjectFilterChange(next);
             onFilterChange({ ...filter, page: 1 });
           }}

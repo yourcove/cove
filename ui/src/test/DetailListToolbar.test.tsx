@@ -272,14 +272,16 @@ describe("DetailListToolbar", () => {
     );
 
     const chip = screen.getByRole("button", { name: "Edit filter: Tags" });
+    expect(chip.parentElement).toHaveClass("min-h-[26px]", "max-w-full", "text-xs");
     expect(chip).toHaveTextContent("Tags:");
-    expect(chip).toHaveTextContent("Includes All Facial");
+    expect(chip).toHaveTextContent("Tags:Facial");
     expect(chip.parentElement?.parentElement).toHaveClass("mb-2");
     onFilterChange.mockClear();
 
     await user.click(chip);
 
-    expect(screen.getByRole("heading", { name: "Edit Filter" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Tags" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Includes All" })).toBeInTheDocument();
     expect(onObjectFilterChange).not.toHaveBeenCalled();
     expect(onFilterChange).not.toHaveBeenCalled();

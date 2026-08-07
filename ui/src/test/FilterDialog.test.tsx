@@ -1,11 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
+import { FilterButton, FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import type { CriterionModifier } from "../api/types";
+import { writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
+import { AppConfigProvider } from "../state/AppConfigContext";
 
-const { performersFind } = vi.hoisted(() => ({ performersFind: vi.fn() }));
+const { performersFind, studiosFind, tagsFind } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn() }));
 const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -13,6 +16,8 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     performers: { ...actual.performers, find: performersFind },
+    studios: { ...actual.studios, find: studiosFind },
+    tags: { ...actual.tags, find: tagsFind },
   };
 });
 
@@ -25,11 +30,20 @@ function renderWithQueryClient(ui: ReactElement, setup?: (client: QueryClient) =
 describe("FilterDialog", () => {
   beforeEach(() => {
     localStorage.clear();
+    tagsFind.mockResolvedValue({ items: [] });
   });
 
   afterEach(() => {
     if (scrollIntoViewDescriptor) Object.defineProperty(Element.prototype, "scrollIntoView", scrollIntoViewDescriptor);
     else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
+
+  it("keeps the toolbar trigger at the compact toolbar scale", () => {
+    render(<FilterButton activeCount={2} onClick={vi.fn()} />);
+
+    const trigger = screen.getByRole("button", { name: "Filters, 2 active" });
+    expect(trigger).toHaveClass("px-2", "py-1", "text-xs");
+    expect(trigger).not.toHaveClass("min-h-11");
   });
 
   const metadataServiceModifiers: CriterionModifier[] = [
@@ -127,21 +141,700 @@ describe("FilterDialog", () => {
     });
   });
 
-  it("keeps filter pin controls visible and persists pinned criteria", () => {
+  it("selects the announced whole-star rating from the keyboard", () => {
+    writeStoredRatingOptionsOverride({ type: "stars", starPrecision: "half" });
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} preselectCriterion="rating" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Set rating to 3" }), { detail: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ ratingCriterion: { value: 60, modifier: "EQUALS" } });
+  });
+
+  it("keeps filter pin controls in the criteria list and persists pinned criteria", async () => {
     const criteria: CriterionDefinition[] = [
       { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
     ];
     render(<FilterDialog open onClose={vi.fn()} criteria={criteria} activeFilter={{}} onApply={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
 
-    const pinButton = screen.getByRole("button", { name: "Pin" });
-    expect(pinButton).not.toHaveClass("opacity-0");
-    expect(pinButton).toHaveClass("opacity-40", "hover:opacity-100", "focus-visible:opacity-100");
-    expect(pinButton.querySelector(".lucide-pin-off")).toBeInTheDocument();
+    const titleTab = screen.getByRole("tab", { name: "Title" });
+    const pinButton = screen.getByRole("button", { name: "Pin Title" });
+    expect(titleTab.parentElement).toContainElement(pinButton);
+    expect(screen.queryByText("Configure this filter")).not.toBeInTheDocument();
+    expect(screen.queryByText("Active filter")).not.toBeInTheDocument();
+    expect(pinButton.querySelector(".lucide-pin")).toBeInTheDocument();
+    expect(pinButton.querySelector(".lucide-pin-off")).not.toBeInTheDocument();
 
     fireEvent.click(pinButton);
 
-    expect(screen.getByRole("button", { name: "Unpin" }).querySelector(".lucide-pin")).toBeInTheDocument();
+    const unpinButton = screen.getByRole("button", { name: "Unpin Title" });
+    expect(unpinButton).toHaveClass("text-muted", "hover:text-foreground");
+    expect(unpinButton).not.toHaveClass("text-accent");
+    expect(unpinButton.querySelector(".lucide-pin")).toHaveClass("group-hover:hidden", "group-focus-visible:hidden");
+    expect(unpinButton.querySelector(".lucide-pin-off")).toHaveClass("hidden", "group-hover:block", "group-focus-visible:block");
     expect(localStorage.getItem("filter-pinned")).toBe(JSON.stringify(["title"]));
+    expect(screen.queryByRole("tabpanel", { name: "Title" })).not.toBeInTheDocument();
+  });
+
+  it("keeps pin controls out of the tab order while allowing arrow-key access from the selected criterion", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const criteria: CriterionDefinition[] = [
+      { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
+      { id: "rating", label: "Rating", type: "number", filterKey: "ratingCriterion" },
+    ];
+    render(<FilterDialog open onClose={onClose} criteria={criteria} activeFilter={{}} onApply={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+
+    expect(screen.getByRole("button", { name: "Pin Title" })).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("button", { name: "Pin Rating" })).toHaveAttribute("tabindex", "-1");
+    await user.click(screen.getByRole("tab", { name: "Title" }));
+
+    const titleTab = screen.getByRole("tab", { name: "Title" });
+    const pinButton = screen.getByRole("button", { name: "Pin Title" });
+    expect(titleTab.parentElement).toHaveClass("border-accent", "bg-accent/15");
+    expect(titleTab).toHaveClass("focus-visible:outline-none", "focus-visible:ring-accent");
+    expect(pinButton).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("button", { name: "Pin Rating" })).toHaveAttribute("tabindex", "-1");
+    expect(pinButton).toHaveClass("md:opacity-0", "md:hover:opacity-100", "md:focus-visible:opacity-100", "border-accent/40");
+    expect(pinButton).not.toHaveClass("md:group-hover:opacity-100");
+    expect(pinButton).not.toHaveClass("md:group-focus-within:opacity-100");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "=", pressed: true })).toHaveFocus());
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(titleTab).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(pinButton).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(titleTab).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard("{ArrowRight}");
+    await user.keyboard(" ");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Title" })).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Unpin Title" })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("moves sideways through string match parameters with arrow keys", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion="details" />,
+    );
+
+    const equals = screen.getByRole("button", { name: "=", pressed: true });
+    await waitFor(() => expect(equals).toHaveFocus());
+
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "≠", pressed: true })).toHaveFocus();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("button", { name: "=", pressed: true })).toHaveFocus();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("button", { name: "Not Null", pressed: true })).toHaveFocus();
+  });
+
+  it("shows active draft values as removable chips inside the dialog", () => {
+    const onApply = vi.fn();
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          titleCriterion: { value: "example", modifier: "EQUALS" },
+          organizedCriterion: { value: true },
+        }}
+        onApply={onApply}
+      />,
+    );
+    const selectedFilters = screen.getByRole("toolbar", { name: "Selected filters" });
+    expect(selectedFilters).toHaveClass("max-h-[min(12rem,35dvh)]", "overflow-y-auto");
+    expect(selectedFilters).toHaveTextContent("Title:= example");
+    expect(selectedFilters).toHaveTextContent("Organized:Yes");
+    expect(screen.queryByRole("button", { name: "Clear criterion" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("tab").some((tab) => tab.querySelector(".lucide-check"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title" }));
+
+    expect(screen.queryByRole("button", { name: "Edit filter: Title" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Title" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledWith({ organizedCriterion: { value: true } });
+  });
+
+  it("opens a draft criterion editor from an in-dialog filter chip", () => {
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          titleCriterion: { value: "example", modifier: "EQUALS" },
+          organizedCriterion: { value: false },
+        }}
+        onApply={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Organized" }));
+
+    expect(screen.getByRole("tabpanel", { name: "Organized" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "False", pressed: true })).toBeInTheDocument();
+  });
+
+  it("uses one roving tab stop for active filter groups and preserves focus after removal", async () => {
+    const user = userEvent.setup();
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          titleCriterion: { value: "example", modifier: "EQUALS" },
+          organizedCriterion: { value: true },
+        }}
+        onApply={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+
+    const title = screen.getByRole("button", { name: "Edit filter: Title" });
+    const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
+    expect(title).toHaveAttribute("tabindex", "0");
+    expect(organized).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("button", { name: "Remove filter: Title" })).toHaveAttribute("tabindex", "-1");
+
+    title.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(organized).toHaveFocus();
+    await user.keyboard("{Delete}");
+
+    expect(screen.queryByRole("button", { name: "Edit filter: Organized" })).not.toBeInTheDocument();
+    expect(title).toHaveFocus();
+
+    await user.keyboard("{Delete}");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Title" })).toHaveFocus());
+    expect(screen.queryByRole("toolbar", { name: "Selected filters" })).not.toBeInTheDocument();
+  });
+
+  it("places Clear all after selected filters and returns focus to criterion search", async () => {
+    const user = userEvent.setup();
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          titleCriterion: { value: "example", modifier: "EQUALS" },
+          organizedCriterion: { value: true },
+        }}
+        onApply={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+    const selectedFilters = screen.getByRole("toolbar", { name: "Selected filters" });
+    const clearAll = within(selectedFilters).getByRole("button", { name: "Clear all" });
+    expect(clearAll).toHaveAttribute("tabindex", "-1");
+    expect(screen.getAllByRole("button", { name: /Clear all/i })).toHaveLength(1);
+
+    const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
+    organized.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(clearAll).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "Edit filter: Title" })).toHaveFocus();
+
+    await user.click(clearAll);
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+    expect(screen.queryByRole("toolbar", { name: "Selected filters" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+  });
+
+  it("formats rating filter chips with the preferred star presentation", async () => {
+    writeStoredRatingOptionsOverride({ type: "stars", starPrecision: "full" });
+    renderWithQueryClient(
+      <AppConfigProvider><FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ ratingCriterion: { value: 100, modifier: "LESS_THAN" } }}
+        onApply={vi.fn()}
+      /></AppConfigProvider>,
+    );
+    const chip = screen.getByRole("button", { name: "Edit filter: Rating" });
+    expect(chip).toHaveAttribute("title", "Rating: < 5 stars");
+    expect(chip).toHaveTextContent("Rating:<");
+    expect(chip.querySelectorAll("[data-rating-stars]")).toHaveLength(1);
+  });
+
+  it("formats rating filter ranges with the preferred decimal presentation", async () => {
+    writeStoredRatingOptionsOverride({ type: "decimal", starPrecision: "full" });
+    renderWithQueryClient(
+      <AppConfigProvider><FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ ratingCriterion: { value: 40, value2: 100, modifier: "BETWEEN" } }}
+        onApply={vi.fn()}
+      /></AppConfigProvider>,
+    );
+    const chip = screen.getByRole("button", { name: "Edit filter: Rating" });
+    expect(chip).toHaveAttribute("title", "Rating: Between 4.0 and 10.0");
+    expect(chip).toHaveTextContent("Between 4.0 and 10.0");
+    expect(chip.querySelector("[data-rating-stars]")).not.toBeInTheDocument();
+  });
+
+  it("preserves filter-group focus when removing the last entity-backed filter", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          tagsCriterion: { value: [1], modifier: "INCLUDES_ALL", _names: { "1": "Selected tag" } },
+          titleCriterion: { value: "example", modifier: "EQUALS" },
+        }}
+        onApply={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+
+    const tags = screen.getByRole("button", { name: "Edit filter: Tags" });
+    tags.focus();
+    await user.keyboard("{Delete}");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit filter: Title" })).toHaveFocus());
+  });
+
+  it("returns focus to criterion search when the removed filter row is hidden", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ tagsCriterion: { value: [1], modifier: "INCLUDES_ALL", _names: { "1": "Selected tag" } } }}
+        onApply={vi.fn()}
+        preselectCriterion="tags"
+      />,
+    );
+    const search = screen.getByRole("searchbox", { name: "Search filter criteria" });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Search tags" })).toHaveFocus());
+    await user.type(search, "Title");
+    const tags = screen.getByRole("button", { name: "Edit filter: Tags" });
+    tags.focus();
+    await user.keyboard("{Delete}");
+
+    await waitFor(() => expect(search).toHaveFocus());
+    expect(screen.queryByRole("toolbar", { name: "Selected filters" })).not.toBeInTheDocument();
+  });
+
+  it("clears criterion search when opening an editor from a draft filter chip", () => {
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ titleCriterion: { value: "example", modifier: "EQUALS" } }}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const searchInput = screen.getByRole("searchbox", { name: "Search filter criteria" });
+    fireEvent.change(searchInput, { target: { value: "rating" } });
+    expect(screen.queryByRole("tab", { name: "Title" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Title" }));
+
+    expect(searchInput).toHaveValue("");
+    expect(screen.getByRole("tab", { name: "Title", selected: true })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Title" })).toBeInTheDocument();
+  });
+
+  it("exposes a modal dialog and supports keyboard criterion selection", async () => {
+    const user = userEvent.setup();
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={[
+          { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
+          { id: "rating", label: "Rating", type: "number", filterKey: "ratingCriterion" },
+        ]}
+        activeFilter={{}}
+        onApply={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Filters" })).toHaveAttribute("aria-modal", "true");
+    const search = screen.getByRole("searchbox", { name: "Search filter criteria" });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getAllByRole("tab")[0]).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(search).toHaveFocus();
+
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(screen.getByRole("tabpanel", { name: "Rating" })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Value" })).toBeInTheDocument();
+  });
+
+  it("prioritizes an exact criterion match and focuses its primary editor control", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
+    );
+
+    await user.type(screen.getByRole("searchbox", { name: "Search filter criteria" }), "Tags");
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(screen.getByRole("tabpanel", { name: "Tags" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Search tags" })).toHaveFocus());
+  });
+
+  it("shows a human-readable duration beside the clock input", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ durationCriterion: { value: 600, modifier: "LESS_THAN" } }}
+        onApply={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /^Duration/ }));
+    const input = screen.getByRole("textbox", { name: "Value" });
+    expect(input).toHaveValue("10:00");
+    expect(screen.getByText("10 min")).toBeInTheDocument();
+    expect(input).toHaveAccessibleDescription("10 min");
+
+    await user.clear(input);
+    await user.type(input, "1:30");
+    expect(screen.getByText("1 min 30 sec")).toBeInTheDocument();
+    expect(input).toHaveAccessibleDescription("1 min 30 sec");
+  });
+
+  it("selects a multi-ID search result without tabbing through result actions and applies with Ctrl+Enter", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    tagsFind.mockResolvedValue({ items: [
+      { id: 1, name: "Blowjob", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+      { id: 2, name: "Double Blowjob", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+      { id: 3, name: "Unselected", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+    ] });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    await user.type(screen.getByRole("searchbox", { name: "Search filter criteria" }), "Tags");
+    await user.keyboard("{ArrowDown}{Enter}");
+    const tagSearch = screen.getByRole("combobox", { name: "Search tags" });
+    await user.type(tagSearch, "blowjob");
+    await waitFor(() => expect(screen.getByRole("option", { name: "Blowjob" })).toBeInTheDocument());
+    const result = screen.getByRole("option", { name: "Blowjob" });
+    expect(result.children[0]).toBe(screen.getByRole("button", { name: "Include Blowjob" }));
+    expect(result.children[1]).toHaveTextContent("Blowjob");
+    expect(result.children[2]).toBe(screen.getByRole("button", { name: "Exclude Blowjob" }));
+
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(tagSearch).toHaveFocus();
+    expect(tagSearch).toHaveValue("");
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(screen.getAllByTitle("Include")[0]).toHaveAttribute("tabindex", "-1");
+    const results = screen.getByRole("listbox", { name: "tags results" });
+    const selectedTag = screen.getByRole("button", { name: "Remove Blowjob" }).parentElement!;
+    const matchMode = screen.getByRole("group", { name: "Match mode" });
+    expect(matchMode.closest("fieldset")).toBeNull();
+    expect(screen.getByText("Match")).toBeInTheDocument();
+    expect(matchMode.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(results.compareDocumentPosition(selectedTag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Array.from(matchMode.querySelectorAll("button"), (button) => button.textContent)).toEqual([
+      "Includes All", "Includes", "None", "Any",
+    ]);
+    expect(screen.getByRole("button", { name: "Includes All", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Include sub-tags" })).toBeInTheDocument();
+    await user.type(tagSearch, "double blowjob");
+    await waitFor(() => expect(screen.getByRole("option", { name: "Double Blowjob" })).toBeInTheDocument());
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(tagSearch).toHaveValue("");
+
+    await user.type(tagSearch, "unselected");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      tagsCriterion: expect.objectContaining({ value: [1], excludes: [2] }),
+    }));
+  });
+
+  it.each([
+    { criterion: "tags", searchName: "Search tags", mockFind: tagsFind },
+    { criterion: "performers", searchName: "Search performers", mockFind: performersFind },
+    { criterion: "studios", searchName: "Search studios", mockFind: studiosFind },
+  ])("places $criterion match modes above entity selection", async ({ criterion, searchName, mockFind }) => {
+    mockFind.mockResolvedValue({ items: [] });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion={criterion} />,
+    );
+
+    const matchMode = screen.getByRole("group", { name: "Match mode" });
+    const search = await screen.findByRole("combobox", { name: searchName });
+    expect(matchMode.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    { criterion: "tags", optionName: "Clickable tag", mockFind: tagsFind, entity: { id: 1, name: "Clickable tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null } },
+    { criterion: "performers", optionName: "Clickable performer", mockFind: performersFind, entity: { id: 2, name: "Clickable performer" } },
+  ])("includes $criterion by clicking the row while keeping exclude isolated", async ({ criterion, optionName, mockFind, entity }) => {
+    const user = userEvent.setup();
+    mockFind.mockResolvedValue({ items: [entity] });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion={criterion} />,
+    );
+
+    const option = await screen.findByRole("option", { name: optionName });
+    await user.click(within(option).getByText(optionName));
+    expect(screen.getByRole("button", { name: `Remove ${optionName}` })).toBeInTheDocument();
+
+    await user.click(within(option).getByRole("button", { name: `Exclude ${optionName}` }));
+    expect(within(screen.getByRole("group", { name: `Excluded ${criterion}` })).getByRole("button", { name: `Remove ${optionName}` })).toBeInTheDocument();
+  });
+
+  it.each([
+    { criterion: "tags", mockFind: tagsFind, makeEntity: (id: number, name: string) => ({ id, name, tagGroupId: null, tagGroupName: null, tagGroupColor: null }) },
+    { criterion: "performers", mockFind: performersFind, makeEntity: (id: number, name: string) => ({ id, name }) },
+  ])("clears the $criterion search after row, plus, and minus selection", async ({ criterion, mockFind, makeEntity }) => {
+    const user = userEvent.setup();
+    mockFind.mockResolvedValue({ items: [makeEntity(1, "Row choice"), makeEntity(2, "Plus choice"), makeEntity(3, "Minus choice")] });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion={criterion} />,
+    );
+
+    const search = screen.getByRole("combobox", { name: `Search ${criterion}` });
+    await user.type(search, "Row choice");
+    const rowOption = await screen.findByRole("option", { name: "Row choice" });
+    await user.click(within(rowOption).getByText("Row choice"));
+    expect(search).toHaveValue("");
+
+    await user.type(search, "Plus choice");
+    const plusOption = await screen.findByRole("option", { name: "Plus choice" });
+    await user.click(within(plusOption).getByRole("button", { name: "Include Plus choice" }));
+    expect(search).toHaveValue("");
+
+    await user.type(search, "Minus choice");
+    const minusOption = await screen.findByRole("option", { name: "Minus choice" });
+    await user.click(within(minusOption).getByRole("button", { name: "Exclude Minus choice" }));
+    expect(search).toHaveValue("");
+  });
+
+  it("skips grouped results and uses one roving tab stop for selected values", async () => {
+    const user = userEvent.setup();
+    tagsFind.mockResolvedValue({ items: [
+      { id: 1, name: "First tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+      { id: 2, name: "Middle tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+      { id: 3, name: "Last tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+    ] });
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          tagsCriterion: {
+            value: [1, 2, 3],
+            modifier: "INCLUDES_ALL",
+            _names: { "1": "First tag", "2": "Middle tag", "3": "Last tag" },
+          },
+        }}
+        onApply={vi.fn()}
+        preselectCriterion="tags"
+      />,
+    );
+
+    const first = await screen.findByRole("button", { name: "Remove First tag" });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Search tags" })).toHaveFocus());
+    const middle = screen.getByRole("button", { name: "Remove Middle tag" });
+    const last = screen.getByRole("button", { name: "Remove Last tag" });
+    expect(screen.queryByRole("button", { name: /Ungrouped/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Ungrouped")).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "tags results" })).toHaveAttribute("tabindex", "-1");
+    expect(first).toHaveAttribute("tabindex", "0");
+    expect(middle).toHaveAttribute("tabindex", "-1");
+    expect(last).toHaveAttribute("tabindex", "-1");
+
+    const search = screen.getByRole("combobox", { name: "Search tags" });
+    await user.tab();
+    expect(first).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(middle).toHaveFocus();
+    await user.keyboard("{Delete}");
+
+    expect(screen.queryByRole("button", { name: "Remove Middle tag" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Last tag" })).toHaveFocus();
+    expect(screen.getByText("Removed Middle tag. 2 selected.", { selector: "[role='status']" })).toBeInTheDocument();
+
+    await user.keyboard("{Delete}");
+    expect(screen.getByRole("button", { name: "Remove First tag" })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Remove Last tag" })).not.toBeInTheDocument();
+    await user.keyboard("{Delete}");
+    expect(search).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Remove First tag" })).not.toBeInTheDocument();
+  });
+
+  it("navigates tag results in their rendered group order", async () => {
+    const user = userEvent.setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    tagsFind.mockResolvedValue({ items: [
+      { id: 1, name: "Alpha ungrouped", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+      { id: 2, name: "Beta grouped", tagGroupId: 10, tagGroupName: "Featured", tagGroupColor: null },
+    ] });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion="tags" />,
+    );
+
+    const search = screen.getByRole("combobox", { name: "Search tags" });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Beta grouped" })).toBeInTheDocument());
+    await user.keyboard("{ArrowDown}");
+    expect(search).toHaveAttribute("aria-activedescendant", "multi-id-result-tags-2");
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "Remove Beta grouped" })).toBeInTheDocument();
+  });
+
+  it("caps keyboard navigation at the last rendered result", async () => {
+    const user = userEvent.setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    tagsFind.mockResolvedValue({ items: Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      name: `Tag ${String(index + 1).padStart(2, "0")}`,
+      tagGroupId: null,
+      tagGroupName: null,
+      tagGroupColor: null,
+    })) });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion="tags" />,
+    );
+
+    const search = screen.getByRole("combobox", { name: "Search tags" });
+    await user.type(search, "Tag");
+    await waitFor(() => expect(screen.getByRole("option", { name: "Tag 50" })).toBeInTheDocument());
+    expect(screen.queryByRole("option", { name: "Tag 51" })).not.toBeInTheDocument();
+    for (let index = 0; index < 55; index += 1) await user.keyboard("{ArrowDown}");
+    expect(search).toHaveAttribute("aria-activedescendant", "multi-id-result-tags-50");
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "Remove Tag 50" })).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      criterion: "Performer Tags",
+      searchName: "Search tags",
+      findMock: tagsFind,
+      entities: [
+        { id: 1, name: "Tag One", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+        { id: 2, name: "Tag Two", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+      ],
+      firstOption: "Tag One",
+      secondOption: "Tag Two",
+    },
+    {
+      criterion: "Performers",
+      searchName: "Search performers",
+      findMock: performersFind,
+      entities: [{ id: 11, name: "Performer One" }, { id: 12, name: "Performer Two" }],
+      firstOption: "Performer One",
+      secondOption: "Performer Two",
+    },
+    {
+      criterion: "Studios",
+      searchName: "Search studios",
+      findMock: studiosFind,
+      entities: [{ id: 21, name: "Studio One" }, { id: 22, name: "Studio Two" }],
+      firstOption: "Studio One",
+      secondOption: "Studio Two",
+    },
+  ])("clears the $criterion search after keyboard include and exclude", async ({ criterion, searchName, findMock, entities, firstOption, secondOption }) => {
+    const user = userEvent.setup();
+    findMock.mockResolvedValue({ items: entities });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: criterion }));
+    const search = screen.getByRole("combobox", { name: searchName });
+    await user.type(search, "one");
+    await waitFor(() => expect(screen.getByRole("option", { name: firstOption })).toBeInTheDocument());
+    await user.keyboard("{Enter}");
+    expect(search).toHaveValue("");
+
+    await user.type(search, "two");
+    await waitFor(() => expect(screen.getByRole("option", { name: secondOption })).toBeInTheDocument());
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(search).toHaveValue("");
+  });
+
+  it("confirms before a null match mode clears multi-ID selections", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    tagsFind.mockResolvedValue({ items: [
+      { id: 1, name: "Selected Tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null },
+    ] });
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Tags" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Include Selected Tag" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Include Selected Tag" }));
+    await user.click(screen.getByRole("button", { name: "None" }));
+
+    const confirmation = screen.getByRole("dialog", { name: "Clear selected tags?" });
+    expect(screen.getByRole("button", { name: "Remove Selected Tag" })).toBeInTheDocument();
+    await waitFor(() => expect(within(confirmation).getByRole("button", { name: "Cancel" })).toHaveFocus());
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Clear selected tags?" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Clear selected tags?" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Includes All", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Selected Tag" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "None" }));
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByRole("button", { name: "None", pressed: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Selected Tag" })).not.toBeInTheDocument();
+  });
+
+  it("discards canceled drafts before the next open", async () => {
+    const user = userEvent.setup();
+    const props = {
+      onClose: vi.fn(),
+      criteria: [{ id: "title", label: "Title", type: "string", filterKey: "titleCriterion" }] satisfies CriterionDefinition[],
+      activeFilter: {},
+      onApply: vi.fn(),
+    };
+    const { rerender } = render(<FilterDialog open {...props} />);
+
+    await user.click(screen.getByRole("tab", { name: /Title/ }));
+    await user.type(screen.getByRole("textbox", { name: "Value" }), "temporary");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    rerender(<FilterDialog open={false} {...props} />);
+    rerender(<FilterDialog open {...props} />);
+    await user.click(screen.getByRole("tab", { name: /Title/ }));
+
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("");
   });
 
   it("scrolls a preselected criterion into view when the dialog opens", async () => {
@@ -160,7 +853,7 @@ describe("FilterDialog", () => {
     );
 
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" }));
-    expect(screen.getByPlaceholderText("Value...")).toHaveValue("example");
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("example");
   });
 
   it("clears a stale criterion search before scrolling to a preselected criterion", async () => {
@@ -174,12 +867,12 @@ describe("FilterDialog", () => {
     };
     const { rerender } = render(<FilterDialog open {...props} />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search criteria..."), { target: { value: "Audio Codec" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search filter criteria" }), { target: { value: "Audio Codec" } });
     rerender(<FilterDialog open={false} {...props} />);
     rerender(<FilterDialog open preselectCriterion="title" {...props} />);
 
-    await waitFor(() => expect(screen.getByPlaceholderText("Search criteria...")).toHaveValue(""));
-    expect(screen.getByPlaceholderText("Value...")).toHaveValue("example");
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveValue(""));
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("example");
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" });
   });
 
@@ -248,7 +941,7 @@ describe("FilterDialog", () => {
 
     expect(screen.getByText("Existing performer")).toBeInTheDocument();
     expect(screen.getByTitle("Include")).toBeDisabled();
-    expect(screen.getByTitle("Include").closest("div.max-h-32")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("listbox", { name: "performers results" })).toHaveAttribute("aria-busy", "true");
     fireEvent.click(screen.getByTitle("Include"));
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenLastCalledWith({});
@@ -271,7 +964,8 @@ describe("FilterDialog", () => {
       />
     );
 
-    expect(screen.getAllByText("Title")).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: /^Title$/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("Cloud Nine");
 
     rerender(
       <FilterDialog
@@ -283,7 +977,7 @@ describe("FilterDialog", () => {
       />
     );
 
-    expect(screen.getAllByText("Title")).toHaveLength(1);
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("");
   });
 
   it("applies multi-select performer gender filters as a regex-backed criterion", () => {
@@ -327,9 +1021,8 @@ describe("FilterDialog", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove Created At filter chip" }));
-    expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Created At" }));
+    expect(screen.queryByRole("button", { name: "Edit filter: Created At" })).not.toBeInTheDocument();
 
     rerender(
       <FilterDialog
@@ -341,9 +1034,8 @@ describe("FilterDialog", () => {
       />
     );
 
-    expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Created At")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Edit filter: Created At" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Created At/ })).toBeInTheDocument();
   });
 
   it("does not re-add an expanded timestamp criterion after removing it", () => {
@@ -357,12 +1049,49 @@ describe("FilterDialog", () => {
       />
     );
 
-    fireEvent.click(screen.getAllByText("Created At")[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Created At filter row" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Created At" }));
 
-    expect(screen.queryByLabelText("Remove Created At filter chip")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Remove Created At filter row")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Created At")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Edit filter: Created At" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Created At/ })).toBeInTheDocument();
+  });
+
+  it("uses full-width labeled controls for date and timestamp values", () => {
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{}}
+        onApply={vi.fn()}
+        preselectCriterion="date"
+      />
+    );
+
+    const dateValue = screen.getByLabelText("Value");
+    expect(dateValue).toHaveClass("min-h-11", "w-full");
+
+    fireEvent.click(screen.getByRole("button", { name: "Between" }));
+    expect(screen.getByLabelText("Minimum")).toHaveClass("min-h-11", "w-full");
+    expect(screen.getByLabelText("Maximum")).toHaveClass("min-h-11", "w-full");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Created At" }));
+
+    expect(screen.getByLabelText("Value")).toHaveClass("min-h-11", "w-full");
+  });
+
+  it("uses a full-size labeled control for hash values", () => {
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{}}
+        onApply={vi.fn()}
+        preselectCriterion="hash"
+      />
+    );
+
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveClass("min-h-11", "w-full");
   });
 
   it("applies child-inclusive tag count toggles alongside the main criterion", () => {
@@ -505,6 +1234,20 @@ describe("FilterDialog", () => {
           tagId: 1,
           unit: "seconds",
           value: 90,
+        })],
+      }),
+    }));
+
+    fireEvent.change(screen.getByLabelText("Tag duration time"), { target: { value: "0.5" } });
+    fireEvent.blur(screen.getByLabelText("Tag duration time"));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({
+      tagDurationCriterion: expect.objectContaining({
+        clauses: [expect.objectContaining({
+          tagId: 1,
+          unit: "seconds",
+          value: 0.5,
         })],
       }),
     }));

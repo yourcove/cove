@@ -20,7 +20,7 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
-import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
 import { collapseExtensionCriteria, executableExtensionFilterKey, expandExtensionCriteria, unavailableExtensionCriterionDefinitions } from "../extensions/extensionListFilters";
 import { ListQueryState } from "./ListQueryState";
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
@@ -891,7 +891,7 @@ export function ListPage({
         {/* Advanced filter button */}
         {mergedCriteriaDefinitions && onObjectFilterChange && (
           <FilterButton
-            activeCount={Object.keys(objectFilter ?? {}).length}
+            activeCount={countActiveObjectFilters(mergedCriteriaDefinitions, editorObjectFilter)}
             onClick={() => setFilterDialogOpen(true)}
           />
         )}
@@ -1088,7 +1088,7 @@ export function ListPage({
           objectFilter={editorObjectFilter}
           customFilterSections={mergedCustomFilterSections}
           onEdit={(key) => {
-            const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.auxiliaryToggleKey === key);
+            const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
             const customSection = mergedCustomFilterSections?.find((section) => section.filterKey === key);
             setFilterDialogPreselect(customSection?.id ?? criterion?.id ?? key);
             setFilterDialogOpen(true);
@@ -1098,7 +1098,16 @@ export function ListPage({
               trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", criteriaKeys: [key] } });
             }
             const next = { ...editorObjectFilter };
-            delete next[key];
+            const criterion = mergedCriteriaDefinitions.find((item) => item.id === key
+              || item.filterKey === key
+              || item.secondaryFilterKey === key
+              || item.auxiliaryToggleKey === key);
+            if (criterion && criterion.auxiliaryToggleKey !== key) {
+              delete next[criterion.filterKey];
+              if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
+            } else {
+              delete next[key];
+            }
             onObjectFilterChange(collapseExtensionCriteria(next, objectFilter));
             onFilterChange({ ...filter, page: 1 });
           }}
