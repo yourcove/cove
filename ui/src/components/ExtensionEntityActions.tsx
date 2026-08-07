@@ -115,6 +115,7 @@ export function ExtensionEntityActions({ entityType, entityId, pageType, renderM
   }, [getActionsForContext, normalizedEntityType, normalizedPageType]);
 
   const invokeActionMut = useMutation<unknown, Error, ExtensionAction>({
+    meta: { suppressGlobalError: true },
     mutationFn: async (action) => {
       const payload = buildActionPayload(action, normalizedEntityType, normalizedPageType, entityId);
 

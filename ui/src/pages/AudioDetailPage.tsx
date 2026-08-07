@@ -9,6 +9,7 @@ import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailSkeleton } from "../components/DetailSkeleton";
+import { ListLoadError } from "../components/ListLoadError";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { GenerateDialog } from "../components/GenerateDialog";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
@@ -26,6 +27,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { trackInteraction } from "../utils/interactionTracking";
 import { getAudioDisplayTitle, pickPrimaryAudioFile } from "../utils/audioTextDisplay";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { AudioEditPanel } from "./AudioEditPanel";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
@@ -45,10 +47,11 @@ interface Props {
 
 export function AudioDetailPage({ id, onNavigate }: Props) {
   const queryClient = useQueryClient();
-  const { data: audio, isLoading } = useQuery({
+  const { data: audio, isLoading, error: audioError, refetch: retryAudio } = useQuery({
     queryKey: ["audio", id],
     queryFn: () => audios.get(id),
   });
+  const audioLoadError = getLoadError(audio, audioError);
   const { hasPermission, user } = useAuth();
   const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", audio?.performers?.map((p) => p.id) ?? []);
   const { backLabel, goBack } = useBackNavigation({ page: "audios" }, onNavigate);
@@ -89,6 +92,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
     },
   });
   const deleteAudioMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) => audios.delete(id, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["audios"] });
@@ -176,6 +180,14 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
 
   if (isLoading) {
     return <DetailSkeleton />;
+  }
+
+  if (isApiNotFoundError(audioLoadError)) {
+    return <div className="rounded-3xl border border-dashed border-border bg-card/70 px-6 py-10 text-sm text-muted">Audio #{id} was not found.</div>;
+  }
+
+  if (audioLoadError) {
+    return <ListLoadError error={audioLoadError} onRetry={() => { void retryAudio(); }} title="Could not load audio" className="mx-0 mt-0" />;
   }
 
   if (!audio) {

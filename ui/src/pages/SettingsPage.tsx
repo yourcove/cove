@@ -1217,12 +1217,14 @@ export function SettingsPage() {
   });
 
   const revokeSessionsMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: authApi.revokeSessions,
     onSuccess: () => window.dispatchEvent(new CustomEvent("cove-auth-required")),
     onError: (err: Error) => setError(err.message),
   });
 
   const shutdownMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: system.shutdown,
     onError: (err: Error) => setError(err.message),
   });
@@ -1418,6 +1420,7 @@ export function SettingsPage() {
   }, [activeTab, extensionsLoaded]);
 
   const saveMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (nextConfig: CoveConfig) => system.saveConfig(nextConfig),
     onSuccess: (savedConfig) => {
       savingRef.current = true;
@@ -1430,6 +1433,7 @@ export function SettingsPage() {
   });
 
   const syncCustomFieldsMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: ({ definitions }: { definitions: CustomFieldDefinition[]; draftSnapshot: CustomFieldDefinition[] }) => customFields.replaceAll(definitions),
     onSuccess: (savedDefinitions, variables) => {
       setCustomFieldDraft(mergeSavedCustomFieldDefinitions(savedDefinitions, variables.draftSnapshot));
@@ -1441,6 +1445,7 @@ export function SettingsPage() {
   });
 
   const uploadFaviconMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: system.uploadFavicon,
     onSuccess: (result) => {
       updateDraft((current) => ({ ...current, ui: { ...current.ui, faviconPath: result.path } }));
@@ -1450,6 +1455,7 @@ export function SettingsPage() {
   });
 
   const uploadLogoMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: system.uploadLogo,
     onSuccess: (result) => {
       updateDraft((current) => ({ ...current, ui: { ...current.ui, logoPath: result.path } }));
@@ -1472,6 +1478,7 @@ export function SettingsPage() {
   });
 
   const validateMetadataServerMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: ({ index, metadataServer }: { index: number; metadataServer: MetadataServer }) => system.validateMetadataServer(metadataServer),
     onSuccess: (result, variables) => {
       setMetadataServerValidation((current) => ({ ...current, [String(variables.index)]: result }));
@@ -4218,6 +4225,7 @@ function LogsPanel() {
   });
 
   const setLogLevelMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: system.setLogLevel,
     onSuccess: (result) => {
       setServerLogLevel(result.level);
@@ -4560,6 +4568,7 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
   const scanMut = useMutation({ mutationFn: () => metadata.scan(effectiveScanOpts), onSuccess: () => refetchJobs() });
   const genMut = useMutation({ mutationFn: () => metadata.generate(effectiveGenOpts), onSuccess: () => refetchJobs() });
   const downloadImportMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       let urls: string[];
       if (downloadImportFile) {
@@ -4900,6 +4909,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
     retry: false,
   });
   const backupMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => database.backup(),
     onSuccess: async (result) => {
       setRestoreBackupPath(result.backupPath);
@@ -4908,6 +4918,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
     },
   });
   const restoreMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       const backupPath = restoreBackupPath.trim();
       if (!backupPath) {
@@ -4923,11 +4934,12 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
       window.location.reload();
     },
   });
-  const optimizeMut = useMutation({ mutationFn: () => database.optimize(), onSuccess: () => refetchJobs() });
+  const optimizeMut = useMutation({ meta: { suppressGlobalError: true }, mutationFn: () => database.optimize(), onSuccess: () => refetchJobs() });
   const [wipeConfirm1, setWipeConfirm1] = useState(false);
   const [wipeConfirm2, setWipeConfirm2] = useState(false);
   const [lastWipeConfigBackup, setLastWipeConfigBackup] = useState<string | null>(null);
   const wipeMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       // Backend now wipes BOTH the database AND the on-disk config file (and snapshots
       // both first), so we no longer need to clear covePaths from here.
@@ -4948,6 +4960,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
     retry: false,
   });
   const configBackupMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => database.backupConfig(),
     onSuccess: async (result) => {
       setConfigRestorePath(result.backupPath);
@@ -4955,6 +4968,7 @@ function DataManagementSection({ refetchJobs, mode }: { refetchJobs: () => void;
     },
   });
   const configRestoreMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       const path = configRestorePath.trim();
       if (!path) throw new Error("Config backup path is required.");
@@ -5362,6 +5376,7 @@ function WipeEngagementButton() {
   const [confirm2, setConfirm2] = useState(false);
   const [done, setDone] = useState<number | null>(null);
   const wipeMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => entityEngagement.wipeAll(),
     onSuccess: (result) => {
       setDone(result.wiped);
@@ -6175,6 +6190,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   });
 
   const upgradeMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (args: { id: string; version: string; name?: string; installDependencies?: boolean }) =>
       import("../api/client").then(m => m.extensions.registryInstall(args.id, args.version, args.installDependencies ?? false)),
     onSuccess: (data, variables) => {
@@ -6212,6 +6228,7 @@ function ExtensionsPanel({ mode }: { mode: "installed" | "registry" }) {
   });
 
   const uninstallMut = useMutation<unknown, Error, PendingExtensionUninstall>({
+    meta: { suppressGlobalError: true },
     mutationFn: (ext) =>
       import("../api/client").then(m => m.extensions.registryUninstall(ext.id, ext.confirmedDependents || ext.dependents.length > 0)),
     onSuccess: (data, variables) => {
@@ -6791,6 +6808,7 @@ export function FindAndInstallExtensions() {
   });
 
   const installMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (args: { extensionId: string; version: string; name?: string; installDependencies?: boolean }) =>
       import("../api/client").then(m => m.extensions.registryInstall(args.extensionId, args.version, args.installDependencies)),
     onSuccess: (data, variables) => {
@@ -6831,6 +6849,7 @@ export function FindAndInstallExtensions() {
   });
 
   const urlInstallMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => import("../api/client").then(m =>
       m.extensions.installFromUrl(urlInstallUrl.trim(), true)
     ),
@@ -6857,6 +6876,7 @@ export function FindAndInstallExtensions() {
   });
 
   const zipInstallMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (!zipInstallFile) throw new Error("Select an extension ZIP file to install.");
       return import("../api/client").then(m => m.extensions.installFromZip(zipInstallFile, true));
@@ -6884,6 +6904,7 @@ export function FindAndInstallExtensions() {
   });
 
   const uninstallMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (target: PendingExtensionUninstall) =>
       import("../api/client").then(m => m.extensions.registryUninstall(target.id, target.confirmedDependents || target.dependents.length > 0)),
     onSuccess: (data, variables) => {

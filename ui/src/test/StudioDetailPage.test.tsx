@@ -1,29 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { savedFilters } from "../api/client";
 import { StudioDetailPage } from "../pages/StudioDetailPage";
 
+const mocks = vi.hoisted(() => ({
+  studioGet: vi.fn(),
+}));
+
 vi.mock("../api/client", () => ({
   studios: {
-    get: vi.fn().mockResolvedValue({
-      id: 25,
-      name: "Example Studio",
-      aliases: [],
-      urls: [],
-      tags: [],
-      remoteIds: [],
-      videoCount: 1,
-      performerCount: 0,
-      galleryCount: 0,
-      imageCount: 0,
-      audioCount: 0,
-      textCount: 0,
-      childStudioCount: 0,
-      groupCount: 0,
-      customFields: {},
-    }),
+    get: mocks.studioGet,
   },
   entityImages: { studioImageUrl: vi.fn(() => "/studio-cover.jpg") },
   savedFilters: {
@@ -39,6 +27,26 @@ vi.mock("../api/client", () => ({
   texts: {},
   groups: {},
 }));
+
+function buildStudio() {
+  return {
+      id: 25,
+      name: "Example Studio",
+      aliases: [],
+      urls: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 1,
+      performerCount: 0,
+      galleryCount: 0,
+      imageCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      childStudioCount: 0,
+      groupCount: 0,
+      customFields: {},
+    };
+}
 
 vi.mock("../hooks/useDetailListQuery", () => ({
   useDetailListQuery: () => ({
@@ -84,8 +92,43 @@ vi.mock("../components/CoverImageDialog", () => ({ CoverImageDialog: () => null 
 
 describe("StudioDetailPage", () => {
   beforeEach(() => {
+    mocks.studioGet.mockReset().mockResolvedValue(buildStudio());
     localStorage.clear();
     window.history.replaceState(null, "", "/studio/25?perPage=100&sort=rating&filters=%7B%22favorite%22%3Atrue%7D");
+  });
+
+  it("shows a retryable load error and recovers", async () => {
+    mocks.studioGet
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildStudio());
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load studio");
+    expect(screen.queryByText("Studio not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Example Studio" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing studio", async () => {
+    mocks.studioGet.mockRejectedValue(new Error("API Error 404: Not Found"));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Studio not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("persists include sub-studio content in the URL", async () => {

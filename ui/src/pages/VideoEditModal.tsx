@@ -65,6 +65,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   }, [video]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (data: VideoUpdate) => {
       const updated = await videos.update(video.id, data);
       await syncPerformerContextTags(video.id, video.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);

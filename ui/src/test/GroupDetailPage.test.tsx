@@ -205,6 +205,37 @@ describe("GroupDetailPage", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("shows a retryable load error and recovers", async () => {
+    mockGroups.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildGroup());
+    mockGroups.items.list.mockResolvedValue([]);
+    mockGroups.items.page.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 40 });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load group");
+    expect(screen.queryByText("Group not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Summer Compilation" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing group", async () => {
+    mockGroups.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+
+    renderPage();
+
+    expect(await screen.findByText("Group not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders the shared hero layout with metadata above the tabs", async () => {
     mockGroups.get.mockResolvedValue(buildGroup());
     mockGroups.items.list.mockResolvedValue([

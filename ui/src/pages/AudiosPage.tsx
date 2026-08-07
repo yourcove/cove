@@ -234,11 +234,13 @@ function AudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   };
 
   const createMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: AudioCreate) => audios.create(data),
     onSuccess: handleCreated,
   });
 
   const fileMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ path, data }: { path: string; data: AudioCreate }) => {
       const created = await audios.createFromFile({ filePath: path });
       return created?.id ? audios.update(created.id, data) : created;
@@ -247,6 +249,7 @@ function AudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   });
 
   const downloadMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ requestedUrl, data, downloadMode, scrapeMetadata }: { requestedUrl: string; data: AudioCreate; downloadMode: UrlDownloadMode; scrapeMetadata: boolean }) => {
       if (downloadMode === "now") {
         const matches = (await system.matchDownloaders({ url: requestedUrl }))

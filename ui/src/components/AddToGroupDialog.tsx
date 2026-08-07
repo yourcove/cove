@@ -40,6 +40,7 @@ export function AddToGroupDialog({ open, onClose, items, onAdded }: Props) {
   });
 
   const addMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (normalizedItems.length === 0) {
         throw new Error("No group-ready items were selected.");

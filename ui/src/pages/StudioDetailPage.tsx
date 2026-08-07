@@ -42,6 +42,7 @@ import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission
 import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelationFilters";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import { useDetailBooleanUrlState, useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -70,10 +71,11 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const metadataServers = config?.scraping?.metadataServers ?? [];
-  const { data: studio, isLoading } = useQuery({
+  const { data: studio, isLoading, error: studioError, refetch: retryStudio } = useQuery({
     queryKey: ["studio", id],
     queryFn: () => studios.get(id),
   });
+  const studioLoadError = getLoadError(studio, studioError);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -191,6 +193,14 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(studioLoadError)) {
+    return <div className="py-16 text-center text-secondary">Studio not found</div>;
+  }
+
+  if (studioLoadError) {
+    return <ListLoadError error={studioLoadError} onRetry={() => { void retryStudio(); }} title="Could not load studio" className="mx-0 mt-0" />;
   }
 
   if (!studio) {
@@ -422,12 +432,14 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
   }, [selectedEndpoint, metadataServers]);
 
   const searchMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (variables: { term?: string; endpoint?: string }) => studios.searchMetadataServer(studio.id, variables.term, variables.endpoint),
   });
 
   const submitEndpoint = selectedEndpoint || (metadataServers.length === 1 ? metadataServers[0].endpoint : "");
 
   const submitMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (endpoint: string) => studios.submitMetadataServerDraft(studio.id, endpoint),
   });
 

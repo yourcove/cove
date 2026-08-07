@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { extensions, globalSearch, groups } from "../api/client";
+import { getServerAvailability, resetServerAvailabilityForTests } from "../state/serverAvailability";
 
 describe("api client", () => {
   afterEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    resetServerAvailabilityForTests();
     vi.unstubAllGlobals();
     vi.resetModules();
   });
@@ -116,6 +118,13 @@ describe("api client", () => {
     expect((await authedFetch("/api/resource")).status).toBe(204);
   });
 
+  it("reports API connection failures to the global availability state", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(groups.addSubGroup(1, 2)).rejects.toThrow("Failed to fetch");
+    expect(getServerAvailability()).toBe("unavailable");
+  });
+
   it("treats empty successful responses as void", async () => {
     const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -134,16 +143,28 @@ describe("api client", () => {
   });
 
   it("forwards global-search limits and cancellation", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ groups: [], failedTypes: [] }), { status: 200 }));
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();
 
-    await globalSearch.find("quick search", 8, controller.signal);
+    const request = globalSearch.find("quick search", 8, controller.signal);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/search/global?q=quick+search&perType=8",
-      expect.objectContaining({ signal: controller.signal }),
-    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/search/global?q=quick+search&perType=8");
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    expect(init?.signal?.aborted).toBe(true);
   });
 
   it("uploads extension ZIPs as authenticated multipart form data without setting a boundary header", async () => {

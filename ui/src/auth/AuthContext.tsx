@@ -4,6 +4,7 @@ import { authStore, hasPermission as hasPermImpl } from "./authStore";
 import type { AuthUser } from "./authStore";
 import { auth } from "../api/client";
 import type { MeResponse } from "../api/types";
+import { serverAwareFetch } from "../state/serverAvailability";
 
 interface AuthState {
   user: AuthUser | null;
@@ -142,7 +143,7 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch("/api/auth/login", {
+    const res = await serverAwareFetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -165,7 +166,7 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
   const logout = useCallback(async () => {
     const refresh = authStore.getRefreshToken();
     try {
-      await fetch("/api/auth/logout", {
+      await serverAwareFetch("/api/auth/logout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: refresh ?? "" }),

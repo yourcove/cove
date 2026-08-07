@@ -49,7 +49,7 @@ import {
   type BatchDownloadOptions,
 } from "../utils/batchDownloads";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
-import { getLoadError } from "../utils/queryLoadState";
+import { resolveQueryLoadState } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
 import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
 
@@ -462,12 +462,22 @@ export function VideosPage({ onNavigate }: Props) {
   const loading = infinitePageSize
     ? infiniteVideosQuery.isPending
     : (canShowCompilationGroups ? unifiedLoading : isLoading);
-  const loadError = infinitePageSize
-    ? getLoadError(infiniteVideosQuery.data, infiniteVideosQuery.error)
-    : (canShowCompilationGroups ? getLoadError(unifiedData, unifiedError) : getLoadError(data, pageError));
   const retryLoad = infinitePageSize
     ? infiniteVideosQuery.refetch
     : (canShowCompilationGroups ? refetchUnified : refetchPage);
+  const activeQueryData = infinitePageSize
+    ? infiniteVideosQuery.data
+    : (canShowCompilationGroups ? unifiedData : data);
+  const activeQueryError = infinitePageSize
+    ? infiniteVideosQuery.error
+    : (canShowCompilationGroups ? unifiedError : pageError);
+  const videoLoadState = resolveQueryLoadState({
+    data: activeQueryData === undefined ? undefined : { listEntries, items, totalCount: totalCount ?? 0 },
+    isPending: loading,
+    error: activeQueryError,
+    isEmpty: (collection) => collection.listEntries.length === 0,
+    retry: () => { void retryLoad(); },
+  });
   const loadMoreVideos = useCallback(() => {
     if (infiniteVideosQuery.hasNextPage && !infiniteVideosQuery.isFetchingNextPage) {
       void infiniteVideosQuery.fetchNextPage();
@@ -648,6 +658,7 @@ export function VideosPage({ onNavigate }: Props) {
   });
 
   const batchDownloadMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (options: BatchDownloadOptions) => queueBatchDownloads("Video", selectedDownloadTargets, options),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -708,9 +719,7 @@ export function VideosPage({ onNavigate }: Props) {
       filter={filter}
       onFilterChange={handleFilterChange}
       totalCount={totalCount ?? 0}
-      isLoading={loading}
-      error={loadError instanceof Error ? loadError : null}
-      onRetry={() => { void retryLoad(); }}
+      loadState={videoLoadState}
       searchMode={searchMode}
       searchModes={searchModeOptions}
       searchPlaceholder={visualSimilarityAvailable && searchMode === "visual" ? "Search visuals..." : "Search videos, tags, performers..."}
@@ -1044,7 +1053,7 @@ export function VideosPage({ onNavigate }: Props) {
       {displayMode === "tagger" && (
         <VideoTagger videos={items} onNavigate={navigateToVideo} selectedIds={selectedIds} selecting={selecting} onSelect={toggle} />
       )}
-      {listEntries.length === 0 && !loading && (
+      {listEntries.length === 0 && (
         <div className="text-center py-20">
           <Film className="w-16 h-16 mx-auto mb-4 text-muted opacity-50" />
           <p className="text-secondary text-lg">No videos found</p>
@@ -1130,6 +1139,7 @@ function VideoCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   };
 
   const createMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: VideoCreate) => videos.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["videos"] });
@@ -1141,6 +1151,7 @@ function VideoCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   });
 
   const createFromFileMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ path, data }: { path: string; data: VideoCreate }) => {
       const created = await videos.createFromFile({ filePath: path });
       return created?.id ? videos.update(created.id, data) : created;
@@ -1155,6 +1166,7 @@ function VideoCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   });
 
   const createFromUrlMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: ({ requestedUrl, data, downloadMode, scrapeMetadata }: { requestedUrl: string; data: VideoCreate; downloadMode: UrlDownloadMode; scrapeMetadata: boolean }) =>
       createFromUrlWithOptionalDownload({ requestedUrl, data, entity: "Video", downloadMode, scrapeMetadata, create: videos.create }),
     onSuccess: (created) => {

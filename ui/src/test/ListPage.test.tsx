@@ -41,6 +41,33 @@ beforeEach(() => {
 });
 
 describe("ListPage active filter chips", () => {
+  it("does not present a pending collection as empty", () => {
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            loadState={{ status: "pending" }}
+          >
+            <div>empty collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByRole("status", { name: "Loading Videos" })).toBeInTheDocument();
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 items")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Videos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Search list" })).not.toBeInTheDocument();
+    expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
+  });
+
   it.each([
     ["configured service names", { value: "HTTPS://SERVICE.EXAMPLE/GRAPHQL", modifier: "EQUALS" }, [{ endpoint: "https://service.example/graphql", name: "Named Service" }], "Named Service = remote-123"],
     ["any-service labels", undefined, [], "Any metadata service = remote-123"],
@@ -225,9 +252,7 @@ describe("ListPage active filter chips", () => {
             filter={{ page: 1, perPage: 40 }}
             onFilterChange={vi.fn()}
             totalCount={0}
-            isLoading={false}
-            error={new Error("Request failed: 502 Bad Gateway")}
-            onRetry={onRetry}
+            loadState={{ status: "error", error: new Error("Request failed: 502 Bad Gateway"), retry: onRetry }}
           >
             <div>empty collection content</div>
           </ListPage>
@@ -236,9 +261,12 @@ describe("ListPage active filter chips", () => {
     );
 
     expect(screen.getByText("Could not load Videos")).toBeInTheDocument();
-    expect(screen.getByText("Request failed: 502 Bad Gateway")).toBeInTheDocument();
+    expect(screen.getByText("Cove couldn’t complete the request. Please try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Request failed: 502 Bad Gateway")).not.toBeInTheDocument();
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
     expect(screen.queryByText("0 items")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Videos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Search list" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();

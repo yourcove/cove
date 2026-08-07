@@ -4,6 +4,7 @@ import { extensionFetch } from "../extensions/extension-api";
 
 describe("extension API runtime", () => {
   afterEach(() => {
+    vi.useRealTimers();
     localStorage.clear();
     sessionStorage.clear();
     document.querySelectorAll("base").forEach((element) => element.remove());
@@ -103,5 +104,57 @@ describe("extension API runtime", () => {
       .toBe("Bearer expired-access-token");
     expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization"))
       .toBe("Bearer new-access-token");
+  });
+
+  it("does not time out extension requests by default", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+      const timer = window.setTimeout(() => resolve(new Response(null, { status: 204 })), 20_000);
+      init?.signal?.addEventListener("abort", () => {
+        window.clearTimeout(timer);
+        reject(init.signal?.reason);
+      }, { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let settled = false;
+    const outcome = extensionFetch("/api/plugins/example/long-running")
+      .then(() => "resolved", (error: Error) => error.name)
+      .finally(() => { settled = true; });
+
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(settled).toBe(false);
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    await expect(outcome).resolves.toBe("resolved");
+  });
+
+  it("supports an explicit extension request timeout", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = extensionFetch("/api/plugins/example/status", { timeoutMs: 100 });
+    const rejection = expect(request).rejects.toMatchObject({ name: "TimeoutError" });
+
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+  });
+
+  it("preserves caller cancellation without a default timeout", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    const request = extensionFetch("/api/plugins/example/status", { signal: controller.signal });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
   });
 });

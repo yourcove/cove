@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearch } from "../components/GlobalSearch";
+import { reportServerResponse, resetServerAvailabilityForTests } from "../state/serverAvailability";
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
 
@@ -27,6 +28,8 @@ function renderSearch(navigate = vi.fn()) {
   );
   return { navigate, queryClient };
 }
+
+afterEach(() => resetServerAvailabilityForTests());
 
 describe("GlobalSearch", () => {
   beforeEach(() => {
@@ -97,5 +100,70 @@ describe("GlobalSearch", () => {
     expect(firstSignal.aborted).toBe(true);
     expect(searchMock).toHaveBeenCalledTimes(2);
     expect(searchMock.mock.calls[1][0]).toBe("newer term");
+  });
+
+  it("reports a search failure instead of claiming there are no results", async () => {
+    searchMock.mockRejectedValue(new Error("Search API unavailable"));
+    renderSearch();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "test" } });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+    });
+
+    expect(screen.getAllByRole("alert")).not.toHaveLength(0);
+    expect(screen.getAllByText("Search could not be completed.")).not.toHaveLength(0);
+    expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
+
+    const callsBeforeRetry = searchMock.mock.calls.length;
+    fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]);
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+    });
+    expect(searchMock).toHaveBeenCalledTimes(callsBeforeRetry + 1);
+  });
+
+  it("explains a confirmed outage when every search scope fails", async () => {
+    reportServerResponse(new Response(null, { status: 502 }));
+    searchMock.mockRejectedValue(new Error("Search API unavailable"));
+    renderSearch();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "test" } });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+    });
+
+    expect(screen.getAllByText("Cove can’t reach the server right now.")).not.toHaveLength(0);
+    expect(screen.queryByText("Cove could not load any searchable library.")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes partial failures from an empty successful search", async () => {
+    searchMock.mockResolvedValue({ groups: [], failedTypes: ["video"] });
+    renderSearch();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "test" } });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+    });
+
+    expect(screen.getAllByText("Search failed for Videos.")).not.toHaveLength(0);
+    expect(screen.getAllByText(/No results found in the searches that completed/)).not.toHaveLength(0);
+    expect(screen.queryByText("Search could not be completed.")).not.toBeInTheDocument();
   });
 });

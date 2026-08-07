@@ -78,6 +78,48 @@ describe("FaceDetailPage", () => {
     vi.clearAllMocks();
   });
 
+  it("shows a retryable load error and recovers", async () => {
+    mockFaces.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce({
+        id: 7,
+        label: "Recovered face",
+        ignored: false,
+        detectionCount: 0,
+        videoCount: 0,
+        appearanceCount: 0,
+        frameSampleCount: 0,
+        imageCount: 0,
+        createdAt: "2026-04-01T12:00:00Z",
+        updatedAt: "2026-04-02T12:00:00Z",
+      });
+    mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
+    mockFaces.detections.mockResolvedValue([]);
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load face");
+    expect(screen.queryByText("Face not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Recovered face" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing face", async () => {
+    mockFaces.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+    mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
+    mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });
+    mockEntityEngagement.get.mockResolvedValue(null);
+
+    renderPage();
+
+    expect(await screen.findByText("Face not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders face metadata and similar faces", async () => {
     mockFaces.get.mockResolvedValue({
       id: 7,

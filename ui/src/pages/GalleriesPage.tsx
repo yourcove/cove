@@ -133,6 +133,7 @@ export function GalleriesPage({ onNavigate }: Props) {
   });
 
   const batchDownloadMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (options: BatchDownloadOptions) => queueBatchDownloads("Gallery", selectedDownloadTargets, options),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });

@@ -362,6 +362,7 @@ export function ImageEditPanel({ image, onSaved }: { image: Image; onSaved?: () 
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ data, contextTagIdsByPerformer, selectedPerformerIds }: { data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
       await images.update(image.id, data);
       await syncPerformerContextTags("image", image.id, image.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
@@ -393,6 +394,7 @@ export function ImageEditModal({ image, open, onClose }: ImageEditProps) {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ data, contextTagIdsByPerformer, selectedPerformerIds }: { data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
       await images.update(image.id, data);
       await syncPerformerContextTags("image", image.id, image.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
@@ -445,6 +447,7 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
   };
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ data, contextTagIdsByPerformer, selectedPerformerIds }: { data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
       const created = await images.create(data);
       if (!created?.id) {
@@ -458,6 +461,7 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
   });
 
   const fileMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ path, data, contextTagIdsByPerformer, selectedPerformerIds }: { path: string; data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
       const created = await images.createFromFile({ filePath: path });
       if (!created?.id) {
@@ -472,6 +476,7 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
   });
 
   const urlMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ requestedUrl, data, contextTagIdsByPerformer, selectedPerformerIds, downloadMode, scrapeMetadata }: { requestedUrl: string; data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[]; downloadMode: UrlDownloadMode; scrapeMetadata: boolean }) => {
       if (downloadMode === "now") {
         const matches = (await system.matchDownloaders({ url: requestedUrl }))

@@ -22,7 +22,8 @@ import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
 import { collapseExtensionCriteria, executableExtensionFilterKey, expandExtensionCriteria, unavailableExtensionCriterionDefinitions } from "../extensions/extensionListFilters";
-import { ListQueryState } from "./ListQueryState";
+import { QueryState } from "./QueryState";
+import { resolveQueryLoadState, type QueryLoadState } from "../utils/queryLoadState";
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 import { MultiSortControl } from "./MultiSortControl";
@@ -35,9 +36,10 @@ interface ListPageProps {
   filter: FindFilter;
   onFilterChange: (f: FindFilter) => void;
   totalCount: number;
-  isLoading: boolean;
+  isLoading?: boolean;
   error?: Error | null;
   onRetry?: () => void;
+  loadState?: QueryLoadState<unknown>;
   children: ReactNode;
   sortOptions?: { value: string; label: string }[];
   multiSortKeys?: readonly string[];
@@ -536,9 +538,10 @@ export function ListPage({
   filter,
   onFilterChange,
   totalCount,
-  isLoading,
+  isLoading = false,
   error,
   onRetry,
+  loadState,
   children,
   sortOptions,
   multiSortKeys,
@@ -838,18 +841,38 @@ export function ListPage({
 
   useDocumentTitle(title);
 
+  const resolvedLoadState = loadState ?? resolveQueryLoadState({
+    data: isLoading || error ? undefined : true,
+    isPending: isLoading,
+    error,
+    isEmpty: () => false,
+    retry: onRetry,
+  });
+
   return (
-    <div className="list-page space-y-0">
+    <QueryState
+      state={resolvedLoadState}
+      loading={(
+        <div className="list-page space-y-0">
+          <div role="status" aria-label={`Loading ${title}`} className="flex h-64 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
+          </div>
+        </div>
+      )}
+      errorTitle={`Could not load ${title}`}
+      errorClassName="mx-1 mt-3"
+    >
+      <div className="list-page space-y-0">
       {/* Toolbar - matches standard FilteredListToolbar */}
       <div className="list-page-toolbar mx-1 mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 shadow-sm shadow-black/20 sm:px-2.5 sm:py-2">
         {/* Title + count + byline */}
         <div className="list-page-title-group mr-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2">
           <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
           <span className="text-xs text-muted hidden sm:inline">
-            {error ? "Unavailable" : totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
+            {totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
-            {error ? "—" : totalCount > 0 ? totalCount.toLocaleString() : "0"}
+            {totalCount > 0 ? totalCount.toLocaleString() : "0"}
           </span>
           {metadataByline}
         </div>
@@ -1155,31 +1178,20 @@ export function ListPage({
       )}
 
       {/* Content */}
-      <ListQueryState
-        isLoading={isLoading}
-        loadError={error ?? null}
-        isEmpty={false}
-        onRetry={onRetry}
-        errorTitle={`Could not load ${title}`}
-        errorClassName="mx-1 mt-3"
-        loading={<div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" /></div>}
-        empty={null}
-      >
-        <ListPageCardSizeContext.Provider value={{ cardMinWidthPx, zoomLevel }}>
-          <div className="list-page-content pt-3" style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}>
-            {children}
-            {infinitePageSize && infiniteScroll && !contentOwnsInfiniteLoading && (
-              <InfiniteScrollSentinel
-                hasMore={Boolean(infiniteScroll.hasNextPage)}
-                isLoading={Boolean(infiniteScroll.isFetchingNextPage)}
-                onLoadMore={infiniteScroll.onLoadMore}
-                loadedCount={infiniteScroll.loadedCount}
-                totalCount={infiniteScroll.totalCount}
-              />
-            )}
-          </div>
-        </ListPageCardSizeContext.Provider>
-      </ListQueryState>
+      <ListPageCardSizeContext.Provider value={{ cardMinWidthPx, zoomLevel }}>
+        <div className="list-page-content pt-3" style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}>
+          {children}
+          {infinitePageSize && infiniteScroll && !contentOwnsInfiniteLoading && (
+            <InfiniteScrollSentinel
+              hasMore={Boolean(infiniteScroll.hasNextPage)}
+              isLoading={Boolean(infiniteScroll.isFetchingNextPage)}
+              onLoadMore={infiniteScroll.onLoadMore}
+              loadedCount={infiniteScroll.loadedCount}
+              totalCount={infiniteScroll.totalCount}
+            />
+          )}
+        </div>
+      </ListPageCardSizeContext.Provider>
 
       {/* Pagination bottom */}
       {showPagingControls && totalPages > 1 && (
@@ -1215,6 +1227,7 @@ export function ListPage({
           preselectCriterion={filterDialogPreselect}
         />
       )}
-    </div>
+      </div>
+    </QueryState>
   );
 }

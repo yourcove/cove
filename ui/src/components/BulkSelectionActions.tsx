@@ -275,6 +275,7 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
   const supportsDeleteOptions = entityType === "videos" || entityType === "images" || entityType === "audios" || entityType === "texts";
 
   const bulkDeleteMut = useMutation<void, Error, DeleteEntityOptions | undefined>({
+    meta: { suppressGlobalError: true },
     mutationFn: async (options) => {
       await api.bulkDelete([...selectedIds], options);
     },
@@ -289,6 +290,7 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
   });
 
   const removeFromParentMut = useMutation<void, Error>({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (!removeFromParentAction) return;
       await removeFromParentAction.run([...selectedIds]);
@@ -361,6 +363,7 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
   }, [batchDownloadStorageKey]);
 
   const batchDownloadMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (options: BatchDownloadOptions) => {
       if (!downloadEntity) {
         throw new Error("Bulk download is not available for this entity type.");
@@ -552,4 +555,3 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
     </>
   );
 }
-

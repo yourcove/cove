@@ -50,6 +50,7 @@ export function ImageDownloadDialog({ open, onClose, onNavigate, image }: Props)
   }, [qualityId, selectedMatch]);
 
   const matchMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       const value = url.trim();
       if (!value) {
@@ -74,6 +75,7 @@ export function ImageDownloadDialog({ open, onClose, onNavigate, image }: Props)
   });
 
   const startDownloadMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ queueDownload }: { queueDownload: boolean }) => {
       if (!selectedMatch) {
         throw new Error("Select a downloader match first.");

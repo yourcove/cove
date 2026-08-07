@@ -235,11 +235,13 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
   };
 
   const createMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: TextCreate) => texts.create(data),
     onSuccess: handleCreated,
   });
 
   const fileMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ path, data }: { path: string; data: TextCreate }) => {
       const created = await texts.createFromFile({ filePath: path });
       return created?.id ? texts.update(created.id, data) : created;
@@ -248,6 +250,7 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
   });
 
   const downloadMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async ({ requestedUrl, data, downloadMode, scrapeMetadata }: { requestedUrl: string; data: TextCreate; downloadMode: UrlDownloadMode; scrapeMetadata: boolean }) => {
       if (downloadMode === "now") {
         const matches = (await system.matchDownloaders({ url: requestedUrl }))

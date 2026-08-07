@@ -21,7 +21,7 @@ import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useAppConfig } from "../state/AppConfigContext";
 import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
-import { getLoadError } from "../utils/queryLoadState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -180,10 +180,11 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   const canReadFaces = canReadEntity("face", hasPermission);
   const { backLabel, goBack } = useBackNavigation({ page: "segments" }, onNavigate);
 
-  const { data: segment, isLoading } = useQuery({
+  const { data: segment, isLoading, error: segmentError, refetch: retrySegment } = useQuery({
     queryKey: ["segment", id],
     queryFn: () => segmentLibrary.get(id),
   });
+  const segmentLoadError = getLoadError(segment, segmentError);
 
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<EditableSegmentKind>("tag");
@@ -507,6 +508,14 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(segmentLoadError)) {
+    return <div className="py-16 text-center text-secondary">Segment not found</div>;
+  }
+
+  if (segmentLoadError) {
+    return <ListLoadError error={segmentLoadError} onRetry={() => { void retrySegment(); }} title="Could not load segment" className="mx-0 mt-0" />;
   }
 
   if (!segment) {

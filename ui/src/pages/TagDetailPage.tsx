@@ -11,6 +11,7 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { AudioTile, VideoCard, PerformerTile, ImageTile, GalleryTile, StudioTile, GroupTile, SegmentTile, TextTile } from "../components/EntityCards";
 import { QuickViewDialog } from "../components/QuickViewDialog";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { ListLoadError } from "../components/ListLoadError";
 import { ListQueryState } from "../components/ListQueryState";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
@@ -47,6 +48,7 @@ import { TEXT_SORT_OPTIONS } from "../components/textSortOptions";
 import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
 import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -67,10 +69,11 @@ type TabKey = "videos" | "performers" | "images" | "galleries" | "audios" | "tex
 export function TagDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
-  const { data: tag, isLoading } = useQuery({
+  const { data: tag, isLoading, error: tagError, refetch: retryTag } = useQuery({
     queryKey: ["tag", id],
     queryFn: () => tags.get(id),
   });
+  const tagLoadError = getLoadError(tag, tagError);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -183,6 +186,14 @@ export function TagDetailPage({ id, onNavigate }: Props) {
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(tagLoadError)) {
+    return <div className="py-16 text-center text-secondary">Tag not found</div>;
+  }
+
+  if (tagLoadError) {
+    return <ListLoadError error={tagLoadError} onRetry={() => { void retryTag(); }} title="Could not load tag" className="mx-0 mt-0" />;
   }
 
   if (!tag) {

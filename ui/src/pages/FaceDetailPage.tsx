@@ -27,7 +27,7 @@ import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { DetailListDisplayMode } from "../components/DetailListToolbar";
-import { getLoadError } from "../utils/queryLoadState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -92,10 +92,11 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const { data: face, isLoading } = useQuery({
+  const { data: face, isLoading, error: faceError, refetch: retryFace } = useQuery({
     queryKey: ["face", id],
     queryFn: () => faces.get(id),
   });
+  const faceLoadError = getLoadError(face, faceError);
 
   const { data: similarFacesPage = EMPTY_SIMILAR_PAGE, isLoading: similarLoading, loadError: similarLoadError, retry: retrySimilar, infinitePageSize: similarInfinitePageSize, infiniteQuery: similarInfiniteQuery, loadMore: loadMoreSimilar } = useDetailListQuery<FaceSimilar>({
     queryKey: ["face", id, "similar"],
@@ -297,6 +298,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
   });
 
   const createPerformerMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => faces.createPerformer(id, { name: normalizedNewPerformerName, setPerformerImage: setNewPerformerImage }),
     onSuccess: (updated) => {
       setIsCreatePerformerModalOpen(false);
@@ -354,6 +356,14 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(faceLoadError)) {
+    return <div className="py-16 text-center text-secondary">Face not found</div>;
+  }
+
+  if (faceLoadError) {
+    return <ListLoadError error={faceLoadError} onRetry={() => { void retryFace(); }} title="Could not load face" className="mx-0 mt-0" />;
   }
 
   if (!face) {

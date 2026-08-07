@@ -31,6 +31,7 @@ import {
   type MediaPlayerInteractionSnapshot,
   type MediaPlayerSurface,
 } from "./MediaPlayerExtension";
+import { useMediaRecoveryController } from "./useMediaRecoveryController";
 
 type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
 type DetectionOverlay = Detection & { overlayKey?: string };
@@ -332,10 +333,6 @@ export function VideoPlayer({
   const sourceGenerationRef = useRef(0);
   const metadataHandledGenerationRef = useRef<number | null>(null);
   const pendingAutostartRef = useRef(false);
-  // Bounded in-place recovery from transient network stalls (MEDIA_ERR_NETWORK/ABORTED). Tracks how
-  // many reloads we've attempted since playback last succeeded plus the pending backoff timer, so a
-  // dead source can't spin us in a tight reload loop. Reset to 0 whenever playback resumes.
-  const networkRecoveryRef = useRef<{ attempts: number; timer: ReturnType<typeof setTimeout> | null }>({ attempts: 0, timer: null });
   // Resume-seek bookkeeping: which source we last applied the resume/initial seek for, and whether a real
   // resume target has been applied for it. Lets us ignore later resumeTime changes for the SAME source (the
   // engagement cache being rewritten when you rate/favorite mid-playback) so they can't yank playback.
@@ -516,8 +513,6 @@ export function VideoPlayer({
     setPlaying(false);
     autoTranscodeTriedRef.current = false;
     audioFallbackAppliedRef.current = false;
-    if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
-    networkRecoveryRef.current = { attempts: 0, timer: null };
     setAudioFallbackActive(false);
     setSelectedQuality("Direct");
     setTranscodeStartSec(0);
@@ -572,6 +567,15 @@ export function VideoPlayer({
   const toAbsoluteTime = useCallback((mediaTime: number) => (
     selectedQuality === "Direct" ? mediaTime : transcodeStartSec + mediaTime
   ), [selectedQuality, transcodeStartSec]);
+
+  const toMediaTime = useCallback((absoluteTime: number) => (
+    selectedQuality === "Direct" ? absoluteTime : Math.max(0, absoluteTime - transcodeStartSec)
+  ), [selectedQuality, transcodeStartSec]);
+
+  const handleRecoveryPlayFailed = useCallback(() => {
+    setPlaying(false);
+    onPlaybackStateChange?.(false);
+  }, [onPlaybackStateChange]);
 
   const seekToAbsoluteTime = useCallback((targetTime: number, forcePlay = false) => {
     const video = videoRef.current;
@@ -812,6 +816,27 @@ export function VideoPlayer({
   const effectiveStreamUrl = selectedQuality === "Direct" ? streamUrl : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined);
   const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
   const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
+  const {
+    phase: mediaRecoveryPhase,
+    waiting: recordMediaWaiting,
+    networkError: recordMediaNetworkError,
+    metadataLoaded: recordMediaMetadataLoaded,
+    canPlay: recordMediaCanPlay,
+    playing: recordMediaPlaying,
+    mediaProgress: recordMediaProgress,
+    ended: recordMediaEnded,
+    userPlay: recordMediaUserPlay,
+    userPause: recordMediaUserPause,
+    userSeek: recordMediaUserSeek,
+    retry: retryMediaRecovery,
+  } = useMediaRecoveryController({
+    mediaRef: videoRef,
+    resetKey: `${videoId}|${effectiveSourceSignature}`,
+    toAbsoluteTime,
+    toMediaTime,
+    setBuffering: setIsBuffering,
+    onRecoveryPlayFailed: handleRecoveryPlayFailed,
+  });
 
   useEffect(() => {
     const v = videoRef.current;
@@ -1154,20 +1179,23 @@ export function VideoPlayer({
   const playVideo = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    recordMediaUserPlay();
     prepareClipForPlayback();
     video.play().catch(() => {});
-  }, [prepareClipForPlayback]);
+  }, [prepareClipForPlayback, recordMediaUserPlay]);
 
   const playForExtension = useCallback(async () => {
     const video = videoRef.current;
     if (!video) return;
+    recordMediaUserPlay();
     prepareClipForPlayback();
     await video.play();
-  }, [prepareClipForPlayback]);
+  }, [prepareClipForPlayback, recordMediaUserPlay]);
 
   const pauseForExtension = useCallback(() => {
+    recordMediaUserPause();
     videoRef.current?.pause();
-  }, []);
+  }, [recordMediaUserPause]);
 
   const seekForExtension = useCallback((seconds: number) => {
     if (!Number.isFinite(seconds)) return;
@@ -1209,7 +1237,11 @@ export function VideoPlayer({
         case " ":
         case "k":
           event.preventDefault();
-          v.paused ? playVideo() : v.pause();
+          if (v.paused) playVideo();
+          else {
+            recordMediaUserPause();
+            v.pause();
+          }
           break;
         case "ArrowLeft":
           event.preventDefault();
@@ -1249,12 +1281,16 @@ export function VideoPlayer({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [currentTime, playVideo, resetHideTimer, seekToAbsoluteTime, timelineDuration, timelineStart]);
+  }, [currentTime, playVideo, recordMediaUserPause, resetHideTimer, seekToAbsoluteTime, timelineDuration, timelineStart]);
 
   const togglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
-    v.paused ? playVideo() : v.pause();
+    if (v.paused) playVideo();
+    else {
+      recordMediaUserPause();
+      v.pause();
+    }
   };
 
   const seekTo = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -1364,39 +1400,6 @@ export function VideoPlayer({
     changeQuality(target);
   };
 
-  // Recover in place from a transient network stall (MEDIA_ERR_NETWORK / MEDIA_ERR_ABORTED). A hard
-  // network error leaves the <video> element in an error state that will not resume on its own, so we
-  // must reload — but we reload the SAME source and seek back to where we were, showing the buffering
-  // spinner meanwhile, instead of falling back to a transcode (which reloads from 0 and is what made
-  // the player jump to the beginning). Bounded + backed-off so a genuinely dead source stops retrying.
-  const recoverFromNetworkStall = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (networkRecoveryRef.current.attempts >= 3) return;
-    networkRecoveryRef.current.attempts += 1;
-    setIsBuffering(true);
-
-    const resumeAt = video.currentTime > 0.01
-      ? (selectedQuality === "Direct" ? video.currentTime : transcodeStartSec + video.currentTime)
-      : undefined;
-    const wasPlaying = !video.paused;
-
-    const onMeta = () => {
-      if (resumeAt != null && Number.isFinite(resumeAt)) {
-        video.currentTime = selectedQuality === "Direct" ? resumeAt : Math.max(0, resumeAt - transcodeStartSec);
-      }
-      if (wasPlaying) video.play().catch(() => {});
-    };
-    video.addEventListener("loadedmetadata", onMeta, { once: true });
-
-    if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
-    // Short, increasing backoff so a briefly-flapping connection isn't hammered.
-    networkRecoveryRef.current.timer = setTimeout(() => {
-      const v = videoRef.current;
-      if (v) v.load();
-    }, 500 * networkRecoveryRef.current.attempts);
-  };
-
   useEffect(() => {
     const video = videoRef.current;
     if (!video) {
@@ -1488,7 +1491,6 @@ export function VideoPlayer({
   useEffect(() => {
     const video = videoRef.current;
     return () => {
-      if (networkRecoveryRef.current.timer) clearTimeout(networkRecoveryRef.current.timer);
       if (!video) return;
       try {
         video.pause();
@@ -1617,7 +1619,10 @@ export function VideoPlayer({
         poster={posterUrl}
         playsInline
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
-        onLoadedMetadata={handleVideoMetricsReady}
+        onLoadedMetadata={(event) => {
+          handleVideoMetricsReady();
+          recordMediaMetadataLoaded();
+        }}
         onLoadedData={handleVideoMetricsReady}
         onError={(e) => {
           const code = e.currentTarget.error?.code;
@@ -1627,18 +1632,27 @@ export function VideoPlayer({
           if (selectedQuality === "Direct" && (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)) {
             fallbackToTranscode();
           } else if (code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_ABORTED) {
-            recoverFromNetworkStall();
+            const video = e.currentTarget;
+            recordMediaNetworkError(
+              video,
+              playing || !video.paused ? "play" : "pause",
+              code === MediaError.MEDIA_ERR_NETWORK,
+            );
           }
         }}
         onClick={interactionSnapshot.active ? undefined : togglePlay}
         onDoubleClick={interactionSnapshot.active ? undefined : toggleFullscreen}
-        onWaiting={() => setIsBuffering(true)}
-        onStalled={() => setIsBuffering(true)}
-        onCanPlay={() => setIsBuffering(false)}
+        onWaiting={(event) => {
+          recordMediaWaiting(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
+        }}
+        onStalled={(event) => {
+          recordMediaWaiting(event.currentTarget, playing || !event.currentTarget.paused ? "play" : "pause");
+        }}
+        onCanPlay={(event) => {
+          recordMediaCanPlay(event.currentTarget);
+        }}
         onPlaying={() => {
-          setIsBuffering(false);
-          // Playback is healthy again — clear the transient-stall retry budget.
-          networkRecoveryRef.current.attempts = 0;
+          recordMediaPlaying();
         }}
         onPlay={() => {
           setPlaying(true);
@@ -1673,13 +1687,15 @@ export function VideoPlayer({
             intervalStart.current = null;
           }
           const video = videoRef.current;
+          const seekTarget = video ? toAbsoluteTime(video.currentTime) : undefined;
+          if (video && seekTarget != null && Number.isFinite(seekTarget)) recordMediaUserSeek(video);
           trackPlayerInteraction("seek", {
             fromSec: lastSeenTime.current,
-            toSec: video ? roundPlaybackTime(toAbsoluteTime(video.currentTime)) : undefined,
+            toSec: seekTarget != null ? roundPlaybackTime(seekTarget) : undefined,
           });
         }}
         onSeeked={() => {
-          setIsBuffering(false);
+          if (mediaRecoveryPhase === "healthy") setIsBuffering(false);
           const video = videoRef.current;
           if (video && !video.paused && !interactionSnapshotRef.current.pauseTracking) {
             const time = roundPlaybackTime(toAbsoluteTime(video.currentTime));
@@ -1688,6 +1704,7 @@ export function VideoPlayer({
         }}
         onTimeUpdate={() => {
           const v = videoRef.current;
+          if (v) recordMediaProgress(v);
           const time = roundPlaybackTime(v ? toAbsoluteTime(v.currentTime) : 0);
           setCurTime(time);
           onTimeUpdateProp?.(time);
@@ -1729,6 +1746,7 @@ export function VideoPlayer({
           if (v && v.buffered.length > 0) setBuffered(Math.min(duration, toAbsoluteTime(v.buffered.end(v.buffered.length - 1))));
         }}
         onEnded={() => {
+          recordMediaEnded();
           if (loop) {
             flushInterval("active");
             intervalStart.current = null;
@@ -2110,7 +2128,22 @@ export function VideoPlayer({
         </div>
       </div>
 
-      {isBuffering && (
+      {mediaRecoveryPhase === "exhausted" ? (
+        <div role="alert" className="absolute inset-0 z-[5] flex items-center justify-center bg-black/65 px-4 text-center">
+          <div>
+            <p className="font-medium text-white">Playback could not reconnect.</p>
+            <button
+              type="button"
+              onClick={retryMediaRecovery}
+              className="mt-3 rounded-md border border-white/50 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/10"
+            >
+              Retry playback
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isBuffering && mediaRecoveryPhase !== "exhausted" && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[3]">
           <div className="h-12 w-12 rounded-full border-4 border-white/30 border-t-white animate-spin" />
         </div>

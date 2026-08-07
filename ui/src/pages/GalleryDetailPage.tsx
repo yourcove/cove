@@ -38,6 +38,7 @@ import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 
 interface Props {
   id: number;
@@ -58,7 +59,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("images");
   const { filter: imageFilter, setFilter: setImageFilter, objectFilter: imageObjectFilter, setObjectFilter: setImageObjectFilter, displayMode: imageDisplayMode, setDisplayMode: setImageDisplayMode, availableDisplayModes: imageDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "gallery-images", entityType: "images", builtInFilter: { page: 1, perPage: 60, direction: "desc" }, defaultFilterKey: GALLERY_IMAGES_DEFAULT_FILTER_KEY, enabled: activeTab === "images" });
   const hasImageObjectFilter = Object.keys(imageObjectFilter).length > 0;
-  const { data: gallery, isLoading } = useQuery({
+  const { data: gallery, isLoading, error: galleryError, refetch: retryGallery } = useQuery({
     queryKey: ["gallery", id],
     queryFn: () => galleries.get(id),
   });
@@ -67,6 +68,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     queryFn: () => galleries.getLikeCount(id),
     enabled: !!gallery,
   });
+  const galleryLoadError = getLoadError(gallery, galleryError);
   const queryGalleryImages = useCallback((nextFilter: FindFilter) => hasImageObjectFilter
     ? images.findFiltered({
         findFilter: nextFilter,
@@ -243,6 +245,14 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(galleryLoadError)) {
+    return <div className="py-16 text-center text-secondary">Gallery not found</div>;
+  }
+
+  if (galleryLoadError) {
+    return <ListLoadError error={galleryLoadError} onRetry={() => { void retryGallery(); }} title="Could not load gallery" className="mx-0 mt-0" />;
   }
 
   if (!gallery) {

@@ -204,6 +204,7 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
   });
 
   const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (!endpoint) throw new Error("Select a metadata-server source first.");
       return tags.submitMetadataServerDraft(tag.id, endpoint);

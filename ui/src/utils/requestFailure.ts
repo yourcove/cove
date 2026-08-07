@@ -1,0 +1,22 @@
+import type { ServerAvailability } from "../state/serverAvailability";
+
+export const SERVER_UNAVAILABLE_DETAIL = "Cove can’t reach the server right now.";
+
+export function getRequestFailureDetail(error: unknown, availability: ServerAvailability): string {
+  if (availability !== "available") return SERVER_UNAVAILABLE_DETAIL;
+
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if ((error instanceof DOMException && error.name === "TimeoutError") || /\btimed out\b/i.test(message)) {
+    return "The request timed out. Please try again.";
+  }
+  if (error instanceof TypeError) {
+    return "The request could not reach the server. Please try again.";
+  }
+
+  const status = Number(message.match(/API Error (\d{3})\b/i)?.[1]);
+  if (status === 403) return "You don’t have permission to access this information.";
+  if (status === 404) return "The requested information could not be found.";
+  if (status >= 500) return "The server returned an error. Please try again.";
+  if (Number.isFinite(status)) return "Cove couldn’t complete the request. Please try again.";
+  return "Cove couldn’t complete the request. Please try again.";
+}

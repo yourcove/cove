@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ListQueryState } from "../components/ListQueryState";
-import { getLoadError, normalizeQueryError } from "../utils/queryLoadState";
+import { getLoadError, normalizeQueryError, resolveQueryLoadState } from "../utils/queryLoadState";
 
 describe("query load state", () => {
   it("only exposes an error before any data has loaded", () => {
@@ -16,6 +16,17 @@ describe("query load state", () => {
   it("normalizes non-Error query failures", () => {
     expect(normalizeQueryError("Bad Gateway")?.message).toBe("Bad Gateway");
     expect(normalizeQueryError(null)).toBeNull();
+  });
+
+  it("derives pending, error, empty, and success without treating failures as empty", () => {
+    const error = new Error("API request timed out");
+    const retry = vi.fn();
+
+    expect(resolveQueryLoadState({ data: undefined, isPending: true, error, isEmpty: () => true, retry })).toEqual({ status: "pending" });
+    expect(resolveQueryLoadState({ data: undefined, isPending: false, error, isEmpty: () => true, retry })).toEqual({ status: "error", error, retry });
+    expect(resolveQueryLoadState({ data: { items: [] }, isPending: false, error: null, isEmpty: (data) => data.items.length === 0 })).toEqual({ status: "empty", data: { items: [] } });
+    expect(resolveQueryLoadState({ data: { items: [1] }, isPending: false, error: null, isEmpty: (data) => data.items.length === 0 })).toEqual({ status: "success", data: { items: [1] } });
+    expect(resolveQueryLoadState({ data: { items: [1] }, isPending: false, error, isEmpty: (data) => data.items.length === 0 }).status).toBe("success");
   });
 });
 
@@ -45,7 +56,8 @@ describe("ListQueryState", () => {
         {states.children}
       </ListQueryState>,
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("API Error 502: Bad Gateway");
+    expect(screen.getByRole("alert")).toHaveTextContent("The server returned an error. Please try again.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("API Error");
     expect(screen.queryByText("empty state")).not.toBeInTheDocument();
     expect(screen.queryByText("content state")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));

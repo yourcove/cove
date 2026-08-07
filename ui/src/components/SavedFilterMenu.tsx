@@ -126,6 +126,7 @@ export function SavedFilterMenu({
   }, [open]);
 
   const createMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () =>
       savedFilters.create({
         mode,
@@ -142,6 +143,7 @@ export function SavedFilterMenu({
   });
 
   const updateMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (id: number) =>
       savedFilters.update(id, {
         findFilter: JSON.stringify(stripRandomSeed(currentFilter)),

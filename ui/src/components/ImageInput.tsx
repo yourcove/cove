@@ -32,6 +32,7 @@ export function ImageInput({
   const [imgError, setImgError] = useState(false);
 
   const uploadMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: onUpload,
     onSuccess: () => {
       setPreview(null);

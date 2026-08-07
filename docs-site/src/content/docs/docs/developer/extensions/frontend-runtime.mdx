@@ -45,10 +45,16 @@ export async function loadSummary() {
 Its signature is:
 
 ```ts
-function extensionFetch(input: string, init?: RequestInit): Promise<Response>;
+interface ExtensionFetchOptions extends RequestInit {
+  timeoutMs?: number | null;
+}
+
+function extensionFetch(input: string, init?: ExtensionFetchOptions): Promise<Response>;
 ```
 
 `extensionFetch` accepts only same-origin URLs whose path is `/api` or starts with `/api/`. Relative forms such as `api/ext/...` are normalized against the current Cove origin. Cross-origin URLs and non-API paths throw a `TypeError` before a request is sent.
+
+Extension requests do not time out by default, preserving normal `fetch` behavior for long-running extension operations. Set `timeoutMs` to a positive number to opt an individual request into a timeout. Passing `null` or omitting the option leaves the request unlimited; a caller-provided `AbortSignal` can still cancel it.
 
 The helper sends the current bearer or share credentials, uses Cove's normal access-token refresh and single retry behavior, and returns the standard `Response`. It forces `redirect: "error"` so an API request cannot follow a redirect outside the allowed boundary.
 
