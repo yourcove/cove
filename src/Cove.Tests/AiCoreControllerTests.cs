@@ -742,7 +742,7 @@ public class AiCoreControllerTests
         public Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public Task GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default)
+        public Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)

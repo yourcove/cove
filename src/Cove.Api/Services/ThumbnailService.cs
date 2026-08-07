@@ -25,7 +25,7 @@ public interface IThumbnailService
     Task DeleteImageGeneratedFilesAsync(int imageId, CancellationToken ct = default);
     Task DeleteBlobGeneratedFilesAsync(string blobId, CancellationToken ct = default);
     Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default);
-    Task GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default);
+    Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default);
     Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default);
     Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default);
     Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default);
@@ -332,33 +332,37 @@ public class ThumbnailService(
         }
     }
 
-    public async Task GenerateImageThumbnailAsync(int imageId, int maxDimension, bool overwrite, CancellationToken ct)
+    public async Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension, bool overwrite, CancellationToken ct)
     {
         maxDimension = NormalizeImageThumbnailMaxDimension(maxDimension);
 
         var imageFile = await GetImageFileRecordAsync(imageId, ct);
-        if (imageFile == null) return;
+        if (imageFile == null) return false;
 
         var source = await OpenImageSourceStreamAsync(imageFile, ct);
         if (source == null)
-            return;
+            return false;
 
         var effectiveContentType = await GetEffectiveImageContentTypeAsync(source.Value.stream, source.Value.contentType, ct);
         if (!CanGenerateImageThumbnail(effectiveContentType ?? source.Value.contentType))
-            return;
+            return false;
 
         var thumbnailBasePath = GetImageThumbnailBasePath(imageId, maxDimension);
         var thumbnailOutput = GetImageThumbnailOutput(effectiveContentType ?? source.Value.contentType);
         var thumbnailPath = GetImageThumbnailPath(thumbnailBasePath, thumbnailOutput);
         if (!overwrite && IsImageThumbnailCurrent(thumbnailPath, imageFile.ModTime))
-            return;
+            return true;
 
         await using (source.Value.stream)
         {
             if (!await TryGenerateImageThumbnailFileAsync(source.Value.stream, TryGetDirectImageSourcePath(imageFile), effectiveContentType ?? source.Value.contentType, thumbnailPath, imageFile.ModTime, maxDimension, thumbnailOutput, ct))
+            {
                 logger.LogTrace("Skipping generated thumbnail for unsupported image format {ImageId}", imageId);
-            else
-                DeleteAlternateImageThumbnailVariants(thumbnailBasePath, thumbnailPath);
+                return false;
+            }
+
+            DeleteAlternateImageThumbnailVariants(thumbnailBasePath, thumbnailPath);
+            return true;
         }
     }
 

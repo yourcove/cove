@@ -1041,6 +1041,7 @@ public class FolderConfiguration : IEntityTypeConfiguration<Folder>
         builder.ToTable("folders");
         builder.HasKey(f => f.Id);
         builder.Property(f => f.Path).IsRequired();
+        builder.Property(f => f.ScanSignature).HasMaxLength(64);
         builder.HasOne(f => f.ParentFolder).WithMany(f => f.SubFolders).HasForeignKey(f => f.ParentFolderId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(f => f.Files).WithOne(file => file.ParentFolder).HasForeignKey(file => file.ParentFolderId).OnDelete(DeleteBehavior.Cascade);
 

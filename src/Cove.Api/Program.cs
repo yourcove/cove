@@ -291,6 +291,9 @@ try
     // Application services
     builder.Services.AddSingleton<IThumbnailService, ThumbnailService>();
     builder.Services.AddSingleton<IFingerprintService, FingerprintService>();
+    builder.Services.AddSingleton<IMediaProbeService, FfprobeMediaProbeService>();
+    builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton<IScanFileValidator, ScanFileValidator>();
     builder.Services.AddSingleton<IFaceSuggester, EmptyFaceSuggester>();
     builder.Services.AddScoped<IScanService, ScanService>();
     builder.Services.AddScoped<IStreamService, StreamService>();
