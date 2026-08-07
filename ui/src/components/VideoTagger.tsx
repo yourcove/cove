@@ -37,6 +37,7 @@ import {
   CloudUpload,
 } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
+import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
 
 interface VideoTaggerProps {
   videos: Video[];
@@ -906,7 +907,6 @@ function TaggerVideoRow({
   detailMode = false,
 }: TaggerVideoRowProps) {
   const file = video.files[0];
-  const screenshotUrl = videos.screenshotUrl(video.id, video.updatedAt);
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
   const handleRefreshFromRemote = async (endpoint: string, remoteId: string) => {
     setRefreshBusyEndpoint(endpoint);
@@ -1064,28 +1064,19 @@ function TaggerVideoRow({
             <Check className="h-3 w-3" />
           </button>
         )}
-        {/* Video preview — compact */}
+        {/* Video preview */}
         <a
           {...videoLinkProps}
-          className="flex-shrink-0 w-32 block group/video"
+          className="video-card-preview-trigger block w-[10.5rem] flex-shrink-0 group/video"
           title={`Open video ${video.title || file?.basename || "Untitled"}`}
         >
-          <div className="relative aspect-video bg-card rounded overflow-hidden">
-            <img
-              src={screenshotUrl}
-              alt=""
-              className="w-full h-full object-cover"
-              loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
+          <VideoPreviewThumbnail video={video} fit="cover" surface="list" coverWidth={640} className="rounded bg-card">
             {file && file.duration > 0 && (
-              <span className="absolute bottom-0.5 right-0.5 text-[8px] text-white bg-black/70 px-0.5 rounded">
+              <span className="video-specs-overlay absolute bottom-0.5 right-0.5 z-[5] rounded bg-black/70 px-0.5 text-[8px] text-white transition-opacity">
                 {formatDuration(file.duration)}
               </span>
             )}
-          </div>
+          </VideoPreviewThumbnail>
           <p className="text-[11px] text-accent mt-0.5 truncate font-medium leading-snug group-hover/video:underline">
             {video.title || file?.basename || "Untitled"}
           </p>
