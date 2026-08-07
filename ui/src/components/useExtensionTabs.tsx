@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { ExtensionErrorBoundary } from "./ExtensionErrorBoundary";
+import { serverAwareFetch } from "../state/serverAvailability";
 
 interface Tab {
   key: string;
@@ -41,7 +42,7 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
       toFetch.map(async (t) => {
         try {
           const url = t.countEndpoint!.replace("{entityId}", String(entityId));
-          const res = await fetch(url);
+          const res = await serverAwareFetch(url);
           if (res.ok) {
             const data = await res.json();
             return { key: t.key, count: data.count ?? 0 } as { key: string; count: number };

@@ -1042,6 +1042,7 @@ function TaggerVideoRow({
   const shouldHighlightFingerprintSubmit = canSubmitFingerprints;
 
   const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (!submitEndpoint) throw new Error("Select a metadata-server source first.");
       return videos.submitMetadataServerDraft(video.id, submitEndpoint);
@@ -1049,6 +1050,7 @@ function TaggerVideoRow({
   });
 
   const submitFingerprintsMut = useMutation<void, Error>({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (!submitEndpoint) throw new Error("Select a metadata-server source first.");
       return videos.submitFingerprints(video.id, submitEndpoint);

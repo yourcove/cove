@@ -313,6 +313,7 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
 
   // Apply mutation
   const applyMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       const updates = selectedRows.map((r) => {
         const title = r.editedTitle ?? r.parsed?.title;
@@ -617,4 +618,3 @@ export function VideoFilenameParserPage({ onNavigate }: Props) {
     </div>
   );
 }
-

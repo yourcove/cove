@@ -149,6 +149,8 @@ function getPrimaryDetailTabs() {
 describe("ImageDetailPage", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockImages.get.mockReset();
+    mockFaces.imageFaces.mockReset();
   });
 
   it("renders the shared layout with faces and related content in details", async () => {
@@ -224,5 +226,31 @@ describe("ImageDetailPage", () => {
       scopeKey: "image:12:lightbox",
       intervals: [expect.objectContaining({ startSec: 0, endSec: expect.any(Number) })],
     })));
+  });
+
+  it("shows a retryable load error when the image request fails", async () => {
+    mockImages.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildImage({ title: "Recovered image" }));
+    mockFaces.imageFaces.mockResolvedValue([]);
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load image");
+    expect(screen.queryByText("Image not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Recovered image" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing image", async () => {
+    mockImages.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+    mockFaces.imageFaces.mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByText("Image not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

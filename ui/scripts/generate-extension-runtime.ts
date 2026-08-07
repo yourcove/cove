@@ -150,7 +150,7 @@ async function main() {
   await writeLocalRuntimeModule(
     "api",
     "Re-exports Cove's authenticated fetch helper for extensions.",
-    'export { extensionFetch } from "../../../../extensions/extension-api";',
+    'export { extensionFetch, type ExtensionFetchOptions } from "../../../../extensions/extension-api";',
   );
 
   await generateContractModule();

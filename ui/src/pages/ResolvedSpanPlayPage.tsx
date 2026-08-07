@@ -8,6 +8,7 @@ import { canWriteEntity } from "../auth/visibility";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { VideoCard } from "../components/EntityCards";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
+import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { SegmentVisualSimilarityPanel, useSegmentVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { VideoPlayer } from "../components/VideoPlayer";
@@ -16,6 +17,7 @@ import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { useAppConfig } from "../state/AppConfigContext";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { buildSubVideoCreate } from "../utils/subVideoCreation";
 
 interface Props {
@@ -30,10 +32,11 @@ type ResolvedSpanTab = "overview" | "context" | "intervals" | "similar";
 
 export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQueryDescriptor, onNavigate }: Props) {
   const { backLabel, goBack } = useBackNavigation({ page: "video", id: videoId }, onNavigate);
-  const { data: detail, isLoading } = useQuery({
+  const { data: detail, isLoading, error: detailError, refetch: retryDetail } = useQuery({
     queryKey: ["video", videoId, "span", spanKey, profileId],
     queryFn: () => videos.segments.spanDetail(videoId, spanKey, profileId),
   });
+  const detailLoadError = getLoadError(detail, detailError);
 
   const title = detail?.span.tagName || detail?.span.kind || detail?.videoTitle || (detail ? `Span ${detail.span.spanKey}` : null);
   useDocumentTitle(title);
@@ -44,6 +47,14 @@ export function ResolvedSpanPlayPage({ videoId, spanKey, profileId, derivedQuery
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(detailLoadError)) {
+    return <div className="py-16 text-center text-secondary">Resolved span not found</div>;
+  }
+
+  if (detailLoadError) {
+    return <ListLoadError error={detailLoadError} onRetry={() => { void retryDetail(); }} title="Could not load segment" className="mx-0 mt-0" />;
   }
 
   if (!detail) {

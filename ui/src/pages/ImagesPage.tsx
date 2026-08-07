@@ -251,6 +251,7 @@ export function ImagesPage({ onNavigate }: Props) {
   }, [listData, selectIds]);
 
   const bulkDeleteMut = useMutation<void, Error, DeleteEntityOptions | undefined>({
+    meta: { suppressGlobalError: true },
     mutationFn: async (options) => {
       await images.bulkDelete([...selectedIds], options);
     },

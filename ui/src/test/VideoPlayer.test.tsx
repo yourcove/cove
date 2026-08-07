@@ -1,7 +1,12 @@
 import React from "react";
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayer, type VideoPlayerPlaybackControls } from "../components/VideoPlayer";
+import {
+  getServerAvailability,
+  reportServerResponse,
+  resetServerAvailabilityForTests,
+} from "../state/serverAvailability";
 
 const { mockPlaybackTracker } = vi.hoisted(() => ({
   mockPlaybackTracker: {
@@ -28,6 +33,7 @@ vi.mock("../state/AppConfigContext", () => ({
 const playMock = vi.fn(() => Promise.resolve());
 const pauseMock = vi.fn();
 const loadMock = vi.fn();
+const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(new Response(null, { status: 200 })));
 const localStorageMock = {
   getItem: vi.fn(() => null),
   setItem: vi.fn(),
@@ -43,6 +49,13 @@ class ResizeObserverMock {
 beforeAll(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverMock);
   vi.stubGlobal("localStorage", localStorageMock);
+  vi.stubGlobal("MediaError", {
+    MEDIA_ERR_ABORTED: 1,
+    MEDIA_ERR_NETWORK: 2,
+    MEDIA_ERR_DECODE: 3,
+    MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
+  });
+  vi.stubGlobal("fetch", fetchMock);
 
   Object.defineProperty(HTMLMediaElement.prototype, "play", {
     configurable: true,
@@ -63,13 +76,355 @@ beforeAll(() => {
 
 describe("VideoPlayer source lifecycle", () => {
   beforeEach(() => {
+    resetServerAvailabilityForTests();
     playMock.mockReset();
     playMock.mockResolvedValue(undefined);
     pauseMock.mockClear();
     loadMock.mockClear();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
     mockPlaybackTracker.setTarget.mockClear();
     mockPlaybackTracker.recordInterval.mockClear();
     mockPlaybackTracker.flush.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reloads network-failed media after the server recovers", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    video.currentTime = 42;
+    loadMock.mockClear();
+    playMock.mockClear();
+
+    act(() => reportServerResponse(new Response(null, { status: 502 })));
+    fireEvent.error(video);
+    loadMock.mockClear();
+
+    act(() => reportServerResponse(new Response(null, { status: 200 })));
+
+    expect(loadMock).toHaveBeenCalledOnce();
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(42);
+    expect(playMock).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("keeps the buffering indicator visible when a seek completes during an outage", () => {
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 1 } });
+    video.currentTime = 42;
+
+    act(() => reportServerResponse(new Response(null, { status: 502 })));
+    fireEvent.error(video);
+    expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+
+    video.currentTime = 60;
+    fireEvent.seeking(video);
+    fireEvent.seeked(video);
+
+    expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+  });
+
+  it("discovers a full outage from a native network error without other API traffic", async () => {
+    fetchMock.mockImplementation((input) => input === "/api/system/status"
+      ? Promise.reject(new TypeError("Failed to fetch"))
+      : new Promise<Response>(() => {}));
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    video.currentTime = 42;
+    loadMock.mockClear();
+
+    fireEvent.error(video);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/system/status",
+      expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
+    ));
+    await waitFor(() => expect(getServerAvailability()).toBe("unavailable"));
+
+    act(() => reportServerResponse(new Response(null, { status: 200 })));
+
+    expect(loadMock).toHaveBeenCalledOnce();
+  });
+
+  it("synchronizes playback UI when recovery play is rejected", async () => {
+    vi.useFakeTimers();
+    const onPause = vi.fn();
+    const onPlaybackStateChange = vi.fn();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+        onPause={onPause}
+        onPlaybackStateChange={onPlaybackStateChange}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    video.currentTime = 42;
+
+    fireEvent.play(video);
+    expect(container.querySelector(".lucide-pause")).toBeInTheDocument();
+    playMock.mockRejectedValueOnce(new Error("Recovery playback was blocked"));
+
+    fireEvent.error(video);
+    act(() => vi.advanceTimersByTime(500));
+    fireEvent.loadedMetadata(video);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".lucide-play")).toBeInTheDocument();
+    expect(onPlaybackStateChange.mock.calls).toEqual([[true], [false]]);
+    expect(onPause).not.toHaveBeenCalled();
+  });
+
+  it("retains play intent and the latest seek across failed reload attempts", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    video.currentTime = 42;
+    loadMock.mockClear();
+    playMock.mockClear();
+
+    fireEvent.play(video);
+    fireEvent.error(video);
+    act(() => vi.advanceTimersByTime(500));
+    expect(loadMock).toHaveBeenCalledOnce();
+
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(42);
+
+    Object.defineProperty(video, "paused", { configurable: true, value: true });
+    video.currentTime = 0;
+    act(() => reportServerResponse(new Response(null, { status: 502 })));
+    fireEvent.error(video);
+    video.currentTime = 120;
+    fireEvent.seeking(video);
+    loadMock.mockClear();
+    playMock.mockClear();
+
+    act(() => reportServerResponse(new Response(null, { status: 200 })));
+    expect(loadMock).toHaveBeenCalledOnce();
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(120);
+    expect(playMock).toHaveBeenCalledOnce();
+  });
+
+  it("reloads playback when waiting does not resolve before the stall watchdog", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    video.currentTime = 24;
+    loadMock.mockClear();
+
+    fireEvent.waiting(video);
+    act(() => vi.advanceTimersByTime(7_999));
+    expect(loadMock).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(loadMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/system/status",
+      expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("cancels the stall watchdog when playback becomes ready again", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_FUTURE_DATA });
+    loadMock.mockClear();
+
+    fireEvent.waiting(video);
+    fireEvent.canPlay(video);
+    act(() => vi.advanceTimersByTime(8_000));
+
+    expect(loadMock).not.toHaveBeenCalled();
+  });
+
+  it("treats buffered progress as recovery and reloads only after playback stalls again", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    video.currentTime = 24;
+    loadMock.mockClear();
+
+    act(() => reportServerResponse(new Response(null, { status: 502 })));
+    fireEvent.waiting(video);
+    expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+
+    for (let currentTime = 25; currentTime <= 33; currentTime += 1) {
+      video.currentTime = currentTime;
+      fireEvent.timeUpdate(video);
+      expect(container.querySelector(".animate-spin")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1_000));
+    }
+    expect(loadMock).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(8_000));
+    expect(loadMock).not.toHaveBeenCalled();
+
+    fireEvent.waiting(video);
+    act(() => vi.advanceTimersByTime(8_000));
+    act(() => reportServerResponse(new Response(null, { status: 200 })));
+    expect(loadMock).toHaveBeenCalledOnce();
+
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(33);
+  });
+
+  it("does not repeat a recovered segment when playback advances without readiness events", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    video.currentTime = 42;
+    loadMock.mockClear();
+
+    act(() => reportServerResponse(new Response(null, { status: 502 })));
+    fireEvent.error(video);
+    act(() => reportServerResponse(new Response(null, { status: 200 })));
+    expect(loadMock).toHaveBeenCalledOnce();
+
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(42);
+
+    video.currentTime = 43;
+    fireEvent.timeUpdate(video);
+    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(9_000));
+    expect(loadMock).toHaveBeenCalledOnce();
+    expect(video.currentTime).toBe(43);
+  });
+
+  it("offers an explicit playback retry after isolated media failures exhaust automatic retries", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    video.currentTime = 36;
+    loadMock.mockClear();
+
+    for (const delay of [500, 1_000, 1_500]) {
+      fireEvent.error(video);
+      act(() => vi.advanceTimersByTime(delay));
+    }
+    fireEvent.error(video);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Playback could not reconnect.");
+    loadMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Retry playback" }));
+    expect(loadMock).toHaveBeenCalledOnce();
   });
 
   it("allows mobile browsers to play video inline", () => {

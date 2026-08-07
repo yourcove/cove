@@ -510,6 +510,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   }, [entity.id, relationDefaultsKey, scrapedData, selectedAttempt?.id]);
 
   const runMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (!selectedScraper) {
         throw new Error("Select a scraper first.");
@@ -553,6 +554,7 @@ export function MediaScrapeDialog({ open, onClose, entityType, entity }: Props) 
   });
 
   const applyMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (!selectedAttempt) {
         throw new Error("Run a scrape first.");

@@ -28,7 +28,7 @@ import { createPlaybackSessionId, trackInteraction } from "../utils/interactionT
 import { ImageVisualSimilarityPanel, useImageVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
 import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { ImageEditPanel } from "./ImageEditModal";
-import { getLoadError } from "../utils/queryLoadState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
 const ImageDownloadDialog = lazy(() => import("../components/ImageDownloadDialog").then((module) => ({ default: module.ImageDownloadDialog })));
@@ -49,10 +49,11 @@ type ImageCoverTarget = {
 };
 
 export function ImageDetailPage({ id, onNavigate }: Props) {
-  const { data: image, isLoading } = useQuery({
+  const { data: image, isLoading, error: imageError, refetch: retryImage } = useQuery({
     queryKey: ["image", id],
     queryFn: () => images.get(id),
   });
+  const imageLoadError = getLoadError(image, imageError);
   const { hasPermission, user } = useAuth();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -138,6 +139,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const revealFileMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
   const rescanMut = useMutation({ mutationFn: () => images.rescan(id) });
   const setImageAsCoverMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (target: ImageCoverTarget) => target.run(),
     onSuccess: () => {
       queryClient.invalidateQueries();
@@ -297,6 +299,14 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(imageLoadError)) {
+    return <div className="text-center text-secondary py-16">Image not found</div>;
+  }
+
+  if (imageLoadError) {
+    return <ListLoadError error={imageLoadError} onRetry={() => { void retryImage(); }} title="Could not load image" className="mx-0 mt-0" />;
   }
 
   if (!image) return <div className="text-center text-secondary py-16">Image not found</div>;

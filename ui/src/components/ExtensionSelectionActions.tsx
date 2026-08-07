@@ -112,6 +112,7 @@ export function ExtensionSelectionActions({ entityType, selectedIds }: Props) {
   }, [getActionsForContext, normalizedEntityType, selectedIdList.length]);
 
   const invokeActionMut = useMutation<unknown, Error, ExtensionAction>({
+    meta: { suppressGlobalError: true },
     mutationFn: async (action) => {
       const payload = buildActionPayload(action, normalizedEntityType, selectedIdList);
 

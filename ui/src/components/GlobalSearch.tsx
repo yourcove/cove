@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, Building2, Film, FolderOpen, Headphones, ImageIcon, Layers, Loader2, Search, Tag, Users } from "lucide-react";
@@ -7,6 +7,8 @@ import type { GlobalSearchEntityType, InteractionHostType } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { canReadEntity } from "../auth/visibility";
 import { trackInteraction } from "../utils/interactionTracking";
+import { getServerAvailability, subscribeToServerAvailability } from "../state/serverAvailability";
+import { SERVER_UNAVAILABLE_DETAIL } from "../utils/requestFailure";
 
 interface Props {
   navigate: (r: any) => void;
@@ -50,6 +52,11 @@ export function GlobalSearch({ navigate }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const lastTrackedSearchKey = useRef("");
   const { hasPermission, permissions } = useAuth();
+  const serverAvailability = useSyncExternalStore(
+    subscribeToServerAvailability,
+    getServerAvailability,
+    getServerAvailability,
+  );
 
   useEffect(() => {
     if (normalizedTerm.length < 2) {
@@ -126,7 +133,7 @@ export function GlobalSearch({ navigate }: Props) {
     };
   }, [open]);
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, refetch } = useQuery({
     queryKey: ["global-search", committedTerm, searchableLabels.join(",")],
     enabled: committedTerm.length >= 2 && searchableLabels.length > 0,
     queryFn: ({ signal }) => globalSearch.find(committedTerm, 8, signal),
@@ -152,11 +159,13 @@ export function GlobalSearch({ navigate }: Props) {
   const failedLabels = resultMatchesInput
     ? (data?.failedTypes ?? []).map((type) => SEARCH_PRESENTATIONS[type]?.label ?? type)
     : [];
+  const allSearchesFailed = searchableLabels.length > 0 && failedLabels.length === searchableLabels.length;
+  const searchFailed = resultMatchesInput && (isError || allSearchesFailed);
   const isWaiting = normalizedTerm.length >= 2 && (!resultMatchesInput || isFetching);
   const flatResults = useMemo(() => groupsData.flatMap((group) => group.items), [groupsData]);
 
   useEffect(() => {
-    if (!open || committedTerm.length < 2 || !resultMatchesInput || isFetching || searchableLabels.length === 0) {
+    if (!open || committedTerm.length < 2 || !resultMatchesInput || isFetching || searchFailed || searchableLabels.length === 0) {
       return;
     }
 
@@ -177,7 +186,7 @@ export function GlobalSearch({ navigate }: Props) {
         source: "globalSearch",
       },
     });
-  }, [committedTerm, flatResults.length, isFetching, open, resultMatchesInput, searchableLabels]);
+  }, [committedTerm, flatResults.length, isFetching, open, resultMatchesInput, searchableLabels, searchFailed]);
 
   const handleSelect = (item: SearchGroup["items"][number], rank: number) => {
     trackInteraction({
@@ -220,8 +229,20 @@ export function GlobalSearch({ navigate }: Props) {
         <div className="flex items-center gap-2 px-4 py-6 text-sm text-secondary">
           <Loader2 className="h-4 w-4 animate-spin" /> Searching...
         </div>
-      ) : groupsData.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-secondary">No results found for &ldquo;{normalizedTerm}&rdquo;.</div>
+      ) : searchFailed ? (
+        <div role="alert" className="space-y-2 px-4 py-5 text-sm">
+          <p className="font-medium text-foreground">Search could not be completed.</p>
+          <p className="text-secondary">
+            {serverAvailability === "available" ? "Cove could not load any searchable library." : SERVER_UNAVAILABLE_DETAIL}
+          </p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="rounded-md border border-border px-2.5 py-1 text-xs font-semibold text-foreground hover:border-accent hover:text-accent"
+          >
+            Try again
+          </button>
+        </div>
       ) : (
         <div className="max-h-[28rem] overflow-y-auto">
           {failedLabels.length > 0 ? (
@@ -229,7 +250,13 @@ export function GlobalSearch({ navigate }: Props) {
               Search failed for {failedLabels.join(", ")}.
             </div>
           ) : null}
-          {groupsData.map((group) => {
+          {groupsData.length === 0 ? (
+            <div className="px-4 py-6 text-sm text-secondary">
+              {failedLabels.length > 0
+                ? <>No results found in the searches that completed for &ldquo;{normalizedTerm}&rdquo;.</>
+                : <>No results found for &ldquo;{normalizedTerm}&rdquo;.</>}
+            </div>
+          ) : groupsData.map((group) => {
             const Icon = group.icon;
             return (
               <div key={group.key} className="border-b border-border last:border-b-0">

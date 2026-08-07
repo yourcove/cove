@@ -135,6 +135,34 @@ describe("ResolvedSpanPlayPage", () => {
     mockUiConfig.autostartVideo = true;
   });
 
+  it("shows a retryable load error and recovers", async () => {
+    mockVideos.segments.spanDetail
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildDetail());
+    mockVideos.segments.spans.mockResolvedValue({ profileId: 3, spans: [] });
+    mockVideos.get.mockResolvedValue(buildVideo());
+    mockSegmentDisplayProfiles.get.mockResolvedValue({ id: 3, name: "Default Profile" });
+    mockSegmentLibrary.list.mockResolvedValue({ items: [] });
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load segment");
+    expect(screen.queryByText("Resolved span not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Clip 5-10 @ 5")).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuinely missing resolved span", async () => {
+    mockVideos.segments.spanDetail.mockRejectedValue(new Error("API Error 404: Not Found"));
+
+    renderPage();
+
+    expect(await screen.findByText("Resolved span not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders VideoPlayer clip props and interval details", async () => {
     mockVideos.segments.spanDetail.mockResolvedValue(buildDetail());
     mockVideos.segments.spans.mockResolvedValue({ profileId: 3, spans: [] });

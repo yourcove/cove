@@ -45,6 +45,7 @@ export function TextEditPanel({ text, onSaved }: Props) {
   }, [text]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (data: TextUpdate) => {
       await texts.update(text.id, data);
       await syncPerformerContextTags("text", text.id, text.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);

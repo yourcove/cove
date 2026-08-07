@@ -150,6 +150,9 @@ interface AppConfigContextValue {
   status?: SystemStatus;
   configLoading: boolean;
   statusLoading: boolean;
+  statusError: boolean;
+  statusRetrying: boolean;
+  retryStatus: () => void;
 }
 
 const AppConfigContext = createContext<AppConfigContextValue | null>(null);
@@ -242,7 +245,10 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
         config,
         status: statusQuery.data,
         configLoading: configQuery.isLoading,
-        statusLoading: statusQuery.isLoading,
+        statusLoading: statusQuery.isLoading && !statusQuery.isFetched,
+        statusError: !statusQuery.data && statusQuery.isFetched,
+        statusRetrying: statusQuery.isFetching && statusQuery.isFetched,
+        retryStatus: () => { void statusQuery.refetch(); },
       }}
     >
       {config?.ui.troubleshootingModeEnabled ? (
@@ -267,4 +273,3 @@ export function useAppConfig() {
 export function useOptionalAppConfig() {
   return useContext(AppConfigContext);
 }
-

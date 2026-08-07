@@ -37,7 +37,7 @@ import { RelatedEntityListView, useRelatedEntityDisplayMode } from "../component
 import { ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { isProtectedBuiltInGroup } from "../components/DynamicGroupFilterEditor";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import { getLoadError } from "../utils/queryLoadState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 import { useDetailListUrlState } from "../hooks/useDetailListUrlState";
 
@@ -116,10 +116,11 @@ const GROUP_ITEM_CRITERIA: CriterionDefinition[] = [
 ];
 
 export function GroupDetailPage({ id, onNavigate }: Props) {
-  const { data: group, isLoading } = useQuery({
+  const { data: group, isLoading, error: groupError, refetch: retryGroup } = useQuery({
     queryKey: ["group", id],
     queryFn: () => groups.get(id),
   });
+  const groupLoadError = getLoadError(group, groupError);
   const { hasPermission, user } = useAuth();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -219,6 +220,14 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(groupLoadError)) {
+    return <div className="py-16 text-center text-secondary">Group not found</div>;
+  }
+
+  if (groupLoadError) {
+    return <ListLoadError error={groupLoadError} onRetry={() => { void retryGroup(); }} title="Could not load group" className="mx-0 mt-0" />;
   }
 
   if (!group) {
@@ -670,6 +679,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   };
 
   const removeFromGroupMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (keys: string[]) => {
       const items = await getSelectedItemsByIds(new Set(keys));
       for (const item of items) {
@@ -683,6 +693,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     onSuccess: () => { setConfirmSelectionAction(null); selectNone(); invalidateGroupItems(); },
   });
   const deleteSelectedHostsMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (keys: string[]) => deleteSelectedGroupHosts(await getSelectedItemsByIds(new Set(keys)), hasPermission),
     onSuccess: () => { setConfirmSelectionAction(null); selectNone(); invalidateGroupItems(); },
   });

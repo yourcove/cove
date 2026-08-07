@@ -148,6 +148,34 @@ describe("SegmentDetailPage", () => {
     vi.clearAllMocks();
   });
 
+  it("shows a retryable load error and recovers", async () => {
+    mockSegmentLibrary.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildSegment());
+    mockVideos.get.mockResolvedValue(buildVideo());
+    mockVideos.segments.list.mockResolvedValue([buildSegment()]);
+    mockVideos.segments.spans.mockResolvedValue({ profileId: 3, spans: [] });
+    mockTags.find.mockResolvedValue({ items: [] });
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load segment");
+    expect(screen.queryByText("Segment not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Episode Intro" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuinely missing segment", async () => {
+    mockSegmentLibrary.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+
+    renderPage();
+
+    expect(await screen.findByText("Segment not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders media layout tabs and timeline context", async () => {
     mockSegmentLibrary.get.mockResolvedValue(buildSegment());
     mockVideos.get.mockResolvedValue(buildVideo());

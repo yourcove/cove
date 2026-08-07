@@ -40,7 +40,7 @@ import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
-import { getLoadError } from "../utils/queryLoadState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 
@@ -60,10 +60,11 @@ const TEXT_SORT = TEXT_SORT_OPTIONS;
 export function PerformerDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
-  const { data: performer, isLoading } = useQuery({
+  const { data: performer, isLoading, error: performerError, refetch: retryPerformer } = useQuery({
     queryKey: ["performer", id],
     queryFn: () => performers.get(id),
   });
+  const performerLoadError = getLoadError(performer, performerError);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -167,6 +168,14 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(performerLoadError)) {
+    return <div className="py-16 text-center text-secondary">Performer not found</div>;
+  }
+
+  if (performerLoadError) {
+    return <ListLoadError error={performerLoadError} onRetry={() => { void retryPerformer(); }} title="Could not load performer" className="mx-0 mt-0" />;
   }
 
   if (!performer) {

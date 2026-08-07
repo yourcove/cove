@@ -500,6 +500,7 @@ function CreateUserDialog({ roles, canInvite, onClose }: { roles: RoleRow[]; can
   const [err, setErr] = useState<string | null>(null);
 
   const m = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (credentialMode === "invite" && canInvite) {
         return await usersApi.createInvite({
@@ -602,6 +603,7 @@ function EditUserDialog({ user, roles, onClose }: { user: UserRow; roles: RoleRo
   const [err, setErr] = useState<string | null>(null);
 
   const updateM = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       await usersApi.update(user.id, { displayName: displayName || undefined, email: email || undefined, isActive });
       await usersApi.setRoles(user.id, selectedRoles);
@@ -644,6 +646,7 @@ function InviteDialog({ user, onClose }: { user: UserRow; onClose: () => void })
   const [invite, setInvite] = useState<InviteTokenRow | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const m = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => usersApi.invite(user.id),
     onSuccess: (nextInvite) => {
       setInvite(nextInvite);
@@ -766,6 +769,7 @@ function RoleEditor({ role, permissions, onClose }: { role?: RoleRow; permission
   }, [permissions]);
 
   const m = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => role
       ? rolesApi.update(role.id, { description: description || undefined, permissions: perms })
       : rolesApi.create({ name, description: description || undefined, permissions: perms }),
@@ -1162,6 +1166,7 @@ function CreateContentRuleDialog({ roles, onClose }: { roles: RoleRow[]; onClose
   );
 
   const createRule = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (!builtScope.ok) {
         throw new Error(builtScope.error);
@@ -1176,6 +1181,7 @@ function CreateContentRuleDialog({ roles, onClose }: { roles: RoleRow[]; onClose
     onError: (err: Error) => setError(err.message),
   });
   const createOverride = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => contentRulesApi.createOverride({ roleId, entityKind, entityId, effect, appliesTo }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "entity-overrides"] });
@@ -1310,6 +1316,7 @@ function CreateApiTokenDialog({ onClose, onIssued }: { onClose: () => void; onIs
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => apiTokensApi.create({ name, expiresAt: expires || undefined }),
     onSuccess: (token) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "api-tokens"] });
@@ -1398,6 +1405,7 @@ function CreateShareLinkDialog({ onClose, onIssued }: { onClose: () => void; onI
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => shareLinksApi.create({
       entityKind,
       entityIds: ids.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean),

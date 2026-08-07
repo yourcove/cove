@@ -1,5 +1,10 @@
 import { authedFetch } from "../api/client";
 
+export interface ExtensionFetchOptions extends RequestInit {
+  /** Optional timeout in milliseconds. Extension requests do not time out by default. */
+  timeoutMs?: number | null;
+}
+
 function normalizeSameOriginApiUrl(input: string): string {
   let url: URL;
   try {
@@ -17,7 +22,8 @@ function normalizeSameOriginApiUrl(input: string): string {
 }
 
 /** Authenticated fetch for extension-owned, same-origin Cove API endpoints. */
-export async function extensionFetch(input: string, init?: RequestInit): Promise<Response> {
+export async function extensionFetch(input: string, init: ExtensionFetchOptions = {}): Promise<Response> {
   const url = normalizeSameOriginApiUrl(input);
-  return authedFetch(url, { ...init, redirect: "error" });
+  const { timeoutMs = null, ...requestInit } = init;
+  return authedFetch(url, { ...requestInit, redirect: "error", timeoutMs });
 }

@@ -21,6 +21,9 @@ import { resolveKeybinding } from "./keyboard/keybindings";
 import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, buildRouteUrl, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, readStoredRoute, resolveCurrentRoute, syncRouteHistory } from "./router/location";
 import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
 import { AppFloatingUI } from "./components/AppFloatingUI";
+import { ServerAvailabilityBanner } from "./components/ServerAvailabilityBanner";
+import { MutationFailureNotice } from "./components/MutationFailureNotice";
+import { StartupGate } from "./components/StartupGate";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -184,15 +187,19 @@ export default function App() {
   return (
     <RouteRegistryProvider>
       <AppConfigProvider>
-        <AuthGate>
-          <ExtensionLoaderProvider>
-            <AppFloatingUI />
-            <VideoQueueProvider>
-              <AppKeyboardShortcuts navigate={navigate} />
-              <AppShell route={route} navigate={navigate} />
-            </VideoQueueProvider>
-          </ExtensionLoaderProvider>
-        </AuthGate>
+        <ServerAvailabilityBanner />
+        <MutationFailureNotice />
+        <StartupGate>
+          <AuthGate>
+            <ExtensionLoaderProvider>
+              <AppFloatingUI />
+              <VideoQueueProvider>
+                <AppKeyboardShortcuts navigate={navigate} />
+                <AppShell route={route} navigate={navigate} />
+              </VideoQueueProvider>
+            </ExtensionLoaderProvider>
+          </AuthGate>
+        </StartupGate>
       </AppConfigProvider>
     </RouteRegistryProvider>
   );
@@ -227,16 +234,8 @@ function AppKeyboardShortcuts({ navigate }: { navigate: (route: Route) => void }
  * and renders the LoginPage when auth is required but the user is not yet signed in.
  */
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { status, statusLoading } = useAppConfig();
+  const { status } = useAppConfig();
   const authEnabled = !!status?.authEnabled;
-
-  if (statusLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
-      </div>
-    );
-  }
 
   return (
     <AuthProvider authEnabled={authEnabled}>
@@ -310,6 +309,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   const { manifest } = useExtensions();
   const queryClient = useQueryClient();
   const migrateMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: database.migrate,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["system-status"] });

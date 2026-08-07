@@ -1,8 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { createAppQueryClient } from "./queryClient";
 import "./index.css";
 
 // Prevent pinch-to-zoom on iOS (viewport meta alone is insufficient since iOS 10+)
@@ -39,14 +40,7 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener("scroll", resetZoom);
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
-  },
-});
+const queryClient = createAppQueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

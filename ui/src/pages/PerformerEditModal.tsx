@@ -113,6 +113,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   }, [performer]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: PerformerUpdate) => performers.update(performer.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });

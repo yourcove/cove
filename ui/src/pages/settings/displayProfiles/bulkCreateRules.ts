@@ -1,5 +1,6 @@
 import { authStore } from "../../../auth/authStore";
 import type { SegmentDisplayRuleCreate } from "../../../api/types";
+import { serverAwareFetch } from "../../../state/serverAvailability";
 
 export async function bulkCreateDisplayProfileRules(profileId: number, data: SegmentDisplayRuleCreate[]) {
   const headers = new Headers({
@@ -18,7 +19,7 @@ export async function bulkCreateDisplayProfileRules(profileId: number, data: Seg
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`/api/segment-display-profiles/${profileId}/rules/bulk`, {
+  const response = await serverAwareFetch(`/api/segment-display-profiles/${profileId}/rules/bulk`, {
     method: "POST",
     headers,
     body: JSON.stringify(data),

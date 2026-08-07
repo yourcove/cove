@@ -36,6 +36,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
 
   const findMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => videos.findDuplicates({
       matchType,
       distance: matchType === "phash" ? phashDistance : 0,
@@ -319,4 +320,3 @@ function scoreVideo(video: Video) {
   if (!file) return 0;
   return (file.width ?? 0) * (file.height ?? 0) + Math.min(file.size ?? 0, 100_000_000_000) / 100_000;
 }
-

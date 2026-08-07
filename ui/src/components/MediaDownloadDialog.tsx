@@ -65,6 +65,7 @@ export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, l
   }, [qualityId, selectedMatch]);
 
   const matchMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       const value = url.trim();
       if (!value) throw new Error("Enter a URL to match.");
@@ -86,6 +87,7 @@ export function MediaDownloadDialog({ open, onClose, onNavigate, entity, item, l
   });
 
   const startDownloadMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (!selectedMatch) throw new Error("Select a downloader match first.");
       const normalizedUrl = selectedMatch.normalizedUrl || url.trim();

@@ -1,6 +1,7 @@
 import { entityEngagement, playback } from "../api/client";
 import type { EngagementInteractionWrite, PlaybackIntervalInput, PlaybackIntervalsRequest } from "../api/types";
 import { authStore } from "../auth/authStore";
+import { serverAwareFetch } from "../state/serverAvailability";
 
 export interface PlaybackTrackingTarget {
   hostType: string;
@@ -68,7 +69,7 @@ async function sendPlaybackBatch(batch: PlaybackTrackingBatch, mode: PlaybackTra
   }
 
   if (mode === "keepalive") {
-    await fetch("/api/playback/intervals", {
+    await serverAwareFetch("/api/playback/intervals", {
       method: "POST",
       keepalive: true,
       headers: buildKeepaliveHeaders(),

@@ -91,6 +91,7 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
   const fieldOptions = useMemo(() => EXCLUDE_FIELD_OPTIONS[entityType], [entityType]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       if (!endpoint.trim()) {
         throw new Error("Choose a MetadataServer endpoint.");

@@ -189,6 +189,9 @@ function renderWithQueryClient(ui: React.ReactNode) {
 describe("Audio and text detail pages", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockAudios.get.mockReset();
+    mockTexts.get.mockReset();
+    mockTexts.content.mockReset();
   });
 
   it("renders the audio detail flow with the reusable audio player and tracks tab", async () => {
@@ -226,6 +229,30 @@ describe("Audio and text detail pages", () => {
     expect(screen.queryByTestId("media-detail-layout-media-frame")).not.toBeInTheDocument();
   });
 
+  it("shows a retryable load error when the audio request fails", async () => {
+    mockAudios.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildAudio({ title: "Recovered audio" }));
+
+    renderWithQueryClient(<AudioDetailPage id={14} onNavigate={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load audio");
+    expect(screen.queryByText(/was not found/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Recovered audio" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing audio item", async () => {
+    mockAudios.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+
+    renderWithQueryClient(<AudioDetailPage id={14} onNavigate={vi.fn()} />);
+
+    expect(await screen.findByText("Audio #14 was not found.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders markdown text content and records a reading interval on exit", async () => {
     mockTexts.get.mockResolvedValue(buildText());
     mockTexts.content.mockResolvedValue({
@@ -250,5 +277,34 @@ describe("Audio and text detail pages", () => {
     view.unmount();
 
     await waitFor(() => expect(mockPlayback.recordIntervals).toHaveBeenCalledWith(expect.objectContaining({ hostType: "text", hostId: 22 })));
+  });
+
+  it("shows a retryable load error when the text request fails", async () => {
+    mockTexts.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildText({ title: "Recovered text" }));
+    mockTexts.content.mockResolvedValue({
+      format: "md",
+      renderMode: "markdown",
+      content: "Recovered content",
+    });
+
+    renderWithQueryClient(<TextDetailPage id={22} onNavigate={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load text");
+    expect(screen.queryByText(/was not found/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Recovered text" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing text document", async () => {
+    mockTexts.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+
+    renderWithQueryClient(<TextDetailPage id={22} onNavigate={vi.fn()} />);
+
+    expect(await screen.findByText("Text document #22 was not found.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

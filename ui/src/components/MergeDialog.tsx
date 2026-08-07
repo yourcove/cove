@@ -22,6 +22,7 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
   const qc = useQueryClient();
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (!targetId) throw new Error("No target selected");
       const sourceIds = items.filter((i) => i.id !== targetId).map((i) => i.id);
@@ -133,4 +134,3 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
     </div>
   );
 }
-

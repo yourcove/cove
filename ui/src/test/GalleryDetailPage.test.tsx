@@ -201,6 +201,7 @@ describe("GalleryDetailPage", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    mockGalleries.get.mockReset();
     localStorage.clear();
   });
 
@@ -296,5 +297,31 @@ describe("GalleryDetailPage", () => {
 
     fireEvent.keyDown(window, { key: "e" });
     expect(await screen.findByText("Edit Gallery Modal")).toBeInTheDocument();
+  });
+
+  it("shows a retryable load error when the gallery request fails", async () => {
+    mockGalleries.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildGallery({ title: "Recovered gallery" }));
+    mockImages.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load gallery");
+    expect(screen.queryByText("Gallery not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect((await screen.findAllByRole("heading", { name: "Recovered gallery" })).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the not-found state for a genuine missing gallery", async () => {
+    mockGalleries.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+
+    renderPage();
+
+    expect(await screen.findByText("Gallery not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

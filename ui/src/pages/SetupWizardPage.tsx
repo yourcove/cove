@@ -338,11 +338,13 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   };
 
   const stashPreviewMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => stashMigration.preview(stashDbPath),
     onSuccess: (data) => setStashPreview(data),
     onError: (err: Error) => setError(err.message),
   });
   const stashImportMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => stashMigration.startImport(stashDbPath, stashImportOptions),
     onSuccess: ({ jobId }) => {
       setError(null);
@@ -383,6 +385,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     retry: false,
   });
   const backupRestoreMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async () => {
       const backupPath = restoreBackupPath.trim();
       const configBackupPath = restoreConfigBackupPath.trim();
@@ -433,6 +436,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const isStashImportActive = activeStashImportJob?.status === "pending" || activeStashImportJob?.status === "running";
 
   const saveMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (cfg: CoveConfig) => system.saveConfig(cfg),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["system-config"] });
@@ -442,6 +446,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   });
 
   const scanMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => metadata.scan(),
     onSuccess: async ({ jobId }) => {
       setError(null);
@@ -452,6 +457,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   });
 
   const ownerMut = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: () => auth.bootstrapOwner(ownerUsername.trim(), ownerPassword),
     onSuccess: async (response) => {
       setError(null);

@@ -33,6 +33,7 @@ import { ExtensionEntityActions } from "../components/ExtensionEntityActions";
 import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
+import { serverAwareFetch } from "../state/serverAvailability";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
@@ -53,7 +54,7 @@ import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceV
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { normalizeStoredResumeTime } from "../utils/playbackResume";
-import { getLoadError } from "../utils/queryLoadState";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { videoEditClearFields } from "../utils/videoEditClearFields";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
@@ -166,7 +167,7 @@ function VideoQueuePanel({
 type TabKey = "details" | "segments" | "filters" | "file-info" | "edit" | "history" | string;
 
 export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
-  const { data: video, isLoading } = useQuery({
+  const { data: video, isLoading, error: videoError, refetch: retryVideo } = useQuery({
     queryKey: ["video", id],
     queryFn: () => videos.get(id),
     // Keep the previous video's data on screen while the next one loads. Advancing in a queue
@@ -177,6 +178,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
     // loaded `video` so the (id, file, stream) triple stays self-consistent during the swap.
     placeholderData: keepPreviousData,
   });
+  const videoLoadError = getLoadError(video?.id === id ? video : undefined, videoError);
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
   const { queue, currentId: queueCurrentId, hasPrev, hasNext, currentPosition, queueLength, queueItems, goToIndex, goPrevious, goNext, clearQueue, autoplay: queueAutoplay, toggleAutoplay } = useVideoQueue();
@@ -517,6 +519,14 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
         <DetailSkeleton />
       </div>
     );
+  }
+
+  if (isApiNotFoundError(videoLoadError)) {
+    return <div className="text-center text-secondary py-16">Video not found</div>;
+  }
+
+  if (videoLoadError) {
+    return <ListLoadError error={videoLoadError} onRetry={() => { void retryVideo(); }} title="Could not load video" className="mx-0 mt-0" />;
   }
 
   if (!video) return <div className="text-center text-secondary py-16">Video not found</div>;
@@ -1674,7 +1684,7 @@ function VideoScrubber({
     setSpriteError(false);
     setSpriteLoadSettled(false);
 
-    fetch(spriteVttUrl)
+    serverAwareFetch(spriteVttUrl)
       .then(r => { if (!r.ok) throw new Error("VTT not found"); return r.text(); })
       .then(text => {
         if (cancelled) return;
@@ -2228,6 +2238,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
   }, [video]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (data: VideoUpdate) => {
       const updated = await videos.update(video.id, data);
       await syncVideoEditPerformerContextTags(video.id, video.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);

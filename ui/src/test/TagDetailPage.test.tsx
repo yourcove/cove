@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { performers, savedFilters, segmentLibrary } from "../api/client";
@@ -7,27 +7,12 @@ import { TagDetailPage } from "../pages/TagDetailPage";
 
 const mocks = vi.hoisted(() => ({
   detailListOptions: [] as Array<Record<string, any>>,
+  tagGet: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
   tags: {
-    get: vi.fn().mockResolvedValue({
-      id: 1206,
-      name: "Jerk Off Instruction",
-      aliases: [],
-      parents: [],
-      children: [],
-      videoCount: 1,
-      performerCount: 0,
-      imageCount: 0,
-      galleryCount: 0,
-      audioCount: 0,
-      textCount: 0,
-      segmentCount: 0,
-      studioCount: 0,
-      groupCount: 0,
-      customFields: {},
-    }),
+    get: mocks.tagGet,
   },
   entityImages: {
     tagImageUrl: vi.fn(() => "/tag-cover.jpg"),
@@ -51,6 +36,26 @@ vi.mock("../api/client", () => ({
   studios: {},
   groups: {},
 }));
+
+function buildTag() {
+  return {
+      id: 1206,
+      name: "Jerk Off Instruction",
+      aliases: [],
+      parents: [],
+      children: [],
+      videoCount: 1,
+      performerCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      segmentCount: 0,
+      studioCount: 0,
+      groupCount: 0,
+      customFields: {},
+    };
+}
 
 vi.mock("../hooks/useDetailListQuery", () => ({
   useDetailListQuery: (options: Record<string, any>) => {
@@ -107,8 +112,43 @@ vi.mock("../components/CoverImageDialog", () => ({ CoverImageDialog: () => null 
 describe("TagDetailPage", () => {
   beforeEach(() => {
     mocks.detailListOptions.length = 0;
+    mocks.tagGet.mockReset().mockResolvedValue(buildTag());
     localStorage.clear();
     window.history.replaceState(null, "", "/tag/1206?perPage=100&sort=rating");
+  });
+
+  it("shows a retryable load error and recovers", async () => {
+    mocks.tagGet
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce(buildTag());
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagDetailPage id={1206} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load tag");
+    expect(screen.queryByText("Tag not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Jerk Off Instruction" })).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing tag", async () => {
+    mocks.tagGet.mockRejectedValue(new Error("API Error 404: Not Found"));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagDetailPage id={1206} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Tag not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("persists include sub-tag content in the URL", async () => {

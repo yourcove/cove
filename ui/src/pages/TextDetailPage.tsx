@@ -8,6 +8,7 @@ import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailSkeleton } from "../components/DetailSkeleton";
+import { ListLoadError } from "../components/ListLoadError";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { GenerateDialog } from "../components/GenerateDialog";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
@@ -25,6 +26,7 @@ import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { createPlaybackSessionId, trackInteraction } from "../utils/interactionTracking";
 import { getTextDisplayTitle, pickPrimaryTextFile } from "../utils/audioTextDisplay";
+import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { TextEditPanel } from "./TextEditPanel";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
@@ -122,10 +124,11 @@ function SourcePdfViewer({ title, sourceUrl, pageCount }: { title: string; sourc
 
 export function TextDetailPage({ id, onNavigate }: Props) {
   const queryClient = useQueryClient();
-  const { data: text, isLoading } = useQuery({
+  const { data: text, isLoading, error: textError, refetch: retryText } = useQuery({
     queryKey: ["text", id],
     queryFn: () => texts.get(id),
   });
+  const textLoadError = getLoadError(text, textError);
   const { hasPermission, user } = useAuth();
   const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", text?.performers?.map((p) => p.id) ?? []);
   const primaryFile = useMemo(() => pickPrimaryTextFile(text), [text]);
@@ -276,6 +279,14 @@ export function TextDetailPage({ id, onNavigate }: Props) {
 
   if (isLoading) {
     return <DetailSkeleton showMedia={false} />;
+  }
+
+  if (isApiNotFoundError(textLoadError)) {
+    return <div className="rounded-3xl border border-dashed border-border bg-card/70 px-6 py-10 text-sm text-muted">Text document #{id} was not found.</div>;
+  }
+
+  if (textLoadError) {
+    return <ListLoadError error={textLoadError} onRetry={() => { void retryText(); }} title="Could not load text" className="mx-0 mt-0" />;
   }
 
   if (!text) {

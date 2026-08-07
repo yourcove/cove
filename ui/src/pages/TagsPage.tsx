@@ -276,6 +276,7 @@ export function TagCreateModal({ open, onClose, onCreated }: { open: boolean; on
     setCustomFields({});
   };
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: TagCreate) => tags.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["tags"] });

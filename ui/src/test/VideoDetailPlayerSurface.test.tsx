@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VideoDetailPage } from "../pages/VideoDetailPage";
@@ -121,7 +121,7 @@ vi.mock("../hooks/useDocumentTitle", () => ({
   useDocumentTitle: () => undefined,
 }));
 
-function renderVideoDetail() {
+function renderVideoDetail(id = 14) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -129,16 +129,23 @@ function renderVideoDetail() {
     },
   });
 
-  render(
+  const renderPage = (videoId: number) => (
     <QueryClientProvider client={queryClient}>
-      <VideoDetailPage id={14} onNavigate={vi.fn()} />
-    </QueryClientProvider>,
+      <VideoDetailPage id={videoId} onNavigate={vi.fn()} />
+    </QueryClientProvider>
   );
+  const result = render(renderPage(id));
+
+  return {
+    ...result,
+    rerenderVideoDetail: (videoId: number) => result.rerender(renderPage(videoId)),
+  };
 }
 
 describe("VideoDetailPage media-player extension surface", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mockVideos.get.mockReset();
   });
 
   it("opts the primary player into the detail extension surface", async () => {
@@ -167,5 +174,76 @@ describe("VideoDetailPage media-player extension surface", () => {
       videoId: 14,
       extensionSurface: "detail",
     }));
+  });
+
+  it("shows a retryable load error when the video request fails", async () => {
+    mockVideos.get
+      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
+      .mockResolvedValueOnce({
+        id: 14,
+        title: "Recovered video",
+        organized: false,
+        updatedAt: "2026-07-11T00:00:00Z",
+        files: [{
+          format: "mp4",
+          duration: 120,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          captions: [],
+        }],
+        performers: [],
+        tags: [],
+        contextTagApplications: [],
+      });
+
+    renderVideoDetail();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load video");
+    expect(screen.queryByText("Video not found")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
+  });
+
+  it("keeps the not-found state for a genuine missing video", async () => {
+    mockVideos.get.mockRejectedValue(new Error("API Error 404: Not Found"));
+
+    renderVideoDetail();
+
+    expect(await screen.findByText("Video not found")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not let the previous video's placeholder hide a load failure", async () => {
+    mockVideos.get
+      .mockResolvedValueOnce({
+        id: 14,
+        title: "First video",
+        organized: false,
+        updatedAt: "2026-07-11T00:00:00Z",
+        files: [{
+          format: "mp4",
+          duration: 120,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          captions: [],
+        }],
+        performers: [],
+        tags: [],
+        contextTagApplications: [],
+      })
+      .mockRejectedValueOnce(new Error("API Error 502: Bad Gateway"));
+
+    const { rerenderVideoDetail } = renderVideoDetail();
+    expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
+
+    rerenderVideoDetail(15);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load video");
+    expect(screen.queryByTestId("video-detail-player")).not.toBeInTheDocument();
   });
 });

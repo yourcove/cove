@@ -68,6 +68,7 @@ export function AiDataSettingsPanel() {
   });
 
   const purgeMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (payload: AiDataPurgeRequest) => aiData.purge(payload),
     onSuccess: async () => {
       setConfirmOpen(false);

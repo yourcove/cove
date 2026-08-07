@@ -115,10 +115,13 @@ import type {
 } from "./types";
 
 const API_BASE = "/api";
+const LONG_API_REQUEST_TIMEOUT_MS = 2 * 60_000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 5 * 60_000;
 
 // ===== Auth-aware fetch =====
 // Lazy import to avoid circular deps; the auth module has no client.ts deps.
 import { authStore } from "../auth/authStore";
+import { serverAwareFetch, type ServerAwareFetchOptions } from "../state/serverAvailability";
 import { serializeSortClauses } from "../utils/sortClauses";
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -167,7 +170,7 @@ async function refreshIfCurrent(rejectedAccessToken: string): Promise<boolean> {
   const refresh = authStore.getRefreshToken();
   if (!refresh) return false;
   try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
+    const res = await serverAwareFetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: refresh }),
@@ -216,7 +219,7 @@ async function tryRefresh(rejectedAccessToken: string): Promise<boolean> {
   finally { refreshInFlight = null; }
 }
 
-export async function authedFetch(input: string, init?: RequestInit): Promise<Response> {
+export async function authedFetch(input: string, init?: ServerAwareFetchOptions): Promise<Response> {
   const token = authStore.getAccessToken();
   const shareToken = authStore.getShareToken();
   const sharePassword = authStore.getSharePassword();
@@ -230,14 +233,14 @@ export async function authedFetch(input: string, init?: RequestInit): Promise<Re
   } else if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  let res = await fetch(input, { ...init, headers });
+  let res = await serverAwareFetch(input, { ...init, headers });
   if (res.status === 401 && authMode === "bearer" && token && authStore.getRefreshToken()) {
     const ok = await tryRefresh(token);
     if (ok) {
       const retryToken = authStore.getAccessToken();
       const retryHeaders = new Headers(init?.headers ?? {});
       if (retryToken) retryHeaders.set("Authorization", `Bearer ${retryToken}`);
-      res = await fetch(input, { ...init, headers: retryHeaders });
+      res = await serverAwareFetch(input, { ...init, headers: retryHeaders });
     } else {
       // refresh failed: emit a global event so UI can react
       window.dispatchEvent(new CustomEvent("cove-auth-required"));
@@ -265,7 +268,7 @@ const CRITERION_MODIFIER_MAP: Record<string, string> = {
   NOT_MATCHES_REGEX: "notMatchesRegex",
 };
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: ServerAwareFetchOptions): Promise<T> {
   const headers = new Headers(options?.headers);
   if (!(options?.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -291,7 +294,7 @@ function normalizeApiPath(path: string): string {
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
 }
 
-async function requestOptional<T>(path: string, options?: RequestInit): Promise<T | null> {
+async function requestOptional<T>(path: string, options?: ServerAwareFetchOptions): Promise<T | null> {
   const res = await authedFetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -467,7 +470,7 @@ export const videos = {
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
     request<MetadataServerVideoMatch[]>("/videos/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
   importFromMetadataServer: (id: number, data: MetadataServerVideoImportRequest) =>
-    request<Video>(`/videos/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data) }),
+    request<Video>(`/videos/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
     request<{ draftId: string | null }>(`/videos/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
   submitFingerprints: (id: number, endpoint: string) =>
@@ -730,11 +733,11 @@ export const performers = {
     request<PaginatedResponse<Performer>>(`/performers/${id}/appears-with${buildQuery(filter)}`),
   create: (data: PerformerCreate) => request<Performer>("/performers", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: PerformerUpdate) => request<Performer>(`/performers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  scrape: (id: number, data: PerformerScrapeRequest) => request<Performer>(`/performers/${id}/scrape`, { method: "POST", body: JSON.stringify(data) }),
+  scrape: (id: number, data: PerformerScrapeRequest) => request<Performer>(`/performers/${id}/scrape`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   scrapeUrl: (id: number, data?: { url?: string; createMissingTags?: boolean }) =>
-    request<Performer>(`/performers/${id}/scrape-url`, { method: "POST", body: JSON.stringify(data ?? {}) }),
-  previewScrape: (id: number, data: PerformerScrapeRequest) => request<import("./types").PerformerScrapePreview>(`/performers/${id}/scrape-preview`, { method: "POST", body: JSON.stringify(data) }),
-  applyScraped: (id: number, data: { scraped: import("./types").ScrapedPerformer; createMissingTags?: boolean; replaceFields?: string[]; collectionModes?: Record<string, string> }) => request<Performer>(`/performers/${id}/apply-scraped`, { method: "POST", body: JSON.stringify(data) }),
+    request<Performer>(`/performers/${id}/scrape-url`, { method: "POST", body: JSON.stringify(data ?? {}), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+  previewScrape: (id: number, data: PerformerScrapeRequest) => request<import("./types").PerformerScrapePreview>(`/performers/${id}/scrape-preview`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+  applyScraped: (id: number, data: { scraped: import("./types").ScrapedPerformer; createMissingTags?: boolean; replaceFields?: string[]; collectionModes?: Record<string, string> }) => request<Performer>(`/performers/${id}/apply-scraped`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   bulkUpdate: (data: BulkPerformerUpdate) => request<void>("/performers/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/performers/${id}`, { method: "DELETE" }),
   bulkDelete: (ids: number[]) => request<void>("/performers/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
@@ -745,7 +748,7 @@ export const performers = {
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
     request<MetadataServerPerformerMatch[]>("/performers/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
   importFromMetadataServer: (id: number, data: MetadataServerPerformerImportRequest) =>
-    request<Performer>(`/performers/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data) }),
+    request<Performer>(`/performers/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
     request<{ draftId: string | null }>(`/performers/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
   batchTagMetadataServer: (data: MetadataServerPerformerBatchTagRequest) =>
@@ -774,7 +777,7 @@ export const tags = {
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
     request<MetadataServerTagMatch[]>("/tags/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
   importFromMetadataServer: (id: number, data: MetadataServerTagImportRequest) =>
-    request<TagDetail>(`/tags/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data) }),
+    request<TagDetail>(`/tags/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
     request<{ draftId: string | null }>(`/tags/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
   batchTagMetadataServer: (data: MetadataServerTagBatchTagRequest) =>
@@ -870,7 +873,7 @@ export const studios = {
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
     request<MetadataServerStudioMatch[]>("/studios/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
   importFromMetadataServer: (id: number, data: MetadataServerStudioImportRequest) =>
-    request<Studio>(`/studios/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data) }),
+    request<Studio>(`/studios/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
     request<{ draftId: string | null }>(`/studios/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
   batchTagMetadataServer: (data: MetadataServerStudioBatchTagRequest) =>
@@ -907,7 +910,7 @@ export const galleries = {
   uploadCoverImage: (id: number, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return request<void>(`/galleries/${id}/image`, { method: "POST", body: formData });
+    return request<void>(`/galleries/${id}/image`, { method: "POST", body: formData, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
   },
   coverUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/galleries/${id}/cover`, version, max),
   getCoverImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/galleries/${id}/image`, version, max),
@@ -1092,7 +1095,7 @@ export const segmentSpans = {
 async function uploadImage(path: string, file: File): Promise<{ blobId: string }> {
   const formData = new FormData();
   formData.append("file", file);
-  const res = await authedFetch(`${API_BASE}${path}`, { method: "POST", body: formData });
+  const res = await authedFetch(`${API_BASE}${path}`, { method: "POST", body: formData, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   return res.json();
 }
@@ -1169,7 +1172,7 @@ export const system = {
   uploadFavicon: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const res = await authedFetch(`${API_BASE}/system/ui/favicon`, { method: "POST", body: form });
+    const res = await authedFetch(`${API_BASE}/system/ui/favicon`, { method: "POST", body: form, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API Error ${res.status}: ${text}`);
@@ -1179,7 +1182,7 @@ export const system = {
   uploadLogo: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const res = await authedFetch(`${API_BASE}/system/ui/logo`, { method: "POST", body: form });
+    const res = await authedFetch(`${API_BASE}/system/ui/logo`, { method: "POST", body: form, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API Error ${res.status}: ${text}`);
@@ -1189,11 +1192,11 @@ export const system = {
   listScrapers: () => request<ScraperSummary[]>("/system/scrapers"),
   reloadScrapers: () => request<ScraperSummary[]>("/system/scrapers/reload", { method: "POST" }),
   scrapeUrl: (scraperId: string, entityType: string, url: string) =>
-    request<Record<string, unknown>>("/system/scrapers/scrape-url", { method: "POST", body: JSON.stringify({ scraperId, entityType, url }) }),
+    request<Record<string, unknown>>("/system/scrapers/scrape-url", { method: "POST", body: JSON.stringify({ scraperId, entityType, url }), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   scrapeName: (scraperId: string, entityType: string, name: string) =>
-    request<Record<string, unknown>[]>("/system/scrapers/scrape-name", { method: "POST", body: JSON.stringify({ scraperId, entityType, name }) }),
+    request<Record<string, unknown>[]>("/system/scrapers/scrape-name", { method: "POST", body: JSON.stringify({ scraperId, entityType, name }), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   scrapeFragment: (scraperId: string, entityType: string, fragment: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/system/scrapers/scrape-fragment", { method: "POST", body: JSON.stringify({ scraperId, entityType, fragment }) }),
+    request<Record<string, unknown>>("/system/scrapers/scrape-fragment", { method: "POST", body: JSON.stringify({ scraperId, entityType, fragment }), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   listDownloaders: () => request<DownloaderDescriptor[]>("/system/downloaders"),
   matchDownloaders: (data: DownloaderMatchRequest) => request<DownloaderMatch[]>("/system/downloaders/match", { method: "POST", body: JSON.stringify(data) }),
   startDownload: (data: DownloaderStartRequest) => request<{ jobId: string }>("/system/downloaders/download", { method: "POST", body: JSON.stringify(data) }),
@@ -1218,13 +1221,13 @@ export const scrapeAttempts = {
   },
   get: (id: string) => request<ScrapeAttempt>(`/scrape-attempts/${id}`),
   create: (data: CreateScrapeAttemptRequest) =>
-    request<ScrapeAttempt>("/scrape-attempts", { method: "POST", body: JSON.stringify(data) }),
+    request<ScrapeAttempt>("/scrape-attempts", { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   apply: (id: string, data: ApplyVideoScrapeAttemptRequest) =>
-    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
+    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   resolveRelations: (data: ResolveScrapeRelationsRequest) =>
-    request<ResolveScrapeRelationsResult>("/scrape-attempts/resolve-relations", { method: "POST", body: JSON.stringify(data) }),
+    request<ResolveScrapeRelationsResult>("/scrape-attempts/resolve-relations", { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   applyVideo: (id: string, data: ApplyVideoScrapeAttemptRequest) =>
-    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
+    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
 };
 
 export const bookmarks = {
@@ -1353,29 +1356,31 @@ export const metadata = {
 
 // ===== Database =====
 export const database = {
-  backup: () => request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/backup", { method: "POST" }),
+  backup: () => request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/backup", { method: "POST", timeoutMs: null }),
   restore: (backupPath: string) =>
     request<{ message: string; backupPath: string; preRestoreBackupPath: string | null }>("/database/restore", {
       method: "POST",
       body: JSON.stringify({ backupPath }),
+      timeoutMs: null,
     }),
-  migrate: () => request<DatabaseMigrationResult>("/database/migrate", { method: "POST" }),
+  migrate: () => request<DatabaseMigrationResult>("/database/migrate", { method: "POST", timeoutMs: null }),
   latestBackup: async () => {
     const result = await requestOptional<{ path: string }>("/jobs/backup/latest");
     return result?.path ?? null;
   },
-  optimize: () => request<void>("/database/optimize", { method: "POST" }),
+  optimize: () => request<void>("/database/optimize", { method: "POST", timeoutMs: null }),
   wipe: () =>
     request<{ message: string; backupPath: string; timestamp: string; configBackupPath: string | null }>(
       "/database/wipe",
-      { method: "POST" },
+      { method: "POST", timeoutMs: null },
     ),
   backupConfig: () =>
-    request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/config/backup", { method: "POST" }),
+    request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/config/backup", { method: "POST", timeoutMs: null }),
   restoreConfig: (backupPath: string) =>
     request<{ message: string; backupPath: string }>("/database/config/restore", {
       method: "POST",
       body: JSON.stringify({ backupPath }),
+      timeoutMs: null,
     }),
   latestConfigBackup: async () => {
     const result = await requestOptional<{ path: string | null }>("/database/config/latest-backup");
@@ -1539,12 +1544,14 @@ export const extensions = {
     request<RegistryInstallResult>("/extensions/registry/install", {
       method: "POST",
       body: JSON.stringify({ extensionId, version, installDependencies }),
+      timeoutMs: null,
     }),
   /** Install an extension package from a user-provided URL. */
   installFromUrl: (url: string, trustUnverified = false) =>
     request<{ message: string; extensionId: string; version: string; path: string }>("/extensions/install-from-url", {
       method: "POST",
       body: JSON.stringify({ url, trustUnverified }),
+      timeoutMs: null,
     }),
   /** Install an extension package from an uploaded ZIP. */
   installFromZip: (file: File, trustUnverified = false) => {
@@ -1554,6 +1561,7 @@ export const extensions = {
     return request<{ message: string; extensionId: string; version: string; path: string }>("/extensions/install-from-zip", {
       method: "POST",
       body,
+      timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
     });
   },
   /** Registry: resolve dependencies for an extension. */
@@ -1564,6 +1572,7 @@ export const extensions = {
     request<RegistryUninstallResult>("/extensions/registry/uninstall", {
       method: "POST",
       body: JSON.stringify({ extensionId, uninstallDependents }),
+      timeoutMs: null,
     }),
 };
 

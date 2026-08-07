@@ -120,6 +120,7 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
   const hasSelection = selectedMatches.length > 0;
 
   const queueMutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (): Promise<BatchDownloadResult> => {
       if (!hasSelection) throw new Error(`Select at least one ${entity.toLowerCase()} to download.`);
 

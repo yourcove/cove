@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { createPlaybackTracker, type PlaybackTrackingTarget } from "../utils/interactionTracking";
+import { serverAwareFetch } from "../state/serverAvailability";
 
 export interface WallMediaVideoControlsState {
   currentTime: number;
@@ -187,7 +188,7 @@ export function WallMediaCard({
 
     const controller = new AbortController();
     setVideoAvailable(false);
-    fetch(videoStatusSrc, { method: "GET", signal: controller.signal })
+    serverAwareFetch(videoStatusSrc, { method: "GET", signal: controller.signal })
       .then((response) => {
         return response.ok ? response.json() as Promise<{ available?: boolean }> : { available: false };
       })

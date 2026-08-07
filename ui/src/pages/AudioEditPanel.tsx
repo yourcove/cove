@@ -46,6 +46,7 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
   }, [audio]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: async (data: AudioUpdate) => {
       await audios.update(audio.id, data);
       await syncPerformerContextTags("audio", audio.id, audio.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);

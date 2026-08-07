@@ -614,6 +614,7 @@ function PerformerTaggerRow({
   });
 
   const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
+    meta: { suppressGlobalError: true },
     mutationFn: () => {
       if (source?.kind !== "metadata-server") throw new Error("Select a metadata-server source first.");
       return performers.submitMetadataServerDraft(performer.id, source.endpoint);
