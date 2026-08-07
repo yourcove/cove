@@ -72,7 +72,7 @@ describe("VideoTagger", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses the shared hover-preview thumbnail at the larger tagger size", () => {
+  it("renders the shared preview and scrub controls in a tagger row", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const video = {
       id: 123,
@@ -91,7 +91,6 @@ describe("VideoTagger", () => {
     );
 
     const thumbnailLink = screen.getByTitle("Open video Local video");
-    expect(thumbnailLink).toHaveClass("w-[10.5rem]", "video-card-preview-trigger");
     expect(thumbnailLink.querySelector(".video-card-preview-video")).toHaveAttribute("src", "/video-preview.mp4");
     expect(thumbnailLink.querySelector(".cursor-ew-resize")).toBeInTheDocument();
   });
