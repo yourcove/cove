@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
+import type { EntityMediaFit } from "./EntityMedia";
 
 interface VideoTaggerProps {
   videos: Video[];
@@ -366,6 +367,7 @@ async function runWithConcurrency<T>(
 export function VideoTagger({ videos: videoList, onNavigate, selectedIds, selecting = false, onSelect, mode = "bulk" }: VideoTaggerProps) {
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
+  const videoPreviewObjectFit: EntityMediaFit = config?.ui?.videoObjectFit === "contain" ? "contain" : "cover";
   const { data: scraperList = [] } = useQuery({ queryKey: ["scrapers"], queryFn: system.listScrapers });
   const videoScrapers = scraperList.filter((scraper) => scraper.entityType.toLowerCase() === "video");
   const taggerSources: TaggerSource[] = [
@@ -851,6 +853,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
             source={selectedSource}
             metadataServers={metadataServers}
             taggerConfig={taggerConfig}
+            videoPreviewObjectFit={videoPreviewObjectFit}
             onNavigate={onNavigate}
             selected={selectedIds?.has(video.id) ?? false}
             selecting={selecting}
@@ -879,6 +882,7 @@ interface TaggerVideoRowProps {
   source?: TaggerSource;
   metadataServers: MetadataServer[];
   taggerConfig: TaggerConfig;
+  videoPreviewObjectFit: EntityMediaFit;
   onNavigate?: (videoId: number) => void;
   selected?: boolean;
   selecting?: boolean;
@@ -900,6 +904,7 @@ function TaggerVideoRow({
   source,
   metadataServers,
   taggerConfig,
+  videoPreviewObjectFit,
   onNavigate,
   selected = false,
   selecting = false,
@@ -1070,7 +1075,7 @@ function TaggerVideoRow({
           className="video-card-preview-trigger block w-[10.5rem] flex-shrink-0 group/video"
           title={`Open video ${video.title || file?.basename || "Untitled"}`}
         >
-          <VideoPreviewThumbnail video={video} fit="cover" surface="list" coverWidth={640} className="rounded bg-card">
+          <VideoPreviewThumbnail video={video} fit={videoPreviewObjectFit} surface="list" coverWidth={640} className="rounded bg-card">
             {file && file.duration > 0 && (
               <span className="video-specs-overlay absolute bottom-0.5 right-0.5 z-[5] rounded bg-black/70 px-0.5 text-[8px] text-white transition-opacity">
                 {formatDuration(file.duration)}

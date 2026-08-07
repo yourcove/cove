@@ -7,6 +7,7 @@ import { VideoTagger } from "../components/VideoTagger";
 const mocks = vi.hoisted(() => ({
   findMetadataServerByIds: vi.fn(),
   importFromMetadataServer: vi.fn(),
+  videoObjectFit: "cover" as "cover" | "contain",
 }));
 
 vi.mock("../api/client", () => ({
@@ -30,6 +31,7 @@ vi.mock("../state/AppConfigContext", () => ({
           { name: "Second provider", endpoint: "https://second.example/graphql" },
         ],
       },
+      ui: { videoObjectFit: mocks.videoObjectFit },
     },
   }),
 }));
@@ -44,6 +46,7 @@ describe("VideoTagger", () => {
     });
     mocks.findMetadataServerByIds.mockReset();
     mocks.importFromMetadataServer.mockReset();
+    mocks.videoObjectFit = "cover";
     mocks.importFromMetadataServer.mockResolvedValue({});
     mocks.findMetadataServerByIds.mockResolvedValue([{
       id: "first-video-id",
@@ -72,7 +75,8 @@ describe("VideoTagger", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the shared preview and scrub controls in a tagger row", () => {
+  it.each(["cover", "contain"] as const)("renders the shared preview and scrub controls using %s fit", (fit) => {
+    mocks.videoObjectFit = fit;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const video = {
       id: 123,
@@ -91,7 +95,9 @@ describe("VideoTagger", () => {
     );
 
     const thumbnailLink = screen.getByTitle("Open video Local video");
+    expect(thumbnailLink.querySelector(".video-card-preview-image")).toHaveStyle({ objectFit: fit });
     expect(thumbnailLink.querySelector(".video-card-preview-video")).toHaveAttribute("src", "/video-preview.mp4");
+    expect(thumbnailLink.querySelector(".video-card-preview-video")).toHaveStyle({ objectFit: fit });
     expect(thumbnailLink.querySelector(".cursor-ew-resize")).toBeInTheDocument();
   });
 

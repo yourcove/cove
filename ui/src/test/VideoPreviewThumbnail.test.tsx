@@ -60,17 +60,17 @@ describe("VideoPreviewThumbnail", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses Cove's cover and generated-preview endpoints with the requested fit and size", () => {
+  it.each(["cover", "contain"] as const)("uses Cove's cover and generated-preview endpoints with %s fit", (fit) => {
     const { container } = render(
-      <VideoPreviewThumbnail video={video} fit="contain" surface="list" coverWidth={640} />,
+      <VideoPreviewThumbnail video={video} fit={fit} surface="list" coverWidth={640} />,
     );
 
     expect(mocks.videoCoverUrl).toHaveBeenCalledWith(42, video.updatedAt, 640);
     expect(mocks.previewUrl).toHaveBeenCalledWith(42);
     expect(container.querySelector(".video-card-preview-image")).toHaveAttribute("src", "/cover/42");
-    expect(container.querySelector(".video-card-preview-image")).toHaveStyle({ objectFit: "contain" });
+    expect(container.querySelector(".video-card-preview-image")).toHaveStyle({ objectFit: fit });
     expect(container.querySelector(".video-card-preview-video")).toHaveAttribute("src", "/preview/42");
-    expect(container.querySelector(".video-card-preview-video")).toHaveStyle({ objectFit: "contain" });
+    expect(container.querySelector(".video-card-preview-video")).toHaveStyle({ objectFit: fit });
   });
 
   it("plays the generated preview while visible and pauses it when hidden", () => {
