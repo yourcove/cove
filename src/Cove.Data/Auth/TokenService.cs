@@ -13,7 +13,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Cove.Data.Auth;
 
-public sealed class TokenService : ITokenService
+public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
 {
     public const int DefaultRefreshDays = 30;
     public const string JwtIssuer = "Cove";
@@ -471,6 +471,55 @@ public sealed class TokenService : ITokenService
             ReadRestrictedEntityKinds = readRestrictedEntityKinds,
             ReadGrantedEntityKinds = readGrantedEntityKinds,
             TokenId = record.Id,
+            Ip = ip,
+            UserAgent = userAgent,
+        };
+    }
+
+    public async Task<CovePrincipal?> ResolveExistingUserAsync(
+        string username,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return null;
+
+        var normalized = username.Trim();
+        var user = await _db.Users.AsNoTracking()
+            .Include(candidate => candidate.Roles)
+                .ThenInclude(assignment => assignment.Role)
+                .ThenInclude(role => role!.Permissions)
+            .FirstOrDefaultAsync(
+                candidate => candidate.Username.ToLower() == normalized.ToLower(),
+                ct);
+        if (user is null || !user.IsActive || user.IsLocked)
+        {
+            _log.LogDebug(
+                "Externally authenticated username {Username} was rejected because the Cove account is missing, inactive, or locked",
+                normalized);
+            return null;
+        }
+
+        var roleIds = user.Roles.Select(assignment => assignment.RoleId).Distinct().ToArray();
+        var roleNames = user.Roles
+            .Select(assignment => assignment.Role!.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var permissionKeys = user.Roles
+            .SelectMany(assignment => assignment.Role!.Permissions.Select(permission => permission.PermissionKey))
+            .ToList();
+        var permissions = _registry.Expand(permissionKeys);
+        var (readRestrictedEntityKinds, readGrantedEntityKinds) = await GetReadAccessProfileAsync(roleIds, ct);
+
+        return new CovePrincipal
+        {
+            UserId = user.Id,
+            Username = user.Username,
+            Kind = PrincipalKind.User,
+            Roles = roleNames,
+            Permissions = permissions,
+            ReadRestrictedEntityKinds = readRestrictedEntityKinds,
+            ReadGrantedEntityKinds = readGrantedEntityKinds,
             Ip = ip,
             UserAgent = userAgent,
         };

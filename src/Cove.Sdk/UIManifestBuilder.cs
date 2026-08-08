@@ -58,6 +58,25 @@ public class UIManifestBuilder
     }
 
     /// <summary>
+    /// Advertise an interactive login method on Cove's unauthenticated login page. Cove renders the
+    /// label and local start URL; the extension owns the external protocol flow.
+    /// </summary>
+    public UIManifestBuilder AddLoginMethod(
+        string id,
+        string label,
+        string startUrl,
+        int order = 100)
+    {
+        _manifest.LoginMethods.Add(new ExtensionLoginMethod(
+            id,
+            label,
+            startUrl,
+            order,
+            _extensionId));
+        return this;
+    }
+
+    /// <summary>
     /// Register a full page route.
     /// </summary>
     /// <remarks>

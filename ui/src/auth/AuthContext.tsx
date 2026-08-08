@@ -17,6 +17,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
+  externalLoginRedeem(code: string): Promise<{ ok: boolean; error?: string }>;
   logout(): Promise<void>;
   hasPermission(key: string): boolean;
   refreshMe(): Promise<void>;
@@ -111,7 +112,9 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     }
   }, []);
 
-  // On mount: if a token exists, validate it via /me. Subscribe to store changes too.
+  // Probe /me once on every mount. Besides validating stored Cove/share credentials, this lets
+  // request-level authentication extensions (for example, a trusted reverse-proxy assertion)
+  // establish an ambient principal without first manufacturing a browser token.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -121,9 +124,7 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
         return;
       }
       captureShareCredentialsFromUrl();
-      if (authStore.getAccessToken() || authStore.getShareToken() || authStore.getUser()) {
-        await refreshMe();
-      }
+      await refreshMe();
       if (!cancelled) setLoading(false);
     })();
     const unsub = authStore.subscribe(() => {
@@ -163,6 +164,49 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     return { ok: true };
   }, [refreshMe]);
 
+  const externalLoginRedeem = useCallback(async (code: string) => {
+    let res: Response;
+    try {
+      res = await serverAwareFetch("/api/auth/external/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+    } catch {
+      return { ok: false, error: "External sign-in could not be completed." };
+    }
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: res.status === 401
+          ? "External sign-in expired or was already used."
+          : "External sign-in could not be completed.",
+      };
+    }
+
+    let body: LoginResponse;
+    try {
+      body = await res.json() as LoginResponse;
+    } catch {
+      return { ok: false, error: "External sign-in could not be completed." };
+    }
+
+    if (!body.token || !body.refreshToken) {
+      return { ok: false, error: "External sign-in could not be completed." };
+    }
+
+    authStore.clearShareCredentials();
+    authStore.setTokens(body.token, body.refreshToken);
+    await refreshMe();
+    if (!authStore.getUser()) {
+      authStore.clear();
+      return { ok: false, error: "External sign-in could not be completed." };
+    }
+
+    return { ok: true };
+  }, [refreshMe]);
+
   const logout = useCallback(async () => {
     const refresh = authStore.getRefreshToken();
     try {
@@ -183,10 +227,11 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     authEnabled,
     ready: !authEnabled || !!user,
     login,
+    externalLoginRedeem,
     logout,
     hasPermission: (k: string) => hasPermImpl(effectivePermissions, k, effectiveReadGrantedKinds),
     refreshMe,
-  }), [user, effectivePermissions, effectiveReadGrantedKinds, loading, authEnabled, login, logout, refreshMe]);
+  }), [user, effectivePermissions, effectiveReadGrantedKinds, loading, authEnabled, login, externalLoginRedeem, logout, refreshMe]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

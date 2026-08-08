@@ -52,6 +52,19 @@ public interface ITokenService
     Task<IReadOnlyList<ApiTokenDto>> ListApiTokensAsync(int userId, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Resolves an externally authenticated username to an existing active, unlocked Cove principal.
+/// Cove remains responsible for local account state, roles, permissions, and content access.
+/// </summary>
+public interface IExistingUserPrincipalResolver
+{
+    Task<CovePrincipal?> ResolveExistingUserAsync(
+        string username,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default);
+}
+
 // ===== DTOs =====
 
 public sealed record UserDto(
@@ -211,4 +224,3 @@ public sealed record AuditEventDto(
 public sealed record MeResponse(
     UserDto User,
     IReadOnlyList<string> Permissions);
-

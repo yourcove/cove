@@ -197,6 +197,54 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task ResolveExistingUserAsync_builds_host_owned_principal_and_rejects_unusable_accounts()
+    {
+        await using var db = NewDb("external-user-assertion");
+        await SeedOwnerAsync(db);
+        db.Users.AddRange(
+            new User
+            {
+                Id = 2,
+                Username = "inactive",
+                PasswordHash = "hash",
+                PasswordAlgo = "test",
+                IsActive = false,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            },
+            new User
+            {
+                Id = 3,
+                Username = "locked",
+                PasswordHash = "hash",
+                PasswordAlgo = "test",
+                IsActive = true,
+                IsLocked = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+        await db.SaveChangesAsync();
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+
+        var principal = await tokens.ResolveExistingUserAsync(" owner ", "127.0.0.1", "test-agent");
+
+        Assert.NotNull(principal);
+        Assert.Equal(1, principal.UserId);
+        Assert.Equal("owner", principal.Username);
+        Assert.Equal(PrincipalKind.User, principal.Kind);
+        Assert.Contains(BuiltinRoles.Owner, principal.Roles);
+        Assert.Contains(Permissions.All, principal.Permissions);
+        Assert.Equal("127.0.0.1", principal.Ip);
+        Assert.Equal("test-agent", principal.UserAgent);
+        Assert.Equal(1, (await tokens.ResolveExistingUserAsync("OWNER", null, null))?.UserId);
+        Assert.Null(await tokens.ResolveExistingUserAsync("missing", null, null));
+        Assert.Null(await tokens.ResolveExistingUserAsync("inactive", null, null));
+        Assert.Null(await tokens.ResolveExistingUserAsync("locked", null, null));
+    }
+
+    [Fact]
     public async Task ResolveAsync_rejects_jwt_after_session_is_revoked()
     {
         await using var db = NewDb("token-revoked-session");

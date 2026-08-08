@@ -50,11 +50,14 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<ITokenService>();
+            services.RemoveAll<IExistingUserPrincipalResolver>();
             services.RemoveAll<CoveContext>();
             services.RemoveAll<DbContextOptions<CoveContext>>();
             services.RemoveAll<DbContext>();
 
             services.AddScoped<ITokenService, IntegrationTestTokenService>();
+            services.AddScoped<IExistingUserPrincipalResolver>(provider =>
+                (IExistingUserPrincipalResolver)provider.GetRequiredService<ITokenService>());
             services.AddScoped(_ => new DbContextOptionsBuilder<CoveContext>()
                 .UseSqlite(_connectionString)
                 .Options);
@@ -168,7 +171,7 @@ file sealed class IntegrationTestCoveContext(DbContextOptions<CoveContext> optio
     }
 }
 
-file sealed class IntegrationTestTokenService : ITokenService
+file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrincipalResolver
 {
     private static readonly CovePrincipal Principal = new()
     {
@@ -183,7 +186,29 @@ file sealed class IntegrationTestTokenService : ITokenService
     };
 
     public Task<TokenPair> IssueForUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
-        => throw new NotSupportedException();
+    {
+        var now = DateTime.UtcNow;
+        return Task.FromResult(new TokenPair(
+            "integration-test-access",
+            "integration-test-refresh",
+            now.AddMinutes(15),
+            now.AddDays(30),
+            new UserDto(
+                Id: CoveWebApplicationFactory.TestUserId,
+                Username: "integration-user",
+                DisplayName: null,
+                Email: null,
+                IsActive: true,
+                IsLocked: false,
+                IsSystem: true,
+                MustChangePassword: false,
+                HasPassword: true,
+                LastLoginAt: now,
+                LastLoginIp: ip,
+                CreatedAt: now,
+                Roles: [],
+                UiPreferences: null)));
+    }
 
     public Task<TokenPair> RefreshAsync(string refreshToken, string? ip, string? userAgent, CancellationToken ct = default)
         => throw new NotSupportedException();
@@ -201,6 +226,12 @@ file sealed class IntegrationTestTokenService : ITokenService
 
         return Task.FromResult<CovePrincipal?>(Principal);
     }
+
+    public Task<CovePrincipal?> ResolveExistingUserAsync(string username, string? ip, string? userAgent, CancellationToken ct = default)
+        => Task.FromResult<CovePrincipal?>(
+            string.Equals(username?.Trim(), Principal.Username, StringComparison.Ordinal)
+                ? Principal
+                : null);
 
     public Task<ApiTokenIssued> CreateApiTokenAsync(int userId, string name, IEnumerable<string>? scope, DateTime? expiresAt, CovePrincipal? actor, CancellationToken ct = default)
         => throw new NotSupportedException();

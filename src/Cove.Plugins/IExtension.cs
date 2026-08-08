@@ -621,6 +621,7 @@ public class ExtensionMigrationRecord
 public class UIManifest
 {
     public List<UIExtensionBundle> ExtensionBundles { get; set; } = [];
+    public List<ExtensionLoginMethod> LoginMethods { get; set; } = [];
     public List<UIPageDefinition> Pages { get; set; } = [];
     public List<UISlotContribution> Slots { get; set; } = [];
     public List<UITabContribution> Tabs { get; set; } = [];
@@ -647,6 +648,17 @@ public class UIManifest
     /// <summary>URL of additional CSS to load.</summary>
     public string? CssBundleUrl { get; set; }
 }
+
+/// <summary>
+/// An interactive login method advertised by an extension without loading its frontend bundle on
+/// Cove's unauthenticated login page. The start URL must be local to this Cove origin.
+/// </summary>
+public record ExtensionLoginMethod(
+    string Id,
+    string Label,
+    string StartUrl,
+    int Order = 100,
+    string? ExtensionId = null);
 
 /// <summary>
 /// Versioned frontend assets owned by one extension. Keeping bundle ownership in the

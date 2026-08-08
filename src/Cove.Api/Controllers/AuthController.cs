@@ -2,6 +2,7 @@
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
+using Cove.Plugins;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
@@ -181,6 +182,37 @@ public class AuthController : ControllerBase
             username = pair.User.Username,
         });
     }
+
+    [HttpGet("external/providers")]
+    [AllowAnonymous]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult ExternalProviders([FromServices] ExtensionManager extensions)
+        => Ok(extensions.GetExtensionLoginMethods());
+
+    [HttpPost("external/redeem")]
+    [AllowAnonymous]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> RedeemExternalLogin(
+        [FromServices] IExtensionLoginSessionService sessions,
+        [FromBody] ExtensionLoginRedeemRequest request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Code))
+            return Unauthorized(new { code = "INVALID_EXTERNAL_LOGIN_CODE" });
+
+        var redemption = await sessions.RedeemAsync(HttpContext, request.Code, ct);
+        if (redemption is null)
+            return Unauthorized(new { code = "INVALID_EXTERNAL_LOGIN_CODE" });
+
+        WriteAccessCookie(
+            redemption.TokenPair.AccessToken,
+            redemption.TokenPair.AccessExpires);
+        return Ok(ToLoginResponse(redemption.TokenPair));
+    }
+
+    public sealed record ExtensionLoginRedeemRequest(string? Code);
 
     [HttpPost("refresh")]
     [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]

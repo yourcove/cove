@@ -1693,6 +1693,14 @@ export interface AuthLoginResponse {
   username: string;
 }
 
+export interface ExternalLoginMethodRow {
+  id: string;
+  label: string;
+  startUrl: string;
+  order: number;
+  extensionId: string;
+}
+
 export interface InviteTokenRow {
   token: string;
   url: string;
@@ -1709,6 +1717,7 @@ export interface InviteTokenInfoRow {
 export const auth = {
   me: () => request<MeResponse>("/auth/me"),
   bootstrapStatus: () => request<BootstrapStatusRow>("/auth/bootstrap-status"),
+  externalProviders: () => request<ExternalLoginMethodRow[]>("/auth/external/providers"),
   bootstrapOwner: (username: string, password: string) =>
     request<AuthLoginResponse>("/auth/bootstrap-owner", {
       method: "POST",

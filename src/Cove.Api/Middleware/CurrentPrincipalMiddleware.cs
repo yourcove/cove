@@ -2,6 +2,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
+using Cove.Plugins;
 
 namespace Cove.Api.Middleware;
 
@@ -19,6 +20,7 @@ public sealed class CurrentPrincipalMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         ITokenService tokens,
+        IExistingUserPrincipalResolver existingUsers,
         IShareLinkService shareLinks,
         ICurrentPrincipalAccessor accessor,
         CoveConfiguration config,
@@ -119,6 +121,23 @@ public sealed class CurrentPrincipalMiddleware
         else if (!string.IsNullOrEmpty(authHeader))
             principal = await tokens.ResolveAsync(authHeader, ip, ua, context.RequestAborted);
 
+        if (principal is null
+            && context.TryGetExtensionUserAssertion(out var assertion))
+        {
+            principal = await existingUsers.ResolveExistingUserAsync(
+                assertion.Username,
+                ip,
+                ua,
+                context.RequestAborted);
+            if (principal is null)
+            {
+                logger.LogDebug(
+                    "Authentication assertion from extension {ExtensionId} using {Method} did not resolve to a usable Cove user",
+                    assertion.ExtensionId,
+                    assertion.Method);
+            }
+        }
+
         if (principal is not null)
         {
             accessor.Set(principal);
@@ -162,4 +181,3 @@ public sealed class CurrentPrincipalMiddleware
         return false;
     }
 }
-
