@@ -306,6 +306,10 @@ try
     builder.Services.AddSingleton<AuthBypassPrincipalProvider>();
     builder.Services.AddSingleton<ExtensionLoginTicketStore>();
     builder.Services.AddScoped<IExtensionLoginSessionService, ExtensionLoginSessionService>();
+    builder.Services.AddSingleton<ExtensionIdentityLinkTicketStore>();
+    builder.Services.AddScoped<ExtensionIdentityLinkService>();
+    builder.Services.AddScoped<IExtensionIdentityLinkService>(provider =>
+        provider.GetRequiredService<ExtensionIdentityLinkService>());
     builder.Services.AddSingleton<ScraperService>();
     builder.Services.AddSingleton<IVideoCoverService, VideoCoverService>();
     builder.Services.AddScoped<IVideoMetadataApplyService, VideoMetadataApplyService>();

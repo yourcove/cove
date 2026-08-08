@@ -1,4 +1,5 @@
-﻿using Cove.Core.Auth;
+﻿using Cove.Api.Services;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
@@ -214,6 +215,86 @@ public class AuthController : ControllerBase
 
     public sealed record ExtensionLoginRedeemRequest(string? Code);
 
+    [HttpGet("external/links")]
+    [AllowWithoutPermission]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> ExternalLinks(
+        [FromServices] IExternalIdentityService identities,
+        CancellationToken ct)
+    {
+        if (_principalAccessor.Current?.UserId is not int userId)
+            return Unauthorized(new { code = "UNAUTHORIZED" });
+        return Ok(await identities.ListForUserAsync(userId, ct));
+    }
+
+    [HttpPost("external/links/preview")]
+    [AllowWithoutPermission]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> PreviewExternalLink(
+        [FromServices] ExtensionIdentityLinkService links,
+        [FromBody] ExternalLinkCodeRequest request,
+        CancellationToken ct)
+    {
+        var preview = await links.PreviewAsync(HttpContext, request.Code ?? string.Empty, ct);
+        return preview is null
+            ? BadRequest(new { code = "INVALID_EXTERNAL_LINK_CODE" })
+            : Ok(preview);
+    }
+
+    [HttpPost("external/links/confirm")]
+    [AllowWithoutPermission]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> ConfirmExternalLink(
+        [FromServices] ExtensionIdentityLinkService links,
+        [FromBody] ExternalLinkCodeRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var link = await links.ConfirmAsync(HttpContext, request.Code ?? string.Empty, ct);
+            return link is null
+                ? BadRequest(new { code = "INVALID_EXTERNAL_LINK_CODE" })
+                : Ok(link);
+        }
+        catch (ExternalIdentityConflictException)
+        {
+            return Conflict(new { code = "EXTERNAL_IDENTITY_CONFLICT" });
+        }
+    }
+
+    [HttpPost("external/links/cancel")]
+    [AllowWithoutPermission]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult CancelExternalLink(
+        [FromServices] ExtensionIdentityLinkService links,
+        [FromBody] ExternalLinkCodeRequest request) =>
+        links.Cancel(HttpContext, request.Code ?? string.Empty)
+            ? NoContent()
+            : BadRequest(new { code = "INVALID_EXTERNAL_LINK_CODE" });
+
+    [HttpDelete("external/links/{linkId:int}")]
+    [AllowWithoutPermission]
+    public async Task<IActionResult> RemoveExternalLink(
+        int linkId,
+        [FromServices] IExternalIdentityService identities,
+        CancellationToken ct)
+    {
+        var actor = _principalAccessor.Current;
+        if (actor?.UserId is not int userId)
+            return Unauthorized(new { code = "UNAUTHORIZED" });
+        try
+        {
+            await identities.RemoveLinkAsync(userId, linkId, actor, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    public sealed record ExternalLinkCodeRequest(string? Code);
+
     [HttpPost("refresh")]
     [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth-strict")]
     [AllowAnonymous]
@@ -291,6 +372,8 @@ public class AuthController : ControllerBase
             ?? p.TokenId?.ToString("N", CultureInfo.InvariantCulture)
             ?? p.Username;
         var username = p.Kind == PrincipalKind.ShareLink ? "Share link" : p.Username;
+        var isSystem = false;
+        var hasPassword = false;
 
         if (p.UserId is int currentUserId)
         {
@@ -300,6 +383,8 @@ public class AuthController : ControllerBase
                 userId = user.Id.ToString(CultureInfo.InvariantCulture);
                 username = user.Username;
                 uiPreferences = user.UiPreferences;
+                isSystem = user.IsSystem;
+                hasPassword = user.HasPassword;
             }
         }
 
@@ -311,6 +396,8 @@ public class AuthController : ControllerBase
                 username,
                 roles = p.Roles.ToArray(),
                 kind = ToClientUserKind(p.Kind),
+                isSystem,
+                hasPassword,
                 uiPreferences,
             },
             permissions = p.Permissions.ToArray(),

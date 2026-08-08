@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Cove.Core.Auth;
 using Cove.Plugins;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,8 +35,11 @@ public sealed class ExtensionAuthenticationSmokeTests
         using var client = factory.CreateAuthenticatedClient();
 
         using var response = await client.GetAsync("/api/auth/me");
+        var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"hasPassword\":true", body, StringComparison.Ordinal);
+        Assert.Contains("\"isSystem\":", body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -75,8 +79,7 @@ public sealed class ExtensionAuthenticationSmokeTests
             completion = await sessions.CompleteAsync(
                 callback,
                 binding,
-                "integration.login",
-                "integration-user");
+                Identity());
         }
         Assert.Equal(ExtensionLoginCompletionFailure.None, completion.Failure);
 
@@ -114,13 +117,24 @@ public sealed class ExtensionAuthenticationSmokeTests
 
         public Task InvokeAsync(HttpContext context, RequestDelegate next)
         {
-            context.TrySetExtensionUserAssertion(new ExtensionUserAssertion(
-                Id,
-                username,
-                "integration-test"));
+            context.TrySetExtensionIdentityAssertion(new ExtensionIdentityAssertion(
+                "integration.login",
+                "integration-provider",
+                "integration-subject",
+                "integration-test",
+                "Integration provider",
+                username));
             return next(context);
         }
     }
+
+    private static ExtensionIdentityAssertion Identity() => new(
+        "integration.login",
+        "integration-provider",
+        "integration-subject",
+        "integration-test",
+        "Integration provider",
+        "integration-user");
 
     private sealed class InteractiveLoginExtension : IUIExtension
     {

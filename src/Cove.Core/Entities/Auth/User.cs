@@ -9,7 +9,7 @@ public class User : BaseEntity
     public string? DisplayName { get; set; }
     public string? Email { get; set; }
 
-    /// <summary>BCrypt hash of the user password. Verified with constant-time compare.</summary>
+    /// <summary>Required hash of the user's local password. Verified with constant-time compare.</summary>
     public string PasswordHash { get; set; } = string.Empty;
 
     /// <summary>Algorithm tag, e.g. "bcrypt" or "argon2id". Forward-compatibility seam.</summary>

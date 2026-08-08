@@ -658,7 +658,26 @@ public record ExtensionLoginMethod(
     string Label,
     string StartUrl,
     int Order = 100,
-    string? ExtensionId = null);
+    string? ExtensionId = null,
+    string? LinkStartUrl = null)
+{
+    /// <summary>Binary-compatible constructor for extensions built before account linking.</summary>
+    public ExtensionLoginMethod(
+        string Id,
+        string Label,
+        string StartUrl,
+        int Order,
+        string? ExtensionId)
+        : this(Id, Label, StartUrl, Order, ExtensionId, null)
+    {
+    }
+
+    /// <summary>
+    /// Whether this method appears on the unauthenticated login page. Link-only methods remain
+    /// available in account settings even when transparent middleware performs their login step.
+    /// </summary>
+    public bool ShowOnLoginPage { get; init; } = true;
+}
 
 /// <summary>
 /// Versioned frontend assets owned by one extension. Keeping bundle ownership in the

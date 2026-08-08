@@ -65,14 +65,38 @@ public class UIManifestBuilder
         string id,
         string label,
         string startUrl,
-        int order = 100)
+        int order = 100) => AddLoginMethod(id, label, startUrl, order, null, true);
+
+    /// <summary>Advertise a login method that also supports explicit account linking.</summary>
+    public UIManifestBuilder AddLoginMethod(
+        string id,
+        string label,
+        string startUrl,
+        int order,
+        string? linkStartUrl) => AddLoginMethod(id, label, startUrl, order, linkStartUrl, true);
+
+    /// <summary>
+    /// Advertise an external authentication method, optionally hiding it from the login page while
+    /// retaining its account-link action (for example, transparent trusted-proxy authentication).
+    /// </summary>
+    public UIManifestBuilder AddLoginMethod(
+        string id,
+        string label,
+        string startUrl,
+        int order,
+        string? linkStartUrl,
+        bool showOnLoginPage)
     {
         _manifest.LoginMethods.Add(new ExtensionLoginMethod(
             id,
             label,
             startUrl,
             order,
-            _extensionId));
+            _extensionId,
+            linkStartUrl)
+        {
+            ShowOnLoginPage = showOnLoginPage,
+        });
         return this;
     }
 

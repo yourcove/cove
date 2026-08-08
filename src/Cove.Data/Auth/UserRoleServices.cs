@@ -62,9 +62,9 @@ public sealed class UserService : IUserService
     public async Task<UserDto> CreateAsync(CreateUserRequest req, CovePrincipal? actor, CancellationToken ct = default)
     {
         Validation.Username(req.Username);
-        var hasPassword = !string.IsNullOrWhiteSpace(req.Password);
-        if (hasPassword)
-            Validation.Password(req.Password!);
+        if (string.IsNullOrWhiteSpace(req.Password))
+            throw new InvalidOperationException("Password is required. Use an invite link to let the user choose one.");
+        Validation.Password(req.Password);
 
         var exists = await _db.Users.AnyAsync(u => u.Username.ToLower() == req.Username.ToLower(), ct);
         if (exists) throw new InvalidOperationException("Username already in use.");
@@ -74,10 +74,10 @@ public sealed class UserService : IUserService
             Username = req.Username,
             DisplayName = req.DisplayName,
             Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email,
-            PasswordHash = hasPassword ? PasswordHasher.HashPassword(req.Password!) : string.Empty,
+            PasswordHash = PasswordHasher.HashPassword(req.Password),
             PasswordAlgo = PasswordHasher.Algorithm,
             IsActive = true,
-            MustChangePassword = req.MustChangePassword || !hasPassword,
+            MustChangePassword = req.MustChangePassword,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
@@ -141,6 +141,8 @@ public sealed class UserService : IUserService
         if (req.IsActive is { } active)
         {
             if (user.IsSystem && !active) throw new InvalidOperationException("Cannot disable the Owner account.");
+            if (active && string.IsNullOrWhiteSpace(user.PasswordHash))
+                throw new InvalidOperationException("Assign a password before activating this account.");
             user.IsActive = active;
         }
         if (req.MustChangePassword is { } mcp) user.MustChangePassword = mcp;
@@ -1048,4 +1050,3 @@ public sealed class RoleService : IRoleService
         r.Permissions.Select(p => p.PermissionKey).OrderBy(x => x).ToList(),
         r.Users.Count);
 }
-

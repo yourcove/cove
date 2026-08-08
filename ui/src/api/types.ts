@@ -1855,6 +1855,8 @@ export interface MeResponse {
     username: string;
     roles?: string[];
     kind?: AuthUserKind;
+    isSystem?: boolean;
+    hasPassword?: boolean;
     uiPreferences?: UserUiPreferences | null;
   };
   permissions: string[];

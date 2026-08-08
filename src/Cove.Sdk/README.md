@@ -63,6 +63,25 @@ a version of it and declare `minCoveVersion` in `extension.json`; the host refus
 that needs a newer host than is running. Keep the trio's public surface the stable contract — treat a
 breaking change to it as a major version of the extension ABI.
 
+## Authentication assertions
+
+Authentication extensions hand Cove a stable provider-owned identity with
+`TrySetExtensionIdentityAssertion`. The extension ID, provider ID, and exact subject identify the
+link; account and provider labels are display metadata only. Interactive sign-in assertions leave
+`ExtensionIdentityAssertion.IsAuthoritative` false and become a Cove session only through the
+browser-bound login-ticket flow.
+
+Set `IsAuthoritative` only when a trusted upstream authenticates every request, such as a reverse
+proxy that strips client-supplied identity headers and supplies a verified stable subject. An
+authoritative assertion replaces a stale Cove user session that belongs to a different user and
+fails closed when its identity is unlinked or unusable. A same-user bearer principal keeps its token
+scope, and an explicit share-link principal keeps share-link scope.
+
+Every active Cove user retains a local password. External identity links are optional alternative
+sign-in methods, so unlinking an identity or disabling its extension never removes the user's local
+login path. Authentication extensions must not provision users, remove passwords, or treat an
+external provider as the sole account-recovery mechanism.
+
 ## Invalidating segment-span caches
 
 Extensions that commit changes to Cove's video segments outside the built-in controllers must resolve

@@ -40,7 +40,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             .Include(u => u.Roles).ThenInclude(r => r.Role)
             .FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw new UnauthorizedException("User not found.");
-        if (!user.IsActive || user.IsLocked)
+        if (!user.IsActive || user.IsLocked || string.IsNullOrWhiteSpace(user.PasswordHash))
             throw new UnauthorizedException("Account is not active.");
 
         var roleNames = user.Roles.Select(r => r.Role!.Name).ToList();
@@ -123,7 +123,10 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             return await HandleRevokedRefreshTokenAsync(existing, rootId, ct);
         if (existing.ExpiresAt < DateTime.UtcNow)
             throw new UnauthorizedException("Refresh token expired.");
-        if (existing.User is null || !existing.User.IsActive || existing.User.IsLocked)
+        if (existing.User is null
+            || !existing.User.IsActive
+            || existing.User.IsLocked
+            || string.IsNullOrWhiteSpace(existing.User.PasswordHash))
             throw new UnauthorizedException("Account is not active.");
 
         var dto = await BuildUserDto(existing.User, ct);
@@ -359,7 +362,10 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             var user = await _db.Users.AsNoTracking()
                 .Include(u => u.Roles).ThenInclude(r => r.Role).ThenInclude(r => r!.Permissions)
                 .FirstOrDefaultAsync(u => u.Id == userId, ct);
-            if (user is null || !user.IsActive || user.IsLocked) return null;
+            if (user is null
+                || !user.IsActive
+                || user.IsLocked
+                || string.IsNullOrWhiteSpace(user.PasswordHash)) return null;
 
             var roleIds = user.Roles.Select(r => r.RoleId).Distinct().ToArray();
             var roleNames = user.Roles.Select(r => r.Role!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -416,7 +422,10 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
         if (record is null || record.RevokedAt is not null) return null;
         if (record.ExpiresAt is { } exp && exp < DateTime.UtcNow) return null;
         if (!BCrypt.Net.BCrypt.Verify(secret, record.TokenHash)) return null;
-        if (record.User is null || !record.User.IsActive || record.User.IsLocked) return null;
+        if (record.User is null
+            || !record.User.IsActive
+            || record.User.IsLocked
+            || string.IsNullOrWhiteSpace(record.User.PasswordHash)) return null;
 
         var roleIds = record.User.Roles.Select(r => r.RoleId).Distinct().ToArray();
         var roleNames = record.User.Roles.Select(r => r.Role!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -477,27 +486,29 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
     }
 
     public async Task<CovePrincipal?> ResolveExistingUserAsync(
-        string username,
+        int userId,
         string? ip,
         string? userAgent,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(username))
+        if (userId <= 0)
             return null;
 
-        var normalized = username.Trim();
         var user = await _db.Users.AsNoTracking()
             .Include(candidate => candidate.Roles)
                 .ThenInclude(assignment => assignment.Role)
                 .ThenInclude(role => role!.Permissions)
             .FirstOrDefaultAsync(
-                candidate => candidate.Username.ToLower() == normalized.ToLower(),
+                candidate => candidate.Id == userId,
                 ct);
-        if (user is null || !user.IsActive || user.IsLocked)
+        if (user is null
+            || !user.IsActive
+            || user.IsLocked
+            || string.IsNullOrWhiteSpace(user.PasswordHash))
         {
             _log.LogDebug(
-                "Externally authenticated username {Username} was rejected because the Cove account is missing, inactive, or locked",
-                normalized);
+                "Externally authenticated Cove user {UserId} was rejected because the account is missing, inactive, locked, or lacks a password",
+                userId);
             return null;
         }
 
@@ -524,6 +535,13 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             UserAgent = userAgent,
         };
     }
+
+    [Obsolete("Username-only external authentication is no longer accepted. Resolve a linked Cove user ID.")]
+    public Task<CovePrincipal?> ResolveExistingUserAsync(
+        string username,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default) => Task.FromResult<CovePrincipal?>(null);
 
     private async Task<(HashSet<string> RestrictedKinds, HashSet<string> GrantedKinds)> GetReadAccessProfileAsync(IEnumerable<int> roleIds, CancellationToken ct)
     {

@@ -1860,10 +1860,12 @@ public class ExtensionManager : IExtensionContributionRuntime
             var id = method.Id?.Trim();
             var label = method.Label?.Trim();
             var startUrl = method.StartUrl?.Trim();
+            var linkStartUrl = method.LinkStartUrl?.Trim();
             if (!IsSafeLoginMethodValue(extensionId, 256)
                 || !IsSafeLoginMethodValue(id, 128)
                 || !IsSafeLoginMethodValue(label, 128)
-                || !IsSafeLocalLoginStartUrl(startUrl))
+                || !IsSafeLocalLoginStartUrl(startUrl)
+                || (linkStartUrl is not null && !IsSafeLocalLoginStartUrl(linkStartUrl)))
             {
                 continue;
             }
@@ -1878,6 +1880,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                 Id = id!,
                 Label = label!,
                 StartUrl = startUrl!,
+                LinkStartUrl = linkStartUrl,
             });
         }
 

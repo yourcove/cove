@@ -21,6 +21,7 @@ public sealed class CurrentPrincipalMiddleware
         HttpContext context,
         ITokenService tokens,
         IExistingUserPrincipalResolver existingUsers,
+        IExternalIdentityService externalIdentities,
         IShareLinkService shareLinks,
         ICurrentPrincipalAccessor accessor,
         CoveConfiguration config,
@@ -122,13 +123,19 @@ public sealed class CurrentPrincipalMiddleware
             principal = await tokens.ResolveAsync(authHeader, ip, ua, context.RequestAborted);
 
         if (principal is null
-            && context.TryGetExtensionUserAssertion(out var assertion))
+            && context.TryGetExtensionIdentityAssertion(out var assertion))
         {
-            principal = await existingUsers.ResolveExistingUserAsync(
-                assertion.Username,
-                ip,
-                ua,
-                context.RequestAborted);
+            var userId = await externalIdentities.ResolveUserIdAsync(assertion, context.RequestAborted);
+            if (userId is int linkedUserId)
+            {
+                principal = await existingUsers.ResolveExistingUserAsync(
+                    linkedUserId,
+                    ip,
+                    ua,
+                    context.RequestAborted);
+                if (principal is not null)
+                    await externalIdentities.MarkUsedAsync(assertion, context.RequestAborted);
+            }
             if (principal is null)
             {
                 logger.LogDebug(

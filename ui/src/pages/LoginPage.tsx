@@ -59,15 +59,14 @@ export function LoginPage() {
 
     const url = new URL(window.location.href);
     const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
-    const codeValues = [
-      ...url.searchParams.getAll("external_login_code"),
-      ...fragment.getAll("external_login_code"),
-    ];
+    const queryMarkers = url.searchParams.has("external_login_code")
+      || url.searchParams.has("external_login_error");
+    const codeValues = fragment.getAll("external_login_code");
+    const errorValues = fragment.getAll("external_login_error");
     const hasCode = codeValues.length > 0;
     const code = codeValues.length === 1 ? codeValues[0] : null;
-    const hasProviderError = url.searchParams.has("external_login_error")
-      || fragment.has("external_login_error");
-    if (!hasCode && !hasProviderError) return;
+    const hasProviderError = errorValues.length > 0;
+    if (!queryMarkers && !hasCode && !hasProviderError) return;
 
     externalResultHandled.current = true;
     url.searchParams.delete("external_login_code");
@@ -82,8 +81,15 @@ export function LoginPage() {
       `${url.pathname}${url.search}${url.hash}`,
     );
 
+    if (queryMarkers || (hasCode && hasProviderError) || errorValues.length > 1) {
+      setError("External sign-in expired or was already used.");
+      return;
+    }
+
     if (hasProviderError) {
-      setError("External sign-in failed. Please try again.");
+      setError(errorValues[0] === "unlinked"
+        ? "This external identity is not linked. Sign in locally, then link it from Account settings."
+        : "External sign-in failed. Please try again.");
       return;
     }
 
@@ -105,6 +111,7 @@ export function LoginPage() {
   }, [externalLoginRedeem]);
 
   const externalLoginMethods = externalProviders
+    .filter(method => method.showOnLoginPage !== false)
     .map(method => ({ method, href: buildExternalStartUrl(method) }))
     .filter((entry): entry is { method: ExternalLoginMethodRow; href: string } => entry.href !== null);
 

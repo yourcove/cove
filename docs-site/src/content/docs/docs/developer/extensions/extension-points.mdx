@@ -138,6 +138,14 @@ public UIManifestBuilder AddLoginMethod(
     string startUrl,
     int order = 100);
 
+public UIManifestBuilder AddLoginMethod(
+    string id,
+    string label,
+    string startUrl,
+    int order,
+    string? linkStartUrl,
+    bool showOnLoginPage);
+
 public UIManifestBuilder AddTab(
     string pageType,
     string key,
@@ -196,22 +204,40 @@ the unauthenticated page does not load the extension's frontend bundle.
 Resolve `IExtensionLoginSessionService` in the start and callback endpoints. Call
 `BeginBrowserSession` before redirecting to the provider, bind the returned value into the
 extension's single-use state, and call `IsBrowserSession` before exchanging an authorization code.
-After the extension has validated the external protocol, call `CompleteAsync` with its id and the
-asserted username. Cove accepts only an existing active, unlocked local account and returns a
+After the extension has validated the external protocol, call `CompleteAsync` with an
+`ExtensionIdentityAssertion`. The assertion contains the extension id, stable provider authority,
+exact case-sensitive subject, method, and display-only provider/account labels. Do not substitute a
+username or email for the authority's stable subject and do not trim or case-normalize that subject.
+Cove resolves only an identity that a user explicitly linked to an existing active, unlocked local
+account and returns a
 short-lived one-time code for a redirect to `/login#external_login_code=...`. Put the code in the URL
 fragment, not the query string, so browsers do not send it to Cove, reverse proxies, or access logs. The same browser
 redeems that code through Cove's generic auth API; only then does Cove recheck the account, issue
 normal tokens, and write the login success audit event. Abandoned or expired callbacks therefore
 create no Cove session.
 
+Set `linkStartUrl` when the provider supports account linking. The authenticated start endpoint calls
+`IExtensionIdentityLinkService.BeginLink`, binds its intent token and browser value into the
+extension's single-use provider state, and redirects to the provider. After validation, the callback
+calls `PrepareLinkAsync` with the same exact identity assertion. Preparation creates only a short-lived
+candidate; Cove's Account page previews it and the same Cove user must explicitly confirm before the
+host persists a link. For an identity validated on the authenticated start request itself, such as a
+trusted direct-proxy header, use `PrepareDirectLinkAsync`; Cove still returns a confirmation code.
+One external identity cannot be linked to two Cove users, while one user can link multiple identities
+and providers.
+
 For request-by-request authentication such as a reverse-proxy identity header, implement
-`IMiddlewareExtension` and call `HttpContext.TrySetExtensionUserAssertion`. Establish trust from the
+`IMiddlewareExtension` and call `HttpContext.TrySetExtensionIdentityAssertion`. Establish trust from the
 direct network peer and a narrowly configured allowlist; never use a forwarded-address header to
 decide whether the assertion itself is trusted. The first valid extension assertion wins, but an
 already valid Cove share, bearer, API, or access-cookie principal takes precedence. Cove again owns
 local account status, roles, permissions, and content access. Cove probes its `/api/auth/me` endpoint
 once during UI startup, so a valid ambient assertion can enter the application without a second Cove
 login or a provider-specific frontend integration.
+
+Transparent middleware can remain linkable without rendering a redundant login button: declare its
+link URL and pass `showOnLoginPage: false` to the full `AddLoginMethod` overload. Cove still exposes
+the method to the authenticated Account page.
 
 Provider credentials, raw callback queries, authorization codes, tokens, and login tickets must not
 be logged. Interactive flows should use state, browser binding, nonce, PKCE where supported, exact

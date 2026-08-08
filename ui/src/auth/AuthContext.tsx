@@ -95,6 +95,8 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
         id: String(me.user.id),
         username: me.user.username,
         kind: me.user.kind,
+        isSystem: me.user.isSystem,
+        hasPassword: me.user.hasPassword,
         permissions: me.permissions,
         readGrantedEntityKinds: me.readGrantedEntityKinds ?? [],
         uiPreferences: me.user.uiPreferences ?? null,

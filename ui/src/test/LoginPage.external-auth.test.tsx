@@ -70,6 +70,15 @@ describe("LoginPage external authentication", () => {
         order: 20,
         extensionId: "untrusted.extension",
       },
+      {
+        id: "link-only",
+        label: "Trusted proxy",
+        startUrl: "/api/plugins/example.authentication/trusted",
+        linkStartUrl: "/api/plugins/example.authentication/trusted/link",
+        showOnLoginPage: false,
+        order: 30,
+        extensionId: "example.authentication",
+      },
     ]);
 
     renderPage();
@@ -80,6 +89,7 @@ describe("LoginPage external authentication", () => {
       "/api/plugins/example.authentication/start?returnUrl=%2Fsettings%3Ftab%3Dsecurity",
     );
     expect(screen.queryByRole("link", { name: "Leave Cove" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Trusted proxy" })).not.toBeInTheDocument();
   });
 
   it("redeems a fragment-carried external login code once and removes it without losing redirect", async () => {
@@ -102,16 +112,27 @@ describe("LoginPage external authentication", () => {
     expect(url.hash).toBe("");
   });
 
-  it("continues to redeem and scrub a query-carried code for extension compatibility", async () => {
+  it("rejects and scrubs a query-carried code without redeeming it", async () => {
     window.history.replaceState({}, "", "/login?external_login_code=legacy-code");
 
     renderPage();
 
-    await waitFor(() => {
-      expect(mocks.externalLoginRedeem).toHaveBeenCalledTimes(1);
-      expect(mocks.externalLoginRedeem).toHaveBeenCalledWith("legacy-code");
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "External sign-in expired or was already used.",
+    );
+    expect(mocks.externalLoginRedeem).not.toHaveBeenCalled();
     expect(window.location.search).toBe("");
+  });
+
+  it("guides a verified but unlinked identity to local account linking", async () => {
+    window.history.replaceState({}, "", "/login#external_login_error=unlinked");
+
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This external identity is not linked. Sign in locally, then link it from Account settings.",
+    );
+    expect(window.location.hash).toBe("");
   });
 
   it("shows a generic error and scrubs provider error details from the URL", async () => {

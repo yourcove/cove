@@ -35,8 +35,7 @@ public sealed class ExtensionLoginSessionServiceTests
         var completion = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            " alice ");
+            Identity("alice"));
 
         Assert.Equal(ExtensionLoginCompletionFailure.None, completion.Failure);
         Assert.False(string.IsNullOrWhiteSpace(completion.Code));
@@ -67,7 +66,12 @@ public sealed class ExtensionLoginSessionServiceTests
         await SeedUserAsync(db);
         db.Users.AddRange(
             User(2, "inactive", isActive: false),
-            User(3, "locked", isLocked: true));
+            User(3, "locked", isLocked: true),
+            User(4, "missing-password", hasPassword: false));
+        db.ExternalIdentityLinks.AddRange(
+            Link(2, "inactive"),
+            Link(3, "locked"),
+            Link(4, "missing-password"));
         await db.SaveChangesAsync();
         var service = CreateService(db);
         var browser = NewContext();
@@ -76,31 +80,32 @@ public sealed class ExtensionLoginSessionServiceTests
         var wrongBrowser = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            "alice");
+            Identity("alice"));
         Assert.Equal(ExtensionLoginCompletionFailure.BrowserMismatch, wrongBrowser.Failure);
 
         SetBindingCookie(browser, binding);
         var missingUser = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            "missing");
-        Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, missingUser.Failure);
+            Identity("missing"));
+        Assert.Equal(ExtensionLoginCompletionFailure.IdentityUnlinked, missingUser.Failure);
         Assert.Null(missingUser.Code);
 
         var inactive = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            "inactive");
+            Identity("inactive"));
         var locked = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            "locked");
+            Identity("locked"));
+        var missingPassword = await service.CompleteAsync(
+            browser,
+            binding,
+            Identity("missing-password"));
         Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, inactive.Failure);
         Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, locked.Failure);
+        Assert.Equal(ExtensionLoginCompletionFailure.UserRejected, missingPassword.Failure);
     }
 
     [Fact]
@@ -119,8 +124,7 @@ public sealed class ExtensionLoginSessionServiceTests
         var completion = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            "alice");
+            Identity("alice"));
 
         time.Advance(TimeSpan.FromSeconds(61));
 
@@ -143,8 +147,7 @@ public sealed class ExtensionLoginSessionServiceTests
         var completion = await service.CompleteAsync(
             browser,
             binding,
-            "com.example.oidc",
-            "alice");
+            Identity("alice"));
         var user = await db.Users.SingleAsync();
         user.IsActive = false;
         await db.SaveChangesAsync();
@@ -153,28 +156,102 @@ public sealed class ExtensionLoginSessionServiceTests
         Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
     }
 
+    [Fact]
+    public async Task Redemption_rechecks_password_before_issuing_tokens()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = NewDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        await SeedUserAsync(db);
+        var service = CreateService(db);
+        var browser = NewContext();
+        var binding = service.BeginBrowserSession(browser);
+        SetBindingCookie(browser, binding);
+        var completion = await service.CompleteAsync(
+            browser,
+            binding,
+            Identity("alice"));
+        var user = await db.Users.SingleAsync();
+        user.PasswordHash = string.Empty;
+        await db.SaveChangesAsync();
+
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Redemption_rechecks_identity_link_before_issuing_tokens()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = NewDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        await SeedUserAsync(db);
+        var service = CreateService(db);
+        var browser = NewContext();
+        var binding = service.BeginBrowserSession(browser);
+        SetBindingCookie(browser, binding);
+        var completion = await service.CompleteAsync(
+            browser,
+            binding,
+            Identity("alice"));
+        db.ExternalIdentityLinks.Remove(await db.ExternalIdentityLinks.SingleAsync());
+        await db.SaveChangesAsync();
+
+        Assert.Null(await service.RedeemAsync(browser, completion.Code!));
+        Assert.Empty(await db.RefreshTokens.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Token_issuance_and_external_resolution_reject_users_without_passwords()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = NewDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(User(1, "missing-password", hasPassword: false));
+        await db.SaveChangesAsync();
+        var tokens = new TokenService(
+            db,
+            TestConfiguration(),
+            new PermissionRegistry(),
+            NullLogger<TokenService>.Instance);
+
+        Assert.Null(await tokens.ResolveExistingUserAsync(1, null, null));
+        await Assert.ThrowsAsync<UnauthorizedException>(
+            () => tokens.IssueForUserAsync(1, null, null));
+    }
+
     private static ExtensionLoginSessionService CreateService(
         CoveContext db,
         TimeProvider? timeProvider = null)
     {
-        var config = new CoveConfiguration
-        {
-            Auth =
-            {
-                JwtSecret = "test-secret-that-is-long-enough-for-hmac",
-                AccessTokenMinutes = 15,
-                RefreshTokenDays = 30,
-            },
-        };
+        var config = TestConfiguration();
         var audit = new NoopAudit();
+        var identities = new ExternalIdentityService(
+            db,
+            audit,
+            timeProvider ?? TimeProvider.System);
         return new ExtensionLoginSessionService(
             new UserService(db, audit, NullLogger<UserService>.Instance),
             new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance),
+            identities,
             audit,
             config,
             new ExtensionLoginTicketStore(timeProvider ?? TimeProvider.System),
             NullLogger<ExtensionLoginSessionService>.Instance);
     }
+
+    private static CoveConfiguration TestConfiguration() => new()
+    {
+        Auth =
+        {
+            JwtSecret = "test-secret-that-is-long-enough-for-hmac",
+            AccessTokenMinutes = 15,
+            RefreshTokenDays = 30,
+        },
+    };
 
     private static CoveContext NewDb(SqliteConnection connection)
     {
@@ -187,18 +264,40 @@ public sealed class ExtensionLoginSessionServiceTests
     private static async Task SeedUserAsync(CoveContext db)
     {
         db.Users.Add(User(1, "alice"));
+        db.ExternalIdentityLinks.Add(Link(1, "alice"));
         await db.SaveChangesAsync();
     }
+
+    private static ExtensionIdentityAssertion Identity(string subject) => new(
+        "com.example.oidc",
+        "https://issuer.example/application/o/cove/",
+        subject,
+        "oidc",
+        "Example OIDC",
+        subject);
+
+    private static ExternalIdentityLink Link(int userId, string subject) => new()
+    {
+        UserId = userId,
+        ExtensionId = "com.example.oidc",
+        ProviderId = "https://issuer.example/application/o/cove/",
+        Subject = subject,
+        ProviderLabel = "Example OIDC",
+        AccountLabel = subject,
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow,
+    };
 
     private static User User(
         int id,
         string username,
         bool isActive = true,
-        bool isLocked = false) => new()
+        bool isLocked = false,
+        bool hasPassword = true) => new()
         {
             Id = id,
             Username = username,
-            PasswordHash = "hash",
+            PasswordHash = hasPassword ? "hash" : string.Empty,
             PasswordAlgo = "test",
             IsActive = isActive,
             IsLocked = isLocked,

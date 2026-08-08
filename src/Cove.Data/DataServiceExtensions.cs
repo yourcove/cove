@@ -107,6 +107,8 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
         services.AddScoped<TokenService>();
         services.AddScoped<ITokenService>(provider => provider.GetRequiredService<TokenService>());
         services.AddScoped<IExistingUserPrincipalResolver>(provider => provider.GetRequiredService<TokenService>());
+        services.AddScoped<ExternalIdentityService>();
+        services.AddScoped<IExternalIdentityService>(provider => provider.GetRequiredService<ExternalIdentityService>());
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IContentRuleService, ContentRuleService>();

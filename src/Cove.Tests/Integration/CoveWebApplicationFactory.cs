@@ -95,6 +95,15 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
             IsActive = true,
             IsSystem = true,
         });
+        db.ExternalIdentityLinks.Add(new ExternalIdentityLink
+        {
+            UserId = TestUserId,
+            ExtensionId = "integration.login",
+            ProviderId = "integration-provider",
+            Subject = "integration-subject",
+            ProviderLabel = "Integration provider",
+            AccountLabel = "integration-user",
+        });
         await db.SaveChangesAsync();
     }
 
@@ -227,11 +236,16 @@ file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrin
         return Task.FromResult<CovePrincipal?>(Principal);
     }
 
-    public Task<CovePrincipal?> ResolveExistingUserAsync(string username, string? ip, string? userAgent, CancellationToken ct = default)
+    public Task<CovePrincipal?> ResolveExistingUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
         => Task.FromResult<CovePrincipal?>(
-            string.Equals(username?.Trim(), Principal.Username, StringComparison.Ordinal)
+            userId == Principal.UserId
                 ? Principal
                 : null);
+
+#pragma warning disable CS0618
+    public Task<CovePrincipal?> ResolveExistingUserAsync(string username, string? ip, string? userAgent, CancellationToken ct = default)
+        => Task.FromResult<CovePrincipal?>(null);
+#pragma warning restore CS0618
 
     public Task<ApiTokenIssued> CreateApiTokenAsync(int userId, string name, IEnumerable<string>? scope, DateTime? expiresAt, CovePrincipal? actor, CancellationToken ct = default)
         => throw new NotSupportedException();

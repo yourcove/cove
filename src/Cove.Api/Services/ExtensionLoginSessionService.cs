@@ -3,6 +3,7 @@ using System.Text;
 using Cove.Api.Middleware;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
+using Cove.Data.Auth;
 using Cove.Plugins;
 
 namespace Cove.Api.Services;
@@ -13,6 +14,7 @@ namespace Cove.Api.Services;
 public sealed class ExtensionLoginSessionService(
     IUserService users,
     ITokenService tokens,
+    IExternalIdentityService identities,
     IAuditService audit,
     CoveConfiguration configuration,
     ExtensionLoginTicketStore tickets,
@@ -46,16 +48,17 @@ public sealed class ExtensionLoginSessionService(
     public async Task<ExtensionLoginCompletion> CompleteAsync(
         HttpContext context,
         string browserBinding,
-        string extensionId,
-        string username,
+        ExtensionIdentityAssertion assertion,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var normalizedExtensionId = extensionId?.Trim();
-        var normalizedUsername = username?.Trim();
-        if (!IsValidText(normalizedExtensionId, 256)
-            || !IsValidText(normalizedUsername, 256))
+        ExtensionIdentityAssertion identity;
+        try
+        {
+            identity = ExternalIdentityService.Normalize(assertion);
+        }
+        catch (ArgumentException)
         {
             return new(null, ExtensionLoginCompletionFailure.InvalidRequest);
         }
@@ -68,32 +71,64 @@ public sealed class ExtensionLoginSessionService(
             ?.ToString();
         var userAgent = context.Request.Headers.UserAgent.ToString();
         var anonymous = CovePrincipal.Anonymous(ip, userAgent);
-        var user = await users.FindByUsernameAsync(normalizedUsername!, ct);
-        if (user is null || !user.IsActive || user.IsLocked)
+        var userId = await identities.ResolveUserIdAsync(identity, ct);
+        if (userId is null)
+        {
+            await audit.LogAsync(
+                AuditActions.LoginFail,
+                AuditOutcomes.Fail,
+                anonymous,
+                "external_identity",
+                null,
+                new
+                {
+                    reason = "external_identity_unlinked",
+                    identity.ExtensionId,
+                    identity.ProviderId,
+                },
+                ct);
+            return new(null, ExtensionLoginCompletionFailure.IdentityUnlinked);
+        }
+
+        var user = await users.GetAsync(userId.Value, ct);
+        if (user is null || !user.IsActive || user.IsLocked || !user.HasPassword)
         {
             await audit.LogAsync(
                 AuditActions.LoginFail,
                 AuditOutcomes.Fail,
                 anonymous,
                 "user",
-                user?.Id.ToString() ?? normalizedUsername,
+                userId.Value.ToString(),
                 new
                 {
                     reason = user is null
-                        ? "external_unknown_user"
+                        ? "external_missing_user"
                         : user.IsLocked
                             ? "external_locked_user"
-                            : "external_inactive_user",
-                    extensionId = normalizedExtensionId,
+                            : !user.IsActive
+                                ? "external_inactive_user"
+                                : "external_missing_password",
+                    identity.ExtensionId,
+                    identity.ProviderId,
                 },
                 ct);
             return new(null, ExtensionLoginCompletionFailure.UserRejected);
         }
 
         return new(
-            tickets.Create(normalizedExtensionId!, browserBinding, user.Id),
+            tickets.Create(identity, browserBinding, user.Id),
             ExtensionLoginCompletionFailure.None);
     }
+
+    [Obsolete("Username-only external authentication is no longer accepted. Use the identity assertion overload.")]
+    public Task<ExtensionLoginCompletion> CompleteAsync(
+        HttpContext context,
+        string browserBinding,
+        string extensionId,
+        string username,
+        CancellationToken ct = default) => Task.FromResult(new ExtensionLoginCompletion(
+            null,
+            ExtensionLoginCompletionFailure.InvalidRequest));
 
     public async Task<ExtensionLoginRedemption?> RedeemAsync(
         HttpContext context,
@@ -123,8 +158,27 @@ public sealed class ExtensionLoginSessionService(
             ?.ToString();
         var userAgent = context.Request.Headers.UserAgent.ToString();
         var anonymous = CovePrincipal.Anonymous(ip, userAgent);
+        var linkedUserId = await identities.ResolveUserIdAsync(ticket.Identity, ct);
+        if (linkedUserId != ticket.UserId)
+        {
+            await audit.LogAsync(
+                AuditActions.LoginFail,
+                AuditOutcomes.Fail,
+                anonymous,
+                "external_identity",
+                null,
+                new
+                {
+                    reason = "external_identity_changed",
+                    ticket.Identity.ExtensionId,
+                    ticket.Identity.ProviderId,
+                },
+                ct);
+            return null;
+        }
+
         var user = await users.GetAsync(ticket.UserId, ct);
-        if (user is null || !user.IsActive || user.IsLocked)
+        if (user is null || !user.IsActive || user.IsLocked || !user.HasPassword)
         {
             await audit.LogAsync(
                 AuditActions.LoginFail,
@@ -135,7 +189,8 @@ public sealed class ExtensionLoginSessionService(
                 new
                 {
                     reason = "external_account_changed",
-                    extensionId = ticket.ExtensionId,
+                    ticket.Identity.ExtensionId,
+                    ticket.Identity.ProviderId,
                 },
                 ct);
             return null;
@@ -145,22 +200,28 @@ public sealed class ExtensionLoginSessionService(
         {
             await users.RecordLoginSuccessAsync(user.Id, ip, ct);
             var pair = await tokens.IssueForUserAsync(user.Id, ip, userAgent, ct);
+            await identities.MarkUsedAsync(ticket.Identity, ct);
             await audit.LogAsync(
                 AuditActions.LoginSuccess,
                 AuditOutcomes.Success,
                 anonymous,
                 "user",
                 user.Id.ToString(),
-                new { method = "extension", extensionId = ticket.ExtensionId },
+                new
+                {
+                    method = ticket.Identity.Method,
+                    ticket.Identity.ExtensionId,
+                    ticket.Identity.ProviderId,
+                },
                 ct);
-            return new ExtensionLoginRedemption(ticket.ExtensionId, pair);
+            return new ExtensionLoginRedemption(ticket.Identity.ExtensionId, pair);
         }
         catch (UnauthorizedException ex)
         {
             logger.LogDebug(
                 ex,
                 "External login from extension {ExtensionId} lost its usable Cove account during redemption",
-                ticket.ExtensionId);
+                ticket.Identity.ExtensionId);
             return null;
         }
     }
@@ -199,12 +260,12 @@ public sealed class ExtensionLoginTicketStore(TimeProvider timeProvider)
     private readonly Dictionary<string, Ticket> _tickets = new(StringComparer.Ordinal);
 
     private sealed record Ticket(
-        string ExtensionId,
+        ExtensionIdentityAssertion Identity,
         byte[] BrowserBindingHash,
         int UserId,
         DateTimeOffset CreatedAt);
 
-    public string Create(string extensionId, string browserBinding, int userId)
+    public string Create(ExtensionIdentityAssertion identity, string browserBinding, int userId)
     {
         var now = timeProvider.GetUtcNow();
         lock (_gate)
@@ -218,7 +279,7 @@ public sealed class ExtensionLoginTicketStore(TimeProvider timeProvider)
 
             var code = RandomToken();
             _tickets[code] = new Ticket(
-                extensionId,
+                identity,
                 Hash(browserBinding),
                 userId,
                 now);
@@ -241,7 +302,7 @@ public sealed class ExtensionLoginTicketStore(TimeProvider timeProvider)
             }
 
             _tickets.Remove(code);
-            return new ExtensionLoginTicket(ticket.ExtensionId, ticket.UserId);
+            return new ExtensionLoginTicket(ticket.Identity, ticket.UserId);
         }
     }
 
@@ -269,4 +330,4 @@ public sealed class ExtensionLoginTicketStore(TimeProvider timeProvider)
         SHA256.HashData(Encoding.UTF8.GetBytes(value));
 }
 
-internal sealed record ExtensionLoginTicket(string ExtensionId, int UserId);
+internal sealed record ExtensionLoginTicket(ExtensionIdentityAssertion Identity, int UserId);

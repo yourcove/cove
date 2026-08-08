@@ -1,3 +1,4 @@
+using Cove.Core.Auth;
 using Cove.Plugins;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -10,35 +11,73 @@ public sealed class ExtensionAuthenticationAssertionTests
     public void First_valid_extension_assertion_wins_for_the_request()
     {
         var context = new DefaultHttpContext();
-        var first = new ExtensionUserAssertion(
+        var first = new ExtensionIdentityAssertion(
             "com.example.forward-auth",
-            "alice",
-            "trusted-proxy");
-        var second = new ExtensionUserAssertion(
+            "proxy-authority",
+            "alice-subject",
+            "trusted-proxy",
+            "Forward auth",
+            "alice");
+        var second = new ExtensionIdentityAssertion(
             "com.example.other-auth",
-            "mallory",
-            "other");
+            "other-authority",
+            "mallory-subject",
+            "other",
+            "Other",
+            "mallory");
 
-        Assert.True(context.TrySetExtensionUserAssertion(first));
-        Assert.False(context.TrySetExtensionUserAssertion(second));
-        Assert.True(context.TryGetExtensionUserAssertion(out var actual));
+        Assert.True(context.TrySetExtensionIdentityAssertion(first));
+        Assert.False(context.TrySetExtensionIdentityAssertion(second));
+        Assert.True(context.TryGetExtensionIdentityAssertion(out var actual));
         Assert.Equal(first, actual);
     }
 
     [Theory]
-    [InlineData("", "alice", "trusted-proxy")]
-    [InlineData("com.example.forward-auth", "", "trusted-proxy")]
-    [InlineData("com.example.forward-auth", "alice", "")]
+    [InlineData("", "provider", "subject", "trusted-proxy", "Provider")]
+    [InlineData("com.example.forward-auth", "", "subject", "trusted-proxy", "Provider")]
+    [InlineData("com.example.forward-auth", "provider", "", "trusted-proxy", "Provider")]
+    [InlineData("com.example.forward-auth", "provider", "subject", "", "Provider")]
+    [InlineData("com.example.forward-auth", "provider", "subject", "trusted-proxy", "")]
     public void Invalid_extension_assertions_are_rejected(
         string extensionId,
-        string username,
-        string method)
+        string providerId,
+        string subject,
+        string method,
+        string providerLabel)
     {
         var context = new DefaultHttpContext();
 
+        Assert.False(context.TrySetExtensionIdentityAssertion(
+            new ExtensionIdentityAssertion(extensionId, providerId, subject, method, providerLabel)));
+        Assert.False(context.TryGetExtensionIdentityAssertion(out _));
+    }
+
+    [Fact]
+    public void Opaque_subject_is_preserved_exactly()
+    {
+        var context = new DefaultHttpContext();
+
+        Assert.True(context.TrySetExtensionIdentityAssertion(new ExtensionIdentityAssertion(
+            "com.example.forward-auth",
+            "provider",
+            " subject-with-spaces ",
+            "oidc",
+            "Provider")));
+        Assert.True(context.TryGetExtensionIdentityAssertion(out var assertion));
+        Assert.Equal(" subject-with-spaces ", assertion.Subject);
+    }
+
+    [Fact]
+    public void Legacy_username_assertions_fail_closed()
+    {
+        var context = new DefaultHttpContext();
+
+#pragma warning disable CS0618
         Assert.False(context.TrySetExtensionUserAssertion(
-            new ExtensionUserAssertion(extensionId, username, method)));
+            new ExtensionUserAssertion("com.example.legacy", "alice", "legacy")));
         Assert.False(context.TryGetExtensionUserAssertion(out _));
+#pragma warning restore CS0618
+        Assert.False(context.TryGetExtensionIdentityAssertion(out _));
     }
 }
 
@@ -54,7 +93,12 @@ public sealed class ExtensionLoginMethodTests
             new ExtensionLoginMethod("unsafe", "Unsafe", "https://attacker.example/login", 1)), "local");
         manager.Register(new LoginMethodExtension(
             "a.extension",
-            new ExtensionLoginMethod("primary", "Primary", "/api/plugins/a.extension/login", 10)), "local");
+            new ExtensionLoginMethod(
+                "primary",
+                "Primary",
+                "/api/plugins/a.extension/login",
+                10,
+                LinkStartUrl: "/api/plugins/a.extension/link")), "local");
 
         var methods = manager.GetExtensionLoginMethods();
 
@@ -65,6 +109,8 @@ public sealed class ExtensionLoginMethodTests
                 Assert.Equal("primary", method.Id);
                 Assert.Equal("a.extension", method.ExtensionId);
                 Assert.Equal("/api/plugins/a.extension/login", method.StartUrl);
+                Assert.Equal("/api/plugins/a.extension/link", method.LinkStartUrl);
+                Assert.True(method.ShowOnLoginPage);
             },
             method =>
             {
@@ -72,6 +118,27 @@ public sealed class ExtensionLoginMethodTests
                 Assert.Equal("z.extension", method.ExtensionId);
                 Assert.Equal("/api/plugins/z.extension/login", method.StartUrl);
             });
+    }
+
+    [Fact]
+    public void Link_only_authentication_method_is_preserved_for_the_account_page()
+    {
+        var manager = CreateManager();
+        manager.Register(new LoginMethodExtension(
+            "example.extension",
+            new ExtensionLoginMethod(
+                "transparent",
+                "Trusted proxy",
+                "/api/plugins/example.extension/start",
+                LinkStartUrl: "/api/plugins/example.extension/link")
+            {
+                ShowOnLoginPage = false,
+            }), "local");
+
+        var method = Assert.Single(manager.GetExtensionLoginMethods());
+
+        Assert.False(method.ShowOnLoginPage);
+        Assert.NotNull(method.LinkStartUrl);
     }
 
     [Fact]

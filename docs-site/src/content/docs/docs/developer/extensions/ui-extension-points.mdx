@@ -33,6 +33,11 @@ with `UIManifestBuilder.AddLoginMethod(id, label, startUrl, order)`. Cove stamps
 rejects unsafe or duplicate declarations, and accepts only a same-origin relative start URL. Lower
 orders render first.
 
+The overload with `linkStartUrl` also adds a provider action to the authenticated Account page. Cove
+posts to that same-origin endpoint and then either follows its external `redirectUrl` or previews its
+`confirmationCode`. Pass `showOnLoginPage: false` for transparent middleware that should remain
+linkable without showing a redundant unauthenticated login button.
+
 Login methods never load the extension's JavaScript bundle before authentication. The local start
 route must therefore be an extension backend endpoint that begins the external flow. See
 [External authentication](../extension-points/#external-authentication) for the browser-binding,
