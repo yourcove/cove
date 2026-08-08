@@ -98,6 +98,7 @@ public partial class CoveContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
     public DbSet<UserInviteToken> UserInviteTokens => Set<UserInviteToken>();
+    public DbSet<ExternalIdentityLink> ExternalIdentityLinks => Set<ExternalIdentityLink>();
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 

@@ -39,4 +39,5 @@ public class User : BaseEntity
     public ICollection<UserRoleAssignment> Roles { get; set; } = [];
     public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<ApiToken> ApiTokens { get; set; } = [];
+    public ICollection<ExternalIdentityLink> ExternalIdentities { get; set; } = [];
 }
