@@ -44,7 +44,7 @@ public sealed class MetadataServerServiceTests
 
         var service = CreateService(context, httpClient);
 
-        var matches = await service.SearchVideosAsync(video, "Remote Video", Endpoint, CancellationToken.None);
+        var matches = await service.SearchVideosAsync(video, "Remote Video", Endpoint, VideoMetadataSearchStrategy.Text, CancellationToken.None);
 
         var match = Assert.Single(matches);
         Assert.Equal("remote-video-1", match.Id);
@@ -57,6 +57,189 @@ public sealed class MetadataServerServiceTests
         Assert.True(match.StudioCandidate.ExistsLocally);
         Assert.Contains(match.PerformerCandidates, candidate => candidate.Name == "Jane Doe" && candidate.ExistsLocally);
         Assert.Contains(match.TagCandidates, candidate => candidate.Name == "Action" && candidate.ExistsLocally);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_FingerprintOnly_DoesNotUseRemoteIdOrTextFallback()
+    {
+        await using var context = CreateContext();
+        var video = new Video { Title = "Local Video" };
+        var file = new VideoFile { Duration = 118 };
+        file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
+        video.Files.Add(file);
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "existing-remote-id" });
+
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideosByVideoFingerprints", request.Query);
+            Assert.DoesNotContain("query FindVideoByID", request.Query);
+            Assert.DoesNotContain("query SearchVideo", request.Query);
+            return GraphQlData("\"findVideosByVideoFingerprints\": [[]]");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, null, Endpoint, VideoMetadataSearchStrategy.Fingerprint, CancellationToken.None);
+
+        Assert.Empty(matches);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_RemoteIdMatchStopsBeforeFingerprintAndUsesEquivalentEndpoint()
+    {
+        await using var context = CreateContext();
+        var video = CreateSearchStrategyVideo();
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = "https://api.metadata.example/graphql", RemoteId = "remote-video-1" });
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideoByID", request.Query);
+            return GraphQlData($$"""
+                "findVideo": {{RemoteVideoJson}}
+                """);
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, "Local Video", Endpoint, VideoMetadataSearchStrategy.RemoteIdFingerprint, CancellationToken.None);
+
+        Assert.Single(matches);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_RemoteIdFingerprint_DoesNotUseTextFallback()
+    {
+        await using var context = CreateContext();
+        var video = CreateSearchStrategyVideo();
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "missing-video" });
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            if (request.Query.Contains("query FindVideoByID", StringComparison.Ordinal))
+                return GraphQlData("\"findVideo\": null");
+
+            Assert.Contains("query FindVideosByVideoFingerprints", request.Query);
+            Assert.DoesNotContain("query SearchVideo", request.Query);
+            return GraphQlData("\"findVideosByVideoFingerprints\": [[]]");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, "Local Video", Endpoint, VideoMetadataSearchStrategy.RemoteIdFingerprint, CancellationToken.None);
+
+        Assert.Empty(matches);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_RemoteIdOnly_DoesNotUseFingerprintOrTextFallback()
+    {
+        await using var context = CreateContext();
+        var video = CreateSearchStrategyVideo();
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "missing-video" });
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideoByID", request.Query);
+            Assert.DoesNotContain("query FindVideosByVideoFingerprints", request.Query);
+            Assert.DoesNotContain("query SearchVideo", request.Query);
+            return GraphQlData("\"findVideo\": null");
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, "Local Video", Endpoint, VideoMetadataSearchStrategy.RemoteId, CancellationToken.None);
+
+        Assert.Empty(matches);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_CombinedStrategyFallsBackInOrderToText()
+    {
+        await using var context = CreateContext();
+        var video = CreateSearchStrategyVideo();
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "missing-video" });
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            if (request.Query.Contains("query FindVideoByID", StringComparison.Ordinal))
+                return GraphQlData("\"findVideo\": null");
+            if (request.Query.Contains("query FindVideosByVideoFingerprints", StringComparison.Ordinal))
+                return GraphQlData("\"findVideosByVideoFingerprints\": [[]]");
+
+            Assert.Contains("query SearchVideo", request.Query);
+            Assert.Equal("Local Video", GetVariableString(request, "term"));
+            return GraphQlData($$"""
+                "searchVideo": [{{RemoteVideoJson}}]
+                """);
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, "Local Video", Endpoint, VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText, CancellationToken.None);
+
+        Assert.Single(matches);
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Contains("query FindVideoByID", handler.Requests[0].Query);
+        Assert.Contains("query FindVideosByVideoFingerprints", handler.Requests[1].Query);
+        Assert.Contains("query SearchVideo", handler.Requests[2].Query);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_CombinedStrategyKeepsFingerprintCandidateAlongsideStaleRemoteId()
+    {
+        await using var context = CreateContext();
+        var video = CreateSearchStrategyVideo();
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "stale-video" });
+        var staleVideoJson = RemoteVideoJson.Replace("remote-video-1", "stale-video", StringComparison.Ordinal);
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            if (request.Query.Contains("query FindVideoByID", StringComparison.Ordinal))
+                return GraphQlData($$"""
+                    "findVideo": {{staleVideoJson}}
+                    """);
+
+            Assert.Contains("query FindVideosByVideoFingerprints", request.Query);
+            return GraphQlData($$"""
+                "findVideosByVideoFingerprints": [[{{RemoteVideoJson}}]]
+                """);
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, null, Endpoint, VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText, CancellationToken.None);
+
+        Assert.Equal(2, matches.Count);
+        Assert.Contains(matches, match => match.Id == "stale-video");
+        Assert.Contains(matches, match => match.Id == "remote-video-1");
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_OmittedStrategyKeepsCombinedCandidateBehavior()
+    {
+        await using var context = CreateContext();
+        var video = CreateSearchStrategyVideo();
+        video.RemoteIds.Add(new VideoRemoteId { Endpoint = Endpoint, RemoteId = "stale-video" });
+        var staleVideoJson = RemoteVideoJson.Replace("remote-video-1", "stale-video", StringComparison.Ordinal);
+        var handler = new FixtureMetadataServerHandler(request =>
+        {
+            if (request.Query.Contains("query FindVideoByID", StringComparison.Ordinal))
+                return GraphQlData($$"""
+                    "findVideo": {{staleVideoJson}}
+                    """);
+
+            Assert.Contains("query FindVideosByVideoFingerprints", request.Query);
+            return GraphQlData($$"""
+                "findVideosByVideoFingerprints": [[{{RemoteVideoJson}}]]
+                """);
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(context, httpClient);
+
+        var matches = await service.SearchVideosAsync(video, null, Endpoint, null, CancellationToken.None);
+
+        Assert.Equal(2, matches.Count);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Fact]
@@ -82,7 +265,7 @@ public sealed class MetadataServerServiceTests
         Assert.Empty(await service.SearchPerformersAsync("term", null, CancellationToken.None));
         Assert.Empty(await service.SearchStudiosAsync("term", null, CancellationToken.None));
         Assert.Empty(await service.SearchTagsAsync("term", null, CancellationToken.None));
-        Assert.Empty(await service.SearchVideosAsync(video, "term", null, CancellationToken.None));
+        Assert.Empty(await service.SearchVideosAsync(video, "term", null, VideoMetadataSearchStrategy.Text, CancellationToken.None));
 
         Assert.Equal(8, logger.Entries.Count(entry => entry.Level == LogLevel.Debug));
         Assert.Equal(4, logger.Entries.Count(entry => entry.Level == LogLevel.Warning));
@@ -416,6 +599,15 @@ public sealed class MetadataServerServiceTests
             .Options;
 
         return new CoveContext(options);
+    }
+
+    private static Video CreateSearchStrategyVideo()
+    {
+        var video = new Video { Title = "Local Video" };
+        var file = new VideoFile { Duration = 118 };
+        file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
+        video.Files.Add(file);
+        return video;
     }
 
     private static string GetVariableString(GraphQlRequestSnapshot request, string propertyName)

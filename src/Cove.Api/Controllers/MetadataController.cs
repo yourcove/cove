@@ -1146,14 +1146,14 @@ public class MetadataController(
                         IReadOnlyList<MetadataServerVideoMatchDto> matches;
                         if (sourceEndpoints == null)
                         {
-                            matches = await metadataServerSvc.SearchVideosAsync(video, null, null, ct);
+                            matches = await metadataServerSvc.SearchVideosAsync(video, null, null, null, ct);
                         }
                         else
                         {
                             var orderedMatches = new List<MetadataServerVideoMatchDto>();
                             foreach (var endpoint in sourceEndpoints)
                             {
-                                orderedMatches.AddRange(await metadataServerSvc.SearchVideosAsync(video, null, endpoint, ct));
+                                orderedMatches.AddRange(await metadataServerSvc.SearchVideosAsync(video, null, endpoint, null, ct));
                             }
                             matches = orderedMatches;
                         }

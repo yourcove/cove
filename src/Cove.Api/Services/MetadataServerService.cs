@@ -14,6 +14,15 @@ using Cove.Data;
 
 namespace Cove.Api.Services;
 
+public enum VideoMetadataSearchStrategy
+{
+    RemoteIdAndFingerprintThenText,
+    RemoteIdFingerprint,
+    RemoteId,
+    Fingerprint,
+    Text,
+}
+
 public class MetadataServerService : IMetadataServerService
 {
     private static readonly Regex LeadingVideoIndexRegex = new(@"^\s*(?:video\s+)?(?:\[\s*\d+\s*\]|\(\s*\d+\s*\)|\d+)\s*(?:[-â€“â€”:._)\]]\s*)+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -1028,8 +1037,16 @@ query Me {
         List<string> Aliases
     );
 
-    public async Task<IReadOnlyList<MetadataServerVideoMatchDto>> SearchVideosAsync(Video video, string? term, string? endpoint, CancellationToken ct)
+    public async Task<IReadOnlyList<MetadataServerVideoMatchDto>> SearchVideosAsync(
+        Video video,
+        string? term,
+        string? endpoint,
+        VideoMetadataSearchStrategy? strategy,
+        CancellationToken ct)
     {
+        var effectiveStrategy = strategy ?? (string.IsNullOrWhiteSpace(term)
+            ? VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText
+            : VideoMetadataSearchStrategy.Text);
         var boxes = ResolveBoxes(endpoint);
         var strictEndpoint = !string.IsNullOrWhiteSpace(endpoint);
         var results = new List<MetadataServerVideoMatchDto>();
@@ -1043,20 +1060,35 @@ query Me {
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(term))
+                var collectLinkedAndFingerprint = effectiveStrategy == VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText;
+                var useRemoteId = effectiveStrategy is VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText
+                    or VideoMetadataSearchStrategy.RemoteIdFingerprint
+                    or VideoMetadataSearchStrategy.RemoteId;
+                var useFingerprint = effectiveStrategy is VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText
+                    or VideoMetadataSearchStrategy.RemoteIdFingerprint
+                    or VideoMetadataSearchStrategy.Fingerprint;
+                var useText = effectiveStrategy is VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText
+                    or VideoMetadataSearchStrategy.Text;
+                var existingMatchAdded = false;
+
+                if (useRemoteId)
                 {
-                    var existingRemoteId = video.RemoteIds.FirstOrDefault(remoteId => string.Equals(remoteId.Endpoint, box.Endpoint, StringComparison.OrdinalIgnoreCase));
-                    var existingMatchAdded = false;
+                    var existingRemoteId = video.RemoteIds.FirstOrDefault(remoteId => EndpointsMatch(remoteId.Endpoint, box.Endpoint));
                     if (existingRemoteId != null)
                     {
                         var existing = await GetVideoMatchAsync(box.Endpoint, existingRemoteId.RemoteId, localFingerprints, ct);
                         if (existing != null)
                         {
                             results.Add(existing);
+                            if (!collectLinkedAndFingerprint)
+                                continue;
                             existingMatchAdded = true;
                         }
                     }
+                }
 
+                if (useFingerprint)
+                {
                     var fingerprintQueries = BuildFingerprintQueries(video);
                     if (fingerprintQueries.Count > 0)
                     {
@@ -1084,17 +1116,24 @@ query Me {
                         if (remoteMatches.Count > 0)
                             continue;
 
-                        _logger.LogTrace(
-                            "Fingerprint lookup returned no matches for video {VideoId}; falling back to {SearchTermCount} text search terms",
-                            video.Id,
-                            searchTerms.Count);
+                        if (useText && !existingMatchAdded)
+                        {
+                            _logger.LogTrace(
+                                "Fingerprint lookup returned no matches for video {VideoId}; falling back to {SearchTermCount} text search terms",
+                                video.Id,
+                                searchTerms.Count);
+                        }
+                        else
+                        {
+                            _logger.LogTrace("Fingerprint lookup returned no matches for video {VideoId}", video.Id);
+                        }
                     }
-
-                    if (existingMatchAdded)
-                        continue;
                 }
 
-                if (searchTerms.Count == 0)
+                if (collectLinkedAndFingerprint && existingMatchAdded)
+                    continue;
+
+                if (!useText || searchTerms.Count == 0)
                     continue;
 
                 foreach (var searchTerm in searchTerms)

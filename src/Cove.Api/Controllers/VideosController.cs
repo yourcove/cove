@@ -499,12 +499,24 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     [HttpGet("{id:int}/metadata-server/search")]
-    public async Task<ActionResult<IReadOnlyList<MetadataServerVideoMatchDto>>> SearchMetadataServer(int id, [FromQuery] string? term, [FromQuery] string? endpoint, CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<MetadataServerVideoMatchDto>>> SearchMetadataServer(int id, [FromQuery] string? term, [FromQuery] string? endpoint, [FromQuery] string? strategy, CancellationToken ct)
     {
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         if (video == null) return NotFound();
 
-        return Ok(await metadataServerService.SearchVideosAsync(video, term, endpoint, ct));
+        VideoMetadataSearchStrategy? parsedStrategy = strategy?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "remote-id-and-fingerprint-text" => VideoMetadataSearchStrategy.RemoteIdAndFingerprintThenText,
+            "remote-id-fingerprint" => VideoMetadataSearchStrategy.RemoteIdFingerprint,
+            "remote-id" => VideoMetadataSearchStrategy.RemoteId,
+            "fingerprint" => VideoMetadataSearchStrategy.Fingerprint,
+            _ => null,
+        };
+        if (!string.IsNullOrWhiteSpace(strategy) && parsedStrategy == null)
+            return BadRequest(new { message = $"Unknown metadata search strategy '{strategy}'." });
+
+        return Ok(await metadataServerService.SearchVideosAsync(video, term, endpoint, parsedStrategy, ct));
     }
 
     // Fetch matches directly by this server's ids (e.g. a video's existing remote ids), so the tagger can

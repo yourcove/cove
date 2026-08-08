@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Check, CloudDownload, Eye, EyeOff, Loader2, RefreshCw, Settings2, X } from "lucide-react";
+import { Check, ChevronDown, CloudDownload, Eye, EyeOff, Loader2, RefreshCw, Settings2, X } from "lucide-react";
 import type { CollectionMode } from "./videoScrapeUtils";
 
 // Reduce an endpoint to its registrable domain (last two labels, "www." dropped) so a remote id stored
@@ -60,6 +60,12 @@ export type TaggerQueryMode = "auto" | "filename" | "dir" | "path" | "metadata";
 export interface TaggerSourceOption {
   value: string;
   label: string;
+}
+
+export interface TaggerRunAllOption {
+  value: string;
+  label: string;
+  description: string;
 }
 
 export const DEFAULT_TAGGER_BLACKLIST = ["\\sXXX\\s", "1080p", "720p", "2160p", "4K", "KTR", "RARBG", "\\smp4\\s"];
@@ -125,6 +131,7 @@ export function TaggerToolbar({
   batchSearching,
   onCancelBatch,
   onRunAll,
+  runAllOptions,
   runAllLabel = "Scrape All",
   showRunAll = true,
   countLabel,
@@ -142,7 +149,8 @@ export function TaggerToolbar({
   };
   batchSearching: boolean;
   onCancelBatch: () => void;
-  onRunAll: () => void;
+  onRunAll: (option?: string) => void;
+  runAllOptions?: TaggerRunAllOption[];
   runAllLabel?: string;
   showRunAll?: boolean;
   countLabel: string;
@@ -182,10 +190,35 @@ export function TaggerToolbar({
             Cancel
           </button>
         ) : (
-          <button type="button" onClick={onRunAll} className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium bg-accent text-white hover:bg-accent-hover">
-            <CloudDownload className="w-3.5 h-3.5" />
-            {runAllLabel}
-          </button>
+          <div className="flex items-stretch">
+            <button type="button" onClick={() => onRunAll()} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-accent text-white hover:bg-accent-hover ${runAllOptions?.length ? "rounded-l" : "rounded"}`}>
+              <CloudDownload className="w-3.5 h-3.5" />
+              {runAllLabel}
+            </button>
+            {runAllOptions?.length ? (
+              <details className="relative">
+                <summary role="button" className="flex h-full list-none items-center rounded-r border-l border-white/20 bg-accent px-1.5 text-white hover:bg-accent-hover cursor-pointer" aria-label="Choose scrape strategy">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </summary>
+                <div className="absolute left-0 z-30 mt-1 w-72 overflow-hidden rounded border border-border bg-card shadow-xl">
+                  {runAllOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                        onRunAll(option.value);
+                      }}
+                      className="block w-full px-3 py-2 text-left hover:bg-surface"
+                    >
+                      <span className="block text-xs font-medium text-foreground">{option.label}</span>
+                      <span className="block text-[10px] text-muted">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
         )
       )}
 
