@@ -7,7 +7,7 @@ vi.mock("../components/Rating", () => ({
   RatingBadge: () => null,
 }));
 
-import { GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
+import { GalleryPreviewList, GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 
 const videoFile = {
@@ -167,6 +167,16 @@ describe("VideoCard navigation", () => {
     });
 
     expect(screen.getByRole("link", { name: /Popover Performer/i })).toHaveAttribute("href", "/performer/9");
+  });
+
+  it("navigates to gallery popover items when no navigation callback is provided", () => {
+    window.history.replaceState(null, "", "/images");
+    render(<GalleryPreviewList galleries={[{ id: 17, title: "Linked Gallery" }]} />);
+
+    fireEvent.click(screen.getByRole("link", { name: "Linked Gallery" }));
+
+    expect(window.location.pathname).toBe("/gallery/17");
+    window.history.replaceState(null, "", "/");
   });
 
   it("does not create hover media for tag references without an image", () => {
