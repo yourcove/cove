@@ -17,7 +17,10 @@ public sealed class ExtensionAuthenticationAssertionTests
             "alice-subject",
             "trusted-proxy",
             "Forward auth",
-            "alice");
+            "alice")
+        {
+            IsAuthoritative = true,
+        };
         var second = new ExtensionIdentityAssertion(
             "com.example.other-auth",
             "other-authority",
@@ -30,6 +33,7 @@ public sealed class ExtensionAuthenticationAssertionTests
         Assert.False(context.TrySetExtensionIdentityAssertion(second));
         Assert.True(context.TryGetExtensionIdentityAssertion(out var actual));
         Assert.Equal(first, actual);
+        Assert.True(actual.IsAuthoritative);
     }
 
     [Theory]

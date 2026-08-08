@@ -171,7 +171,10 @@ public sealed class ExternalIdentityService(
             ValidateExactRequired(assertion.Subject, 512, "subject"),
             NormalizeRequired(assertion.Method, 128, "method"),
             NormalizeRequired(assertion.ProviderLabel, 128, "provider label"),
-            NormalizeOptional(assertion.AccountLabel, 256, "account label"));
+            NormalizeOptional(assertion.AccountLabel, 256, "account label"))
+        {
+            IsAuthoritative = assertion.IsAuthoritative,
+        };
     }
 
     private static string NormalizeRequired(string? value, int maximumLength, string name)

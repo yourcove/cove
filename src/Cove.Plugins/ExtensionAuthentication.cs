@@ -224,7 +224,10 @@ public static class ExtensionAuthenticationHttpContextExtensions
             subject!,
             method!,
             providerLabel!,
-            accountLabel);
+            accountLabel)
+        {
+            IsAuthoritative = assertion.IsAuthoritative,
+        };
         return true;
     }
 

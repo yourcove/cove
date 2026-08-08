@@ -11,7 +11,15 @@ public sealed record ExtensionIdentityAssertion(
     string Subject,
     string Method,
     string ProviderLabel,
-    string? AccountLabel = null);
+    string? AccountLabel = null)
+{
+    /// <summary>
+    /// Whether this ambient request identity is authoritative over an existing Cove user session.
+    /// Use this only when a trusted upstream authenticates every request, such as a verified
+    /// reverse-proxy identity header. Interactive login assertions should leave it false.
+    /// </summary>
+    public bool IsAuthoritative { get; init; }
+}
 
 public sealed record ExternalIdentityLinkDto(
     int Id,

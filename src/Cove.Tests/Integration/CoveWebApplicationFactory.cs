@@ -19,6 +19,7 @@ namespace Cove.Tests.Integration;
 public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
 {
     public const int TestUserId = 1;
+    public const int TestExternalUserId = 2;
 
     private static readonly object ServerStartEnvironmentLock = new();
 
@@ -182,17 +183,14 @@ file sealed class IntegrationTestCoveContext(DbContextOptions<CoveContext> optio
 
 file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrincipalResolver
 {
-    private static readonly CovePrincipal Principal = new()
-    {
-        UserId = CoveWebApplicationFactory.TestUserId,
-        Username = "integration-user",
-        Kind = PrincipalKind.User,
-        Roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-        Permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            Permissions.All,
-        },
-    };
+    private static readonly CovePrincipal Principal = CreatePrincipal(
+        CoveWebApplicationFactory.TestUserId,
+        "integration-user");
+    private static readonly CovePrincipal ScopedApiPrincipal = CreatePrincipal(
+        CoveWebApplicationFactory.TestUserId,
+        "integration-user",
+        PrincipalKind.ApiToken,
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "videos.read" });
 
     public Task<TokenPair> IssueForUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
     {
@@ -233,14 +231,21 @@ file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrin
         if (string.IsNullOrWhiteSpace(authorizationHeader))
             return Task.FromResult<CovePrincipal?>(null);
 
-        return Task.FromResult<CovePrincipal?>(Principal);
+        return Task.FromResult<CovePrincipal?>(
+            authorizationHeader.Contains("integration-scoped-token", StringComparison.Ordinal)
+                ? ScopedApiPrincipal
+                : Principal);
     }
 
     public Task<CovePrincipal?> ResolveExistingUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
-        => Task.FromResult<CovePrincipal?>(
-            userId == Principal.UserId
-                ? Principal
-                : null);
+        => Task.FromResult<CovePrincipal?>(userId switch
+        {
+            CoveWebApplicationFactory.TestUserId => Principal,
+            CoveWebApplicationFactory.TestExternalUserId => CreatePrincipal(
+                CoveWebApplicationFactory.TestExternalUserId,
+                "integration-user-two"),
+            _ => null,
+        });
 
 #pragma warning disable CS0618
     public Task<CovePrincipal?> ResolveExistingUserAsync(string username, string? ip, string? userAgent, CancellationToken ct = default)
@@ -255,4 +260,18 @@ file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrin
 
     public Task<IReadOnlyList<ApiTokenDto>> ListApiTokensAsync(int userId, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ApiTokenDto>>([]);
+
+    private static CovePrincipal CreatePrincipal(
+        int userId,
+        string username,
+        PrincipalKind kind = PrincipalKind.User,
+        IReadOnlySet<string>? permissions = null) => new()
+    {
+        UserId = userId,
+        Username = username,
+        Kind = kind,
+        Roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        Permissions = permissions ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Permissions.All },
+        TokenId = kind == PrincipalKind.ApiToken ? Guid.Parse("11111111-1111-1111-1111-111111111111") : null,
+    };
 }

@@ -101,8 +101,9 @@ public sealed class ExternalIdentityServiceTests
     private static ExtensionIdentityAssertion Identity(
         string providerId,
         string subject,
-        string providerLabel) => new(
-            "com.example.auth",
+        string providerLabel,
+        string extensionId = "com.example.auth") => new(
+            extensionId,
             providerId,
             subject,
             "oidc",
