@@ -30,7 +30,7 @@ import { MultiSortControl } from "./MultiSortControl";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
-interface ListPageProps {
+export interface ListPageProps {
   title: string;
   pageKey?: string;
   filter: FindFilter;
@@ -48,6 +48,8 @@ interface ListPageProps {
   availableDisplayModes?: DisplayMode[];
   allowInfinitePageSize?: boolean;
   infinitePageSizeOnly?: boolean;
+  maxPageSize?: number;
+  perPageQueryKey?: string;
   selectedIds?: Set<string | number>;
   onSelectAll?: () => void;
   onSelectAllMatching?: () => void;
@@ -63,6 +65,9 @@ interface ListPageProps {
   onNew?: () => void;
   renderOperations?: () => ReactNode;
   filterMode?: string;
+  savedFilterScope?: string;
+  cardSizeEntityType?: string;
+  manageDocumentTitle?: boolean;
   savedFilterUIOptions?: Record<string, unknown>;
   onApplySavedFilterUIOptions?: (options: Record<string, unknown>) => void;
   searchMode?: string;
@@ -550,6 +555,8 @@ export function ListPage({
   availableDisplayModes,
   allowInfinitePageSize = false,
   infinitePageSizeOnly = false,
+  maxPageSize,
+  perPageQueryKey,
   selectedIds,
   onSelectAll,
   onSelectAllMatching,
@@ -565,6 +572,9 @@ export function ListPage({
   onNew,
   renderOperations,
   filterMode,
+  savedFilterScope,
+  cardSizeEntityType: requestedCardSizeEntityType,
+  manageDocumentTitle = true,
   savedFilterUIOptions,
   onApplySavedFilterUIOptions,
   searchMode,
@@ -586,7 +596,8 @@ export function ListPage({
 }: ListPageProps) {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
-  const cardSizeEntityType = filterMode ?? pageKey;
+  const cardSizeEntityType = requestedCardSizeEntityType ?? filterMode ?? pageKey;
+  const resolvedSavedFilterScope = savedFilterScope ?? filterMode;
   const [zoomLevel, setZoomLevel] = useEntityCardSize(cardSizeEntityType, pageKey, DEFAULT_ZOOM_LEVEL);
   const cardSizeMaxLevel = getEntityCardMaxLevel(cardSizeEntityType);
   const cardMinWidthPx = getEntityCardMinWidthPx(cardSizeEntityType, zoomLevel);
@@ -621,15 +632,15 @@ export function ListPage({
   }, [availableDisplayModes, cardSizeEntityType, onApplySavedFilterUIOptions, onDisplayModeChange, setZoomLevel]);
 
   useEffect(() => {
-    if (!filterMode || defaultUIOptionsModeRef.current === filterMode) return;
-    defaultUIOptionsModeRef.current = filterMode;
-    const options = getDefaultFilter(filterMode)?.uiOptions;
+    if (!resolvedSavedFilterScope || defaultUIOptionsModeRef.current === resolvedSavedFilterScope) return;
+    defaultUIOptionsModeRef.current = resolvedSavedFilterScope;
+    const options = getDefaultFilter(resolvedSavedFilterScope)?.uiOptions;
     if (!options) return;
     const explicitDisplayMode = new URLSearchParams(window.location.search).get("view");
     const hasSupportedExplicitDisplayMode = explicitDisplayMode != null
       && (!availableDisplayModes || availableDisplayModes.includes(explicitDisplayMode as DisplayMode));
     applySavedFilterUIOptions(options, !hasSupportedExplicitDisplayMode);
-  }, [applySavedFilterUIOptions, availableDisplayModes, filterMode]);
+  }, [applySavedFilterUIOptions, availableDisplayModes, resolvedSavedFilterScope]);
   const mergedCriteriaDefinitions = useMemo(() => {
     const merged = [...(criteriaDefinitions ?? []), ...extensionCriteriaDefinitions, ...unavailableExtensionCriteria];
     return merged.length > 0 ? merged : undefined;
@@ -759,15 +770,17 @@ export function ListPage({
         onWallColumnCountChange(Math.min(12, Math.max(2, parsed.wallColumnCount)));
       }
 
-      const hasPerPageOverride = new URLSearchParams(window.location.search).has("perPage");
-      const persistedPerPageAllowed = typeof parsed.perPage === "number" && (parsed.perPage > 0 || (allowInfinitePageSize && parsed.perPage === 0));
+      const hasPerPageOverride = new URLSearchParams(window.location.search).has(perPageQueryKey ?? "perPage");
+      const persistedPerPageAllowed = typeof parsed.perPage === "number"
+        && (parsed.perPage > 0 || (allowInfinitePageSize && parsed.perPage === 0))
+        && (maxPageSize == null || parsed.perPage <= maxPageSize);
       if (!hasPerPageOverride && persistedPerPageAllowed && parsed.perPage !== perPage) {
         onFilterChange({ ...filter, perPage: parsed.perPage, page: 1 });
       }
     } catch {
       // Ignore invalid persisted list preferences.
     }
-  }, [allowInfinitePageSize, filter, onFilterChange, onWallColumnCountChange, pageKey, perPage]);
+  }, [allowInfinitePageSize, filter, maxPageSize, onFilterChange, onWallColumnCountChange, pageKey, perPage, perPageQueryKey]);
 
   useEffect(() => {
     if (!pageKey) {
@@ -839,7 +852,7 @@ export function ListPage({
 
   useKeySequence(listBindings);
 
-  useDocumentTitle(title);
+  useDocumentTitle(title, manageDocumentTitle);
 
   const resolvedLoadState = loadState ?? resolveQueryLoadState({
     data: isLoading || error ? undefined : true,
@@ -899,9 +912,9 @@ export function ListPage({
         )}
 
         {/* Saved filters */}
-        {filterMode && (
+        {resolvedSavedFilterScope && (
           <SavedFilterMenu
-            mode={filterMode}
+            mode={resolvedSavedFilterScope}
             currentFilter={filter}
             currentObjectFilter={objectFilter}
             currentUIOptions={{ ...savedFilterUIOptions, displayMode, zoomLevel }}
@@ -1004,7 +1017,8 @@ export function ListPage({
             allowInfinite={allowInfinitePageSize}
             infinitePageSize={infinitePageSize}
             infinitePageSizeOnly={infinitePageSizeOnly}
-            onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: nextPerPage, page: 1 })}
+            maxPageSize={maxPageSize}
+            onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: maxPageSize == null ? nextPerPage : Math.min(nextPerPage, maxPageSize), page: 1 })}
           />
 
           {/* Zoom slider (standard card size slider) */}

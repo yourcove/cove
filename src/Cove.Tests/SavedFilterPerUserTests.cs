@@ -1,7 +1,6 @@
 using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.Entities;
-using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -29,10 +28,11 @@ public class SavedFilterPerUserTests
     }
 
     [Theory]
-    [InlineData("segments", FilterMode.Segments)]
-    [InlineData("rawsegments", FilterMode.RawSegments)]
-    [InlineData("groupitems", FilterMode.GroupItems)]
-    public async Task Create_accepts_distinct_filter_modes(string mode, FilterMode expected)
+    [InlineData("segments", "segments")]
+    [InlineData("rawsegments", "rawsegments")]
+    [InlineData("groupitems", "groupitems")]
+    [InlineData(" EXT:Com.Example.Tools:Missing-Videos ", "ext:com.example.tools:missing-videos")]
+    public async Task Create_accepts_distinct_filter_modes(string mode, string expected)
     {
         var repo = new FakeSavedFilterRepo();
 
@@ -40,6 +40,22 @@ public class SavedFilterPerUserTests
 
         Assert.IsType<SavedFilterDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
         Assert.Equal(expected, repo.Items.Single().Mode);
+    }
+
+    [Theory]
+    [InlineData("ext:missing-view")]
+    [InlineData("ext:com.example:bad view")]
+    [InlineData("ext:com.example:view:extra")]
+    [InlineData("ext::view")]
+    [InlineData("999")]
+    [InlineData("0")]
+    public async Task Create_rejects_invalid_extension_filter_modes(string mode)
+    {
+        var result = await ControllerFor(7, new FakeSavedFilterRepo()).Create(
+            new SavedFilterCreateDto(mode, "filter", null, null, null),
+            default);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
     [Fact]
@@ -136,7 +152,7 @@ public class SavedFilterPerUserTests
         {
             Id = 1,
             UserId = 1,
-            Mode = FilterMode.Videos,
+            Mode = "videos",
             Name = " Favorites ",
         });
 
@@ -198,13 +214,13 @@ public class SavedFilterPerUserTests
         public Task<IReadOnlyList<SavedFilter>> GetAllAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<SavedFilter>>(Items.ToList());
 
-        public Task<IReadOnlyList<SavedFilter>> GetByModeAsync(FilterMode mode, CancellationToken ct = default)
+        public Task<IReadOnlyList<SavedFilter>> GetByModeAsync(string mode, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<SavedFilter>>(Items.Where(f => f.Mode == mode).ToList());
 
         public Task<IReadOnlyList<SavedFilter>> GetAllForUserAsync(int? userId, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<SavedFilter>>(Items.Where(f => f.UserId == userId).ToList());
 
-        public Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(FilterMode mode, int? userId, CancellationToken ct = default)
+        public Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(string mode, int? userId, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<SavedFilter>>(Items.Where(f => f.Mode == mode && f.UserId == userId).ToList());
 
         public Task UpdateAsync(SavedFilter entity, CancellationToken ct = default) => Task.CompletedTask;

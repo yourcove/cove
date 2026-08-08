@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
-using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 
 namespace Cove.Api.Controllers;
@@ -24,7 +23,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         IReadOnlyList<SavedFilter> filters;
         if (mode != null)
         {
-            if (!Enum.TryParse<FilterMode>(mode, true, out var filterMode))
+            if (!TryNormalizeMode(mode, out var filterMode))
                 return BadRequest(new { message = $"Invalid filter mode: {mode}" });
 
             filters = await filterRepo.GetByModeForUserAsync(filterMode, CurrentUserId, ct);
@@ -51,7 +50,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
     [RequiresPermission(Permissions.SavedFiltersWrite)]
     public async Task<ActionResult<SavedFilterDto>> Create([FromBody] SavedFilterCreateDto dto, CancellationToken ct)
     {
-        if (!Enum.TryParse<FilterMode>(dto.Mode, true, out var filterMode))
+        if (!TryNormalizeMode(dto.Mode, out var filterMode))
             return BadRequest(new { message = $"Invalid filter mode: {dto.Mode}" });
 
         var name = dto.Name?.Trim() ?? string.Empty;
@@ -78,7 +77,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
         if (filter == null || !IsVisibleToCurrentUser(filter)) return NotFound();
 
         var mode = filter.Mode;
-        if (dto.Mode != null && !Enum.TryParse(dto.Mode, true, out mode))
+        if (dto.Mode != null && !TryNormalizeMode(dto.Mode, out mode))
             return BadRequest(new { message = $"Invalid filter mode: {dto.Mode}" });
 
         var name = (dto.Name ?? filter.Name).Trim();
@@ -111,13 +110,44 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
     // lookups too. A null-owned (legacy/unowned) row is only visible when the caller is also unowned.
     private bool IsVisibleToCurrentUser(SavedFilter filter) => filter.UserId == CurrentUserId;
 
-    private async Task<bool> HasDuplicateName(FilterMode mode, string name, int? excludedId, CancellationToken ct)
+    private async Task<bool> HasDuplicateName(string mode, string name, int? excludedId, CancellationToken ct)
     {
         var filters = await filterRepo.GetByModeForUserAsync(mode, CurrentUserId, ct);
         return filters.Any(filter =>
             filter.Id != excludedId
             && IsVisibleToCurrentUser(filter)
             && string.Equals(filter.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool TryNormalizeMode(string? value, out string mode)
+    {
+        mode = string.Empty;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        var normalized = value.Trim().ToLowerInvariant();
+        if (Enum.TryParse<Core.Enums.FilterMode>(normalized, true, out var builtIn)
+            && Enum.IsDefined(builtIn)
+            && !int.TryParse(normalized, out _))
+        {
+            mode = builtIn.ToString().ToLowerInvariant();
+            return true;
+        }
+
+        if (normalized.Length > 200 || !normalized.StartsWith("ext:", StringComparison.Ordinal)) return false;
+        var parts = normalized.Split(':');
+        if (parts.Length != 3 || !IsScopePart(parts[1], allowDots: true) || !IsScopePart(parts[2], allowDots: false)) return false;
+
+        mode = normalized;
+        return true;
+    }
+
+    private static bool IsScopePart(string value, bool allowDots)
+    {
+        if (value.Length is < 1 or > 100) return false;
+        return value.All(character => char.IsAsciiLetterOrDigit(character)
+            || character == '-'
+            || character == '_'
+            || (allowDots && character == '.'));
     }
 
     // When a filter using random sort is persisted, drop the random seed so the saved/default
@@ -148,7 +178,7 @@ public class SavedFiltersController(ISavedFilterRepository filterRepo, ICurrentP
     }
 
     private static SavedFilterDto MapToDto(SavedFilter f) => new(
-        f.Id, f.Mode.ToString(), f.Name, f.FindFilter, f.ObjectFilter, f.UIOptions);
+        f.Id, f.Mode, f.Name, f.FindFilter, f.ObjectFilter, f.UIOptions);
 }
 
 public record SavedFilterDto(int Id, string Mode, string Name, string? FindFilter, string? ObjectFilter, string? UIOptions);

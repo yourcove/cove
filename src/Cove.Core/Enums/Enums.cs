@@ -25,8 +25,8 @@ public enum FilterMode
     Groups,
     Tags,
     Images,
-    // Appended only — Mode persists as the enum's integer value (saved_filters."Mode"), so new entries
-    // must go at the end to keep existing rows' modes stable.
+    // Appended only — historical migrations map the original integer values to their string names,
+    // so preserving the existing order keeps fresh and upgraded databases equivalent.
     Audios,
     Faces,
     Texts,

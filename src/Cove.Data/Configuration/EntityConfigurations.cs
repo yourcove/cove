@@ -996,6 +996,7 @@ public class SavedFilterConfiguration : IEntityTypeConfiguration<SavedFilter>
     {
         builder.ToTable("saved_filters");
         builder.HasKey(f => f.Id);
+        builder.Property(f => f.Mode).HasMaxLength(200);
         builder.Property(f => f.FindFilter).HasColumnType("jsonb");
         builder.Property(f => f.ObjectFilter).HasColumnType("jsonb");
         builder.Property(f => f.UIOptions).HasColumnType("jsonb");

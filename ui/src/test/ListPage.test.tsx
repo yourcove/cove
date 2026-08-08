@@ -670,6 +670,37 @@ describe("ListPage active filter chips", () => {
     expect(localStorage.getItem("cove.cardSize.rawsegments")).toBe("8");
   });
 
+  it("supports an extension saved-filter scope independently from entity filtering and card sizing", async () => {
+    localStorage.setItem("cove-default-filter-ext:com.example.tools:missing-videos", JSON.stringify({
+      findFilter: { page: 1, perPage: 40 },
+      uiOptions: { zoomLevel: 2.5 },
+    }));
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Missing Videos"
+            pageKey="complete-the-cove-missing-videos"
+            savedFilterScope="ext:com.example.tools:missing-videos"
+            cardSizeEntityType="video"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            displayMode="grid"
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTitle("Saved filters")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("2.5"));
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("2.5");
+  });
+
   it("ignores invalid saved-filter UI options", async () => {
     localStorage.setItem("cove.cardSize.video", "2");
     localStorage.setItem("cove-default-filter-videos", JSON.stringify({

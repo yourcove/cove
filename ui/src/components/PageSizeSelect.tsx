@@ -12,6 +12,8 @@ interface PageSizeSelectProps {
   infinitePageSize: boolean;
   /** When true the control is locked to infinite and disabled. */
   infinitePageSizeOnly?: boolean;
+  /** Largest finite custom/preset page size to offer. */
+  maxPageSize?: number;
   /** Called with the chosen page size (`0` for infinite). */
   onChange: (perPage: number) => void;
 }
@@ -21,16 +23,17 @@ interface PageSizeSelectProps {
  * sizes plus optional "Infinite", and a "Custom…" entry that swaps in a number
  * input so the user can pick any size that isn't one of the presets.
  */
-export function PageSizeSelect({ perPage, allowInfinite, infinitePageSize, infinitePageSizeOnly = false, onChange }: PageSizeSelectProps) {
+export function PageSizeSelect({ perPage, allowInfinite, infinitePageSize, infinitePageSizeOnly = false, maxPageSize, onChange }: PageSizeSelectProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customText, setCustomText] = useState("");
 
   const options = useMemo(() => {
     if (infinitePageSizeOnly) return [];
     // Surface a previously-applied custom size as its own option so it stays selected.
-    if (infinitePageSize || LIST_PER_PAGE_OPTIONS.includes(perPage)) return LIST_PER_PAGE_OPTIONS;
-    return [...LIST_PER_PAGE_OPTIONS, perPage].sort((left, right) => left - right);
-  }, [infinitePageSize, infinitePageSizeOnly, perPage]);
+    const presets = maxPageSize == null ? LIST_PER_PAGE_OPTIONS : LIST_PER_PAGE_OPTIONS.filter((value) => value <= maxPageSize);
+    if (infinitePageSize || presets.includes(perPage)) return presets;
+    return [...presets, perPage].filter((value) => maxPageSize == null || value <= maxPageSize).sort((left, right) => left - right);
+  }, [infinitePageSize, infinitePageSizeOnly, maxPageSize, perPage]);
 
   const closeCustom = () => {
     setCustomOpen(false);
@@ -39,7 +42,7 @@ export function PageSizeSelect({ perPage, allowInfinite, infinitePageSize, infin
 
   const applyCustom = () => {
     const parsed = Number(customText);
-    if (Number.isInteger(parsed) && parsed > 0) {
+    if (Number.isInteger(parsed) && parsed > 0 && (maxPageSize == null || parsed <= maxPageSize)) {
       onChange(parsed);
     }
     closeCustom();
@@ -50,6 +53,7 @@ export function PageSizeSelect({ perPage, allowInfinite, infinitePageSize, infin
       <input
         type="number"
         min={1}
+        max={maxPageSize}
         step={1}
         autoFocus
         value={customText}

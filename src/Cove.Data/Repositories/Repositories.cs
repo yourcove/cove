@@ -3024,12 +3024,12 @@ public class SavedFilterRepository : ISavedFilterRepository
 
     public async Task<SavedFilter?> GetByIdAsync(int id, CancellationToken ct = default) => await _db.SavedFilters.FindAsync([id], ct);
     public async Task<IReadOnlyList<SavedFilter>> GetAllAsync(CancellationToken ct = default) => await _db.SavedFilters.AsNoTracking().ToListAsync(ct);
-    public async Task<IReadOnlyList<SavedFilter>> GetByModeAsync(Core.Enums.FilterMode mode, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SavedFilter>> GetByModeAsync(string mode, CancellationToken ct = default)
         => await _db.SavedFilters.Where(f => f.Mode == mode).AsNoTracking().ToListAsync(ct);
 
     public async Task<IReadOnlyList<SavedFilter>> GetAllForUserAsync(int? userId, CancellationToken ct = default)
         => await _db.SavedFilters.Where(f => f.UserId == userId).AsNoTracking().ToListAsync(ct);
-    public async Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(Core.Enums.FilterMode mode, int? userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(string mode, int? userId, CancellationToken ct = default)
         => await _db.SavedFilters.Where(f => f.Mode == mode && f.UserId == userId).AsNoTracking().ToListAsync(ct);
 
     public async Task<SavedFilter> AddAsync(SavedFilter entity, CancellationToken ct = default)
