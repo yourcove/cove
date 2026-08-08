@@ -31,7 +31,7 @@ function useConfiguredImageFit() {
 }
 
 function createNestedEntityNavigationHandlers<T extends HTMLAnchorElement>(route: { page: string; id: number }, onNavigate?: (route: any) => void) {
-  return createNestedRouteLinkProps<T>(route, () => onNavigate?.(route));
+  return createNestedRouteLinkProps<T>(route, onNavigate ? () => onNavigate(route) : undefined);
 }
 
 interface EntityTileDragHandleProps {
