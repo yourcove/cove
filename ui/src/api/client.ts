@@ -465,8 +465,8 @@ export const videos = {
   resetPlay: (id: number) => request<void>(`/videos/${id}/play/reset`, { method: "POST" }),
   resetActivity: (id: number) => request<void>(`/videos/${id}/activity/reset`, { method: "POST" }),
   getHistory: (id: number) => request<VideoHistory>(`/videos/${id}/history`),
-  searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
-    request<MetadataServerVideoMatch[]>(`/videos/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`),
+  searchMetadataServer: (id: number, term?: string, endpoint?: string, strategy?: string) =>
+    request<MetadataServerVideoMatch[]>(`/videos/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint, strategy })}`),
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
     request<MetadataServerVideoMatch[]>("/videos/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
   importFromMetadataServer: (id: number, data: MetadataServerVideoImportRequest) =>

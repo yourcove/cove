@@ -19,6 +19,7 @@ import {
   TaggerToolbar,
   cleanTaggerQueryString,
   type TaggerQueryMode,
+  type TaggerRunAllOption,
 } from "./TaggerShared";
 import {
   Search,
@@ -60,7 +61,7 @@ interface TaggerConfig {
   onlyExistingPerformers: boolean;
   onlyExistingStudio: boolean;
   markOrganized: boolean;
-  preferFingerprints: boolean;
+  bulkMatchStrategy: VideoMetadataSearchStrategy;
   queryMode: TaggerQueryMode;
   defaultScraperInputKind: InputKind | "auto";
   blacklist: string[];
@@ -68,6 +69,19 @@ interface TaggerConfig {
   createParentTags: boolean;
   showMales: boolean;
   performerGenders: string[];
+}
+
+type VideoMetadataSearchStrategy = "remote-id-and-fingerprint-text" | "remote-id-fingerprint" | "remote-id" | "fingerprint";
+
+const VIDEO_METADATA_SEARCH_STRATEGIES: TaggerRunAllOption[] = [
+  { value: "remote-id-and-fingerprint-text", label: "Linked ID + Fingerprint → Text", description: "Compare linked and fingerprint candidates, then use text only if neither matches." },
+  { value: "remote-id-fingerprint", label: "Linked ID → Fingerprint", description: "Avoid potentially inaccurate text matches." },
+  { value: "remote-id", label: "Linked ID only", description: "Refresh videos already linked to this source." },
+  { value: "fingerprint", label: "Fingerprint only", description: "Ignore saved links and identify by file content." },
+];
+
+function isVideoMetadataSearchStrategy(value?: string): value is VideoMetadataSearchStrategy {
+  return VIDEO_METADATA_SEARCH_STRATEGIES.some((option) => option.value === value);
 }
 
 interface VideoSearchState {
@@ -398,7 +412,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     onlyExistingPerformers: false,
     onlyExistingStudio: false,
     markOrganized: false,
-    preferFingerprints: true,
+    bulkMatchStrategy: "remote-id-and-fingerprint-text",
     queryMode: "auto",
     defaultScraperInputKind: "auto",
     blacklist: [...DEFAULT_TAGGER_BLACKLIST],
@@ -417,6 +431,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           ...DEFAULT_TAGGER_CONFIG,
           ...parsed,
           selectedEndpoint: parsed.selectedEndpoint ?? DEFAULT_TAGGER_CONFIG.selectedEndpoint,
+          bulkMatchStrategy: isVideoMetadataSearchStrategy(parsed.bulkMatchStrategy) ? parsed.bulkMatchStrategy : DEFAULT_TAGGER_CONFIG.bulkMatchStrategy,
           blacklist: parsed.blacklist ?? DEFAULT_TAGGER_CONFIG.blacklist,
           performerGenders: parsed.performerGenders ?? DEFAULT_TAGGER_CONFIG.performerGenders,
         };
@@ -433,6 +448,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     });
   }, []);
   const [showConfig, setShowConfig] = useState(false);
+  const [bulkStrategyDraft, setBulkStrategyDraft] = useState<VideoMetadataSearchStrategy>(taggerConfig.bulkMatchStrategy);
   const [searchStates, setSearchStates] = useState<Record<number, VideoSearchState>>({});
   const [queryOverrides, setQueryOverrides] = useState<Record<number, string>>({});
   const [scraperInputKinds, setScraperInputKinds] = useState<Record<number, InputKind>>({});
@@ -544,7 +560,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
   }, [getSearchQuery, updateSearchState]);
 
   const searchVideo = useCallback(
-    async (video: Video) => {
+    async (video: Video, bulkStrategy?: VideoMetadataSearchStrategy) => {
       const source = selectedSource;
       const query = getSourceQuery(video, source);
       updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
@@ -576,15 +592,8 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           results = parseAttemptResults(attempt).map((result, index) => toScraperVideoMatch(attempt, result, index, source.scraper));
         } else {
           const endpoint = source?.endpoint || undefined;
-          const shouldTryFingerprints = taggerConfig.preferFingerprints || !query;
-
-          if (shouldTryFingerprints) {
-            results = (await videos.searchMetadataServer(video.id, undefined, endpoint)).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
-          }
-
-          if (results.length === 0 && query) {
-            results = (await videos.searchMetadataServer(video.id, query, endpoint)).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
-          }
+          if (!bulkStrategy && !query.trim()) throw new Error("Enter a title or name to search.");
+          results = (await videos.searchMetadataServer(video.id, query || undefined, endpoint, bulkStrategy)).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
         }
 
         updateSearchState(video.id, {
@@ -599,7 +608,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         });
       }
     },
-    [getScraperInputKind, getSourceQuery, selectedSource, taggerConfig.preferFingerprints, updateSearchState]
+    [getScraperInputKind, getSourceQuery, selectedSource, updateSearchState]
   );
 
   // Fingerprint-only search
@@ -608,7 +617,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
       updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
       try {
         if (selectedSource?.kind !== "metadata-server") throw new Error("Fingerprint search is only available for metadata-server sources.");
-        const results = (await videos.searchMetadataServer(video.id, undefined, selectedSource.endpoint || undefined)).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
+        const results = (await videos.searchMetadataServer(video.id, undefined, selectedSource.endpoint || undefined, "fingerprint")).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
         updateSearchState(video.id, {
           loading: false,
           results,
@@ -646,15 +655,18 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
   // Batch scrape all (concurrent)
   const [batchSearching, setBatchSearching] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const searchAll = useCallback(async () => {
+  const searchAll = useCallback(async (strategyOverride?: string) => {
     setBatchSearching(true);
     const controller = new AbortController();
     abortRef.current = controller;
     const toSearch = videoList.filter((s) => !searchStates[s.id]?.saved);
-    await runWithConcurrency(toSearch, (video) => searchVideo(video), CONCURRENCY_LIMIT, controller.signal);
+    const bulkStrategy = selectedSource?.kind === "metadata-server"
+      ? isVideoMetadataSearchStrategy(strategyOverride) ? strategyOverride : taggerConfig.bulkMatchStrategy
+      : undefined;
+    await runWithConcurrency(toSearch, (video) => searchVideo(video, bulkStrategy), CONCURRENCY_LIMIT, controller.signal);
     setBatchSearching(false);
     abortRef.current = null;
-  }, [videoList, searchStates, searchVideo]);
+  }, [selectedSource, taggerConfig.bulkMatchStrategy, videoList, searchStates, searchVideo]);
 
   const cancelBatchSearch = useCallback(() => {
     abortRef.current?.abort();
@@ -703,6 +715,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
         batchSearching={batchSearching}
         onCancelBatch={cancelBatchSearch}
         onRunAll={searchAll}
+        runAllOptions={selectedSource?.kind === "metadata-server" ? VIDEO_METADATA_SEARCH_STRATEGIES : undefined}
         showRunAll={mode === "bulk"}
         countLabel={`${visibleVideos.length} video${visibleVideos.length !== 1 ? "s" : ""}`}
         settingsOpen={showConfig}
@@ -714,6 +727,36 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
           blacklist={taggerConfig.blacklist}
           onBlacklistChange={(items) => setTaggerConfig((c) => ({ ...c, blacklist: items }))}
         >
+
+              {selectedSource?.kind === "metadata-server" && mode === "bulk" && (
+                <div>
+                  <label className="block text-xs text-muted mb-1" htmlFor="default-bulk-match-strategy">Default bulk match strategy</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      id="default-bulk-match-strategy"
+                      value={bulkStrategyDraft}
+                      onChange={(event) => setBulkStrategyDraft(event.target.value as VideoMetadataSearchStrategy)}
+                      className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                    >
+                      {VIDEO_METADATA_SEARCH_STRATEGIES.map((strategy) => (
+                        <option key={strategy.value} value={strategy.value}>{strategy.label}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setTaggerConfig((current) => ({ ...current, bulkMatchStrategy: bulkStrategyDraft }))}
+                      disabled={bulkStrategyDraft === taggerConfig.bulkMatchStrategy}
+                      className="rounded border border-border bg-input px-2 py-1 text-xs text-secondary hover:text-foreground disabled:opacity-50"
+                    >
+                      Save default
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted mt-1">
+                    {VIDEO_METADATA_SEARCH_STRATEGIES.find((strategy) => strategy.value === bulkStrategyDraft)?.description}
+                    {" "}Use the menu beside Scrape All for a one-time override.
+                  </p>
+                </div>
+              )}
 
               {/* Performer genders */}
               <div>
