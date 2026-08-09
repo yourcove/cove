@@ -242,7 +242,6 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const videoDerivedLikeCount = videoEngagement?.derivedLikeCount ?? 0;
   const videoPageVisitCount = videoEngagement?.pageVisitCount ?? 0;
   const effectiveVideoResumeTime = normalizeStoredResumeTime(videoResumeTime, video?.files[0]?.duration);
-  const effectiveResumeTime = initialSeekTo ?? effectiveVideoResumeTime;
 
   useEffect(() => {
     const videoId = video?.id;
@@ -754,7 +753,8 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
             format={file.format}
             duration={file.duration}
             audioCodec={file.audioCodec}
-            resumeTime={effectiveResumeTime}
+            resumeTime={effectiveVideoResumeTime}
+            seekTo={initialSeekTo}
             videoId={video.id}
             extensionSurface="detail"
             detections={detections}

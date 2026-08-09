@@ -8,7 +8,7 @@ import {
   resetServerAvailabilityForTests,
 } from "../state/serverAvailability";
 
-const { mockPlaybackTracker } = vi.hoisted(() => ({
+const { mockPlaybackTracker, mockUiConfig } = vi.hoisted(() => ({
   mockPlaybackTracker: {
     getSessionId: vi.fn(() => "session-1"),
     setTarget: vi.fn(() => Promise.resolve()),
@@ -16,6 +16,7 @@ const { mockPlaybackTracker } = vi.hoisted(() => ({
     flush: vi.fn(() => Promise.resolve()),
     dispose: vi.fn(() => Promise.resolve()),
   },
+  mockUiConfig: {} as { alwaysResumeOnPlayback?: boolean },
 }));
 
 vi.mock("../utils/interactionTracking", async () => {
@@ -27,7 +28,7 @@ vi.mock("../utils/interactionTracking", async () => {
 });
 
 vi.mock("../state/AppConfigContext", () => ({
-  useAppConfig: () => ({ config: { ui: {} } }),
+  useAppConfig: () => ({ config: { ui: mockUiConfig } }),
 }));
 
 const playMock = vi.fn(() => Promise.resolve());
@@ -76,6 +77,7 @@ beforeAll(() => {
 
 describe("VideoPlayer source lifecycle", () => {
   beforeEach(() => {
+    mockUiConfig.alwaysResumeOnPlayback = undefined;
     resetServerAvailabilityForTests();
     playMock.mockReset();
     playMock.mockResolvedValue(undefined);
@@ -90,6 +92,432 @@ describe("VideoPlayer source lifecycle", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("seeks to an explicit timestamp without playing when automatic resume is disabled", () => {
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        resumeTime={20}
+        seekTo={42.5}
+        autostart
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    video.currentTime = 0;
+    playMock.mockClear();
+
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(42.5);
+    expect(playMock).not.toHaveBeenCalled();
+  });
+
+  it("seeks to and plays an explicit timestamp when automatic resume is enabled", () => {
+    mockUiConfig.alwaysResumeOnPlayback = true;
+    const { container } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        resumeTime={20}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    video.currentTime = 0;
+    playMock.mockClear();
+
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(42.5);
+    expect(playMock).toHaveBeenCalledOnce();
+  });
+
+  it("uses saved resume time only when automatic resume is enabled", () => {
+    mockUiConfig.alwaysResumeOnPlayback = true;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        resumeTime={20}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(20);
+
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/2"
+        format="mp4"
+        duration={120}
+        resumeTime={30}
+        videoId={2}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(0);
+  });
+
+  it("applies a new timestamp intent to an already-loaded player", () => {
+    mockUiConfig.alwaysResumeOnPlayback = true;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
+    playMock.mockClear();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    expect(video.currentTime).toBe(42.5);
+    expect(playMock).toHaveBeenCalledOnce();
+
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    playMock.mockClear();
+    pauseMock.mockClear();
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        seekTo={64}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    expect(video.currentTime).toBe(64);
+    expect(playMock).not.toHaveBeenCalled();
+    expect(pauseMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not reapply timestamp autoplay after the user pauses and the source reloads", () => {
+    mockUiConfig.alwaysResumeOnPlayback = true;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?token=first"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    fireEvent.loadedMetadata(video);
+    fireEvent.pause(video);
+    video.currentTime = 60;
+    playMock.mockClear();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?token=second"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(60);
+    expect(playMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending timestamp intent when the timestamp is removed before metadata loads", () => {
+    mockUiConfig.alwaysResumeOnPlayback = true;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        resumeTime={20}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        resumeTime={20}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    playMock.mockClear();
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(20);
+    expect(playMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a timestamp pending when preexisting metadata belongs to an unrecorded source", () => {
+    const readyStateDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "readyState");
+    Object.defineProperty(HTMLMediaElement.prototype, "readyState", {
+      configurable: true,
+      get: () => HTMLMediaElement.HAVE_METADATA,
+    });
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    try {
+      const { container } = render(
+        <VideoPlayer
+          streamUrl="/api/stream/video/1"
+          format="mp4"
+          duration={120}
+          seekTo={42.5}
+          videoId={1}
+          detections={[]}
+          trackingEnabled={false}
+        />,
+      );
+      const video = container.querySelector("video") as HTMLVideoElement;
+      video.currentTime = 0;
+      pauseMock.mockClear();
+
+      fireEvent.loadedMetadata(video);
+
+      expect(video.currentTime).toBe(42.5);
+      expect(pauseMock).toHaveBeenCalledOnce();
+    } finally {
+      if (readyStateDescriptor) {
+        Object.defineProperty(HTMLMediaElement.prototype, "readyState", readyStateDescriptor);
+      }
+    }
+  });
+
+  it("clears pending autostart when a paused timestamp arrives before metadata", () => {
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?token=first"
+        format="mp4"
+        duration={120}
+        autostart
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?token=first"
+        format="mp4"
+        duration={120}
+        autostart
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    playMock.mockClear();
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(42.5);
+    expect(playMock).not.toHaveBeenCalled();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?token=second"
+        format="mp4"
+        duration={120}
+        autostart
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+
+    expect(playMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a paused timestamp supersede an in-flight same-source recovery", () => {
+    vi.useFakeTimers();
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "error", { configurable: true, value: { code: 2 } });
+    video.currentTime = 20;
+    fireEvent.error(video);
+    act(() => vi.advanceTimersByTime(500));
+    playMock.mockClear();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+
+    expect(video.currentTime).toBe(42.5);
+    expect(playMock).not.toHaveBeenCalled();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1?token=refreshed"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+    expect(playMock).not.toHaveBeenCalled();
+  });
+
+  it("applies a paused timestamp immediately to a metadata-ready stalled player", () => {
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    fireEvent.loadedMetadata(video);
+    fireEvent.waiting(video);
+    pauseMock.mockClear();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+
+    expect(video.currentTime).toBe(42.5);
+    expect(pauseMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a stalled transcoded timestamp pending for the new source metadata", async () => {
+    mockUiConfig.alwaysResumeOnPlayback = false;
+    fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
+      ? Promise.resolve(new Response(JSON.stringify(["720p"]), { status: 200, headers: { "Content-Type": "application/json" } }))
+      : Promise.resolve(new Response(null, { status: 200 })));
+    const { container, rerender } = render(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    fireEvent.loadedMetadata(video);
+
+    const qualityButton = await screen.findByTitle("Video quality");
+    fireEvent.click(qualityButton);
+    fireEvent.click(screen.getByRole("button", { name: "720p" }));
+    fireEvent.loadedMetadata(video);
+    fireEvent.waiting(video);
+    playMock.mockClear();
+    pauseMock.mockClear();
+
+    rerender(
+      <VideoPlayer
+        streamUrl="/api/stream/video/1"
+        format="mp4"
+        duration={120}
+        seekTo={42.5}
+        videoId={1}
+        detections={[]}
+        trackingEnabled={false}
+      />,
+    );
+    video.currentTime = 0;
+    fireEvent.loadedMetadata(video);
+
+    expect(container).toHaveTextContent("0:42 / 2:00");
+    expect(playMock).not.toHaveBeenCalled();
+    expect(pauseMock).toHaveBeenCalled();
   });
 
   it("reloads network-failed media after the server recovers", () => {
