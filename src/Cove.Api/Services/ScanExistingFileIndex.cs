@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -26,7 +27,7 @@ internal static class ScanExistingFileIndex
         ILogger logger,
         CancellationToken ct)
     {
-        var index = new Dictionary<string, ExistingFileScanInfo>(StringComparer.OrdinalIgnoreCase);
+        var index = new Dictionary<string, ExistingFileScanInfo>(FilesystemPaths.PathComparer);
         await AddExistingBaseFilesAsync(db, index, files, progress, logger, ct);
         await AddExistingFilesForExtensionsAsync(db, index, files, videoExts, "videos", AddExistingVideoFilesAsync, progress, logger, ct);
         await AddExistingFilesForExtensionsAsync(db, index, files, imageExts, "images", AddExistingImageFilesAsync, progress, logger, ct);
@@ -93,22 +94,6 @@ internal static class ScanExistingFileIndex
         _ => throw new InvalidOperationException("Unsupported scan media type"),
     };
 
-    public static bool NeedsRequestedVideoAsset(
-        ExistingFileScanInfo existingFile,
-        ScanOperationOptions options,
-        IThumbnailService thumbnailService)
-    {
-        if (existingFile.Kind != ExistingFileKind.Video || !existingFile.MediaEntityId.HasValue)
-            return false;
-
-        var videoId = existingFile.MediaEntityId.Value;
-        return (options.GenerateCovers && !File.Exists(thumbnailService.GetThumbnailPathForVideo(videoId)))
-            || (options.GeneratePreviews && !File.Exists(thumbnailService.GetPreviewPath(videoId)))
-            || (options.GenerateSprites
-                && (!File.Exists(thumbnailService.GetSpritePath(videoId))
-                    || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))));
-    }
-
     private static async Task AddExistingBaseFilesAsync(
         CoveContext db,
         Dictionary<string, ExistingFileScanInfo> index,
@@ -119,7 +104,7 @@ internal static class ScanExistingFileIndex
     {
         var storedPaths = files
             .Select(file => file.StoredPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(FilesystemPaths.PathComparer)
             .ToArray();
 
         if (storedPaths.Length == 0)
@@ -182,7 +167,7 @@ internal static class ScanExistingFileIndex
         var storedPaths = files
             .Where(file => extensions.Contains(file.Extension))
             .Select(file => file.StoredPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(FilesystemPaths.PathComparer)
             .ToArray();
 
         if (storedPaths.Length == 0)

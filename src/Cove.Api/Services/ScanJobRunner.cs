@@ -18,7 +18,6 @@ internal sealed class ScanJobRunner(
     IServiceScopeFactory scopeFactory,
     CoveConfiguration config,
     IEventBus eventBus,
-    IThumbnailService thumbnailService,
     ExtensionManager extensionManager,
     IScanFileValidator fileValidator,
     ScanDiscoveryService discoveryService,
@@ -65,13 +64,32 @@ internal sealed class ScanJobRunner(
             var directoryScanContext = discovery.DirectoryScanContext;
             // Per-directory cache of caption sidecar files (.vtt/.srt), shared across workers,
             // so each directory is enumerated once per scan instead of once per video.
-            var captionFilesByDir = new ConcurrentDictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            var captionFilesByDir = new ConcurrentDictionary<string, IReadOnlyList<string>>(FilesystemPaths.PathComparer);
 
             // Written from multiple scan workers, so these must be concurrent collections.
-            var processedVideoPaths = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-            var processedImagePaths = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-            var processedAudioPaths = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-            var processedTextPaths = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+            var assetVideoPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var assetImagePaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var assetAudioPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var assetTextPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+
+            void AddAssetCandidate(ExistingFileKind kind, string path)
+            {
+                switch (kind)
+                {
+                    case ExistingFileKind.Video:
+                        assetVideoPaths.TryAdd(path, 0);
+                        break;
+                    case ExistingFileKind.Image:
+                        assetImagePaths.TryAdd(path, 0);
+                        break;
+                    case ExistingFileKind.Audio:
+                        assetAudioPaths.TryAdd(path, 0);
+                        break;
+                    case ExistingFileKind.Text:
+                        assetTextPaths.TryAdd(path, 0);
+                        break;
+                }
+            }
 
             var importedCount = 0;
             var updatedCount = 0;
@@ -175,8 +193,8 @@ internal sealed class ScanJobRunner(
                         var changeReason = ScanExistingFileIndex.GetChangeReason(existingFile!, file, options.Rescan);
                         if (changeReason == ScanFileChangeReason.Unchanged)
                         {
-                            if (ScanExistingFileIndex.NeedsRequestedVideoAsset(existingFile!, options, thumbnailService))
-                                processedVideoPaths.TryAdd(file.Path, 0);
+                            if (options.IncludeUnchangedFilesInAssetGeneration)
+                                AddAssetCandidate(existingFile!.Kind, file.Path);
                             skippedUnchangedCount++;
                             processedCount++;
                             ReportProcessingProgress(false);
@@ -307,7 +325,8 @@ internal sealed class ScanJobRunner(
 
                             if (videoExts.Contains(file.Extension))
                             {
-                                processedVideoPaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged)
+                                    assetVideoPaths.TryAdd(file.Path, 0);
                                 var (videoFile, relinked, moved) = await videoProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, videoProbeJson: validation.ProbeJson);
                                 events.Add(() =>
                                 {
@@ -318,7 +337,8 @@ internal sealed class ScanJobRunner(
                             }
                             else if (imageExts.Contains(file.Extension))
                             {
-                                processedImagePaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged)
+                                    assetImagePaths.TryAdd(file.Path, 0);
                                 var (image, relinked, moved) = await imageProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
                                 events.Add(() =>
                                 {
@@ -328,7 +348,8 @@ internal sealed class ScanJobRunner(
                             }
                             else if (audioExts.Contains(file.Extension))
                             {
-                                processedAudioPaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged)
+                                    assetAudioPaths.TryAdd(file.Path, 0);
                                 var (audio, relinked, moved) = await audioProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, mediaProbeJson: validation.ProbeJson);
                                 events.Add(() =>
                                 {
@@ -338,7 +359,8 @@ internal sealed class ScanJobRunner(
                             }
                             else if (textExts.Contains(file.Extension))
                             {
-                                processedTextPaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged)
+                                    assetTextPaths.TryAdd(file.Path, 0);
                                 var (textDocument, relinked, moved) = await textProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
                                 events.Add(() =>
                                 {
@@ -514,10 +536,10 @@ internal sealed class ScanJobRunner(
                 var assetSummary = await assetGenerationService.GenerateRequestedAssetsAsync(
                     db,
                     progress,
-                    new HashSet<string>(processedVideoPaths.Keys, StringComparer.OrdinalIgnoreCase),
-                    new HashSet<string>(processedImagePaths.Keys, StringComparer.OrdinalIgnoreCase),
-                    new HashSet<string>(processedAudioPaths.Keys, StringComparer.OrdinalIgnoreCase),
-                    new HashSet<string>(processedTextPaths.Keys, StringComparer.OrdinalIgnoreCase),
+                    new HashSet<string>(assetVideoPaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(assetImagePaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(assetAudioPaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(assetTextPaths.Keys, FilesystemPaths.PathComparer),
                     options,
                     ResolveMaxParallelism(),
                     ct);

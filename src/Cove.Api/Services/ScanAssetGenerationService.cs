@@ -1,3 +1,4 @@
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -19,10 +20,10 @@ internal sealed class ScanAssetGenerationService(
     public async Task<AssetGenerationSummary> GenerateRequestedAssetsAsync(
         CoveContext db,
         IJobProgress progress,
-        HashSet<string> processedVideoPaths,
-        HashSet<string> processedImagePaths,
-        HashSet<string> processedAudioPaths,
-        HashSet<string> processedTextPaths,
+        HashSet<string> candidateVideoPaths,
+        HashSet<string> candidateImagePaths,
+        HashSet<string> candidateAudioPaths,
+        HashSet<string> candidateTextPaths,
         ScanOperationOptions options,
         int maxParallelism,
         CancellationToken ct)
@@ -33,22 +34,23 @@ internal sealed class ScanAssetGenerationService(
         var generateTextAssets = options.GenerateTextPhashes || options.GenerateMd5;
 
         if ((!generateVideoAssets && !generateImageAssets && !generateAudioAssets && !generateTextAssets)
-            || (processedVideoPaths.Count == 0 && processedImagePaths.Count == 0 && processedAudioPaths.Count == 0 && processedTextPaths.Count == 0))
+            || (candidateVideoPaths.Count == 0 && candidateImagePaths.Count == 0 && candidateAudioPaths.Count == 0 && candidateTextPaths.Count == 0))
         {
             return new AssetGenerationSummary(0);
         }
 
         var failedItems = 0;
 
-        if (generateVideoAssets && processedVideoPaths.Count > 0)
+        if (generateVideoAssets && candidateVideoPaths.Count > 0)
         {
             progress.Report(0.92, "Generating video assets...");
 
-            var videoDirs = processedVideoPaths
+            var videoDirs = candidateVideoPaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(ScanPath.NormalizeStoredFolderPath)
+                .Distinct(FilesystemPaths.PathComparer)
                 .ToList();
 
             var candidateFiles = await db.VideoFiles
@@ -58,7 +60,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var videoFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedVideoPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && candidateVideoPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .Where(file => file.VideoId.HasValue && file.VideoId.Value != 0)
                 .GroupBy(file => file.VideoId)
                 .Select(group => group.First())
@@ -203,15 +205,16 @@ internal sealed class ScanAssetGenerationService(
             failedItems += failed;
         }
 
-        if (generateImageAssets && processedImagePaths.Count > 0)
+        if (generateImageAssets && candidateImagePaths.Count > 0)
         {
             progress.Report(0.98, "Generating image assets...");
 
-            var imageDirs = processedImagePaths
+            var imageDirs = candidateImagePaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(ScanPath.NormalizeStoredFolderPath)
+                .Distinct(FilesystemPaths.PathComparer)
                 .ToList();
 
             var candidateFiles = await db.ImageFiles
@@ -221,7 +224,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var imageFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedImagePaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && candidateImagePaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
             var total = Math.Max(imageFiles.Count, 1);
@@ -326,15 +329,16 @@ internal sealed class ScanAssetGenerationService(
             failedItems += failed;
         }
 
-        if (generateAudioAssets && processedAudioPaths.Count > 0)
+        if (generateAudioAssets && candidateAudioPaths.Count > 0)
         {
             progress.Report(0.99, "Generating audio fingerprints...");
 
-            var audioDirs = processedAudioPaths
+            var audioDirs = candidateAudioPaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(ScanPath.NormalizeStoredFolderPath)
+                .Distinct(FilesystemPaths.PathComparer)
                 .ToList();
 
             var candidateFiles = await db.AudioFiles
@@ -344,7 +348,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var audioFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedAudioPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && candidateAudioPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
             var total = Math.Max(audioFiles.Count, 1);
@@ -420,15 +424,16 @@ internal sealed class ScanAssetGenerationService(
             failedItems += failed;
         }
 
-        if (generateTextAssets && processedTextPaths.Count > 0)
+        if (generateTextAssets && candidateTextPaths.Count > 0)
         {
             progress.Report(0.99, "Generating text fingerprints...");
 
-            var textDirs = processedTextPaths
+            var textDirs = candidateTextPaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(ScanPath.NormalizeStoredFolderPath)
+                .Distinct(FilesystemPaths.PathComparer)
                 .ToList();
 
             var candidateFiles = await db.TextFiles
@@ -438,7 +443,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var textFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedTextPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && candidateTextPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
             var total = Math.Max(textFiles.Count, 1);

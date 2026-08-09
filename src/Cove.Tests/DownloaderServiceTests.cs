@@ -821,7 +821,9 @@ public class DownloaderServiceTests
             Assert.NotNull(scanService.StartedScanOptions);
             Assert.True(scanService.StartedScanOptions!.GenerateCovers);
             Assert.True(scanService.StartedScanOptions.GeneratePreviews);
-            Assert.NotEmpty(scanService.StartedScanOptions.Paths ?? []);
+            Assert.True(scanService.StartedScanOptions.IncludeUnchangedFilesInAssetGeneration);
+            Assert.Equal(2, scanService.StartedScanOptions.Paths?.Count);
+            Assert.All(scanService.StartedScanOptions.Paths ?? [], path => Assert.True(File.Exists(path)));
             Assert.Equal(1, scanService.ScanStartCount);
             Assert.NotNull(metadataApplyService.Metadata);
         }

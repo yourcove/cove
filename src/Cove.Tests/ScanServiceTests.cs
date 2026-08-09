@@ -768,7 +768,42 @@ public class ScanServiceTests
     }
 
     [Fact]
-    public async Task StartScan_AssetGenerationBypassesVerifiedDirectory()
+    public async Task StartScan_AssetGenerationFindsContentChangesInsideVerifiedDirectory()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "known.mp4");
+            await WriteValidVideoAsync(videoPath);
+            var stableDirectoryModTime = DateTime.UtcNow.AddMinutes(-10);
+            Directory.SetLastWriteTimeUtc(tempRoot, stableDirectoryModTime);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+            environment.Service.StartScan();
+
+            await WriteValidVideoAsync(videoPath, minimumLength: 5000);
+            Directory.SetLastWriteTimeUtc(tempRoot, stableDirectoryModTime);
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateSprites = true,
+            });
+
+            Assert.Equal(1, environment.ThumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(1, environment.ThumbnailService.VideoPreviewCallCount);
+            Assert.Equal(1, environment.ThumbnailService.VideoSpriteCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ExplicitUnchangedAssetGenerationBypassesVerifiedDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
@@ -781,7 +816,11 @@ public class ScanServiceTests
             environment.Service.StartScan();
             environment.Service.StartScan();
 
-            environment.Service.StartScan(new ScanOperationOptions { GenerateCovers = true });
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                IncludeUnchangedFilesInAssetGeneration = true,
+                GenerateCovers = true,
+            });
 
             Assert.Equal(1, environment.ThumbnailService.VideoThumbnailCallCount);
         }
@@ -1061,21 +1100,178 @@ public class ScanServiceTests
     }
 
     [Fact]
-    public async Task StartScan_RetriesMissingCoverForMetadataCompleteExistingVideo()
+    public async Task StartScan_DoesNotGenerateRequestedAssetsForUnchangedFiles()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            await WriteValidVideoAsync(Path.Combine(tempRoot, "valid.mp4"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "existing.mp4"));
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
             environment.Service.StartScan();
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateSprites = true,
+            });
+
+            Assert.Equal(0, environment.ThumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(0, environment.ThumbnailService.VideoPreviewCallCount);
+            Assert.Equal(0, environment.ThumbnailService.VideoSpriteCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ExplicitlyGeneratesRequestedImageAssetsForUnchangedFiles()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidImageAsync(Path.Combine(tempRoot, "existing.jpg"));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                IncludeUnchangedFilesInAssetGeneration = true,
+                GenerateImageThumbnails = true,
+            });
+
+            Assert.Equal(1, environment.ThumbnailService.ImageThumbnailCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ExplicitUnchangedAssetGenerationKeepsCaseDistinctLinuxPaths()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var lowerCasePath = Path.Combine(tempRoot, "video.mp4");
+            var upperCasePath = Path.Combine(tempRoot, "VIDEO.mp4");
+            await WriteValidVideoAsync(lowerCasePath);
+            await WriteValidVideoAsync(upperCasePath, minimumLength: 5000);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                Paths = [lowerCasePath, upperCasePath],
+                IncludeUnchangedFilesInAssetGeneration = true,
+                GenerateCovers = true,
+            });
+
+            Assert.Equal(2, environment.ThumbnailService.VideoThumbnailCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_MetadataRepairDoesNotGenerateRequestedAssets()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "existing.mp4");
+            await WriteValidVideoAsync(videoPath);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var file = await db.VideoFiles.SingleAsync();
+                file.Width = 0;
+                file.Height = 0;
+                file.Duration = 0;
+                await db.SaveChangesAsync();
+            }
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                Paths = [videoPath],
+                GenerateCovers = true,
+            });
+
+            Assert.Equal(0, environment.ThumbnailService.VideoThumbnailCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_GeneratesRequestedAssetsOnlyForNewFiles()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "existing.mp4"));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "new.mp4"), minimumLength: 5000);
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateSprites = true,
+            });
+
+            Assert.Equal(1, environment.ThumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(1, environment.ThumbnailService.VideoPreviewCallCount);
+            Assert.Equal(1, environment.ThumbnailService.VideoSpriteCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_GeneratesRequestedAssetsForContentChangedFiles()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "changed.mp4");
+            await WriteValidVideoAsync(videoPath);
+            await using var environment = await CreateEnvironmentAsync(
+                tempRoot,
+                videoPath,
+                storedModTime: DateTime.UtcNow.AddDays(-1));
 
             environment.Service.StartScan(new ScanOperationOptions { GenerateCovers = true });
 
             Assert.Equal(1, environment.ThumbnailService.VideoThumbnailCallCount);
-            Assert.Contains("1 asset generation failure", environment.JobService.LatestSubTask);
         }
         finally
         {
@@ -1662,6 +1858,8 @@ public class ScanServiceTests
     private sealed class NoOpThumbnailService : IThumbnailService
     {
         public int VideoThumbnailCallCount { get; private set; }
+        public int VideoPreviewCallCount { get; private set; }
+        public int VideoSpriteCallCount { get; private set; }
         public int ImageThumbnailCallCount { get; private set; }
 
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => Task.FromResult<string?>(null);
@@ -1692,11 +1890,19 @@ public class ScanServiceTests
             return Task.FromResult(false);
         }
 
-        public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
+        public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
+        {
+            VideoPreviewCallCount++;
+            return Task.CompletedTask;
+        }
 
         public Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default) => Task.CompletedTask;
 
-        public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
+        public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
+        {
+            VideoSpriteCallCount++;
+            return Task.CompletedTask;
+        }
 
         public string GetThumbnailPathForVideo(int videoId) => string.Empty;
 
