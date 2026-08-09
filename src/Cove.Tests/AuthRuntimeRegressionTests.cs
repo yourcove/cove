@@ -4,6 +4,7 @@ using Cove.Api.Controllers;
 using Cove.Core.Interfaces;
 using Cove.Api.Middleware;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Data.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -149,6 +150,98 @@ public class AuthDisabledRequestGuardTests
 
 public class AuthorizationSurfaceTests
 {
+    [Fact]
+    public void Library_folder_browsing_accepts_scan_or_file_read_permission()
+    {
+        var method = typeof(MetadataController).GetMethod(nameof(MetadataController.GetLibraryFolders));
+        var permission = Assert.Single(method!.GetCustomAttributes<RequiresPermissionAttribute>());
+
+        Assert.Equal(PermissionMode.Any, permission.Mode);
+        Assert.Equal([Permissions.LibraryScan, Permissions.FilesRead], permission.Permissions);
+        var probeChildren = Assert.Single(method!.GetParameters(), parameter => parameter.Name == "probeChildren");
+        Assert.True(probeChildren.HasDefaultValue);
+        Assert.Equal(true, probeChildren.DefaultValue);
+    }
+
+    [Fact]
+    public void Filesystem_policy_is_available_to_group_viewers_and_library_browsers()
+    {
+        var method = typeof(MetadataController).GetMethod(nameof(MetadataController.GetFilesystemPolicy));
+        var permission = Assert.Single(method!.GetCustomAttributes<RequiresPermissionAttribute>());
+
+        Assert.Equal(PermissionMode.Any, permission.Mode);
+        Assert.Equal([Permissions.LibraryScan, Permissions.FilesRead, Permissions.GroupsRead], permission.Permissions);
+    }
+
+    [Fact]
+    public void Library_folder_containment_uses_platform_path_case_semantics()
+    {
+        var method = typeof(MetadataController).GetMethod("IsAtOrUnderPath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var contained = (bool)method.Invoke(null, ["/library/MEDIA/child", "/library/media"])!;
+
+        Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase, contained);
+    }
+
+    [Fact]
+    public void Library_folder_canonicalization_resolves_intermediate_symlinks()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var method = typeof(MetadataController).GetMethod("ResolvePhysicalPath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        var tempRoot = Directory.CreateTempSubdirectory("cove-library-folder-");
+        try
+        {
+            var library = Directory.CreateDirectory(Path.Combine(tempRoot.FullName, "library"));
+            var outside = Directory.CreateDirectory(Path.Combine(tempRoot.FullName, "outside"));
+            Directory.CreateDirectory(Path.Combine(outside.FullName, "child"));
+            Directory.CreateSymbolicLink(Path.Combine(library.FullName, "link"), outside.FullName);
+            Directory.CreateSymbolicLink(Path.Combine(library.FullName, "alias"), outside.FullName);
+            Directory.CreateSymbolicLink(Path.Combine(library.FullName, "chained"), Path.Combine(library.FullName, "alias", "child"));
+
+            var canonical = (string)method.Invoke(null, [Path.Combine(library.FullName, "link", "child")])!;
+            var chained = (string)method.Invoke(null, [Path.Combine(library.FullName, "chained")])!;
+
+            Assert.Equal(Path.Combine(outside.FullName, "child").Replace('\\', '/'), canonical);
+            Assert.Equal(Path.Combine(outside.FullName, "child").Replace('\\', '/'), chained);
+        }
+        finally
+        {
+            tempRoot.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Library_folder_child_resolution_reuses_the_resolved_parent_and_still_resolves_child_links()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var method = typeof(MetadataController).GetMethod("ResolveChildPhysicalPath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        var tempRoot = Directory.CreateTempSubdirectory("cove-library-child-");
+        try
+        {
+            var physicalRoot = Directory.CreateDirectory(Path.Combine(tempRoot.FullName, "physical"));
+            var logicalRoot = Path.Combine(tempRoot.FullName, "logical");
+            Directory.CreateSymbolicLink(logicalRoot, physicalRoot.FullName);
+            var regularChild = Directory.CreateDirectory(Path.Combine(physicalRoot.FullName, "regular"));
+            var outside = Directory.CreateDirectory(Path.Combine(tempRoot.FullName, "outside"));
+            Directory.CreateSymbolicLink(Path.Combine(physicalRoot.FullName, "linked"), outside.FullName);
+
+            var regular = (string)method.Invoke(null, [Path.Combine(logicalRoot, "regular"), physicalRoot.FullName])!;
+            var linked = (string)method.Invoke(null, [Path.Combine(logicalRoot, "linked"), physicalRoot.FullName])!;
+
+            Assert.Equal(regularChild.FullName.Replace('\\', '/'), regular);
+            Assert.Equal(outside.FullName.Replace('\\', '/'), linked);
+        }
+        finally
+        {
+            tempRoot.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void Http_actions_declare_authorization_policy_or_explicit_anonymous_access()
     {

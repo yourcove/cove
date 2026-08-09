@@ -8,7 +8,7 @@ import type { CriterionModifier } from "../api/types";
 import { writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import { AppConfigProvider } from "../state/AppConfigContext";
 
-const { performersFind, studiosFind, tagsFind } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn() }));
+const { performersFind, studiosFind, tagsFind, libraryFolders } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn(), libraryFolders: vi.fn() }));
 const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -18,6 +18,7 @@ vi.mock("../api/client", async (importOriginal) => {
     performers: { ...actual.performers, find: performersFind },
     studios: { ...actual.studios, find: studiosFind },
     tags: { ...actual.tags, find: tagsFind },
+    metadata: { ...actual.metadata, libraryFolders },
   };
 });
 
@@ -31,6 +32,82 @@ describe("FilterDialog", () => {
   beforeEach(() => {
     localStorage.clear();
     tagsFind.mockResolvedValue({ items: [] });
+    libraryFolders.mockResolvedValue([]);
+  });
+
+  it("browses configured folders and applies a folder-aware path criterion", async () => {
+    libraryFolders.mockImplementation((path?: string) => Promise.resolve(path
+      ? [{ name: "Nested", path: "/library/Root/Nested", hasChildren: false }]
+      : [{ name: "/library/Root", path: "/library/Root", hasChildren: true }]));
+    const onApply = vi.fn();
+
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} preselectCriterion="path" />,
+    );
+
+    expect(await screen.findByRole("radio", { name: "/library/Root" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Expand folder /library/Root" }));
+    await userEvent.click(await screen.findByRole("radio", { name: "Nested" }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(libraryFolders).toHaveBeenNthCalledWith(1, undefined, false);
+    expect(libraryFolders).toHaveBeenNthCalledWith(2, "/library/Root", false);
+    expect(onApply).toHaveBeenCalledWith({
+      pathCriterion: { value: "/library/Root/Nested", modifier: "UNDER_PATH" },
+    });
+  });
+
+  it("shows loading instead of a cached folder error while a recovery request is in progress", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const childQueryKey = ["library-folders", "/library/Root", false];
+    client.setQueryData(childQueryKey, [{ name: "Stale", path: "/library/Root/Stale", hasChildren: false }]);
+    const cachedQuery = client.getQueryCache().find({ queryKey: childQueryKey });
+    cachedQuery?.setState({ ...cachedQuery.state, status: "error", error: new Error("temporary failure") });
+
+    let resolveChildren!: (value: Array<{ name: string; path: string; hasChildren: boolean }>) => void;
+    const childrenRequest = new Promise<Array<{ name: string; path: string; hasChildren: boolean }>>((resolve) => {
+      resolveChildren = resolve;
+    });
+    libraryFolders.mockImplementation((path?: string) => path
+      ? childrenRequest
+      : Promise.resolve([{ name: "/library/Root", path: "/library/Root", hasChildren: true }]));
+
+    render(
+      <QueryClientProvider client={client}>
+        <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion="path" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Expand folder /library/Root" }));
+
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByText("Unable to list subfolders")).not.toBeInTheDocument();
+    resolveChildren([{ name: "Nested", path: "/library/Root/Nested", hasChildren: false }]);
+    expect(await screen.findByRole("radio", { name: "Nested" })).toBeInTheDocument();
+  });
+
+  it("shows loading instead of a cached root-folder error while recovery is in progress", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const rootQueryKey = ["library-folders", "roots", false];
+    client.setQueryData(rootQueryKey, [{ name: "Stale", path: "/library/Stale", hasChildren: false }]);
+    const cachedQuery = client.getQueryCache().find({ queryKey: rootQueryKey });
+    cachedQuery?.setState({ ...cachedQuery.state, status: "error", error: new Error("temporary failure") });
+
+    let resolveRoots!: (value: Array<{ name: string; path: string; hasChildren: boolean }>) => void;
+    libraryFolders.mockReturnValue(new Promise<Array<{ name: string; path: string; hasChildren: boolean }>>((resolve) => {
+      resolveRoots = resolve;
+    }));
+
+    render(
+      <QueryClientProvider client={client}>
+        <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion="path" />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Loading library folders…")).toBeInTheDocument();
+    expect(screen.queryByText("Folder browsing is unavailable. You can still enter a path manually.")).not.toBeInTheDocument();
+    resolveRoots([{ name: "/library/Root", path: "/library/Root", hasChildren: false }]);
+    expect(await screen.findByRole("radio", { name: "/library/Root" })).toBeInTheDocument();
   });
 
   afterEach(() => {

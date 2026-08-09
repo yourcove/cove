@@ -1,4 +1,5 @@
 using Cove.Core.Entities;
+using Cove.Core.Common;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
@@ -8,6 +9,77 @@ namespace Cove.Tests;
 
 public class GalleryImagePathFilterBehaviorTests
 {
+    [Fact]
+    public async Task GalleryPathCriterion_UnderPath_MatchesGalleryFolderWithoutPrefixCollisions()
+    {
+        await using var context = CreateContext();
+        context.Galleries.AddRange(
+            new Gallery { Title = "folder", Folder = new Folder { Path = @"C:\library\matching", ModTime = DateTime.UtcNow } },
+            new Gallery { Title = "nested", Folder = new Folder { Path = @"C:\library\matching\nested", ModTime = DateTime.UtcNow } },
+            new Gallery { Title = "prefix-only", Folder = new Folder { Path = @"C:\library\matching-other", ModTime = DateTime.UtcNow } });
+        await context.SaveChangesAsync();
+
+        var repository = new GalleryRepository(context);
+        var filter = new GalleryFilter
+        {
+            PathCriterion = new StringCriterion
+            {
+                Value = @"C:\library\matching\",
+                Modifier = CriterionModifier.UnderPath,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(2, totalCount);
+        Assert.Equal(["folder", "nested"], items.Select(gallery => gallery.Title ?? string.Empty).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task ImagePathCriterion_UnderPath_UsesFolderBoundaries()
+    {
+        await using var context = CreateContext();
+        context.Images.AddRange(
+            CreateImageWithFile("direct", @"C:\library\matching", "direct.jpg"),
+            CreateImageWithFile("nested", @"C:\library\matching\nested", "nested.jpg"),
+            CreateImageWithFile("prefix-only", @"C:\library\matching-other", "other.jpg"));
+        await context.SaveChangesAsync();
+
+        var repository = new ImageRepository(context);
+        var filter = new ImageFilter
+        {
+            PathCriterion = new StringCriterion
+            {
+                Value = @"C:\library\matching",
+                Modifier = CriterionModifier.UnderPath,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(2, totalCount);
+        Assert.Equal(["direct", "nested"], items.Select(image => image.Title ?? string.Empty).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task ImagePathCriterion_UnderPath_UsesPlatformPathCaseSemantics()
+    {
+        await using var context = CreateContext();
+        context.Images.AddRange(
+            CreateImageWithFile("exact-case", "/library/Media", "exact.jpg"),
+            CreateImageWithFile("different-case", "/library/media", "different.jpg"));
+        await context.SaveChangesAsync();
+
+        var repository = new ImageRepository(context);
+        var (items, totalCount) = await repository.FindAsync(
+            new ImageFilter { PathCriterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath } },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase ? 2 : 1, totalCount);
+        Assert.Contains(items, image => image.Title == "exact-case");
+        if (FilesystemPaths.PathComparison == StringComparison.Ordinal) Assert.DoesNotContain(items, image => image.Title == "different-case");
+    }
+
     [Fact]
     public async Task GalleryPathCriterion_Equals_UsesFullNormalizedPath()
     {

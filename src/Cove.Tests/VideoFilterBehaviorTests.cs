@@ -1,6 +1,7 @@
 using Cove.Api.Controllers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
@@ -16,6 +17,84 @@ namespace Cove.Tests;
 
 public class VideoFilterBehaviorTests
 {
+    [Fact]
+    public async Task PathCriterion_UnderPath_UsesFolderBoundaries()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            CreateVideoWithFile("direct", folderPath: @"C:\library\matching", basename: "direct.mp4"),
+            CreateVideoWithFile("nested", folderPath: @"C:\library\matching\nested", basename: "nested.mp4"),
+            CreateVideoWithFile("prefix-only", folderPath: @"C:\library\matching-other", basename: "other.mp4"));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            PathCriterion = new StringCriterion
+            {
+                Value = @"C:\library\matching\",
+                Modifier = CriterionModifier.UnderPath,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(2, totalCount);
+        Assert.Equal(["direct", "nested"], items.Select(video => video.Title ?? string.Empty).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task PathCriterion_NotUnderPath_ExcludesEntitiesWithAnyFileInFolder()
+    {
+        await using var context = CreateContext();
+        var mixed = CreateVideoWithFile("mixed", folderPath: @"C:\library\outside", basename: "outside.mp4");
+        mixed.Files.Add(new VideoFile
+        {
+            Basename = "inside.mp4",
+            ParentFolder = new Folder { Path = @"C:\library\matching", ModTime = DateTime.UtcNow },
+            Size = 1024,
+            ModTime = DateTime.UtcNow,
+        });
+        context.Videos.AddRange(
+            mixed,
+            CreateVideoWithFile("outside", folderPath: @"C:\library\outside", basename: "outside.mp4"));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var filter = new VideoFilter
+        {
+            PathCriterion = new StringCriterion
+            {
+                Value = @"C:\library\matching",
+                Modifier = CriterionModifier.NotUnderPath,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(["outside"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task PathCriterion_UnderPath_UsesPlatformPathCaseSemantics()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            CreateVideoWithFile("exact-case", folderPath: "/library/Media", basename: "clip.mp4"),
+            CreateVideoWithFile("different-case", folderPath: "/library/media", basename: "clip.mp4"));
+        await context.SaveChangesAsync();
+
+        var repository = new VideoRepository(context);
+        var (items, totalCount) = await repository.FindAsync(
+            new VideoFilter { PathCriterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath } },
+            new FindFilter { Page = 1, PerPage = 50 });
+
+        Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase ? 2 : 1, totalCount);
+        Assert.Contains(items, video => video.Title == "exact-case");
+        if (FilesystemPaths.PathComparison == StringComparison.Ordinal) Assert.DoesNotContain(items, video => video.Title == "different-case");
+    }
+
     [Fact]
     public async Task PathCriterion_Equals_UsesFullNormalizedPath()
     {

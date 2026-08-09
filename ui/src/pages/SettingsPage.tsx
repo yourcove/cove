@@ -94,6 +94,7 @@ import { writeStoredKeybindingOverrides } from "../hooks/useResolvedKeybindingOv
 import { KEYBINDING_GROUPS, keybindingDefault, normalizeShortcutEvent, normalizeShortcutSequence } from "../keyboard/keybindings";
 import { openTutorialStoryboard } from "../components/TutorialStoryboardDialog";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
+import { LibraryFolderTree } from "../components/LibraryFolderTree";
 
 type LegacySettingsTab = "tasks" | "library" | "interface" | "user-settings" | "display-profiles" | "ai-data" | "security" | "metadata-providers" | "extensions" | "system" | "about";
 type BuiltInSettingsTab =
@@ -574,114 +575,6 @@ function loadStoredTaskOptions<T extends object>(key: string, fallback: T): T {
   }
 
   return fallback;
-}
-
-// Hierarchical folder picker for selective scan/generate. Top-level nodes are the configured library
-// roots; expanding a node lazily fetches its subfolders from the server (which only ever returns
-// folders at or below a library root), so the user can drill down but never select a folder outside
-// their library. Selecting a folder targets that whole subtree.
-function LibraryFolderPicker({
-  roots,
-  selected,
-  onToggle,
-  emptyHint,
-}: {
-  roots: string[];
-  selected: string[];
-  onToggle: (path: string, checked: boolean) => void;
-  emptyHint: string;
-}) {
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  if (roots.length === 0) {
-    return <p className="text-[11px] text-muted">{emptyHint}</p>;
-  }
-  return (
-    <div className="max-h-72 space-y-0.5 overflow-auto rounded-lg border border-border/60 bg-surface/40 p-1.5">
-      {roots.map((root) => (
-        <LibraryFolderNode
-          key={root}
-          path={root}
-          label={root}
-          depth={0}
-          hasChildren
-          selectedSet={selectedSet}
-          onToggle={onToggle}
-        />
-      ))}
-    </div>
-  );
-}
-
-function LibraryFolderNode({
-  path,
-  label,
-  depth,
-  hasChildren,
-  selectedSet,
-  onToggle,
-}: {
-  path: string;
-  label: string;
-  depth: number;
-  hasChildren: boolean;
-  selectedSet: Set<string>;
-  onToggle: (path: string, checked: boolean) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const { data: children, isLoading } = useQuery({
-    queryKey: ["library-folders", path],
-    queryFn: () => metadata.libraryFolders(path),
-    enabled: expanded && hasChildren,
-  });
-  const indent = depth * 16 + 4;
-  return (
-    <div>
-      <div className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-surface/70" style={{ paddingLeft: indent }}>
-        {hasChildren ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="text-muted hover:text-foreground"
-            aria-label={expanded ? "Collapse folder" : "Expand folder"}
-          >
-            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          </button>
-        ) : (
-          <span className="inline-block w-3.5" />
-        )}
-        <label className="flex min-w-0 cursor-pointer items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={selectedSet.has(path)}
-            onChange={(event) => onToggle(path, event.target.checked)}
-            className="rounded border-border"
-          />
-          <span className="truncate text-xs text-foreground" title={path}>{label}</span>
-        </label>
-      </div>
-      {expanded && hasChildren && (
-        <div>
-          {isLoading ? (
-            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>Loading…</p>
-          ) : (children ?? []).length === 0 ? (
-            <p className="text-[11px] text-muted" style={{ paddingLeft: indent + 38 }}>No subfolders</p>
-          ) : (
-            (children ?? []).map((child) => (
-              <LibraryFolderNode
-                key={child.path}
-                path={child.path}
-                label={child.name}
-                depth={depth + 1}
-                hasChildren={child.hasChildren}
-                selectedSet={selectedSet}
-                onToggle={onToggle}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 type ExtensionDependencyCandidate = {
@@ -4867,8 +4760,8 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                     </button>
                   )}
                 </div>
-                <LibraryFolderPicker
-                  roots={selectablePaths}
+                <LibraryFolderTree
+                  roots={selectablePaths.map((path) => ({ name: path, path, hasChildren: true }))}
                   selected={scanSelectedPaths}
                   onToggle={toggleScanPath}
                   emptyHint="No library paths configured."
@@ -4944,8 +4837,8 @@ function LibraryTasksSection({ refetchJobs, mode }: { refetchJobs: () => void; m
                     </button>
                   )}
                 </div>
-                <LibraryFolderPicker
-                  roots={selectablePaths}
+                <LibraryFolderTree
+                  roots={selectablePaths.map((path) => ({ name: path, path, hasChildren: true }))}
                   selected={genSelectedPaths}
                   onToggle={toggleGenPath}
                   emptyHint="No library paths configured."

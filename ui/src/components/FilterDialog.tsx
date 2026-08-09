@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft } from "lucide-react";
-import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi } from "../api/client";
+import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
 import { EntityReferenceSelector } from "./EntityReferenceSelector";
@@ -44,10 +44,11 @@ import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { getMultiIdModifierLabel } from "../utils/filterModifierLabels";
 import { pushOverlay } from "../utils/overlayState";
+import { LibraryFolderTree } from "./LibraryFolderTree";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
+export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -87,11 +88,14 @@ const MODIFIER_LABELS: Record<CriterionModifier, string> = {
   NOT_BETWEEN: "Not Between",
   MATCHES_REGEX: "Regex",
   NOT_MATCHES_REGEX: "Not Regex",
+  UNDER_PATH: "Under",
+  NOT_UNDER_PATH: "Not Under",
 };
 
 // Which modifiers each type supports
 const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   string: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
+  path: ["UNDER_PATH", "NOT_UNDER_PATH", "EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   remoteId: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   hash: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   number: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
@@ -203,6 +207,7 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
       return getTagDurationClauses(criterionValue).some((clause) => isTagDurationClauseValid(clause));
     }
     case "string":
+    case "path":
     case "remoteId":
     case "hash":
     case "date":
@@ -381,7 +386,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "code", label: "Studio Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "director", label: "Director", type: "string", filterKey: "directorCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion", options: [...VIDEO_HASH_OPTIONS] },
   { id: "duplicatedPhash", label: "Duplicated (pHash)", type: "bool", filterKey: "duplicatedPhashCriterion" },
   { id: "duplicatedTitle", label: "Duplicated Title", type: "bool", filterKey: "duplicatedTitleCriterion" },
@@ -532,7 +537,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "code", label: "Studio Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion", options: [...VISUAL_HASH_OPTIONS] },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
@@ -561,7 +566,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "code", label: "Studio Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "photographer", label: "Photographer", type: "string", filterKey: "photographerCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion" as Extract<keyof ImageFilterCriteria, string>, options: [...VISUAL_HASH_OPTIONS] },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
@@ -593,7 +598,7 @@ export const AUDIO_CRITERIA: CriteriaDefinitionList<AudioFilterCriteria> = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
   { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "format", label: "File Format", type: "string", filterKey: "formatCriterion" },
   { id: "audioCodec", label: "Audio Codec", type: "string", filterKey: "audioCodecCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
@@ -631,7 +636,7 @@ export const TEXT_CRITERIA: CriteriaDefinitionList<TextFilterCriteria> = [
   { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
   { id: "content", label: "Content", type: "string", filterKey: "contentCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "format", label: "File Format", type: "string", filterKey: "formatCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
@@ -1334,6 +1339,8 @@ function CriterionEditor({
       return <HashEditor value={value as FingerprintCriterion | undefined} onChange={onChange} modifiers={modifiers} options={criterion.options ?? []} />;
     case "string":
       return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+    case "path":
+      return <PathEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "remoteId":
       return <RemoteIdFilterEditor value={value as (StringCriterion & { endpoint?: string }) | undefined} onChange={onChange} modifiers={modifiers} />;
     case "enum":
@@ -1770,6 +1777,68 @@ function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion;
           />
         </LabeledControl>
       )}
+    </div>
+  );
+}
+
+function PathEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+  const modifier = value?.modifier ?? "UNDER_PATH";
+  const isNull = NULL_VALUE_MODIFIERS.has(modifier);
+  const rootsQuery = useQuery({
+    queryKey: ["library-folders", "roots", false],
+    queryFn: () => metadata.libraryFolders(undefined, false),
+    retry: false,
+  });
+
+  const updateModifier = (nextModifier: CriterionModifier) => {
+    onChange({ value: value?.value ?? "", modifier: nextModifier });
+  };
+
+  const selectFolder = (path: string, checked: boolean) => {
+    if (!checked) return;
+    onChange({
+      value: path,
+      modifier: modifier === "NOT_UNDER_PATH" ? "NOT_UNDER_PATH" : "UNDER_PATH",
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={updateModifier} />
+      {!isNull ? (
+        <>
+          <div className="space-y-2">
+            <div>
+              <div className="text-sm font-medium text-secondary">Browse library folders</div>
+              <p className="text-xs text-muted">Choose a folder to match it and all of its descendants.</p>
+            </div>
+            {rootsQuery.isLoading || (rootsQuery.isFetching && rootsQuery.isError) ? (
+              <p className="text-xs text-muted">Loading library folders…</p>
+            ) : rootsQuery.isError ? (
+              <p className="text-xs text-muted">Folder browsing is unavailable. You can still enter a path manually.</p>
+            ) : (
+              <LibraryFolderTree
+                roots={rootsQuery.data ?? []}
+                selected={value?.value ? [value.value] : []}
+                onToggle={selectFolder}
+                selectionMode="single"
+                probeChildren={false}
+                emptyHint="No library folders are configured."
+              />
+            )}
+          </div>
+          <LabeledControl label="Path">
+            <input
+              aria-label="Path"
+              type="text"
+              value={value?.value ?? ""}
+              onChange={(event) => onChange({ value: event.target.value, modifier })}
+              className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+              placeholder="Enter a file or folder path"
+            />
+          </LabeledControl>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Core.Common;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -472,6 +473,20 @@ public static class FilterHelpers
             Expression.Call(fullPathOrEmpty, toLower),
             containsMethod,
             Expression.Constant(value.ToLower()));
+        var folder = NormalizeFolderPathValue(criterion.Value);
+        var pathComparisonIgnoresCase = FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase;
+        Expression comparablePath = pathComparisonIgnoresCase
+            ? Expression.Call(fullPathOrEmpty, toLower)
+            : fullPathOrEmpty;
+        var comparableFolder = pathComparisonIgnoresCase ? folder.ToLowerInvariant() : folder;
+        var folderEquals = Expression.Equal(comparablePath, Expression.Constant(comparableFolder));
+        var startsWithMethod = typeof(string).GetMethod(nameof(string.StartsWith), [typeof(string)])!;
+        var folderPrefix = folder.EndsWith('/') ? folder : folder + "/";
+        var folderDescendant = Expression.Call(
+            comparablePath,
+            startsWithMethod,
+            Expression.Constant(pathComparisonIgnoresCase ? folderPrefix.ToLowerInvariant() : folderPrefix));
+        var underPath = Expression.OrElse(folderEquals, folderDescendant);
 
         var regexMatch = Expression.Call(
             typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
@@ -487,6 +502,8 @@ public static class FilterHelpers
             CriterionModifier.Excludes => Expression.Not(Any(filesSelector.Body, fileParam, contains)),
             CriterionModifier.MatchesRegex => Any(filesSelector.Body, fileParam, regexMatch),
             CriterionModifier.NotMatchesRegex => Expression.Not(Any(filesSelector.Body, fileParam, regexMatch)),
+            CriterionModifier.UnderPath => Any(filesSelector.Body, fileParam, underPath),
+            CriterionModifier.NotUnderPath => Expression.Not(Any(filesSelector.Body, fileParam, underPath)),
             CriterionModifier.IsNull => Expression.Not(Any(filesSelector.Body, fileParam, notEmpty)),
             CriterionModifier.NotNull => Any(filesSelector.Body, fileParam, notEmpty),
             _ => null,
@@ -1029,4 +1046,12 @@ public static class FilterHelpers
     }
 
     private static string NormalizePathValue(string value) => value.Replace("\\", "/");
+
+    private static string NormalizeFolderPathValue(string value)
+    {
+        var normalized = NormalizePathValue(value).Trim();
+        while (normalized.Length > 1 && normalized.EndsWith('/') && !(normalized.Length == 3 && normalized[1] == ':'))
+            normalized = normalized[..^1];
+        return normalized;
+    }
 }

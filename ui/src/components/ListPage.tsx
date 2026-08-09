@@ -157,6 +157,8 @@ const CUSTOM_FIELD_MODIFIER_LABELS: Record<CriterionModifier, string> = {
   NOT_BETWEEN: "Not Between",
   MATCHES_REGEX: "Regex",
   NOT_MATCHES_REGEX: "Not Regex",
+  UNDER_PATH: "Under",
+  NOT_UNDER_PATH: "Not Under",
 };
 
 const TEXT_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"];

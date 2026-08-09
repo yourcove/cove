@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { audios, entityEngagement, entityImages, groups, images, videos, segmentLibrary, texts } from "../api/client";
+import { audios, entityEngagement, entityImages, groups, images, metadata, videos, segmentLibrary, texts } from "../api/client";
 import type { AffinityHostType, Audio, BoolCriterion, DateCriterion, EntityEngagement, FindFilter, Group, GroupItem, GroupItemKind, Image, IntCriterion, MultiIdCriterion, Video, VideoFilterCriteria, SegmentDerivedQueryDescriptor, SegmentRecord, SegmentSpanDerivedQuery, StringCriterion, TextDocument, TimestampCriterion } from "../api/types";
 import { formatDate, formatDuration, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { Building2, ExternalLink, FileText, Film, Fingerprint, FolderOpen, GripVertical, Headphones, Images, Layers, Link as LinkIcon, Loader2, Merge, MoreVertical, Pencil, Play, Plus, Tag, Trash2, Unlink, User, X } from "lucide-react";
@@ -91,7 +91,7 @@ const GROUP_ITEM_CRITERIA: CriterionDefinition[] = [
   ] },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
-  { id: "path", label: "Path", type: "string", filterKey: "pathCriterion" },
+  { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
@@ -582,7 +582,11 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       const engagementData = requiresEngagementMetadata(nextFilter, itemObjectFilter)
         ? await fetchMixedItemEngagementData(queryClient, items)
         : undefined;
-      return pageMixedGroupItems(items, nextFilter, itemObjectFilter, hostData, engagementData);
+      const pathCaseSensitive = hasPathContainmentCriterion(itemObjectFilter)
+        ? (await queryClient.fetchQuery({ queryKey: ["filesystem-policy"], queryFn: metadata.filesystemPolicy })
+            .catch(() => ({ caseSensitive: true }))).caseSensitive
+        : true;
+      return pageMixedGroupItems(items, nextFilter, itemObjectFilter, hostData, engagementData, pathCaseSensitive);
     };
 
     if (isDynamic) {
@@ -984,7 +988,7 @@ function buildMixedGroupItems(groupItems: GroupItem[], subGroups: Group[], isDyn
   return items;
 }
 
-function pageMixedGroupItems(items: MixedGroupItem[], filter: FindFilter, objectFilter: Record<string, unknown>, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+function pageMixedGroupItems(items: MixedGroupItem[], filter: FindFilter, objectFilter: Record<string, unknown>, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap, pathCaseSensitive = true) {
   const query = filter.q?.trim().toLowerCase();
   const searchedItems = query
     ? items.filter((item) => {
@@ -999,7 +1003,7 @@ function pageMixedGroupItems(items: MixedGroupItem[], filter: FindFilter, object
           || (hostId != null && String(hostId).includes(query));
       })
     : items;
-  const filteredItems = searchedItems.filter((item) => matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData));
+  const filteredItems = searchedItems.filter((item) => matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData, pathCaseSensitive));
   const sortedItems = sortMixedGroupItems(filteredItems, filter.sort, filter.direction, filter.seed, hostData, engagementData);
   const page = Math.max(1, filter.page ?? 1);
   const infinitePageSize = (filter.perPage ?? 40) <= 0;
@@ -1513,7 +1517,7 @@ function boolSortValue(value?: boolean) {
   return value == null ? undefined : value ? 1 : 0;
 }
 
-function matchesGroupItemObjectFilter(item: MixedGroupItem, objectFilter: Record<string, unknown>, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+function matchesGroupItemObjectFilter(item: MixedGroupItem, objectFilter: Record<string, unknown>, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap, pathCaseSensitive = true) {
   if (Object.keys(objectFilter).length === 0) return true;
 
   const metadata = getMixedItemMetadata(item, hostData, engagementData);
@@ -1523,7 +1527,7 @@ function matchesGroupItemObjectFilter(item: MixedGroupItem, objectFilter: Record
     && matchesStringCriterion(metadata.kind, objectFilter.kindCriterion as StringCriterion | undefined)
     && matchesNumberCriterion(metadata.rating, objectFilter.ratingCriterion as IntCriterion | undefined)
     && matchesBoolCriterion(metadata.organized, objectFilter.organizedCriterion as BoolCriterion | undefined)
-    && matchesStringCollectionCriterion(metadata.paths, objectFilter.pathCriterion as StringCriterion | undefined)
+    && matchesStringCollectionCriterion(metadata.paths, objectFilter.pathCriterion as StringCriterion | undefined, pathCaseSensitive)
     && matchesStringCollectionCriterion(metadata.urls, objectFilter.urlCriterion as StringCriterion | undefined)
     && matchesDateCriterion(metadata.date, objectFilter.dateCriterion as DateCriterion | undefined)
     && matchesMultiIdCriterion(metadata.performerIds, objectFilter.performersCriterion as MultiIdCriterion | undefined)
@@ -1547,11 +1551,16 @@ function matchesGroupItemObjectFilter(item: MixedGroupItem, objectFilter: Record
     && matchesTimestampCriterion(metadata.updatedAt, objectFilter.updatedAtCriterion as TimestampCriterion | undefined);
 }
 
-function matchesStringCriterion(value: string | undefined, criterion?: StringCriterion) {
+function matchesStringCriterion(value: string | undefined, criterion?: StringCriterion, pathCaseSensitive = true) {
   if (!criterion) return true;
-  const normalized = value?.trim().toLowerCase() ?? "";
-  const expected = criterion.value?.trim().toLowerCase() ?? "";
+  const rawValue = value?.trim() ?? "";
+  const rawExpected = criterion.value?.trim() ?? "";
+  const normalized = rawValue.toLowerCase();
+  const expected = rawExpected.toLowerCase();
   const modifier = criterion.modifier ?? "EQUALS";
+  const normalizedPath = normalizeFolderPath(pathCaseSensitive ? rawValue : normalized);
+  const expectedPath = normalizeFolderPath(pathCaseSensitive ? rawExpected : expected);
+  const expectedPrefix = expectedPath.endsWith("/") ? expectedPath : `${expectedPath}/`;
 
   switch (modifier) {
     case "IS_NULL": return normalized.length === 0;
@@ -1561,19 +1570,34 @@ function matchesStringCriterion(value: string | undefined, criterion?: StringCri
     case "EXCLUDES": return !normalized.includes(expected);
     case "MATCHES_REGEX": return matchesRegex(value ?? "", criterion.value ?? "");
     case "NOT_MATCHES_REGEX": return !matchesRegex(value ?? "", criterion.value ?? "");
+    case "UNDER_PATH": return normalizedPath === expectedPath || normalizedPath.startsWith(expectedPrefix);
+    case "NOT_UNDER_PATH": return normalizedPath !== expectedPath && !normalizedPath.startsWith(expectedPrefix);
     default: return normalized === expected;
   }
 }
 
-function matchesStringCollectionCriterion(values: string[], criterion?: StringCriterion) {
+function normalizeFolderPath(value: string) {
+  let normalized = value.trim().replaceAll("\\", "/");
+  while (normalized.length > 1 && normalized.endsWith("/") && !(normalized.length === 3 && normalized[1] === ":")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function matchesStringCollectionCriterion(values: string[], criterion?: StringCriterion, pathCaseSensitive = true) {
   if (!criterion) return true;
   const modifier = criterion.modifier ?? "EQUALS";
   if (modifier === "IS_NULL") return values.length === 0 || values.every((value) => !value.trim());
   if (modifier === "NOT_NULL") return values.some((value) => value.trim().length > 0);
-  if (modifier === "NOT_EQUALS" || modifier === "EXCLUDES" || modifier === "NOT_MATCHES_REGEX") {
-    return values.length === 0 || values.every((value) => matchesStringCriterion(value, criterion));
+  if (modifier === "NOT_EQUALS" || modifier === "EXCLUDES" || modifier === "NOT_MATCHES_REGEX" || modifier === "NOT_UNDER_PATH") {
+    return values.length === 0 || values.every((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
   }
-  return values.some((value) => matchesStringCriterion(value, criterion));
+  return values.some((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
+}
+
+function hasPathContainmentCriterion(objectFilter: Record<string, unknown>) {
+  const modifier = (objectFilter.pathCriterion as StringCriterion | undefined)?.modifier;
+  return modifier === "UNDER_PATH" || modifier === "NOT_UNDER_PATH";
 }
 
 function matchesBoolCriterion(value: boolean | undefined, criterion?: BoolCriterion) {

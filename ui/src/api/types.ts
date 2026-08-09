@@ -2500,7 +2500,8 @@ export type CriterionModifier =
   | "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | "LESS_THAN"
   | "INCLUDES" | "EXCLUDES" | "INCLUDES_ALL" | "EXCLUDES_ALL"
   | "IS_NULL" | "NOT_NULL" | "BETWEEN" | "NOT_BETWEEN"
-  | "MATCHES_REGEX" | "NOT_MATCHES_REGEX";
+  | "MATCHES_REGEX" | "NOT_MATCHES_REGEX"
+  | "UNDER_PATH" | "NOT_UNDER_PATH";
 
 export interface IntCriterion {
   value: number;

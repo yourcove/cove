@@ -5,6 +5,7 @@ using RegexOptions = System.Text.RegularExpressions.RegexOptions;
 using PermissionKeys = Cove.Core.Auth.Permissions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Core.Common;
 
 namespace Cove.Data.Repositories;
 
@@ -1972,6 +1973,8 @@ public class GalleryRepository : IGalleryRepository
 
         var value = criterion.Value.Replace("\\", "/");
         var normalizedValue = value.ToLowerInvariant();
+        var folder = NormalizeFolderPath(value);
+        var folderPrefix = folder.EndsWith('/') ? folder : folder + "/";
 
         return criterion.Modifier switch
         {
@@ -1993,6 +1996,18 @@ public class GalleryRepository : IGalleryRepository
             CriterionModifier.NotMatchesRegex => query.Where(gallery =>
                 (gallery.Folder == null || !Regex.IsMatch(gallery.Folder.Path, value, RegexOptions.IgnoreCase))
                 && !gallery.Files.Any(file => Regex.IsMatch(file.Path, value, RegexOptions.IgnoreCase))),
+            CriterionModifier.UnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(gallery =>
+                (gallery.Folder != null && (gallery.Folder.Path.ToLower() == folder.ToLower() || gallery.Folder.Path.ToLower().StartsWith(folderPrefix.ToLower())))
+                || gallery.Files.Any(file => file.Path.ToLower() == folder.ToLower() || file.Path.ToLower().StartsWith(folderPrefix.ToLower()))),
+            CriterionModifier.NotUnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(gallery =>
+                (gallery.Folder == null || (gallery.Folder.Path.ToLower() != folder.ToLower() && !gallery.Folder.Path.ToLower().StartsWith(folderPrefix.ToLower())))
+                && !gallery.Files.Any(file => file.Path.ToLower() == folder.ToLower() || file.Path.ToLower().StartsWith(folderPrefix.ToLower()))),
+            CriterionModifier.UnderPath => query.Where(gallery =>
+                (gallery.Folder != null && (gallery.Folder.Path == folder || gallery.Folder.Path.StartsWith(folderPrefix)))
+                || gallery.Files.Any(file => file.Path == folder || file.Path.StartsWith(folderPrefix))),
+            CriterionModifier.NotUnderPath => query.Where(gallery =>
+                (gallery.Folder == null || (gallery.Folder.Path != folder && !gallery.Folder.Path.StartsWith(folderPrefix)))
+                && !gallery.Files.Any(file => file.Path == folder || file.Path.StartsWith(folderPrefix))),
             CriterionModifier.IsNull => query.Where(gallery =>
                 (gallery.Folder == null || gallery.Folder.Path == "")
                 && !gallery.Files.Any(file => file.Path != "")),
@@ -2121,6 +2136,14 @@ public class GalleryRepository : IGalleryRepository
             .ThenByDescending(group => group.Key)
             .Select(group => group.Key)
             .FirstOrDefault());
+    }
+
+    private static string NormalizeFolderPath(string value)
+    {
+        var normalized = value.Replace("\\", "/").Trim();
+        while (normalized.Length > 1 && normalized.EndsWith('/') && !(normalized.Length == 3 && normalized[1] == ':'))
+            normalized = normalized[..^1];
+        return normalized;
     }
 }
 
@@ -2726,6 +2749,9 @@ public class ImageRepository : IImageRepository
         var value = criterion.Value.Replace("\\", "/");
         var pattern = $"%{value}%";
         var exactPattern = $"%\n{value}\n%";
+        var folder = NormalizeFolderPath(value);
+        var folderExactNeedle = $"\n{folder}\n";
+        var folderDescendantNeedle = $"\n{folder}{(folder.EndsWith('/') ? "" : "/")}";
 
         return criterion.Modifier switch
         {
@@ -2735,10 +2761,26 @@ public class ImageRepository : IImageRepository
             CriterionModifier.Excludes => query.Where(i => i.FileSearchText == null || !EF.Functions.ILike(i.FileSearchText, pattern)),
             CriterionModifier.MatchesRegex => query.Where(i => i.FileSearchText != null && Regex.IsMatch(i.FileSearchText, value, RegexOptions.IgnoreCase)),
             CriterionModifier.NotMatchesRegex => query.Where(i => i.FileSearchText == null || !Regex.IsMatch(i.FileSearchText, value, RegexOptions.IgnoreCase)),
+            CriterionModifier.UnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(i => i.FileSearchText != null
+                && (i.FileSearchText.ToLower().Contains(folderExactNeedle.ToLower()) || i.FileSearchText.ToLower().Contains(folderDescendantNeedle.ToLower()))),
+            CriterionModifier.NotUnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(i => i.FileSearchText == null
+                || (!i.FileSearchText.ToLower().Contains(folderExactNeedle.ToLower()) && !i.FileSearchText.ToLower().Contains(folderDescendantNeedle.ToLower()))),
+            CriterionModifier.UnderPath => query.Where(i => i.FileSearchText != null
+                && (i.FileSearchText.Contains(folderExactNeedle) || i.FileSearchText.Contains(folderDescendantNeedle))),
+            CriterionModifier.NotUnderPath => query.Where(i => i.FileSearchText == null
+                || (!i.FileSearchText.Contains(folderExactNeedle) && !i.FileSearchText.Contains(folderDescendantNeedle))),
             CriterionModifier.IsNull => query.Where(i => i.FileCount == 0 || i.FileSearchText == null || i.FileSearchText == ""),
             CriterionModifier.NotNull => query.Where(i => i.FileCount > 0 && i.FileSearchText != null && i.FileSearchText != ""),
             _ => query,
         };
+    }
+
+    private static string NormalizeFolderPath(string value)
+    {
+        var normalized = value.Replace("\\", "/").Trim();
+        while (normalized.Length > 1 && normalized.EndsWith('/') && !(normalized.Length == 3 && normalized[1] == ':'))
+            normalized = normalized[..^1];
+        return normalized;
     }
 
 }
