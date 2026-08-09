@@ -101,10 +101,10 @@ public interface IGroupRepository : IRepository<Group>
 
 public interface ISavedFilterRepository : IRepository<SavedFilter>
 {
-    Task<IReadOnlyList<SavedFilter>> GetByModeAsync(Cove.Core.Enums.FilterMode mode, CancellationToken ct = default);
+    Task<IReadOnlyList<SavedFilter>> GetByModeAsync(string mode, CancellationToken ct = default);
     // User-scoped variants: only return the given user's saved filters (userId null => unowned rows).
     Task<IReadOnlyList<SavedFilter>> GetAllForUserAsync(int? userId, CancellationToken ct = default);
-    Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(Cove.Core.Enums.FilterMode mode, int? userId, CancellationToken ct = default);
+    Task<IReadOnlyList<SavedFilter>> GetByModeForUserAsync(string mode, int? userId, CancellationToken ct = default);
 }
 
 // Filter models

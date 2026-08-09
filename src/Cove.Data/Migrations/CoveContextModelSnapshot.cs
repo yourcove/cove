@@ -2889,8 +2889,10 @@ namespace Cove.Data.Migrations
                     b.Property<string>("FindFilter")
                         .HasColumnType("jsonb");
 
-                    b.Property<int>("Mode")
-                        .HasColumnType("integer");
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("Name")
                         .IsRequired()

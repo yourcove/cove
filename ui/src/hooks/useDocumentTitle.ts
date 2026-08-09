@@ -6,12 +6,13 @@ function getAppTitle(configuredTitle: string | null | undefined) {
   return trimmedTitle ? trimmedTitle : "Cove";
 }
 
-export function useDocumentTitle(pageTitle?: string | null) {
+export function useDocumentTitle(pageTitle?: string | null, enabled = true) {
   const { config } = useAppConfig();
   const appTitle = getAppTitle(config?.ui.title);
   const trimmedPageTitle = pageTitle?.trim();
 
   useEffect(() => {
+    if (!enabled) return;
     if (trimmedPageTitle) {
       document.body.dataset.covePageTitle = trimmedPageTitle;
     } else {
@@ -27,5 +28,5 @@ export function useDocumentTitle(pageTitle?: string | null) {
 
       document.title = appTitle;
     };
-  }, [appTitle, trimmedPageTitle]);
+  }, [appTitle, enabled, trimmedPageTitle]);
 }

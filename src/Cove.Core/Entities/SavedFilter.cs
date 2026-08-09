@@ -1,11 +1,10 @@
-using Cove.Core.Enums;
 using Cove.Core.Entities.Auth;
 
 namespace Cove.Core.Entities;
 
 public class SavedFilter : BaseEntity
 {
-    public FilterMode Mode { get; set; }
+    public string Mode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? FindFilter { get; set; } // JSON
     public string? ObjectFilter { get; set; } // JSON
