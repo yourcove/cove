@@ -320,7 +320,6 @@ function MultiIdBulkEditor({
         onChange={onValueChange as (values: number[]) => void}
         placeholder={`Search ${entityType}...`}
         inputClassName="w-full bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
-        resultsClassName="rounded border border-border bg-input"
         resultsMaxHeight={128}
       />
     </div>

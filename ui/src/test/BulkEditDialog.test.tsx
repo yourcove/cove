@@ -80,8 +80,9 @@ describe("BulkEditDialog", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Tags" }));
     await user.click(screen.getByRole("button", { name: "Overwrite" }));
-  await user.type(screen.getByPlaceholderText("Search tags..."), "Tag");
+    await user.type(screen.getByPlaceholderText("Search tags..."), "Tag");
     await waitFor(() => expect(screen.getByRole("option", { name: /Tag One/i })).toBeInTheDocument());
+    expect(screen.getByRole("listbox")).toHaveClass("bg-surface");
     await user.click(screen.getByRole("option", { name: /Tag One/i }));
 
     await user.click(screen.getByRole("checkbox", { name: "Groups" }));
