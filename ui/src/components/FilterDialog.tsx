@@ -2466,6 +2466,10 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
             setActiveResultIndex(-1);
           }}
           onKeyDown={(event) => {
+            if (isPlaceholderData && (event.key === "ArrowDown" || event.key === "ArrowUp" || (event.key === "Enter" && !event.ctrlKey && !event.metaKey))) {
+              event.preventDefault();
+              return;
+            }
             if (event.key === "ArrowDown" && navigableEntities.length > 0) {
               event.preventDefault();
               setActiveResultIndex((current) => Math.min(navigableEntities.length - 1, current + 1));
@@ -2507,13 +2511,13 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
                   aria-selected={isIncluded || isExcluded}
                   aria-disabled={isPlaceholderData || undefined}
                   onClick={() => { if (!isPlaceholderData) isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
-                  className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait opacity-50" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
+                  className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
                 >
                   <button
                     type="button"
                     tabIndex={-1}
                     onClick={(event) => { event.stopPropagation(); isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
-                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
+                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait ${isIncluded ? "text-green-400" : "text-muted"}`}
                     title="Include"
                     aria-label={`Include ${getName(entity)}`}
                     disabled={isPlaceholderData}
@@ -2526,7 +2530,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
                       type="button"
                       tabIndex={-1}
                       onClick={(event) => { event.stopPropagation(); isExcluded ? removeId(entity.id) : addExclude(entity.id); }}
-                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
+                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait ${isExcluded ? "text-red-400" : "text-muted"}`}
                       title="Exclude"
                       aria-label={`Exclude ${getName(entity)}`}
                       disabled={isPlaceholderData}
@@ -2550,13 +2554,13 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
               aria-selected={isIncluded || isExcluded}
               aria-disabled={isPlaceholderData || undefined}
               onClick={() => { if (!isPlaceholderData) isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
-              className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait opacity-50" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
+              className={`flex min-h-11 w-full items-center gap-1 px-1 text-sm ${isPlaceholderData ? "cursor-wait" : "cursor-pointer"} ${activeResultIndex >= 0 && navigableEntities[activeResultIndex]?.id === entity.id ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""} ${isIncluded ? "text-green-300" : isExcluded ? "text-red-300" : "text-foreground"}`}
             >
               <button
                 type="button"
                 tabIndex={-1}
                 onClick={(event) => { event.stopPropagation(); isIncluded ? removeId(entity.id) : addInclude(entity.id); }}
-                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait disabled:opacity-50 ${isIncluded ? "text-green-400" : "text-muted"}`}
+                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-green-500/10 hover:text-green-400 disabled:cursor-wait ${isIncluded ? "text-green-400" : "text-muted"}`}
                 title="Include"
                 aria-label={`Include ${getName(entity)}`}
                 disabled={isPlaceholderData}
@@ -2569,7 +2573,7 @@ function MultiIdEditor({ value, onChange, entityType, modifiers, hierarchyToggle
                   type="button"
                   tabIndex={-1}
                   onClick={(event) => { event.stopPropagation(); isExcluded ? removeId(entity.id) : addExclude(entity.id); }}
-                  className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait disabled:opacity-50 ${isExcluded ? "text-red-400" : "text-muted"}`}
+                  className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-400 disabled:cursor-wait ${isExcluded ? "text-red-400" : "text-muted"}`}
                   title="Exclude"
                   aria-label={`Exclude ${getName(entity)}`}
                   disabled={isPlaceholderData}

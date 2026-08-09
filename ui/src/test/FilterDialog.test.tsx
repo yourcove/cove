@@ -788,6 +788,34 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("button", { name: "Remove Beta grouped" })).toBeInTheDocument();
   });
 
+  it("keeps tag results visually stable while a typed search is loading", async () => {
+    const user = userEvent.setup();
+    let resolveSearch!: (value: { items: Array<{ id: number; name: string; tagGroupId: null; tagGroupName: null; tagGroupColor: null }> }) => void;
+    const searchRequest = new Promise<{ items: Array<{ id: number; name: string; tagGroupId: null; tagGroupName: null; tagGroupColor: null }> }>((resolve) => {
+      resolveSearch = resolve;
+    });
+    tagsFind.mockImplementation(({ q }: { q?: string }) => q
+      ? searchRequest
+      : Promise.resolve({ items: [{ id: 1, name: "Initial tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null }] }));
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} preselectCriterion="tags" />,
+    );
+
+    await screen.findByRole("option", { name: "Initial tag" });
+    await user.type(screen.getByRole("combobox", { name: "Search tags" }), "new");
+
+    await waitFor(() => expect(screen.getByRole("listbox", { name: "tags results" })).toHaveAttribute("aria-busy", "true"));
+    expect(screen.getByRole("option", { name: "Initial tag" })).not.toHaveClass("opacity-50");
+    const search = screen.getByRole("combobox", { name: "Search tags" });
+    await user.keyboard("{ArrowDown}");
+    expect(search).not.toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("button", { name: "Remove Initial tag" })).not.toBeInTheDocument();
+
+    resolveSearch({ items: [{ id: 2, name: "New tag", tagGroupId: null, tagGroupName: null, tagGroupColor: null }] });
+    expect(await screen.findByRole("option", { name: "New tag" })).toBeInTheDocument();
+  });
+
   it("caps keyboard navigation at the last rendered result", async () => {
     const user = userEvent.setup();
     Element.prototype.scrollIntoView = vi.fn();
