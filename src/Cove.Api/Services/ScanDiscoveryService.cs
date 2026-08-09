@@ -48,7 +48,7 @@ internal sealed class ScanDiscoveryService(
         }
         else if (scanTargets.Count > 0)
         {
-            logger.LogInformation("Directory scan cache bypassed because this scan requested forced file discovery or generated assets.");
+            logger.LogInformation("Directory scan cache bypassed because this scan requested a forced rescan or generated assets.");
         }
 
         var directoryScanContext = new DirectoryScanContext(
@@ -67,7 +67,7 @@ internal sealed class ScanDiscoveryService(
         progress.Report(0, "Discovering files...");
         var files = new List<DiscoveredFile>();
         var discoveryProgress = new ScanDiscoveryProgress(progress, logger);
-        var ignoreRuleCache = new Dictionary<string, List<IgnoreRule>>(StringComparer.OrdinalIgnoreCase);
+        var ignoreRuleCache = new Dictionary<string, List<IgnoreRule>>(FilesystemPaths.PathComparer);
 
         foreach (var scanTarget in scanTargets)
         {
@@ -478,6 +478,7 @@ internal sealed class ScanDiscoveryService(
     private static bool RequiresFullFileDiscovery(ScanOperationOptions options)
     {
         return options.Rescan
+            || options.IncludeUnchangedFilesInAssetGeneration
             || options.GenerateCovers
             || options.GeneratePreviews
             || options.GenerateSprites
@@ -733,7 +734,7 @@ internal sealed class ScanDiscoveryService(
         foreach (var selectedPath in selectedPaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(ScanPath.Normalize)
-            .Distinct(StringComparer.OrdinalIgnoreCase))
+            .Distinct(FilesystemPaths.PathComparer))
         {
             var matchingConfig = cfg.CovePaths
                 .Select(path => new { Config = path, NormalizedPath = ScanPath.Normalize(path.Path) })
@@ -860,7 +861,7 @@ internal sealed record ScanDiscoveryResult(
     public bool HasForceGalleryHints => Files
         .Select(file => Path.GetDirectoryName(file.Path))
         .Where(directory => !string.IsNullOrWhiteSpace(directory))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Distinct(FilesystemPaths.PathComparer)
         .Any(directory => File.Exists(Path.Combine(directory!, ".forcegallery")));
 }
 
@@ -949,12 +950,12 @@ internal static class ScanPath
 
     public static bool IsWithin(string path, string root)
     {
-        if (path.Equals(root, StringComparison.OrdinalIgnoreCase))
+        if (path.Equals(root, FilesystemPaths.PathComparison))
             return true;
 
         var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return path.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return path.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, FilesystemPaths.PathComparison)
+            || path.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, FilesystemPaths.PathComparison);
     }
 }
 

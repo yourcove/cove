@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
@@ -2235,14 +2236,12 @@ public partial class DownloaderService(
         if (generate == null || !HasGenerateFollowUp(generate))
             return null;
 
-        var directories = importedPaths
-            .Select(Path.GetDirectoryName)
+        var paths = importedPaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(FilesystemPaths.PathComparer)
             .ToList();
 
-        if (directories.Count == 0)
+        if (paths.Count == 0)
             return null;
 
         if (generate.Segments)
@@ -2254,7 +2253,8 @@ public partial class DownloaderService(
 
         return scanService.StartScan(new ScanOperationOptions
         {
-            Paths = directories,
+            Paths = paths,
+            IncludeUnchangedFilesInAssetGeneration = true,
             GenerateCovers = generate.Thumbnails,
             GeneratePreviews = generate.Previews,
             GenerateSprites = generate.Sprites,

@@ -190,6 +190,11 @@ public sealed class NullJobUnit(string unitId, string? label = null) : IJobUnit
 public sealed class ScanOperationOptions
 {
     public List<string>? Paths { get; init; }
+    /// <summary>
+    /// Includes otherwise unchanged discovered files in the requested asset-generation pass.
+    /// Intended for narrowly scoped internal workflows whose files were imported before the scan job starts.
+    /// </summary>
+    public bool IncludeUnchangedFilesInAssetGeneration { get; init; }
     public bool GenerateCovers { get; init; }
     public bool GeneratePreviews { get; init; }
     public bool GenerateSprites { get; init; }

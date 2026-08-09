@@ -53,7 +53,6 @@ public class ScanService : IScanService
             scopeFactory,
             config,
             eventBus,
-            thumbnailService,
             extensionManager,
             fileValidator,
             discoveryService,
