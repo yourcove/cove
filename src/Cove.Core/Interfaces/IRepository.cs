@@ -159,7 +159,8 @@ public enum CriterionModifier
     Equals, NotEquals, GreaterThan, LessThan,
     Includes, Excludes, IncludesAll, ExcludesAll,
     IsNull, NotNull, Between, NotBetween,
-    MatchesRegex, NotMatchesRegex
+    MatchesRegex, NotMatchesRegex,
+    UnderPath, NotUnderPath
 }
 
 public class IntCriterion { public int Value { get; set; } public int? Value2 { get; set; } public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }

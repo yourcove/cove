@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using PermissionKeys = Cove.Core.Auth.Permissions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Core.Common;
 using Cove.Data.Services;
 
 namespace Cove.Data.Repositories;
@@ -722,6 +723,9 @@ public class VideoRepository : IVideoRepository
         var value = NormalizePathValue(criterion.Value);
         var pattern = $"%{value}%";
         var exactPattern = $"%\n{value}\n%";
+        var folder = NormalizeFolderPathValue(criterion.Value);
+        var folderExactNeedle = $"\n{folder}\n";
+        var folderDescendantNeedle = $"\n{folder}{(folder.EndsWith('/') ? "" : "/")}";
 
         return criterion.Modifier switch
         {
@@ -731,6 +735,14 @@ public class VideoRepository : IVideoRepository
             CriterionModifier.Excludes => query.Where(s => s.FileSearchText == null || !EF.Functions.ILike(s.FileSearchText, pattern)),
             CriterionModifier.MatchesRegex => query.Where(s => s.FileSearchText != null && Regex.IsMatch(s.FileSearchText, value, RegexOptions.IgnoreCase)),
             CriterionModifier.NotMatchesRegex => query.Where(s => s.FileSearchText == null || !Regex.IsMatch(s.FileSearchText, value, RegexOptions.IgnoreCase)),
+            CriterionModifier.UnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(s => s.FileSearchText != null
+                && (s.FileSearchText.ToLower().Contains(folderExactNeedle.ToLower()) || s.FileSearchText.ToLower().Contains(folderDescendantNeedle.ToLower()))),
+            CriterionModifier.NotUnderPath when FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase => query.Where(s => s.FileSearchText == null
+                || (!s.FileSearchText.ToLower().Contains(folderExactNeedle.ToLower()) && !s.FileSearchText.ToLower().Contains(folderDescendantNeedle.ToLower()))),
+            CriterionModifier.UnderPath => query.Where(s => s.FileSearchText != null
+                && (s.FileSearchText.Contains(folderExactNeedle) || s.FileSearchText.Contains(folderDescendantNeedle))),
+            CriterionModifier.NotUnderPath => query.Where(s => s.FileSearchText == null
+                || (!s.FileSearchText.Contains(folderExactNeedle) && !s.FileSearchText.Contains(folderDescendantNeedle))),
             CriterionModifier.IsNull => query.Where(s => s.FileCount == 0 || s.FileSearchText == null || s.FileSearchText == ""),
             CriterionModifier.NotNull => query.Where(s => s.FileCount > 0 && s.FileSearchText != null && s.FileSearchText != ""),
             _ => query,
@@ -899,6 +911,14 @@ public class VideoRepository : IVideoRepository
     }
 
     private static string NormalizePathValue(string value) => value.Replace("\\", "/");
+
+    private static string NormalizeFolderPathValue(string value)
+    {
+        var normalized = NormalizePathValue(value).Trim();
+        while (normalized.Length > 1 && normalized.EndsWith('/') && !(normalized.Length == 3 && normalized[1] == ':'))
+            normalized = normalized[..^1];
+        return normalized;
+    }
 
     // Helper methods for criterion-based filtering
     private static IQueryable<Video> ApplyIntCriterion(IQueryable<Video> query, IntCriterion? criterion, System.Linq.Expressions.Expression<Func<Video, int>> selector)

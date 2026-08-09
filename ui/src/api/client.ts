@@ -266,6 +266,8 @@ const CRITERION_MODIFIER_MAP: Record<string, string> = {
   NOT_BETWEEN: "notBetween",
   MATCHES_REGEX: "matchesRegex",
   NOT_MATCHES_REGEX: "notMatchesRegex",
+  UNDER_PATH: "underPath",
+  NOT_UNDER_PATH: "notUnderPath",
 };
 
 async function request<T>(path: string, options?: ServerAwareFetchOptions): Promise<T> {
@@ -1325,8 +1327,14 @@ export const metadata = {
     request<{ jobId: string }>("/metadata/scan", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   generate: (opts?: GenerateOptions) =>
     request<{ jobId: string }>("/metadata/generate", { method: "POST", body: JSON.stringify(opts ?? {}) }),
-  libraryFolders: (path?: string) =>
-    request<LibraryFolder[]>(`/metadata/library-folders${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  libraryFolders: (path?: string, probeChildren = true) => {
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    if (!probeChildren) params.set("probeChildren", "false");
+    const query = params.toString();
+    return request<LibraryFolder[]>(`/metadata/library-folders${query ? `?${query}` : ""}`);
+  },
+  filesystemPolicy: () => request<{ caseSensitive: boolean }>("/metadata/filesystem-policy"),
   clean: (opts?: CleanOptions) =>
     request<{ jobId: string }>("/metadata/clean", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   cleanGenerated: (opts?: CleanGeneratedOptions) =>

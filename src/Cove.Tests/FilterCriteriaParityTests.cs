@@ -74,6 +74,24 @@ public class FilterCriteriaParityTests
         Assert.Equal(CriterionModifier.Includes, result.ObjectFilter.PerformerTagsCriterion.Modifier);
     }
 
+    [Theory]
+    [InlineData("underPath", CriterionModifier.UnderPath)]
+    [InlineData("notUnderPath", CriterionModifier.NotUnderPath)]
+    public void VideoFilter_PathFolderModifiers_Deserialize(string modifier, CriterionModifier expected)
+    {
+        var json = $$"""
+        {
+            "objectFilter": {
+                "pathCriterion": { "value": "/library/folder", "modifier": "{{modifier}}" }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<VideoFilter>>(json, Options);
+
+        Assert.Equal(expected, result?.ObjectFilter?.PathCriterion?.Modifier);
+    }
+
     [Fact]
     public void VideoFilter_PerformerAgeCriterion_Deserializes()
     {

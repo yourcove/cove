@@ -146,7 +146,9 @@ function isCriterionModifier(value: unknown): value is CriterionModifier {
     || value === "BETWEEN"
     || value === "NOT_BETWEEN"
     || value === "MATCHES_REGEX"
-    || value === "NOT_MATCHES_REGEX";
+    || value === "NOT_MATCHES_REGEX"
+    || value === "UNDER_PATH"
+    || value === "NOT_UNDER_PATH";
 }
 
 function hasMultiIdIncludes(value: unknown) {

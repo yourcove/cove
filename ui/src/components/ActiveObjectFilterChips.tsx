@@ -25,6 +25,8 @@ const CHIP_MODIFIER_LABELS: Record<string, string> = {
   NOT_BETWEEN: "Not Between",
   MATCHES_REGEX: "Regex",
   NOT_MATCHES_REGEX: "Not Regex",
+  UNDER_PATH: "Under",
+  NOT_UNDER_PATH: "Not Under",
 };
 
 function formatChipScalar(value: unknown): string {

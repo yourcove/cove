@@ -94,27 +94,33 @@ public class MetadataController(
     /// so the folder picker can never drill outside the library.
     /// </summary>
     [HttpGet("library-folders")]
-    [RequiresPermission(Permissions.LibraryScan)]
-    public ActionResult<List<LibraryFolderDto>> GetLibraryFolders([FromQuery] string? path)
+    [RequiresPermission(Permissions.LibraryScan, Permissions.FilesRead, Mode = PermissionMode.Any)]
+    public ActionResult<List<LibraryFolderDto>> GetLibraryFolders([FromQuery] string? path, [FromQuery] bool probeChildren = true)
     {
         var roots = config.CovePaths
             .Select(covePath => covePath.Path)
             .Where(rootPath => !string.IsNullOrWhiteSpace(rootPath))
             .Select(rootPath => CanonicalizePath(rootPath!))
             .Where(rootPath => rootPath.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(PathComparer)
             .ToList();
 
         if (string.IsNullOrWhiteSpace(path))
         {
             return Ok(roots
-                .OrderBy(root => root, StringComparer.OrdinalIgnoreCase)
-                .Select(root => new LibraryFolderDto(root, root, SafeHasSubdirectories(root)))
+                .OrderBy(root => root, PathComparer)
+                .Select(root => new LibraryFolderDto(root, root, !probeChildren || SafeHasSubdirectories(root)))
                 .ToList());
         }
 
         var requested = CanonicalizePath(path);
-        if (requested.Length == 0 || !roots.Any(root => IsAtOrUnderPath(requested, root)))
+        var isLogicallyContained = roots.Any(root => IsAtOrUnderPath(requested, root));
+        var physicalRoots = roots
+            .Select(ResolvePhysicalPath)
+            .Where(root => root.Length > 0)
+            .ToList();
+        var physicalRequested = ResolvePhysicalPath(requested);
+        if (requested.Length == 0 || !isLogicallyContained || physicalRequested.Length == 0 || !physicalRoots.Any(root => IsAtOrUnderPath(physicalRequested, root)))
             return StatusCode(StatusCodes.Status403Forbidden, new { code = "OUTSIDE_LIBRARY", message = "Path is not within a configured library folder." });
 
         if (!Directory.Exists(requested))
@@ -124,9 +130,12 @@ public class MetadataController(
         {
             return Ok(Directory.GetDirectories(requested)
                 .Select(CanonicalizePath)
-                .Where(dir => dir.Length > 0)
-                .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)
-                .Select(dir => new LibraryFolderDto(dir[(dir.LastIndexOf('/') + 1)..], dir, SafeHasSubdirectories(dir)))
+                .Select(dir => new { Logical = dir, Physical = ResolveChildPhysicalPath(dir, physicalRequested) })
+                .Where(dir => dir.Logical.Length > 0 && dir.Physical.Length > 0
+                    && physicalRoots.Any(root => IsAtOrUnderPath(dir.Physical, root)))
+                .Select(dir => dir.Logical)
+                .OrderBy(dir => dir, PathComparer)
+                .Select(dir => new LibraryFolderDto(dir[(dir.LastIndexOf('/') + 1)..], dir, !probeChildren || SafeHasSubdirectories(dir)))
                 .ToList());
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
@@ -136,16 +145,72 @@ public class MetadataController(
         }
     }
 
+    [HttpGet("filesystem-policy")]
+    [RequiresPermission(Permissions.LibraryScan, Permissions.FilesRead, Permissions.GroupsRead, Mode = PermissionMode.Any)]
+    public ActionResult<object> GetFilesystemPolicy()
+        => Ok(new { caseSensitive = FilesystemPaths.PathComparison == StringComparison.Ordinal });
+
     private static string CanonicalizePath(string path)
     {
-        try { return Path.GetFullPath(path.Trim()).Replace('\\', '/').TrimEnd('/'); }
+        try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path.Trim())).Replace('\\', '/'); }
         catch { return string.Empty; }
     }
 
+    private static string ResolvePhysicalPath(string path)
+    {
+        try
+        {
+            var pending = Path.GetFullPath(path);
+            for (var linkCount = 0; linkCount <= 63; linkCount++)
+            {
+                var pathRoot = Path.GetPathRoot(pending);
+                if (string.IsNullOrEmpty(pathRoot)) return string.Empty;
+                var segments = Path.GetRelativePath(pathRoot, pending)
+                    .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+                var current = pathRoot;
+                var followedLink = false;
+                for (var index = 0; index < segments.Length; index++)
+                {
+                    if (segments[index] == ".") continue;
+                    current = Path.Combine(current, segments[index]);
+                    var directory = new DirectoryInfo(current);
+                    if (directory.LinkTarget == null) continue;
+
+                    var target = directory.ResolveLinkTarget(returnFinalTarget: false)?.FullName;
+                    if (string.IsNullOrEmpty(target)) return string.Empty;
+                    pending = Path.GetFullPath(segments[(index + 1)..].Aggregate(target, (currentPath, segment) => Path.Combine(currentPath, segment)));
+                    followedLink = true;
+                    break;
+                }
+
+                if (!followedLink) return CanonicalizePath(current);
+            }
+            return string.Empty;
+        }
+        catch { return string.Empty; }
+    }
+
+    private static string ResolveChildPhysicalPath(string logicalChild, string physicalParent)
+    {
+        try
+        {
+            var child = new DirectoryInfo(logicalChild);
+            return child.LinkTarget != null
+                ? ResolvePhysicalPath(logicalChild)
+                : CanonicalizePath(Path.Combine(physicalParent, child.Name));
+        }
+        catch { return string.Empty; }
+    }
+
+    private static StringComparer PathComparer => FilesystemPaths.PathComparer;
+
+    private static StringComparison PathComparison => FilesystemPaths.PathComparison;
+
     // Segment-aware containment check so "/library" does not match "/library-other".
     private static bool IsAtOrUnderPath(string candidate, string root)
-        => candidate.Equals(root, StringComparison.OrdinalIgnoreCase)
-            || candidate.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase);
+        => candidate.Length > 0 && root.Length > 0
+            && (candidate.Equals(root, PathComparison)
+            || candidate.StartsWith(root.EndsWith('/') ? root : root + "/", PathComparison));
 
     private static bool SafeHasSubdirectories(string dir)
     {
