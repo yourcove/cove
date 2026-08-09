@@ -18,7 +18,7 @@
     "test:navigation-output": "node --test scripts/check-generated-navigation.test.mjs"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.9",
+    "@astrojs/check": "^0.9.10",
     "@astrojs/mdx": "latest",
     "@astrojs/sitemap": "latest",
     "@astrojs/starlight": "latest",
