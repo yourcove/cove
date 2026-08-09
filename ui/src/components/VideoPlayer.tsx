@@ -185,6 +185,7 @@ export function VideoPlayer({
   audioCodec,
   duration,
   resumeTime,
+  seekTo: navigationSeekTo,
   videoId,
   detections = [],
   segments = [],
@@ -214,6 +215,8 @@ export function VideoPlayer({
   format: string;
   audioCodec?: string;
   duration: number;
+  /** Explicit navigation timestamp. Takes precedence over saved resume state. */
+  seekTo?: number;
   resumeTime?: number;
   videoId: number;
   detections?: Detection[];
@@ -252,7 +255,9 @@ export function VideoPlayer({
   const effectiveShowAbLoop = showAbLoop ?? config?.ui.showAbLoopControls ?? true;
   const compactControls = useMediaQuery("(max-width: 767px)");
   const hasMediaPlayerActions = useHasExtensionSlot(MEDIA_PLAYER_ACTIONS_SLOT);
-  const effectiveResumeTime = config?.ui.alwaysResumeOnPlayback === false ? undefined : resumeTime;
+  const automaticResumeEnabled = config?.ui.alwaysResumeOnPlayback !== false;
+  const effectiveResumeTime = automaticResumeEnabled ? resumeTime : undefined;
+  const effectiveStartTime = navigationSeekTo ?? effectiveResumeTime;
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const volumeTrackRef = useRef<HTMLDivElement>(null);
@@ -333,6 +338,9 @@ export function VideoPlayer({
   const sourceGenerationRef = useRef(0);
   const metadataHandledGenerationRef = useRef<number | null>(null);
   const pendingAutostartRef = useRef(false);
+  const navigationSeekKeyRef = useRef<string | null>(null);
+  const navigationSeekIntentRef = useRef<{ key: string; play: boolean } | null>(null);
+  const navigationAutostartSuppressedRef = useRef(false);
   // Resume-seek bookkeeping: which source we last applied the resume/initial seek for, and whether a real
   // resume target has been applied for it. Lets us ignore later resumeTime changes for the SAME source (the
   // engagement cache being rewritten when you rate/favorite mid-playback) so they can't yank playback.
@@ -840,25 +848,39 @@ export function VideoPlayer({
 
   useEffect(() => {
     const v = videoRef.current;
+    const navigationSeekKey = navigationSeekTo == null ? null : `${videoId}|${navigationSeekTo}`;
+    const hasNewNavigationSeek = navigationSeekKey != null && navigationSeekKey !== navigationSeekKeyRef.current;
+    navigationSeekKeyRef.current = navigationSeekKey;
+    if (navigationSeekKey == null) {
+      navigationSeekIntentRef.current = null;
+      navigationAutostartSuppressedRef.current = false;
+    } else if (hasNewNavigationSeek) {
+      navigationSeekIntentRef.current = { key: navigationSeekKey, play: automaticResumeEnabled };
+      navigationAutostartSuppressedRef.current = !automaticResumeEnabled;
+      if (!automaticResumeEnabled) {
+        pendingAutostartRef.current = false;
+      }
+    }
 
     // A change in this key is a legitimate moment to (re)apply the resume/initial seek: a new video, a quality
     // switch, a new stream, or a clip change. Apply on a new source, or the FIRST time a resume target arrives
     // for the current source (engagement loads async). A later resumeTime change for the SAME source — e.g.
     // the engagement cache being rewritten when you rate/favorite mid-playback — must NOT re-seek.
-    const sourceKey = `${videoId}|${selectedQuality}|${streamUrl}|${clip?.start ?? ""}|${clip?.end ?? ""}|${clip?.loop ?? ""}`;
+    const sourceKey = `${videoId}|${selectedQuality}|${streamUrl}|${clip?.start ?? ""}|${clip?.end ?? ""}|${clip?.loop ?? ""}|${navigationSeekTo ?? ""}`;
     const isNewSource = sourceKey !== resumeSourceKeyRef.current;
-    const shouldSeek = isNewSource || (!resumeSettledRef.current && effectiveResumeTime != null);
+    const shouldSeek = hasNewNavigationSeek
+      || (navigationSeekTo == null && (isNewSource || (!resumeSettledRef.current && effectiveStartTime != null)));
     if (isNewSource) {
       resumeSourceKeyRef.current = sourceKey;
-      resumeSettledRef.current = effectiveResumeTime != null;
+      resumeSettledRef.current = effectiveStartTime != null;
     } else if (shouldSeek) {
       resumeSettledRef.current = true;
     }
 
     if (shouldSeek) {
       const nextTime = clip
-        ? Math.min(Math.max(effectiveResumeTime ?? clip.start, clip.start), clip.end ?? duration)
-        : effectiveResumeTime ?? defaultPlaybackStartTime;
+        ? Math.min(Math.max(effectiveStartTime ?? clip.start, clip.start), clip.end ?? duration)
+        : effectiveStartTime ?? defaultPlaybackStartTime;
       if (v && nextTime != null) {
         if (selectedQuality === "Direct") {
           v.currentTime = nextTime;
@@ -869,15 +891,47 @@ export function VideoPlayer({
       }
     }
 
+    const canDelegateNavigationSeekToRecovery = hasNewNavigationSeek
+      && mediaRecoveryPhase !== "healthy"
+      && selectedQuality === "Direct"
+      && v != null;
+    if (canDelegateNavigationSeekToRecovery) {
+      recordMediaUserSeek(v);
+      if (automaticResumeEnabled) {
+        recordMediaUserPlay();
+      } else {
+        recordMediaUserPause();
+      }
+      if (navigationSeekIntentRef.current?.key === navigationSeekKey) {
+        navigationSeekIntentRef.current = null;
+      }
+    }
+
+    const canConsumeNavigationSeekImmediately = selectedQuality === "Direct"
+      && lastLoadedSourceRef.current === effectiveSourceSignature
+      && metadataHandledGenerationRef.current === sourceGenerationRef.current
+      && v != null
+      && v.readyState >= HTMLMediaElement.HAVE_METADATA;
+    if (hasNewNavigationSeek && v && canConsumeNavigationSeekImmediately) {
+      if (automaticResumeEnabled) {
+        void v.play().catch(() => {});
+      } else {
+        v.pause();
+      }
+      if (navigationSeekIntentRef.current?.key === navigationSeekKey) {
+        navigationSeekIntentRef.current = null;
+      }
+    }
+
     if (clip?.loop && clip.end != null) {
       setAbLoop({ a: clip.start, b: clip.end });
     } else if (clip) {
       setAbLoop({ a: null, b: null });
     }
-  }, [clip?.end, clip?.loop, clip?.start, defaultPlaybackStartTime, duration, effectiveResumeTime, videoId, selectedQuality, streamUrl]);
+  }, [automaticResumeEnabled, clip?.end, clip?.loop, clip?.start, defaultPlaybackStartTime, duration, effectiveSourceSignature, effectiveStartTime, mediaRecoveryPhase, navigationSeekTo, recordMediaUserPause, recordMediaUserPlay, recordMediaUserSeek, selectedQuality, streamUrl, videoId]);
 
   useEffect(() => {
-    if (!autostart) {
+    if (!autostart || navigationAutostartSuppressedRef.current) {
       pendingAutostartRef.current = false;
       return;
     }
@@ -1435,7 +1489,9 @@ export function VideoPlayer({
     const sourceGeneration = sourceGenerationRef.current;
 
     const pendingRestore = sourceRestoreRef.current;
-    const shouldAutoplayAfterLoad = pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo);
+    const pendingNavigationSeek = navigationSeekIntentRef.current;
+    const shouldAutoplayAfterLoad = pendingNavigationSeek?.play
+      ?? (pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo));
 
     // Capture the current absolute playback position BEFORE video.load() resets the element. If a
     // source reload happens mid-playback (e.g. a transient src refresh) with no explicit restore /
@@ -1455,7 +1511,7 @@ export function VideoPlayer({
       }
       const mediaDuration = selectedQuality === "Direct" && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration;
       const configuredStartTime = getConfiguredPlaybackStartTime(mediaDuration, playerVideoStartPercent, playerVideoStartMinDuration);
-      const targetTime = pendingRestore?.time
+      const targetTime = (pendingNavigationSeek ? navigationSeekTo : pendingRestore?.time)
         ?? (clip ? clip.start : effectiveResumeTime ?? configuredStartTime)
         ?? positionBeforeLoad;
       if (targetTime != null && Number.isFinite(targetTime)) {
@@ -1463,9 +1519,15 @@ export function VideoPlayer({
         setCurTime(roundPlaybackTime(targetTime));
       }
 
+      if (pendingNavigationSeek && navigationSeekIntentRef.current?.key === pendingNavigationSeek.key) {
+        navigationSeekIntentRef.current = null;
+      }
+
       if (shouldAutoplayAfterLoad) {
         pendingAutostartRef.current = false;
         video.play().catch(() => {});
+      } else if (pendingNavigationSeek) {
+        video.pause();
       }
     };
 
@@ -1481,7 +1543,7 @@ export function VideoPlayer({
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [autostart, clip?.start, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
+  }, [autostart, clip?.start, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, navigationSeekTo, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
 
   // Release the media element's network connection when the player unmounts. Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
@@ -1655,6 +1717,7 @@ export function VideoPlayer({
           recordMediaPlaying();
         }}
         onPlay={() => {
+          navigationAutostartSuppressedRef.current = false;
           setPlaying(true);
           onPlaybackStateChange?.(true);
           pendingAutostartRef.current = false;

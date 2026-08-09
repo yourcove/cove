@@ -121,7 +121,7 @@ vi.mock("../hooks/useDocumentTitle", () => ({
   useDocumentTitle: () => undefined,
 }));
 
-function renderVideoDetail(id = 14) {
+function renderVideoDetail(id = 14, initialSeekTo?: number) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -131,7 +131,7 @@ function renderVideoDetail(id = 14) {
 
   const renderPage = (videoId: number) => (
     <QueryClientProvider client={queryClient}>
-      <VideoDetailPage id={videoId} onNavigate={vi.fn()} />
+      <VideoDetailPage id={videoId} initialSeekTo={initialSeekTo} onNavigate={vi.fn()} />
     </QueryClientProvider>
   );
   const result = render(renderPage(id));
@@ -173,6 +173,34 @@ describe("VideoDetailPage media-player extension surface", () => {
     expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
       videoId: 14,
       extensionSurface: "detail",
+    }));
+  });
+
+  it("passes an explicit route timestamp separately from saved resume state", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Timestamped video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [{
+        format: "mp4",
+        duration: 120,
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        captions: [],
+      }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail(14, 42.5);
+
+    expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
+      seekTo: 42.5,
+      resumeTime: undefined,
     }));
   });
 
