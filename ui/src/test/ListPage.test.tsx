@@ -68,6 +68,34 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
   });
 
+  it("returns to the last valid page when refreshed results remove the current page", async () => {
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderListPage = (totalCount: number) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 2, perPage: 40 }}
+            onFilterChange={onFilterChange}
+            totalCount={totalCount}
+            isLoading={false}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderListPage(41));
+
+    expect(onFilterChange).not.toHaveBeenCalled();
+
+    rerender(renderListPage(40));
+
+    await waitFor(() => expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 40 }));
+  });
+
   it.each([
     ["configured service names", { value: "HTTPS://SERVICE.EXAMPLE/GRAPHQL", modifier: "EQUALS" }, [{ endpoint: "https://service.example/graphql", name: "Named Service" }], "Named Service = remote-123"],
     ["any-service labels", undefined, [], "Any metadata service = remote-123"],
@@ -389,7 +417,7 @@ describe("ListPage active filter chips", () => {
             title="Videos"
             filter={{ page: 3, perPage: 40 }}
             onFilterChange={onFilterChange}
-            totalCount={0}
+            totalCount={120}
             isLoading={false}
             criteriaDefinitions={VIDEO_CRITERIA}
             objectFilter={{ titleCriterion: { value: "example", modifier: "EQUALS" } }}

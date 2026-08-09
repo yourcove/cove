@@ -864,6 +864,14 @@ export function ListPage({
     retry: onRetry,
   });
 
+  useEffect(() => {
+    if (infinitePageSize || resolvedLoadState.status === "pending" || resolvedLoadState.status === "error" || page <= totalPages) {
+      return;
+    }
+
+    onFilterChange({ ...filter, page: totalPages });
+  }, [filter, infinitePageSize, onFilterChange, page, resolvedLoadState.status, totalPages]);
+
   return (
     <QueryState
       state={resolvedLoadState}
