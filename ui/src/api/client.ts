@@ -1795,7 +1795,7 @@ export const auth = {
 export const usersApi = {
   list: () => request<UserRow[]>("/users"),
   get: (id: number) => request<UserRow>(`/users/${id}`),
-  create: (req: { username: string; password?: string | null; displayName?: string; email?: string; roles?: string[]; mustChangePassword?: boolean }) =>
+  create: (req: { username: string; password: string; displayName?: string; email?: string; roles?: string[]; mustChangePassword?: boolean }) =>
     request<UserRow>("/users", { method: "POST", body: JSON.stringify(req) }),
   createInvite: (req: { username?: string; displayName?: string; email?: string; roles?: string[] }) =>
     request<InviteTokenRow>("/users/invite", { method: "POST", body: JSON.stringify(req) }),
