@@ -340,7 +340,9 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
     public async Task<IActionResult> Disable(string id, CancellationToken ct)
     {
         var ext = extensionManager.GetExtension(id);
-        if (ext == null && extensionManager.GetInstallation(id) == null) return NotFound();
+        var installation = extensionManager.GetInstallation(id);
+        if (ext == null && installation == null) return NotFound();
+
         var disabledExtensions = await extensionManager.DisableExtensionAsync(id, ct);
         scraperService.ReloadScrapers();
         return Ok(new { disabledExtensions });
@@ -812,7 +814,11 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             return NotFound($"Extension '{request.ExtensionId}' not found.");
         }
 
-        var dependents = extensionManager.GetDependentExtensionIds(request.ExtensionId)
+        var canonicalId = extensionManager.GetExtension(request.ExtensionId)?.Id
+            ?? extensionManager.GetInstallation(request.ExtensionId)?.ExtensionId
+            ?? extensionManager.GetManifestFile(request.ExtensionId)?.Id
+            ?? request.ExtensionId;
+        var dependents = extensionManager.GetDependentExtensionIds(canonicalId)
             .Select(CreateDependencyImpact)
             .ToList();
 
@@ -821,7 +827,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
             return Ok(new
             {
                 requiresDependents = true,
-                extension = CreateDependencyImpact(request.ExtensionId),
+                extension = CreateDependencyImpact(canonicalId),
                 dependents,
             });
         }
@@ -830,7 +836,7 @@ public class ExtensionsController(ExtensionManager extensionManager, ScraperServ
         extensionsDir = Path.GetFullPath(extensionsDir);
         var idsToUninstall = dependents
             .Select(dependent => dependent.Id)
-            .Append(request.ExtensionId)
+            .Append(canonicalId)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var uninstalledExtensions = new List<string>();

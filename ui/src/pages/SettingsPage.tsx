@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 import { customFields, system, jobs, metadata, database, plugins as pluginsApi, logs as logsApi, tagGroups, auth as authApi, usersApi, entityEngagement } from "../api/client";
 import { recentChangelog } from "../data/changelog";
-import type { ScanOptions, GenerateOptions, CleanGeneratedOptions, ExportOptions, LogEntry, UserRow } from "../api/client";
+import type { ExternalIdentityLinkRow, ScanOptions, GenerateOptions, CleanGeneratedOptions, ExportOptions, LogEntry, UserRow } from "../api/client";
 import type {
   JobInfo,
   Plugin,
@@ -4054,6 +4054,194 @@ function LocalInterfacePanel({
   );
 }
 
+export function ExternalIdentityAccountControls() {
+  const { authEnabled, user, logout } = useAuth();
+  const queryClient = useQueryClient();
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
+    const codes = fragment.getAll("external_link_code");
+    const failed = fragment.has("external_link_error");
+    fragment.delete("external_link_code");
+    fragment.delete("external_link_error");
+    url.hash = fragment.toString() ? `#${fragment.toString()}` : "";
+    if (codes.length === 1 && codes[0] && !failed) {
+      setPendingCode(codes[0]);
+    } else if (codes.length > 0 || failed) {
+      setStatus(codes.length > 1 || (codes.length > 0 && failed)
+        ? "This external identity link is invalid or expired."
+        : "The external provider could not prepare that identity link.");
+    }
+    if (codes.length > 0 || failed) {
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
+  const providersQuery = useQuery({
+    queryKey: ["auth", "external-providers"],
+    queryFn: authApi.externalProviders,
+    enabled: authEnabled && !!user,
+  });
+  const linksQuery = useQuery({
+    queryKey: ["auth", "external-links"],
+    queryFn: authApi.externalLinks,
+    enabled: authEnabled && !!user,
+  });
+  const previewQuery = useQuery({
+    queryKey: ["auth", "external-link-preview", pendingCode],
+    queryFn: () => authApi.previewExternalLink(pendingCode!),
+    enabled: !!pendingCode,
+    retry: false,
+  });
+
+  const refreshLinks = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["auth", "external-links"] });
+  };
+
+  const startLink = async (linkStartUrl: string) => {
+    setStatus("Starting external identity verification…");
+    try {
+      const result = await authApi.startExternalLink(linkStartUrl);
+      if (result.confirmationCode) {
+        setPendingCode(result.confirmationCode);
+        setStatus("");
+        return;
+      }
+      if (result.redirectUrl) {
+        const destination = new URL(result.redirectUrl, window.location.origin);
+        if (destination.protocol !== "https:" && destination.protocol !== "http:") {
+          throw new Error("The provider returned an invalid redirect.");
+        }
+        window.location.assign(destination.href);
+        return;
+      }
+      throw new Error("The provider did not start a link flow.");
+    } catch (reason) {
+      setStatus(reason instanceof Error ? reason.message : "Could not start the external link.");
+    }
+  };
+
+  const confirmLink = async () => {
+    if (!pendingCode) return;
+    try {
+      await authApi.confirmExternalLink(pendingCode);
+      setPendingCode(null);
+      setStatus("External identity linked.");
+      await refreshLinks();
+    } catch (reason) {
+      setStatus(reason instanceof Error ? reason.message : "Could not confirm the external link.");
+    }
+  };
+
+  const cancelLink = async () => {
+    if (!pendingCode) return;
+    try { await authApi.cancelExternalLink(pendingCode); } catch { /* expired links are already cancelled */ }
+    setPendingCode(null);
+    setStatus("External identity link cancelled.");
+  };
+
+  const removeLink = async (link: ExternalIdentityLinkRow) => {
+    if (!window.confirm(`Unlink ${link.providerLabel}${link.accountLabel ? ` (${link.accountLabel})` : ""}?`)) return;
+    try {
+      await authApi.removeExternalLink(link.id);
+      setStatus("External identity unlinked.");
+      await refreshLinks();
+    } catch (reason) {
+      setStatus(reason instanceof Error ? reason.message : "Could not unlink the external identity.");
+    }
+  };
+
+  const changePassword = async () => {
+    if (!currentPassword || !newPassword || newPassword !== confirmPassword) {
+      setStatus("Enter the current password and matching new passwords.");
+      return;
+    }
+    try {
+      await authApi.changePassword(currentPassword, newPassword);
+      await logout();
+      navigateToUrl("/login", { replace: true });
+    } catch (reason) {
+      setStatus(reason instanceof Error ? reason.message : "Could not change the password.");
+    }
+  };
+
+  if (!authEnabled || !user) return null;
+  const linkableProviders = (providersQuery.data ?? []).filter(provider => !!provider.linkStartUrl);
+  const links = linksQuery.data ?? [];
+
+  return (
+    <div className="mt-5 space-y-5 border-t border-border pt-5">
+      {pendingCode ? (
+        <div className="rounded-xl border border-accent/50 bg-accent/10 p-4">
+          <h4 className="text-sm font-semibold text-foreground">Confirm external identity</h4>
+          {previewQuery.isLoading ? <p className="mt-2 text-sm text-secondary">Loading verified identity…</p> : null}
+          {previewQuery.data ? (
+            <p className="mt-2 text-sm text-secondary">
+              Link <strong>{previewQuery.data.accountLabel ?? "this external account"}</strong> from {previewQuery.data.providerLabel} to {user.username}?
+            </p>
+          ) : null}
+          {previewQuery.isError ? <p className="mt-2 text-sm text-red-400">This link request is invalid or expired.</p> : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void confirmLink()} disabled={!previewQuery.data} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Confirm link</button>
+            <button type="button" onClick={() => void cancelLink()} className="rounded-lg border border-border px-3 py-2 text-sm text-foreground">Cancel</button>
+          </div>
+        </div>
+      ) : null}
+
+      <div>
+        <h4 className="text-sm font-semibold text-foreground">Linked identities</h4>
+        <p className="mt-1 text-sm text-secondary">External identities authenticate this same Cove user; roles, permissions, and library history remain in Cove.</p>
+        <div className="mt-3 space-y-2">
+          {linksQuery.isLoading ? <p className="text-sm text-secondary">Loading linked identities…</p> : null}
+          {!linksQuery.isLoading && links.length === 0 ? <p className="text-sm text-secondary">No external identities are linked.</p> : null}
+          {links.map(link => (
+            <div key={link.id} className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">{link.providerLabel}</p>
+                <p className="text-xs text-secondary">{link.accountLabel ?? "Verified external account"}{link.lastUsedAt ? ` · Last used ${formatDate(link.lastUsedAt)}` : ""}</p>
+              </div>
+              <button type="button" onClick={() => void removeLink(link)} className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:border-red-400 hover:text-red-400">Unlink</button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {linkableProviders.map(provider => (
+            <button key={`${provider.extensionId}:${provider.id}`} type="button" onClick={() => void startLink(provider.linkStartUrl!)} className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent">
+              Link {provider.label}
+            </button>
+          ))}
+          {!providersQuery.isLoading && linkableProviders.length === 0 ? <p className="text-sm text-secondary">No linkable external providers are configured.</p> : null}
+        </div>
+      </div>
+
+      {user.hasPassword ? (
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">Local password</h4>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <input type="password" autoComplete="current-password" placeholder="Current password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+            <input type="password" autoComplete="new-password" placeholder="New password" value={newPassword} onChange={event => setNewPassword(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+            <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void changePassword()} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white">Change password</button>
+          </div>
+          <p className="mt-2 text-xs text-secondary">External sign-in is optional. Every Cove account retains its local password.</p>
+        </div>
+      ) : (
+        <p className="text-sm text-red-400" role="alert">This account is missing its required local password. Ask an administrator to issue a password invite before signing in again.</p>
+      )}
+
+      {status ? <p className="text-sm text-secondary" role="status" aria-live="polite">{status}</p> : null}
+    </div>
+  );
+}
+
 function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
   const { authEnabled, user, logout } = useAuth();
   const accountBackedPreferences = supportsServerBackedUiPreferences(user);
@@ -4118,6 +4306,7 @@ function UserSettingsPanel({ activeTab }: { activeTab: SettingsTab }) {
             Logout
           </button>
         </div>
+        <ExternalIdentityAccountControls />
       </SectionCard>
       )}
 

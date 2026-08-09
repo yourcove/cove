@@ -90,4 +90,35 @@ public class UsersController : ControllerBase
         await _users.UnlockAsync(id, _principalAccessor.Current, ct);
         return Ok(new { message = "Unlocked." });
     }
+
+    [HttpGet("{id:int}/external-links")]
+    [RequiresPermission(Permissions.UsersRead)]
+    public async Task<IActionResult> ExternalLinks(
+        int id,
+        [FromServices] IExternalIdentityService identities,
+        CancellationToken ct)
+    {
+        if (await _users.GetAsync(id, ct) is null)
+            return NotFound();
+        return Ok(await identities.ListForUserAsync(id, ct));
+    }
+
+    [HttpDelete("{id:int}/external-links/{linkId:int}")]
+    [RequiresPermission(Permissions.UsersWrite)]
+    public async Task<IActionResult> RemoveExternalLink(
+        int id,
+        int linkId,
+        [FromServices] IExternalIdentityService identities,
+        CancellationToken ct)
+    {
+        try
+        {
+            await identities.RemoveLinkAsync(id, linkId, _principalAccessor.Current, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
 }

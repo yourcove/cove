@@ -2,6 +2,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data.Auth;
+using Cove.Plugins;
 
 namespace Cove.Api.Middleware;
 
@@ -19,6 +20,8 @@ public sealed class CurrentPrincipalMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         ITokenService tokens,
+        IExistingUserPrincipalResolver existingUsers,
+        IExternalIdentityService externalIdentities,
         IShareLinkService shareLinks,
         ICurrentPrincipalAccessor accessor,
         CoveConfiguration config,
@@ -119,6 +122,49 @@ public sealed class CurrentPrincipalMiddleware
         else if (!string.IsNullOrEmpty(authHeader))
             principal = await tokens.ResolveAsync(authHeader, ip, ua, context.RequestAborted);
 
+        if (context.TryGetExtensionIdentityAssertion(out var assertion)
+            && (principal is null
+                || assertion.IsAuthoritative && principal.Kind != PrincipalKind.ShareLink))
+        {
+            var userId = await externalIdentities.ResolveUserIdAsync(assertion, context.RequestAborted);
+            CovePrincipal? assertedPrincipal = null;
+            if (userId is int linkedUserId)
+            {
+                assertedPrincipal = await existingUsers.ResolveExistingUserAsync(
+                    linkedUserId,
+                    ip,
+                    ua,
+                    context.RequestAborted);
+                if (assertedPrincipal is not null)
+                    await externalIdentities.MarkUsedAsync(assertion, context.RequestAborted);
+            }
+
+            if (assertedPrincipal is not null)
+            {
+                if (principal is null || principal.UserId != assertedPrincipal.UserId)
+                {
+                    if (assertion.IsAuthoritative && principal is not null)
+                    {
+                        logger.LogDebug(
+                            "Authoritative authentication assertion from extension {ExtensionId} replaced Cove principal {PreviousUserId} with {AssertedUserId}",
+                            assertion.ExtensionId,
+                            principal.UserId,
+                            assertedPrincipal.UserId);
+                    }
+                    principal = assertedPrincipal;
+                }
+            }
+            else
+            {
+                if (assertion.IsAuthoritative)
+                    principal = null;
+                logger.LogDebug(
+                    "Authentication assertion from extension {ExtensionId} using {Method} did not resolve to a usable Cove user",
+                    assertion.ExtensionId,
+                    assertion.Method);
+            }
+        }
+
         if (principal is not null)
         {
             accessor.Set(principal);
@@ -162,4 +208,3 @@ public sealed class CurrentPrincipalMiddleware
         return false;
     }
 }
-

@@ -58,6 +58,49 @@ public class UIManifestBuilder
     }
 
     /// <summary>
+    /// Advertise an interactive login method on Cove's unauthenticated login page. Cove renders the
+    /// label and local start URL; the extension owns the external protocol flow.
+    /// </summary>
+    public UIManifestBuilder AddLoginMethod(
+        string id,
+        string label,
+        string startUrl,
+        int order = 100) => AddLoginMethod(id, label, startUrl, order, null, true);
+
+    /// <summary>Advertise a login method that also supports explicit account linking.</summary>
+    public UIManifestBuilder AddLoginMethod(
+        string id,
+        string label,
+        string startUrl,
+        int order,
+        string? linkStartUrl) => AddLoginMethod(id, label, startUrl, order, linkStartUrl, true);
+
+    /// <summary>
+    /// Advertise an external authentication method, optionally hiding it from the login page while
+    /// retaining its account-link action (for example, transparent trusted-proxy authentication).
+    /// </summary>
+    public UIManifestBuilder AddLoginMethod(
+        string id,
+        string label,
+        string startUrl,
+        int order,
+        string? linkStartUrl,
+        bool showOnLoginPage)
+    {
+        _manifest.LoginMethods.Add(new ExtensionLoginMethod(
+            id,
+            label,
+            startUrl,
+            order,
+            _extensionId,
+            linkStartUrl)
+        {
+            ShowOnLoginPage = showOnLoginPage,
+        });
+        return this;
+    }
+
+    /// <summary>
     /// Register a full page route.
     /// </summary>
     /// <remarks>

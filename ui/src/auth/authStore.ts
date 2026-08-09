@@ -13,6 +13,8 @@ export interface AuthUser {
   id: string;
   username: string;
   kind?: AuthUserKind;
+  isSystem?: boolean;
+  hasPassword?: boolean;
   permissions: string[];
   readGrantedEntityKinds?: string[];
   uiPreferences?: UserUiPreferences | null;
@@ -119,4 +121,3 @@ export function hasPermission(perms: string[] | undefined | null, key: string, r
   if (perms.includes(`*.${verb}`)) return true;
   return false;
 }
-

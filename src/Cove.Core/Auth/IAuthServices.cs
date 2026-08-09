@@ -52,6 +52,26 @@ public interface ITokenService
     Task<IReadOnlyList<ApiTokenDto>> ListApiTokensAsync(int userId, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Resolves an already-linked external identity's Cove user to an active, unlocked principal.
+/// Cove remains responsible for local account state, roles, permissions, and content access.
+/// </summary>
+public interface IExistingUserPrincipalResolver
+{
+    Task<CovePrincipal?> ResolveExistingUserAsync(
+        int userId,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default);
+
+    [Obsolete("Username-only external authentication is no longer accepted. Resolve a linked Cove user ID.")]
+    Task<CovePrincipal?> ResolveExistingUserAsync(
+        string username,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default) => Task.FromResult<CovePrincipal?>(null);
+}
+
 // ===== DTOs =====
 
 public sealed record UserDto(
@@ -110,7 +130,7 @@ public sealed record UserUiPreferencesDto(
 
 public sealed record CreateUserRequest(
     string Username,
-    string? Password,
+    string Password,
     string? DisplayName = null,
     string? Email = null,
     IReadOnlyList<string>? Roles = null,
@@ -211,4 +231,3 @@ public sealed record AuditEventDto(
 public sealed record MeResponse(
     UserDto User,
     IReadOnlyList<string> Permissions);
-

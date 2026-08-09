@@ -13,7 +13,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Cove.Data.Auth;
 
-public sealed class TokenService : ITokenService
+public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
 {
     public const int DefaultRefreshDays = 30;
     public const string JwtIssuer = "Cove";
@@ -40,7 +40,7 @@ public sealed class TokenService : ITokenService
             .Include(u => u.Roles).ThenInclude(r => r.Role)
             .FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw new UnauthorizedException("User not found.");
-        if (!user.IsActive || user.IsLocked)
+        if (!user.IsActive || user.IsLocked || string.IsNullOrWhiteSpace(user.PasswordHash))
             throw new UnauthorizedException("Account is not active.");
 
         var roleNames = user.Roles.Select(r => r.Role!.Name).ToList();
@@ -123,7 +123,10 @@ public sealed class TokenService : ITokenService
             return await HandleRevokedRefreshTokenAsync(existing, rootId, ct);
         if (existing.ExpiresAt < DateTime.UtcNow)
             throw new UnauthorizedException("Refresh token expired.");
-        if (existing.User is null || !existing.User.IsActive || existing.User.IsLocked)
+        if (existing.User is null
+            || !existing.User.IsActive
+            || existing.User.IsLocked
+            || string.IsNullOrWhiteSpace(existing.User.PasswordHash))
             throw new UnauthorizedException("Account is not active.");
 
         var dto = await BuildUserDto(existing.User, ct);
@@ -359,7 +362,10 @@ public sealed class TokenService : ITokenService
             var user = await _db.Users.AsNoTracking()
                 .Include(u => u.Roles).ThenInclude(r => r.Role).ThenInclude(r => r!.Permissions)
                 .FirstOrDefaultAsync(u => u.Id == userId, ct);
-            if (user is null || !user.IsActive || user.IsLocked) return null;
+            if (user is null
+                || !user.IsActive
+                || user.IsLocked
+                || string.IsNullOrWhiteSpace(user.PasswordHash)) return null;
 
             var roleIds = user.Roles.Select(r => r.RoleId).Distinct().ToArray();
             var roleNames = user.Roles.Select(r => r.Role!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -416,7 +422,10 @@ public sealed class TokenService : ITokenService
         if (record is null || record.RevokedAt is not null) return null;
         if (record.ExpiresAt is { } exp && exp < DateTime.UtcNow) return null;
         if (!BCrypt.Net.BCrypt.Verify(secret, record.TokenHash)) return null;
-        if (record.User is null || !record.User.IsActive || record.User.IsLocked) return null;
+        if (record.User is null
+            || !record.User.IsActive
+            || record.User.IsLocked
+            || string.IsNullOrWhiteSpace(record.User.PasswordHash)) return null;
 
         var roleIds = record.User.Roles.Select(r => r.RoleId).Distinct().ToArray();
         var roleNames = record.User.Roles.Select(r => r.Role!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -475,6 +484,64 @@ public sealed class TokenService : ITokenService
             UserAgent = userAgent,
         };
     }
+
+    public async Task<CovePrincipal?> ResolveExistingUserAsync(
+        int userId,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        if (userId <= 0)
+            return null;
+
+        var user = await _db.Users.AsNoTracking()
+            .Include(candidate => candidate.Roles)
+                .ThenInclude(assignment => assignment.Role)
+                .ThenInclude(role => role!.Permissions)
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == userId,
+                ct);
+        if (user is null
+            || !user.IsActive
+            || user.IsLocked
+            || string.IsNullOrWhiteSpace(user.PasswordHash))
+        {
+            _log.LogDebug(
+                "Externally authenticated Cove user {UserId} was rejected because the account is missing, inactive, locked, or lacks a password",
+                userId);
+            return null;
+        }
+
+        var roleIds = user.Roles.Select(assignment => assignment.RoleId).Distinct().ToArray();
+        var roleNames = user.Roles
+            .Select(assignment => assignment.Role!.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var permissionKeys = user.Roles
+            .SelectMany(assignment => assignment.Role!.Permissions.Select(permission => permission.PermissionKey))
+            .ToList();
+        var permissions = _registry.Expand(permissionKeys);
+        var (readRestrictedEntityKinds, readGrantedEntityKinds) = await GetReadAccessProfileAsync(roleIds, ct);
+
+        return new CovePrincipal
+        {
+            UserId = user.Id,
+            Username = user.Username,
+            Kind = PrincipalKind.User,
+            Roles = roleNames,
+            Permissions = permissions,
+            ReadRestrictedEntityKinds = readRestrictedEntityKinds,
+            ReadGrantedEntityKinds = readGrantedEntityKinds,
+            Ip = ip,
+            UserAgent = userAgent,
+        };
+    }
+
+    [Obsolete("Username-only external authentication is no longer accepted. Resolve a linked Cove user ID.")]
+    public Task<CovePrincipal?> ResolveExistingUserAsync(
+        string username,
+        string? ip,
+        string? userAgent,
+        CancellationToken ct = default) => Task.FromResult<CovePrincipal?>(null);
 
     private async Task<(HashSet<string> RestrictedKinds, HashSet<string> GrantedKinds)> GetReadAccessProfileAsync(IEnumerable<int> roleIds, CancellationToken ct)
     {

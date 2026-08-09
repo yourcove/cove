@@ -271,12 +271,12 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (!authEnabled || !user || window.location.pathname !== "/login") {
+    if (loading || !authEnabled || !user || window.location.pathname !== "/login") {
       return;
     }
 
     navigateToUrl(getPostLoginRedirectUrl(), { replace: true });
-  }, [authEnabled, user]);
+  }, [authEnabled, loading, user]);
 
   if (window.location.pathname === "/auth/bootstrap") {
     return <AuthBootstrapPage />;

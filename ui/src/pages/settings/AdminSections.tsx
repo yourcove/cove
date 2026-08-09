@@ -350,7 +350,7 @@ function UserStatus({ user }: { user: UserRow }) {
   }
 
   if (!user.hasPassword) {
-    return <span className="text-blue-300">invited</span>;
+    return <span className="text-amber-400">password required</span>;
   }
 
   return <span className="text-emerald-400">active</span>;
@@ -412,7 +412,7 @@ export function UsersTab() {
                 <div className="mt-3 text-xs text-secondary">Last login: {userRow.lastLoginAt ? formatDateTime(userRow.lastLoginAt) : "never"}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {canWriteUsers ? <Btn onClick={() => setEditing(userRow)}>Edit</Btn> : null}
-                  {canInviteUsers ? <Btn onClick={() => setInviteUser(userRow)}>{userRow.hasPassword ? "Reset password" : "Copy invite link"}</Btn> : null}
+                  {canInviteUsers ? <Btn onClick={() => setInviteUser(userRow)}>{userRow.hasPassword ? "Reset password" : "Create password invite"}</Btn> : null}
                   {userRow.isLocked && canWriteUsers ? <Btn onClick={() => unlockM.mutate(userRow.id)}>Unlock</Btn> : null}
                   {canWriteUsers && !userRow.isSystem ? (
                     <Btn onClick={() => activeM.mutate({ id: userRow.id, isActive: !userRow.isActive })}>{userRow.isActive ? "Disable" : "Enable"}</Btn>
@@ -455,7 +455,7 @@ export function UsersTab() {
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap justify-end gap-1">
                       {canWriteUsers ? <Btn onClick={() => setEditing(u)}>Edit</Btn> : null}
-                      {canInviteUsers ? <Btn onClick={() => setInviteUser(u)}>{u.hasPassword ? "Reset password" : "Copy invite link"}</Btn> : null}
+                      {canInviteUsers ? <Btn onClick={() => setInviteUser(u)}>{u.hasPassword ? "Reset password" : "Create password invite"}</Btn> : null}
                       {u.isLocked && canWriteUsers ? <Btn onClick={() => unlockM.mutate(u.id)}>Unlock</Btn> : null}
                       {canWriteUsers && !u.isSystem ? (
                         <Btn onClick={() => activeM.mutate({ id: u.id, isActive: !u.isActive })}>{u.isActive ? "Disable" : "Enable"}</Btn>

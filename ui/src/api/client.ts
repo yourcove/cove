@@ -1693,6 +1693,37 @@ export interface AuthLoginResponse {
   username: string;
 }
 
+export interface ExternalLoginMethodRow {
+  id: string;
+  label: string;
+  startUrl: string;
+  order: number;
+  extensionId: string;
+  linkStartUrl?: string | null;
+  showOnLoginPage?: boolean;
+}
+
+export interface ExternalIdentityLinkRow {
+  id: number;
+  userId: number;
+  extensionId: string;
+  providerId: string;
+  providerLabel: string;
+  accountLabel?: string | null;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
+export interface PendingExternalIdentityLinkRow {
+  providerLabel: string;
+  accountLabel?: string | null;
+}
+
+export interface ExternalLinkStartRow {
+  redirectUrl?: string | null;
+  confirmationCode?: string | null;
+}
+
 export interface InviteTokenRow {
   token: string;
   url: string;
@@ -1709,6 +1740,22 @@ export interface InviteTokenInfoRow {
 export const auth = {
   me: () => request<MeResponse>("/auth/me"),
   bootstrapStatus: () => request<BootstrapStatusRow>("/auth/bootstrap-status"),
+  externalProviders: () => request<ExternalLoginMethodRow[]>("/auth/external/providers"),
+  externalLinks: () => request<ExternalIdentityLinkRow[]>("/auth/external/links"),
+  startExternalLink: (path: string) => request<ExternalLinkStartRow>(normalizeApiPath(path), { method: "POST" }),
+  previewExternalLink: (code: string) => request<PendingExternalIdentityLinkRow>("/auth/external/links/preview", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  }),
+  confirmExternalLink: (code: string) => request<ExternalIdentityLinkRow>("/auth/external/links/confirm", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  }),
+  cancelExternalLink: (code: string) => request<void>("/auth/external/links/cancel", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  }),
+  removeExternalLink: (linkId: number) => request<void>(`/auth/external/links/${linkId}`, { method: "DELETE" }),
   bootstrapOwner: (username: string, password: string) =>
     request<AuthLoginResponse>("/auth/bootstrap-owner", {
       method: "POST",
@@ -1748,7 +1795,7 @@ export const auth = {
 export const usersApi = {
   list: () => request<UserRow[]>("/users"),
   get: (id: number) => request<UserRow>(`/users/${id}`),
-  create: (req: { username: string; password?: string | null; displayName?: string; email?: string; roles?: string[]; mustChangePassword?: boolean }) =>
+  create: (req: { username: string; password: string; displayName?: string; email?: string; roles?: string[]; mustChangePassword?: boolean }) =>
     request<UserRow>("/users", { method: "POST", body: JSON.stringify(req) }),
   createInvite: (req: { username?: string; displayName?: string; email?: string; roles?: string[] }) =>
     request<InviteTokenRow>("/users/invite", { method: "POST", body: JSON.stringify(req) }),
@@ -1761,6 +1808,9 @@ export const usersApi = {
     request<void>(`/users/${id}/password`, { method: "POST", body: JSON.stringify({ newPassword }) }),
   invite: (id: number) => request<InviteTokenRow>(`/users/${id}/invite`, { method: "POST" }),
   unlock: (id: number) => request<void>(`/users/${id}/unlock`, { method: "POST" }),
+  externalLinks: (id: number) => request<ExternalIdentityLinkRow[]>(`/users/${id}/external-links`),
+  removeExternalLink: (id: number, linkId: number) =>
+    request<void>(`/users/${id}/external-links/${linkId}`, { method: "DELETE" }),
 };
 
 export const rolesApi = {

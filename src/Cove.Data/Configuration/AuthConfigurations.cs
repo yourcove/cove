@@ -26,7 +26,24 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasMany(u => u.Roles).WithOne(r => r.User!).HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(u => u.RefreshTokens).WithOne(t => t.User!).HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(u => u.ApiTokens).WithOne(t => t.User!).HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(u => u.ExternalIdentities).WithOne(link => link.User!).HasForeignKey(link => link.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany<UserInviteToken>().WithOne(t => t.User!).HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class ExternalIdentityLinkConfiguration : IEntityTypeConfiguration<ExternalIdentityLink>
+{
+    public void Configure(EntityTypeBuilder<ExternalIdentityLink> builder)
+    {
+        builder.ToTable("external_identity_links");
+        builder.HasKey(link => link.Id);
+        builder.Property(link => link.ExtensionId).IsRequired().HasMaxLength(256);
+        builder.Property(link => link.ProviderId).IsRequired().HasMaxLength(512);
+        builder.Property(link => link.Subject).IsRequired().HasMaxLength(512);
+        builder.Property(link => link.ProviderLabel).IsRequired().HasMaxLength(128);
+        builder.Property(link => link.AccountLabel).HasMaxLength(256);
+        builder.HasIndex(link => new { link.ExtensionId, link.ProviderId, link.Subject }).IsUnique();
+        builder.HasIndex(link => new { link.UserId, link.ProviderLabel });
     }
 }
 

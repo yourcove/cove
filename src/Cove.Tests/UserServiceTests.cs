@@ -98,6 +98,20 @@ public class UserServiceTests
         UserService.Validation.Password("longenough123");
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Direct_user_creation_requires_a_password(string? password)
+    {
+        await using var db = NewDb($"required-password-{Guid.NewGuid():N}");
+        var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.CreateAsync(new CreateUserRequest("password-required", password!), null));
+        Assert.Empty(db.Users);
+    }
+
     [Fact]
     public async Task BootstrapOwner_creates_single_owner_account()
     {
@@ -116,14 +130,13 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task Invite_can_set_initial_password_once()
+    public async Task Existing_user_invite_can_reset_password_once()
     {
         await using var db = NewDb("invite-redeem");
         var svc = new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance);
-        var user = await svc.CreateAsync(new CreateUserRequest("invitee", null, DisplayName: "Invitee"), null);
+        var user = await svc.CreateAsync(new CreateUserRequest("invitee", "oldpassword123", DisplayName: "Invitee"), null);
 
-        Assert.False(user.HasPassword);
-        Assert.True(user.MustChangePassword);
+        Assert.True(user.HasPassword);
 
         var invite = await svc.CreateInviteAsync(user.Id, "http://cove.local", null);
         Assert.Contains("/auth/redeem-invite?token=", invite.Url, StringComparison.Ordinal);
@@ -132,6 +145,7 @@ public class UserServiceTests
 
         Assert.True(redeemed.HasPassword);
         Assert.False(redeemed.MustChangePassword);
+        Assert.False(await svc.VerifyPasswordAsync(user.Id, "oldpassword123"));
         Assert.True(await svc.VerifyPasswordAsync(user.Id, "newpassword123"));
         await Assert.ThrowsAsync<InviteTokenException>(() => svc.RedeemInviteAsync(invite.Token, "anotherpass123", null, null));
     }
@@ -197,6 +211,53 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task ResolveExistingUserAsync_builds_host_owned_principal_and_rejects_unusable_accounts()
+    {
+        await using var db = NewDb("external-user-assertion");
+        await SeedOwnerAsync(db);
+        db.Users.AddRange(
+            new User
+            {
+                Id = 2,
+                Username = "inactive",
+                PasswordHash = "hash",
+                PasswordAlgo = "test",
+                IsActive = false,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            },
+            new User
+            {
+                Id = 3,
+                Username = "locked",
+                PasswordHash = "hash",
+                PasswordAlgo = "test",
+                IsActive = true,
+                IsLocked = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+        await db.SaveChangesAsync();
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac" } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+
+        var principal = await tokens.ResolveExistingUserAsync(1, "127.0.0.1", "test-agent");
+
+        Assert.NotNull(principal);
+        Assert.Equal(1, principal.UserId);
+        Assert.Equal("owner", principal.Username);
+        Assert.Equal(PrincipalKind.User, principal.Kind);
+        Assert.Contains(BuiltinRoles.Owner, principal.Roles);
+        Assert.Contains(Permissions.All, principal.Permissions);
+        Assert.Equal("127.0.0.1", principal.Ip);
+        Assert.Equal("test-agent", principal.UserAgent);
+        Assert.Null(await tokens.ResolveExistingUserAsync(999, null, null));
+        Assert.Null(await tokens.ResolveExistingUserAsync(2, null, null));
+        Assert.Null(await tokens.ResolveExistingUserAsync(3, null, null));
+    }
+
+    [Fact]
     public async Task ResolveAsync_rejects_jwt_after_session_is_revoked()
     {
         await using var db = NewDb("token-revoked-session");
@@ -214,6 +275,33 @@ public class UserServiceTests
         await db.SaveChangesAsync();
 
         Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test"));
+    }
+
+    [Fact]
+    public async Task Existing_sessions_and_api_tokens_reject_a_user_who_loses_their_password()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new TestCoveContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await SeedOwnerAsync(db);
+
+        var config = new CoveConfiguration { Auth = { JwtSecret = "test-secret-that-is-long-enough-for-hmac", AccessTokenMinutes = 15, RefreshTokenDays = 30 } };
+        var tokens = new TokenService(db, config, new PermissionRegistry(), NullLogger<TokenService>.Instance);
+        var pair = await tokens.IssueForUserAsync(1, "127.0.0.1", "test");
+        var apiToken = await tokens.CreateApiTokenAsync(1, "test token", null, null, null);
+
+        var user = await db.Users.SingleAsync();
+        user.PasswordHash = string.Empty;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedException>(
+            () => tokens.RefreshAsync(pair.RefreshToken, "127.0.0.1", "test"));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {pair.AccessToken}", "127.0.0.1", "test"));
+        Assert.Null(await tokens.ResolveAsync($"Bearer {apiToken.PlaintextToken}", "127.0.0.1", "test"));
     }
 
     [Fact]

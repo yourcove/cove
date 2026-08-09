@@ -50,6 +50,8 @@ public static class AuditActions
     public const string UserInviteRedeem = "user.invite.redeem";
     public const string UserUnlock = "user.unlock";
     public const string PasswordChange = "password.change";
+    public const string ExternalIdentityLink = "external_identity.link";
+    public const string ExternalIdentityUnlink = "external_identity.unlink";
     public const string RoleCreate = "role.create";
     public const string RoleUpdate = "role.update";
     public const string RoleDelete = "role.delete";

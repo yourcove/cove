@@ -1766,6 +1766,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         {
             if (!IsEnabled(ext.Id)) continue;
             var extManifest = ExecuteExtensionMetadata(ext, ext.GetUIManifest);
+            manifest.LoginMethods.AddRange(extManifest.LoginMethods.Select(method => method with { ExtensionId = ext.Id }));
             manifest.Pages.AddRange(extManifest.Pages.Select(page => page with { ExtensionId = ext.Id }));
             manifest.Slots.AddRange(extManifest.Slots.Select(slot => slot with { ExtensionId = ext.Id }));
             manifest.Tabs.AddRange(extManifest.Tabs.Select(tab => tab with { ExtensionId = ext.Id }));
@@ -1814,6 +1815,16 @@ public class ExtensionManager : IExtensionContributionRuntime
         }
 
         manifest.Pages.Sort((a, b) => a.NavOrder.CompareTo(b.NavOrder));
+        manifest.LoginMethods.Sort((a, b) =>
+        {
+            var order = a.Order.CompareTo(b.Order);
+            if (order != 0) return order;
+
+            var extensionId = string.Compare(a.ExtensionId, b.ExtensionId, StringComparison.Ordinal);
+            return extensionId != 0
+                ? extensionId
+                : string.Compare(a.Id, b.Id, StringComparison.Ordinal);
+        });
         manifest.Slots.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Tabs.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.Panes.Sort((a, b) => a.Order.CompareTo(b.Order));
@@ -1833,6 +1844,67 @@ public class ExtensionManager : IExtensionContributionRuntime
         manifest.ListFilters.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListSorts.Sort((a, b) => a.Order.CompareTo(b.Order));
         return manifest;
+    }
+
+    /// <summary>
+    /// Return the safe, extension-owned subset of login methods that Cove may expose before
+    /// authentication. Invalid, non-local, and duplicate declarations fail closed.
+    /// </summary>
+    public IReadOnlyList<ExtensionLoginMethod> GetExtensionLoginMethods()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var methods = new List<ExtensionLoginMethod>();
+        foreach (var method in GetAggregatedManifest().LoginMethods)
+        {
+            var extensionId = method.ExtensionId?.Trim();
+            var id = method.Id?.Trim();
+            var label = method.Label?.Trim();
+            var startUrl = method.StartUrl?.Trim();
+            var linkStartUrl = method.LinkStartUrl?.Trim();
+            if (!IsSafeLoginMethodValue(extensionId, 256)
+                || !IsSafeLoginMethodValue(id, 128)
+                || !IsSafeLoginMethodValue(label, 128)
+                || !IsSafeLocalLoginStartUrl(startUrl)
+                || (linkStartUrl is not null && !IsSafeLocalLoginStartUrl(linkStartUrl)))
+            {
+                continue;
+            }
+
+            var key = $"{extensionId}\n{id}";
+            if (!seen.Add(key))
+                continue;
+
+            methods.Add(method with
+            {
+                ExtensionId = extensionId,
+                Id = id!,
+                Label = label!,
+                StartUrl = startUrl!,
+                LinkStartUrl = linkStartUrl,
+            });
+        }
+
+        return methods;
+    }
+
+    private static bool IsSafeLoginMethodValue(string? value, int maximumLength) =>
+        !string.IsNullOrWhiteSpace(value)
+        && value.Length <= maximumLength
+        && !value.Any(char.IsControl);
+
+    private static bool IsSafeLocalLoginStartUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Length > 2048
+            || !value.StartsWith("/", StringComparison.Ordinal)
+            || value.StartsWith("//", StringComparison.Ordinal)
+            || value.Contains('\\')
+            || value.Any(char.IsControl))
+        {
+            return false;
+        }
+
+        return Uri.TryCreate(value, UriKind.Relative, out _);
     }
 
     /// <summary>

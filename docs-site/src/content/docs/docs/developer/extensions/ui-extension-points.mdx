@@ -1,6 +1,6 @@
 ---
 title: UI extension points
-description: Detailed reference for Cove pages, slots, tabs, settings, actions, themes, list contributions, and UI overrides.
+description: Detailed reference for Cove login methods, pages, slots, tabs, settings, actions, themes, list contributions, and UI overrides.
 ---
 
 A compiled extension implements `IUIExtension` and returns a `UIManifest`. Contributions that reference React components or frontend handlers also need a frontend ESM bundle. Cove imports each enabled extension's bundle independently, registers its exports under the owning extension id, and combines the manifest contributions from every enabled extension.
@@ -25,6 +25,23 @@ Most contribution records contain:
 Extension components render inside an error boundary. They should still handle missing data, failed requests, and permission errors locally.
 
 See [Frontend runtime API](../frontend-runtime/) for supported module imports, authenticated requests, and Cove's public shared component barrel.
+
+## Login methods
+
+`ExtensionLoginMethod` adds a host-rendered link to Cove's unauthenticated login page. Declare it
+with `UIManifestBuilder.AddLoginMethod(id, label, startUrl, order)`. Cove stamps the owning extension,
+rejects unsafe or duplicate declarations, and accepts only a same-origin relative start URL. Lower
+orders render first.
+
+The overload with `linkStartUrl` also adds a provider action to the authenticated Account page. Cove
+posts to that same-origin endpoint and then either follows its external `redirectUrl` or previews its
+`confirmationCode`. Pass `showOnLoginPage: false` for transparent middleware that should remain
+linkable without showing a redundant unauthenticated login button.
+
+Login methods never load the extension's JavaScript bundle before authentication. The local start
+route must therefore be an extension backend endpoint that begins the external flow. See
+[External authentication](../extension-points/#external-authentication) for the browser-binding,
+completion-ticket, trusted-middleware, and endpoint-authorization contracts.
 
 ## Pages
 
@@ -248,6 +265,7 @@ Treat them as reserved contract surface, not working extension points. Shipping 
 | Add a small element to an existing screen | `UISlotContribution` |
 | Add entity-specific detail content | `UITabContribution` |
 | Add configuration UI | `UISettingsTab` and `UISettingsPanel` |
+| Add an external sign-in button | `ExtensionLoginMethod` |
 | Run an operation from an entity or selection | `ExtensionAction` |
 | Extend list querying | `UIListFilterContribution` or `UIListSortContribution` |
 | Add visual presets | `UIThemeDefinition`, `UIComponentStyleDef`, or `UILayoutStyleDef` |
