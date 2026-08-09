@@ -15,7 +15,17 @@ public partial class StashMigrationService
     private async Task<Dictionary<string, string>> ImportBlobsAsync(SqliteConnection conn, string? blobFilesPath, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var total = await CountAsync(conn, "blobs", ct);
+        var referenceQuery = await BuildPersistentBlobReferenceQueryAsync(conn, ct);
+        if (referenceQuery == null)
+        {
+            _logger.LogInformation("No imported entities reference Stash blobs");
+            progress.Report(endProgress, "No referenced blobs to import");
+            return map;
+        }
+
+        await using var countCommand = conn.CreateCommand();
+        countCommand.CommandText = $"SELECT count(*) FROM blobs b INNER JOIN ({referenceQuery}) refs ON refs.checksum = b.checksum";
+        var total = Convert.ToInt32(await countCommand.ExecuteScalarAsync(ct));
         var processed = 0;
         var inlineCount = 0;
         var fileCount = 0;
@@ -30,11 +40,11 @@ public partial class StashMigrationService
             _logger.LogWarning("Configured Stash blob files path does not exist: {Path}", normalizedBlobFilesPath);
         }
 
-        _logger.LogInformation("Importing {Total} blobs from {Source}", total, hasBlobFilesPath ? normalizedBlobFilesPath : "inline SQLite");
+        _logger.LogInformation("Importing {Total} referenced blobs from {Source}", total, hasBlobFilesPath ? normalizedBlobFilesPath : "inline SQLite");
         _logger.LogDebug("[StashTiming] phase=blobs checkpoint=ready totalRows={Total} blobFilesPath={BlobFilesPath}", total, normalizedBlobFilesPath ?? "");
         progress.Report(startProgress, "Importing blobs...");
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT checksum, blob FROM blobs";
+        cmd.CommandText = $"SELECT b.checksum, b.blob FROM blobs b INNER JOIN ({referenceQuery}) refs ON refs.checksum = b.checksum";
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
         {
@@ -97,6 +107,30 @@ public partial class StashMigrationService
             missingCount,
             failedCount);
         return map;
+    }
+
+    private static async Task<string?> BuildPersistentBlobReferenceQueryAsync(
+        SqliteConnection conn,
+        CancellationToken ct)
+    {
+        (string Table, string Column)[] candidates =
+        [
+            ("performers", "image_blob"),
+            ("studios", "image_blob"),
+            ("tags", "image_blob"),
+            ("groups", "front_image_blob"),
+            ("groups", "back_image_blob"),
+            ("scenes", "cover_blob"),
+        ];
+
+        var references = new List<string>();
+        foreach (var (table, column) in candidates)
+        {
+            if (await ColumnExistsAsync(conn, table, column, ct))
+                references.Add($"SELECT \"{column}\" AS checksum FROM \"{table}\" WHERE \"{column}\" IS NOT NULL");
+        }
+
+        return references.Count == 0 ? null : string.Join(" UNION ", references);
     }
 
     private async Task<Dictionary<int, int>> ImportFoldersAsync(SqliteConnection conn, IReadOnlyList<StashPathMapping> pathMappings, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
@@ -484,20 +518,15 @@ WHERE files.zip_file_id IS NOT NULL";
         _logger.LogInformation("Updated Cove generated path to {Path} before Stash import", normalizedPath);
     }
 
-    private async Task CopyGeneratedContentAsync(StashConfigData stashConfig, Dictionary<int, SceneGeneratedData> sceneGeneratedMap, StashImportOptions options, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
+    private async Task CopyGeneratedContentAsync(StashConfigData stashConfig, Dictionary<int, SceneGeneratedData> sceneGeneratedMap, IJobProgress progress, double startProgress, double endProgress, CancellationToken ct)
     {
         try
         {
             progress.Report(startProgress, "Copying generated scene assets...");
-            // Writing the scene cover thumbnail only needs the imported cover blob and Cove's own
-            // destination path — NOT Stash's generated folder. So a missing/absent Stash generated
-            // directory must not stop cover thumbnails from being written; it only disables the
-            // file-copy steps (previews/sprites/vtt and the legacy screenshot fallback) that read
-            // from it.
             var stashGeneratedPath = stashConfig.GeneratedPath;
             var hasStashGenerated = !string.IsNullOrWhiteSpace(stashGeneratedPath) && Directory.Exists(stashGeneratedPath);
             if (!hasStashGenerated)
-                _logger.LogWarning("Stash generated path not found: {Path} - migrating cover thumbnails from blobs only", stashGeneratedPath);
+                _logger.LogWarning("Stash generated path not found: {Path} - generated previews, sprites, VTT, and legacy screenshots will be skipped", stashGeneratedPath);
 
             var stashScreenshotsDir = hasStashGenerated ? Path.Combine(stashGeneratedPath!, "screenshots") : string.Empty;
             var stashVttDir = hasStashGenerated ? Path.Combine(stashGeneratedPath!, "vtt") : string.Empty;
@@ -552,15 +581,10 @@ WHERE files.zip_file_id IS NOT NULL";
                 ct.ThrowIfCancellationRequested();
                 processed++;
 
-                if (!string.IsNullOrWhiteSpace(generatedData.CoverBlobId))
+                if (!generatedData.HasExplicitCover
+                    && ResolveGeneratedHash(generatedData, stashConfig.VideoFileNamingAlgorithm, legacyScreenshotHashes) is { } legacyScreenshotHash)
                 {
-                    sourceScreenshots++;
-                    if (await TryWriteSceneScreenshotAsync(coveSceneId, generatedData.CoverBlobId!, ct))
-                        migratedScreenshots++;
-                }
-                else if (ResolveGeneratedHash(generatedData, stashConfig.VideoFileNamingAlgorithm, legacyScreenshotHashes) is { } legacyScreenshotHash)
-                {
-                    // No cover blob (legacy state, or the blob failed to import) — fall back to the
+                    // No imported cover blob (legacy state, or missing blob data) — fall back to the
                     // generated screenshots/<hash>.jpg file. Stash screenshots are already JPEG, so a
                     // straight copy into Cove's screenshot path matches what the runtime serves.
                     sourceScreenshots++;
@@ -680,59 +704,6 @@ WHERE files.zip_file_id IS NOT NULL";
         {
             TraceGeneratedAssetMigrationFailure(_logger, ex, assetType, sceneId, sourcePath);
             throw;
-        }
-    }
-
-    private async Task<bool> TryWriteSceneScreenshotAsync(int sceneId, string blobId, CancellationToken ct)
-    {
-        try
-        {
-            var blob = await _blobService.GetBlobAsync(blobId, ct);
-            if (blob == null)
-            {
-                TraceSceneScreenshotMigrationFailure(_logger, null, sceneId, blobId);
-                return false;
-            }
-
-            await using var blobStream = blob.Value.Stream;
-            var destinationPath = GetCoveSceneThumbnailPath(sceneId);
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-
-            if (string.Equals(blob.Value.ContentType, "image/jpeg", StringComparison.OrdinalIgnoreCase))
-            {
-                await using var jpegOutput = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-                await blobStream.CopyToAsync(jpegOutput, ct);
-                var written = File.Exists(destinationPath);
-                if (!written)
-                    TraceSceneScreenshotMigrationFailure(_logger, null, sceneId, blobId);
-                return written;
-            }
-
-            await using var buffered = new MemoryStream();
-            await blobStream.CopyToAsync(buffered, ct);
-            buffered.Position = 0;
-
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync(buffered, ct);
-            await using var convertedOutput = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-            await image.SaveAsync(convertedOutput, new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 85 }, ct);
-            var converted = File.Exists(destinationPath);
-            if (!converted)
-                TraceSceneScreenshotMigrationFailure(_logger, null, sceneId, blobId);
-            return converted;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (SixLabors.ImageSharp.InvalidImageContentException ex)
-        {
-            TraceSceneScreenshotMigrationFailure(_logger, ex, sceneId, blobId);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            TraceSceneScreenshotMigrationFailure(_logger, ex, sceneId, blobId);
-            return false;
         }
     }
 

@@ -16,6 +16,250 @@ namespace Cove.Tests;
 public class ThumbnailServiceTests
 {
     [Fact]
+    public async Task SpriteGenerationLock_SerializesTheSameVideoButNotOtherVideos()
+    {
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var otherEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var first = ThumbnailService.RunWithSpriteGenerationLockAsync(101, async () =>
+        {
+            firstEntered.SetResult();
+            await releaseFirst.Task;
+            return true;
+        });
+        await firstEntered.Task;
+
+        var second = ThumbnailService.RunWithSpriteGenerationLockAsync(101, () =>
+        {
+            secondEntered.SetResult();
+            return Task.FromResult(true);
+        });
+        var other = ThumbnailService.RunWithSpriteGenerationLockAsync(102, () =>
+        {
+            otherEntered.SetResult();
+            return Task.FromResult(true);
+        });
+
+        await otherEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(secondEntered.Task.IsCompleted);
+        releaseFirst.SetResult();
+        await Task.WhenAll(first, second, other);
+        Assert.True(secondEntered.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task RegenerateVideoAssets_PreservesExistingFilesWhenGenerationFails()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "invalid.mp4");
+            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4]);
+            var generatedPath = Path.Combine(tempRoot, "generated");
+
+            var services = new ServiceCollection();
+            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            services.AddSingleton(dbOptions);
+            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+
+            await using var provider = services.BuildServiceProvider();
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var video = new Video { Title = "invalid" };
+                video.Files.Add(new VideoFile
+                {
+                    Basename = Path.GetFileName(videoPath),
+                    ParentFolder = new Folder { Path = tempRoot },
+                    Format = "mp4",
+                    Duration = 42,
+                    Size = new FileInfo(videoPath).Length,
+                    ModTime = File.GetLastWriteTimeUtc(videoPath),
+                });
+                db.Videos.Add(video);
+                await db.SaveChangesAsync();
+            }
+
+            var service = new ThumbnailService(
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                new StubJobService(),
+                new CoveConfiguration { GeneratedPath = generatedPath },
+                new ZipFileReader(),
+                new NullBlobService(),
+                NullLogger<ThumbnailService>.Instance);
+
+            var assets = new Dictionary<string, byte[]>
+            {
+                [service.GetThumbnailPathForVideo(1)] = [1, 2, 3],
+                [service.GetPreviewPath(1)] = [4, 5, 6],
+                [service.GetSpritePath(1)] = [7, 8, 9],
+                [service.GetSpriteVttPath(1)] = [10, 11, 12],
+            };
+            foreach (var (path, bytes) in assets)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await File.WriteAllBytesAsync(path, bytes);
+            }
+
+            Assert.False(await service.RegenerateVideoThumbnailAsync(1));
+            Assert.False(await service.RegenerateVideoPreviewAsync(1));
+            Assert.False(await service.RegenerateVideoSpriteAsync(1));
+
+            foreach (var (path, expectedBytes) in assets)
+                Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CommitGeneratedFile_CancellationPreservesExistingFile()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var generatedPath = Path.Combine(tempRoot, "generated.jpg");
+            var destinationPath = Path.Combine(tempRoot, "destination.jpg");
+            await File.WriteAllBytesAsync(generatedPath, [4, 5, 6]);
+            await File.WriteAllBytesAsync(destinationPath, [1, 2, 3]);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                ThumbnailService.TryCommitGeneratedFile(generatedPath, destinationPath, cancellation.Token));
+
+            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(destinationPath));
+            Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(generatedPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CommitGeneratedSpriteFiles_RollsBackWhenVttReplacementFails()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var generatedSpritePath = Path.Combine(tempRoot, "generated-sprite.jpg");
+            var generatedVttPath = Path.Combine(tempRoot, "generated.vtt");
+            var destinationSpritePath = Path.Combine(tempRoot, "sprite.jpg");
+            var destinationVttPath = Path.Combine(tempRoot, "missing", "sprite.vtt");
+            await File.WriteAllBytesAsync(generatedSpritePath, [4, 5, 6]);
+            await File.WriteAllBytesAsync(generatedVttPath, [7, 8, 9]);
+            await File.WriteAllBytesAsync(destinationSpritePath, [1, 2, 3]);
+
+            Assert.Throws<DirectoryNotFoundException>(() =>
+                ThumbnailService.CommitGeneratedSpriteFiles(
+                    generatedSpritePath,
+                    generatedVttPath,
+                    destinationSpritePath,
+                    destinationVttPath));
+
+            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(destinationSpritePath));
+            Assert.False(File.Exists(destinationVttPath));
+            Assert.Empty(Directory.EnumerateFiles(tempRoot, "*.backup.*", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CommitGeneratedSpriteFiles_CancellationPreservesExistingPair()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var generatedSpritePath = Path.Combine(tempRoot, "generated-sprite.jpg");
+            var generatedVttPath = Path.Combine(tempRoot, "generated.vtt");
+            var destinationSpritePath = Path.Combine(tempRoot, "sprite.jpg");
+            var destinationVttPath = Path.Combine(tempRoot, "sprite.vtt");
+            await File.WriteAllBytesAsync(generatedSpritePath, [5, 6]);
+            await File.WriteAllBytesAsync(generatedVttPath, [7, 8]);
+            await File.WriteAllBytesAsync(destinationSpritePath, [1, 2]);
+            await File.WriteAllBytesAsync(destinationVttPath, [3, 4]);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                ThumbnailService.CommitGeneratedSpriteFiles(
+                    generatedSpritePath,
+                    generatedVttPath,
+                    destinationSpritePath,
+                    destinationVttPath,
+                    cancellation.Token));
+
+            Assert.Equal(new byte[] { 1, 2 }, await File.ReadAllBytesAsync(destinationSpritePath));
+            Assert.Equal(new byte[] { 3, 4 }, await File.ReadAllBytesAsync(destinationVttPath));
+            Assert.Equal(new byte[] { 5, 6 }, await File.ReadAllBytesAsync(generatedSpritePath));
+            Assert.Equal(new byte[] { 7, 8 }, await File.ReadAllBytesAsync(generatedVttPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CommitGeneratedVideoAssets_ReplacesValidatedOutputs()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var generatedPreviewPath = Path.Combine(tempRoot, "generated-preview.mp4");
+            var destinationPreviewPath = Path.Combine(tempRoot, "preview.mp4");
+            await File.WriteAllBytesAsync(generatedPreviewPath, [4, 5, 6]);
+            await File.WriteAllBytesAsync(destinationPreviewPath, [1, 2, 3]);
+
+            Assert.True(ThumbnailService.TryCommitGeneratedFile(generatedPreviewPath, destinationPreviewPath));
+            Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(destinationPreviewPath));
+
+            var generatedSpritePath = Path.Combine(tempRoot, "generated-sprite.jpg");
+            var generatedVttPath = Path.Combine(tempRoot, "generated.vtt");
+            var destinationSpritePath = Path.Combine(tempRoot, "sprite.jpg");
+            var destinationVttPath = Path.Combine(tempRoot, "sprite.vtt");
+            await File.WriteAllBytesAsync(generatedSpritePath, [10, 11, 12]);
+            await File.WriteAllBytesAsync(generatedVttPath, [13, 14, 15]);
+            await File.WriteAllBytesAsync(destinationSpritePath, [7, 8, 9]);
+            await File.WriteAllBytesAsync(destinationVttPath, [16, 17, 18]);
+
+            ThumbnailService.CommitGeneratedSpriteFiles(
+                generatedSpritePath,
+                generatedVttPath,
+                destinationSpritePath,
+                destinationVttPath);
+
+            Assert.Equal(new byte[] { 10, 11, 12 }, await File.ReadAllBytesAsync(destinationSpritePath));
+            Assert.Equal(new byte[] { 13, 14, 15 }, await File.ReadAllBytesAsync(destinationVttPath));
+            Assert.Empty(Directory.EnumerateFiles(tempRoot, "*.backup.*", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task GetImageStreamAsync_ExtractsLegacyZipBackedImageUsingResolvedPath()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");

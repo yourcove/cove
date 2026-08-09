@@ -478,6 +478,73 @@ public class AiCoreControllerTests
         Assert.Equal(["shared-cover"], thumbnailService.DeletedBlobIds);
     }
 
+    [Fact]
+    public async Task EntityImageController_DeleteVideoImage_PersistsDetachBeforeBlobCleanup()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video
+        {
+            Title = "Video with explicit cover",
+            ImageBlobId = "video-cover",
+        };
+        context.Videos.Add(video);
+        await context.SaveChangesAsync();
+
+        var detachedBeforeCleanup = false;
+        var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>())
+        {
+            OnDeleteAsync = async (blobId, ct) =>
+            {
+                detachedBeforeCleanup = !await context.Videos
+                    .AsNoTracking()
+                    .AnyAsync(candidate => candidate.ImageBlobId == blobId, ct);
+            },
+        };
+        var controller = new EntityImageController(
+            context,
+            blobService,
+            new StubThumbnailService(),
+            new StubStreamService());
+
+        var result = await controller.DeleteVideoImage(video.Id, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.True(detachedBeforeCleanup);
+        Assert.Equal(["video-cover"], blobService.DeletedBlobIds);
+    }
+
+    [Fact]
+    public async Task EntityImageController_DeleteVideoImage_LeavesPersistedDetachWhenCleanupFails()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var video = new Video
+        {
+            Title = "Video with cover cleanup failure",
+            ImageBlobId = "video-cover",
+        };
+        context.Videos.Add(video);
+        await context.SaveChangesAsync();
+
+        var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>())
+        {
+            OnDeleteAsync = (_, _) => throw new IOException("simulated cleanup failure"),
+        };
+        var controller = new EntityImageController(
+            context,
+            blobService,
+            new StubThumbnailService(),
+            new StubStreamService());
+
+        var result = await controller.DeleteVideoImage(video.Id, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        context.ChangeTracker.Clear();
+        Assert.Null((await context.Videos.SingleAsync(candidate => candidate.Id == video.Id)).ImageBlobId);
+        Assert.Empty(blobService.DeletedBlobIds);
+    }
+
 
     [Fact]
     public async Task EntityImageController_GetVideoImage_ReturnsStreamScreenshotWhenNoStoredBlob()
@@ -688,6 +755,7 @@ public class AiCoreControllerTests
     private sealed class StubBlobService(Dictionary<string, (byte[] Bytes, string ContentType)> blobs) : IBlobService
     {
         public List<string> DeletedBlobIds { get; } = [];
+        public Func<string, CancellationToken, Task>? OnDeleteAsync { get; init; }
 
         public Task<string> StoreBlobAsync(Stream data, string contentType, CancellationToken ct = default)
             => throw new NotSupportedException();
@@ -701,11 +769,15 @@ public class AiCoreControllerTests
                 (new MemoryStream(blob.Bytes, writable: false), blob.ContentType));
         }
 
-        public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
+        public async Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
         {
+            if (OnDeleteAsync != null)
+                await OnDeleteAsync(blobId, ct);
             DeletedBlobIds.Add(blobId);
-            return Task.CompletedTask;
         }
+
+        public Task DeleteBlobIfUnreferencedAsync(string blobId, CancellationToken ct = default)
+            => DeleteBlobAsync(blobId, ct);
     }
 
     private sealed class StubThumbnailService : IThumbnailService

@@ -300,6 +300,7 @@ try
     builder.Services.AddScoped<ICleanService, CleanService>();
     builder.Services.AddSingleton<Cove.Api.Services.MaintenanceState>();
     builder.Services.AddScoped<IBackupService, BackupService>();
+    builder.Services.AddSingleton<IBlobReferenceCounter, BlobReferenceCounter>();
     builder.Services.AddSingleton<IBlobService, BlobService>();
     builder.Services.AddSingleton<ConfigService>();
     builder.Services.AddSingleton<IFfmpegCapabilities, FfmpegCapabilitiesService>();

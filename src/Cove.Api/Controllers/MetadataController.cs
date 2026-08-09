@@ -63,6 +63,9 @@ public class MetadataController(
         ? Path.Combine(file.ParentFolder.Path, file.Basename)
         : file.Basename;
 
+    internal static bool ShouldGenerateDefaultVideoThumbnail(bool requested, string? imageBlobId)
+        => requested && string.IsNullOrWhiteSpace(imageBlobId);
+
     private readonly record struct SegmentPreviewClip(double StartSec, double EndSec, string Path);
 
     [HttpPost("scan")]
@@ -308,7 +311,8 @@ public class MetadataController(
             }).Where(w => w.File != null).ToList();
 
             var overwrite = opts?.Overwrite == true;
-            var generateVideoFiles = opts?.Thumbnails == true
+            var generateDefaultVideoThumbnails = opts?.Thumbnails == true;
+            var generateVideoFiles = generateDefaultVideoThumbnails
                 || opts?.Previews == true
                 || opts?.Sprites == true
                 || opts?.SegmentThumbnails == true
@@ -319,10 +323,10 @@ public class MetadataController(
 
             workItems = workItems
                 .Where(item => (generateVideoFiles && (
-                        overwrite
-                        || (opts?.Thumbnails == true && !item.HasThumbnail)
-                        || (opts?.Previews == true && !item.HasPreview)
-                        || (opts?.Sprites == true && !item.HasSprite)
+                        (ShouldGenerateDefaultVideoThumbnail(generateDefaultVideoThumbnails, item.Video.ImageBlobId)
+                            && (overwrite || !item.HasThumbnail))
+                        || (opts?.Previews == true && (overwrite || !item.HasPreview))
+                        || (opts?.Sprites == true && (overwrite || !item.HasSprite))
                         || opts?.SegmentThumbnails == true
                         || opts?.SegmentPreviews == true
                         || opts?.Segments == true))
@@ -369,12 +373,13 @@ public class MetadataController(
                 if (!System.IO.File.Exists(item.Path))
                     return;
 
-                if (opts?.Thumbnails == true)
+                if (ShouldGenerateDefaultVideoThumbnail(generateDefaultVideoThumbnails, item.Video.ImageBlobId))
                 {
                     var thumbPath = thumbnailService.GetThumbnailPathForVideo(item.Video.Id);
                     var thumbExists = System.IO.File.Exists(thumbPath);
-                    if (opts?.Overwrite == true && thumbExists) System.IO.File.Delete(thumbPath);
-                    if (opts?.Overwrite == true || !thumbExists)
+                    if (opts?.Overwrite == true)
+                        await thumbnailService.RegenerateVideoThumbnailAsync(item.Video.Id, null, token);
+                    else if (!thumbExists)
                         await thumbnailService.GenerateVideoThumbnailAsync(item.Video.Id, null, token);
                 }
 
@@ -382,10 +387,8 @@ public class MetadataController(
                 {
                     var previewPath = thumbnailService.GetPreviewPath(item.Video.Id);
                     if (opts?.Overwrite == true)
-                    {
-                        if (System.IO.File.Exists(previewPath)) System.IO.File.Delete(previewPath);
-                    }
-                    if (opts?.Overwrite == true || !System.IO.File.Exists(previewPath))
+                        await thumbnailService.RegenerateVideoPreviewAsync(item.Video.Id, token);
+                    else if (!System.IO.File.Exists(previewPath))
                         await thumbnailService.GenerateVideoPreviewAsync(item.Video.Id, token);
                 }
 
@@ -394,11 +397,8 @@ public class MetadataController(
                     var spritePath = thumbnailService.GetSpritePath(item.Video.Id);
                     var vttPath = thumbnailService.GetSpriteVttPath(item.Video.Id);
                     if (opts?.Overwrite == true)
-                    {
-                        if (System.IO.File.Exists(spritePath)) System.IO.File.Delete(spritePath);
-                        if (System.IO.File.Exists(vttPath)) System.IO.File.Delete(vttPath);
-                    }
-                    if (opts?.Overwrite == true || !System.IO.File.Exists(spritePath) || !System.IO.File.Exists(vttPath))
+                        await thumbnailService.RegenerateVideoSpriteAsync(item.Video.Id, token);
+                    else if (!System.IO.File.Exists(spritePath) || !System.IO.File.Exists(vttPath))
                         await thumbnailService.GenerateVideoSpriteAsync(item.Video.Id, token);
                 }
 

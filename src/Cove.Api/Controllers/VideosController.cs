@@ -635,7 +635,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
 
         if (!string.IsNullOrWhiteSpace(existingVideo.ImageBlobId))
-            await blobService.DeleteBlobAsync(existingVideo.ImageBlobId, CancellationToken.None);
+            await blobService.DeleteBlobIfUnreferencedAsync(existingVideo.ImageBlobId, CancellationToken.None);
 
         PublishVideoEvent(EventType.VideoUpdated, id);
         return Ok(new { success = true });

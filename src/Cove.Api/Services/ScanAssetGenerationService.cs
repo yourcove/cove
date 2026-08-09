@@ -20,10 +20,11 @@ internal sealed class ScanAssetGenerationService(
     public async Task<AssetGenerationSummary> GenerateRequestedAssetsAsync(
         CoveContext db,
         IJobProgress progress,
-        HashSet<string> candidateVideoPaths,
-        HashSet<string> candidateImagePaths,
-        HashSet<string> candidateAudioPaths,
-        HashSet<string> candidateTextPaths,
+        HashSet<string> processedVideoPaths,
+        HashSet<string> processedImagePaths,
+        HashSet<string> processedAudioPaths,
+        HashSet<string> processedTextPaths,
+        HashSet<int> changedVideoIds,
         ScanOperationOptions options,
         int maxParallelism,
         CancellationToken ct)
@@ -34,18 +35,18 @@ internal sealed class ScanAssetGenerationService(
         var generateTextAssets = options.GenerateTextPhashes || options.GenerateMd5;
 
         if ((!generateVideoAssets && !generateImageAssets && !generateAudioAssets && !generateTextAssets)
-            || (candidateVideoPaths.Count == 0 && candidateImagePaths.Count == 0 && candidateAudioPaths.Count == 0 && candidateTextPaths.Count == 0))
+            || (processedVideoPaths.Count == 0 && processedImagePaths.Count == 0 && processedAudioPaths.Count == 0 && processedTextPaths.Count == 0))
         {
             return new AssetGenerationSummary(0);
         }
 
         var failedItems = 0;
 
-        if (generateVideoAssets && candidateVideoPaths.Count > 0)
+        if (generateVideoAssets && processedVideoPaths.Count > 0)
         {
             progress.Report(0.92, "Generating video assets...");
 
-            var videoDirs = candidateVideoPaths
+            var videoDirs = processedVideoPaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
@@ -56,20 +57,24 @@ internal sealed class ScanAssetGenerationService(
             var candidateFiles = await db.VideoFiles
                 .Include(f => f.ParentFolder)
                 .Include(f => f.Fingerprints)
+                .Include(f => f.Video)
                 .Where(f => f.ParentFolder != null && videoDirs.Contains(f.ParentFolder.Path))
                 .ToListAsync(ct);
 
             var videoFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && candidateVideoPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && processedVideoPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .Where(file => file.VideoId.HasValue && file.VideoId.Value != 0)
                 .GroupBy(file => file.VideoId)
                 .Select(group => group.First())
                 .Where(file =>
                 {
                     var videoId = file.VideoId!.Value;
-                    return (options.GenerateCovers && !File.Exists(thumbnailService.GetThumbnailPathForVideo(videoId)))
-                        || (options.GeneratePreviews && !File.Exists(thumbnailService.GetPreviewPath(videoId)))
-                        || (options.GenerateSprites && (!File.Exists(thumbnailService.GetSpritePath(videoId)) || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))))
+                    var contentChanged = changedVideoIds.Contains(videoId);
+                    return (options.GenerateCovers
+                            && string.IsNullOrWhiteSpace(file.Video?.ImageBlobId)
+                            && (contentChanged || !File.Exists(thumbnailService.GetThumbnailPathForVideo(videoId))))
+                        || (options.GeneratePreviews && (contentChanged || !File.Exists(thumbnailService.GetPreviewPath(videoId))))
+                        || (options.GenerateSprites && (contentChanged || !File.Exists(thumbnailService.GetSpritePath(videoId)) || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))))
                         || (options.GeneratePhashes && !file.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                         || (options.GenerateMd5 && !file.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value)));
                 })
@@ -87,9 +92,12 @@ internal sealed class ScanAssetGenerationService(
                 var previewPath = thumbnailService.GetPreviewPath(videoId);
                 var spritePath = thumbnailService.GetSpritePath(videoId);
                 var spriteVttPath = thumbnailService.GetSpriteVttPath(videoId);
-                var needsCover = options.GenerateCovers && !File.Exists(thumbnailPath);
-                var needsPreview = options.GeneratePreviews && !File.Exists(previewPath);
-                var needsSprite = options.GenerateSprites && (!File.Exists(spritePath) || !File.Exists(spriteVttPath));
+                var contentChanged = changedVideoIds.Contains(videoId);
+                var needsCover = options.GenerateCovers
+                    && string.IsNullOrWhiteSpace(videoFile.Video?.ImageBlobId)
+                    && (contentChanged || !File.Exists(thumbnailPath));
+                var needsPreview = options.GeneratePreviews && (contentChanged || !File.Exists(previewPath));
+                var needsSprite = options.GenerateSprites && (contentChanged || !File.Exists(spritePath) || !File.Exists(spriteVttPath));
                 var failedThisVideo = false;
 
                 progress.Report(0.92 + (0.06 * done / total), $"Generating video assets ({done}/{videoFiles.Count})");
@@ -101,20 +109,35 @@ internal sealed class ScanAssetGenerationService(
                 // cancellation propagates.
                 try
                 {
-                    if (options.GenerateCovers)
+                    if (options.GenerateCovers && string.IsNullOrWhiteSpace(videoFile.Video?.ImageBlobId))
                     {
                         if (needsCover)
-                            await thumbnailService.GenerateVideoThumbnailAsync(videoId, null, token);
+                        {
+                            if (contentChanged)
+                                failedThisVideo |= !await thumbnailService.RegenerateVideoThumbnailAsync(videoId, null, token);
+                            else
+                                await thumbnailService.GenerateVideoThumbnailAsync(videoId, null, token);
+                        }
                     }
                     if (options.GeneratePreviews)
                     {
                         if (needsPreview)
-                            await thumbnailService.GenerateVideoPreviewAsync(videoId, token);
+                        {
+                            if (contentChanged)
+                                failedThisVideo |= !await thumbnailService.RegenerateVideoPreviewAsync(videoId, token);
+                            else
+                                await thumbnailService.GenerateVideoPreviewAsync(videoId, token);
+                        }
                     }
                     if (options.GenerateSprites)
                     {
                         if (needsSprite)
-                            await thumbnailService.GenerateVideoSpriteAsync(videoId, token);
+                        {
+                            if (contentChanged)
+                                failedThisVideo |= !await thumbnailService.RegenerateVideoSpriteAsync(videoId, token);
+                            else
+                                await thumbnailService.GenerateVideoSpriteAsync(videoId, token);
+                        }
                     }
                     if (options.GeneratePhashes
                         && videoFile.ParentFolder != null
@@ -205,11 +228,11 @@ internal sealed class ScanAssetGenerationService(
             failedItems += failed;
         }
 
-        if (generateImageAssets && candidateImagePaths.Count > 0)
+        if (generateImageAssets && processedImagePaths.Count > 0)
         {
             progress.Report(0.98, "Generating image assets...");
 
-            var imageDirs = candidateImagePaths
+            var imageDirs = processedImagePaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
@@ -224,7 +247,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var imageFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && candidateImagePaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && processedImagePaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
             var total = Math.Max(imageFiles.Count, 1);
@@ -329,11 +352,11 @@ internal sealed class ScanAssetGenerationService(
             failedItems += failed;
         }
 
-        if (generateAudioAssets && candidateAudioPaths.Count > 0)
+        if (generateAudioAssets && processedAudioPaths.Count > 0)
         {
             progress.Report(0.99, "Generating audio fingerprints...");
 
-            var audioDirs = candidateAudioPaths
+            var audioDirs = processedAudioPaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
@@ -348,7 +371,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var audioFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && candidateAudioPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && processedAudioPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
             var total = Math.Max(audioFiles.Count, 1);
@@ -424,11 +447,11 @@ internal sealed class ScanAssetGenerationService(
             failedItems += failed;
         }
 
-        if (generateTextAssets && candidateTextPaths.Count > 0)
+        if (generateTextAssets && processedTextPaths.Count > 0)
         {
             progress.Report(0.99, "Generating text fingerprints...");
 
-            var textDirs = candidateTextPaths
+            var textDirs = processedTextPaths
                 .Select(path => Path.GetDirectoryName(path))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Cast<string>()
@@ -443,7 +466,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var textFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && candidateTextPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => file.ParentFolder != null && processedTextPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
                 .ToList();
 
             var total = Math.Max(textFiles.Count, 1);

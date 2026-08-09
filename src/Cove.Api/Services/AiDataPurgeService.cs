@@ -819,7 +819,7 @@ public sealed class AiDataPurgeService(
         {
             try
             {
-                await _blobService.DeleteBlobAsync(coverBlobId, cancellationToken);
+                await _blobService.DeleteBlobIfUnreferencedAsync(coverBlobId, cancellationToken);
             }
             catch (Exception ex)
             {
