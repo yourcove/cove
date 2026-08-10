@@ -61,7 +61,7 @@ function usePersistedKind(defaultKind: SimilarKind): [SimilarKind, (next: Simila
   return [kind, update];
 }
 
-export function useVideoVisualSimilarityAvailable(videoId?: number) {
+export function useVideoVisualSimilarityAvailability(videoId?: number) {
   const visualSimilarity = useVisualSimilarityApi();
   const enabled = visualSimilarity != null && typeof videoId === "number" && videoId > 0;
   const preview = useQuery({
@@ -79,10 +79,15 @@ export function useVideoVisualSimilarityAvailable(videoId?: number) {
     retry: false,
   });
 
-  if (!enabled) return false;
-  if (preview.data) return preview.data.hasEmbeddings;
-  if (preview.isError) return (legacy.data?.items.length ?? 0) > 0;
-  return false;
+  if (!enabled) return { available: false, loading: false };
+  if (preview.data) return { available: preview.data.hasEmbeddings, loading: false };
+  if (preview.isError && legacy.data) return { available: legacy.data.items.length > 0, loading: false };
+  if (preview.isError && legacy.isError) return { available: false, loading: false };
+  return { available: false, loading: true };
+}
+
+export function useVideoVisualSimilarityAvailable(videoId?: number) {
+  return useVideoVisualSimilarityAvailability(videoId).available;
 }
 
 export function useImageVisualSimilarityAvailable(imageId?: number) {

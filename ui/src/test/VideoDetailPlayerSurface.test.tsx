@@ -4,7 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VideoDetailPage } from "../pages/VideoDetailPage";
 
-const { mockVideos, videoPlayerMock } = vi.hoisted(() => ({
+const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock } = vi.hoisted(() => ({
   mockVideos: {
     get: vi.fn(),
     update: vi.fn(),
@@ -12,6 +12,15 @@ const { mockVideos, videoPlayerMock } = vi.hoisted(() => ({
     streamUrl: vi.fn((id: number) => `/video-${id}.mp4`),
   },
   videoPlayerMock: vi.fn(),
+  videoQueueMock: {
+    queue: null as null | { videoIds: number[] },
+    currentId: null as number | null,
+    hasPrev: false,
+    hasNext: false,
+    goPrevious: vi.fn(),
+    goNext: vi.fn(),
+  },
+  visualAvailabilityMock: { available: false, loading: false },
 }));
 
 vi.mock("../api/client", () => ({
@@ -64,10 +73,7 @@ vi.mock("../components/ConfirmDialog", () => ({
 
 vi.mock("../state/VideoQueueContext", () => ({
   useVideoQueue: () => ({
-    queue: null,
-    currentId: null,
-    hasPrev: false,
-    hasNext: false,
+    ...videoQueueMock,
     prevId: null,
     nextId: null,
     currentPosition: 0,
@@ -110,12 +116,12 @@ vi.mock("../hooks/useEntityEngagementBatch", () => ({
 
 vi.mock("../components/VisualSimilarityPanel", () => ({
   VideoVisualSimilarityPanel: () => null,
-  useVideoVisualSimilarityAvailable: () => false,
+  useVideoVisualSimilarityAvailability: () => ({ ...visualAvailabilityMock }),
 }));
 
 vi.mock("../components/AudioSimilarityPanel", () => ({
   VideoAudioSimilarityPanel: () => null,
-  useVideoAudioSimilarityAvailable: () => false,
+  useVideoAudioSimilarityAvailability: () => ({ available: false, loading: false }),
 }));
 
 vi.mock("../hooks/useDocumentTitle", () => ({
@@ -130,15 +136,17 @@ function renderVideoDetail(id = 14, initialSeekTo?: number) {
     },
   });
 
+  const onNavigate = vi.fn();
   const renderPage = (videoId: number) => (
     <QueryClientProvider client={queryClient}>
-      <VideoDetailPage id={videoId} initialSeekTo={initialSeekTo} onNavigate={vi.fn()} />
+      <VideoDetailPage id={videoId} initialSeekTo={initialSeekTo} onNavigate={onNavigate} />
     </QueryClientProvider>
   );
   const result = render(renderPage(id));
 
   return {
     ...result,
+    onNavigate,
     rerenderVideoDetail: (videoId: number) => result.rerender(renderPage(videoId)),
   };
 }
@@ -147,6 +155,14 @@ describe("VideoDetailPage media-player extension surface", () => {
   afterEach(() => {
     vi.clearAllMocks();
     mockVideos.get.mockReset();
+    videoQueueMock.queue = null;
+    videoQueueMock.currentId = null;
+    videoQueueMock.hasPrev = false;
+    videoQueueMock.hasNext = false;
+    videoQueueMock.goPrevious.mockReset();
+    videoQueueMock.goNext.mockReset();
+    visualAvailabilityMock.available = false;
+    visualAvailabilityMock.loading = false;
   });
 
   it("opts the primary player into the detail extension surface", async () => {
@@ -230,6 +246,58 @@ describe("VideoDetailPage media-player extension surface", () => {
 
     await waitFor(() => expect(mockVideos.update).toHaveBeenCalled());
     expect(screen.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("carries the selected tab when opening the next video", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Queued video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [{ format: "mp4", duration: 120, width: 1920, height: 1080, frameRate: 30, captions: [] }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+    videoQueueMock.queue = { videoIds: [14, 15] };
+    videoQueueMock.currentId = 14;
+    videoQueueMock.hasNext = true;
+    videoQueueMock.goNext.mockResolvedValue(15);
+
+    const { onNavigate } = renderVideoDetail();
+    fireEvent.click(await screen.findByRole("tab", { name: "History" }));
+
+    const playerProps = videoPlayerMock.mock.calls.at(-1)?.[0] as { onNext?: () => void };
+    playerProps.onNext?.();
+
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 15, videoTab: "history" }));
+  });
+
+  it("keeps the Similar tab selected while the next video's availability loads", async () => {
+    mockVideos.get.mockImplementation(async (videoId: number) => ({
+      id: videoId,
+      title: `Queued video ${videoId}`,
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    }));
+    visualAvailabilityMock.available = true;
+
+    const { rerenderVideoDetail } = renderVideoDetail();
+    fireEvent.click(await screen.findByRole("tab", { name: "Similar" }));
+
+    visualAvailabilityMock.available = false;
+    visualAvailabilityMock.loading = true;
+    rerenderVideoDetail(15);
+    await waitFor(() => expect(mockVideos.get).toHaveBeenCalledWith(15));
+    visualAvailabilityMock.available = true;
+    visualAvailabilityMock.loading = false;
+    rerenderVideoDetail(15);
+
+    expect(await screen.findByRole("tab", { name: "Similar" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows a retryable load error when the video request fails", async () => {

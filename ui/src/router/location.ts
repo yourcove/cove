@@ -9,6 +9,7 @@ export interface Route {
    */
   slug?: string;
   seekTo?: number;
+  videoTab?: string;
   spanKey?: string;
   profileId?: number;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;

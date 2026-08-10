@@ -48,8 +48,8 @@ import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
 import { trackInteraction } from "../utils/interactionTracking";
 import { formatDateTime } from "../utils/dateFormat";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
-import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
-import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailable } from "../components/AudioSimilarityPanel";
+import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailability } from "../components/VisualSimilarityPanel";
+import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailability } from "../components/AudioSimilarityPanel";
 import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
@@ -67,6 +67,7 @@ const VideoMetadataTaggerDialog = lazy(() => import("../components/MetadataTagge
 interface Props {
   id: number;
   initialSeekTo?: number;
+  initialTab?: string;
   onNavigate: (r: any) => void;
 }
 
@@ -166,7 +167,7 @@ function VideoQueuePanel({
 
 type TabKey = "details" | "segments" | "filters" | "file-info" | "edit" | "history" | string;
 
-export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
+export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: Props) {
   const { data: video, isLoading, error: videoError, refetch: retryVideo } = useQuery({
     queryKey: ["video", id],
     queryFn: () => videos.get(id),
@@ -191,7 +192,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const [showIdentify, setShowIdentify] = useState(false);
   const [showScrapeDialog, setShowScrapeDialog] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("details");
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "details");
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilterState>(EMPTY_SEGMENT_FILTER);
   const queryClient = useQueryClient();
@@ -454,8 +455,10 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const segmentFilterContext = useMemo<SegmentFilterContext>(() => ({ rawSegmentsById: segmentRawById, tagIdToGroupId }), [segmentRawById, tagIdToGroupId]);
 
   useEffect(() => { setSegmentFilter(EMPTY_SEGMENT_FILTER); }, [id]);
-  const hasVisualSimilarity = useVideoVisualSimilarityAvailable(id);
-  const hasAudioSimilarity = useVideoAudioSimilarityAvailable(id);
+  const visualSimilarityAvailability = useVideoVisualSimilarityAvailability(id);
+  const audioSimilarityAvailability = useVideoAudioSimilarityAvailability(id);
+  const hasVisualSimilarity = visualSimilarityAvailability.available;
+  const hasAudioSimilarity = audioSimilarityAvailability.available;
   const videoExtTabs = useMemo(() => getTabsForPage("video"), [getTabsForPage]);
 
   const tabs = filterItemsByPermission([
@@ -475,10 +478,14 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   }, hasPermission);
 
   useEffect(() => {
+    if ((activeTab === "similar" && visualSimilarityAvailability.loading)
+      || (activeTab === "audio-similar" && audioSimilarityAvailability.loading)) {
+      return;
+    }
     if (!tabs.some((tab) => tab.key === activeTab)) {
       setActiveTab("details");
     }
-  }, [activeTab, tabs]);
+  }, [activeTab, audioSimilarityAvailability.loading, tabs, visualSimilarityAvailability.loading]);
 
   useEffect(() => {
     if (!queue || queueCurrentId === id) {
@@ -494,12 +501,12 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const queueSyncedToVideo = queueCurrentId === id;
   const navigatePreviousVideo = useCallback(async () => {
     const targetId = await goPrevious();
-    if (targetId != null) onNavigate({ page: "video", id: targetId });
-  }, [goPrevious, onNavigate]);
+    if (targetId != null) onNavigate({ page: "video", id: targetId, videoTab: activeTab });
+  }, [activeTab, goPrevious, onNavigate]);
   const navigateNextVideo = useCallback(async () => {
     const targetId = await goNext();
-    if (targetId != null) onNavigate({ page: "video", id: targetId });
-  }, [goNext, onNavigate]);
+    if (targetId != null) onNavigate({ page: "video", id: targetId, videoTab: activeTab });
+  }, [activeTab, goNext, onNavigate]);
 
   const videoKeyboardShortcuts = useMemo(() => [
     { key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
@@ -802,7 +809,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
           onToggleAutoplay={toggleAutoplay}
           onNavigate={(videoId, index) => {
             goToIndex(index);
-            onNavigate({ page: "video", id: videoId });
+            onNavigate({ page: "video", id: videoId, videoTab: activeTab });
           }}
         />
       ) : null}
