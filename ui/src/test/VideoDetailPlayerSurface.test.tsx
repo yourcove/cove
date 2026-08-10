@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VideoDetailPage } from "../pages/VideoDetailPage";
@@ -7,6 +7,7 @@ import { VideoDetailPage } from "../pages/VideoDetailPage";
 const { mockVideos, videoPlayerMock } = vi.hoisted(() => ({
   mockVideos: {
     get: vi.fn(),
+    update: vi.fn(),
     screenshotUrl: vi.fn((id: number) => `/video-${id}.jpg`),
     streamUrl: vi.fn((id: number) => `/video-${id}.mp4`),
   },
@@ -33,9 +34,9 @@ vi.mock("../components/VideoPlayer", () => ({
 }));
 
 vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
-  const MockMediaDetailLayout = ({ media }: { media: ReactElement<{ children?: ReactNode }> }) => {
-    const children = Array.isArray(media.props.children) ? media.props.children : [media.props.children];
-    return <>{children[0]}</>;
+  const MockMediaDetailLayout = ({ media, tabs, activeTab, onTabChange, children }: { media: ReactElement<{ children?: ReactNode }>; tabs: { key: string; label: string }[]; activeTab: string; onTabChange: (key: string) => void; children?: ReactNode }) => {
+    const mediaChildren = Array.isArray(media.props.children) ? media.props.children : [media.props.children];
+    return <><div>{tabs.map((tab) => <button key={tab.key} role="tab" aria-selected={tab.key === activeTab} onClick={() => onTabChange(tab.key)}>{tab.label}</button>)}</div>{mediaChildren[0]}{activeTab === "edit" ? children : null}</>;
   };
   MockMediaDetailLayout.Content = ({ children }: { children: ReactNode }) => <>{children}</>;
   return { MediaDetailLayout: MockMediaDetailLayout };
@@ -47,7 +48,7 @@ vi.mock("../router/RouteRegistry", () => ({
 
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
-    hasPermission: () => false,
+    hasPermission: (permission: string) => permission === "videos.write",
     user: { kind: "user", uiPreferences: { tracking: { enabled: false } } },
   }),
 }));
@@ -202,6 +203,33 @@ describe("VideoDetailPage media-player extension surface", () => {
       seekTo: 42.5,
       resumeTime: undefined,
     }));
+  });
+
+  it("stays on the edit tab after saving", async () => {
+    const video = {
+      id: 14,
+      title: "Editable video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [],
+      performers: [],
+      tags: [],
+      galleries: [],
+      groups: [],
+      urls: [],
+      remoteIds: [],
+      contextTagApplications: [],
+    };
+    mockVideos.get.mockResolvedValue(video);
+    mockVideos.update.mockResolvedValue(video);
+
+    renderVideoDetail();
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockVideos.update).toHaveBeenCalled());
+    expect(screen.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows a retryable load error when the video request fails", async () => {

@@ -724,7 +724,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       canAddHistoricalLike={canWriteVideo}
     />
   ) : activeTab === "edit" ? (
-    <VideoEditPanel video={video} onSaved={() => setActiveTab("details")} onNavigate={onNavigate} onRequestReportTag={requestReportTag} />
+    <VideoEditPanel video={video} onCancel={() => setActiveTab("details")} onNavigate={onNavigate} onRequestReportTag={requestReportTag} />
   ) : activeTab.startsWith("ext:") ? (() => {
     const extTabKey = activeTab.replace("ext:", "");
     const extTab = videoExtTabs.find((tab) => tab.key === extTabKey);
@@ -2203,7 +2203,7 @@ function DetectionsPanel({
 }
 
 // ===== Inline Video Edit Panel =====
-function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { video: Video; onSaved: () => void; onNavigate?: (r: any) => void; onRequestReportTag?: (tag: any) => void }) {
+function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { video: Video; onCancel: () => void; onNavigate?: (r: any) => void; onRequestReportTag?: (tag: any) => void }) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
   const [title, setTitle] = useState(video.title || "");
@@ -2244,7 +2244,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
       await syncVideoEditPerformerContextTags(video.id, video.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
       return updated;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", video.id] }); queryClient.invalidateQueries({ queryKey: ["tagapplications"] }); queryClient.invalidateQueries({ queryKey: ["videos"] }); onSaved(); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", video.id] }); queryClient.invalidateQueries({ queryKey: ["tagapplications"] }); queryClient.invalidateQueries({ queryKey: ["videos"] }); },
   });
 
   const handleSave = () => {
@@ -2424,7 +2424,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
       {mutation.error && <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 text-sm">{(mutation.error as Error).message}</div>}
 
       <div className="flex justify-end gap-3 pt-2">
-        <button onClick={onSaved} className="px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
+        <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
         <button onClick={handleSave} disabled={mutation.isPending} className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50">
           {mutation.isPending ? "Saving…" : "Save"}
         </button>
