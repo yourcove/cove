@@ -7,6 +7,7 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -1679,10 +1680,7 @@ public partial class DownloaderService(
 
     private static async Task<Dictionary<string, Tag>> LoadTagsByNameAsync(CoveContext db, IReadOnlyList<string> tagNames, bool createMissing, CancellationToken ct)
     {
-        var normalizedNames = tagNames.Select(name => name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, tagNames, ct);
 
         foreach (var tagName in tagNames)
         {

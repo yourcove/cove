@@ -3,6 +3,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -193,10 +194,7 @@ public sealed class GroupMetadataApplyService(
             return [];
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         if (mode == "replace")
             group.GroupTags.Clear();

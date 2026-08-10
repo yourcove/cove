@@ -8,6 +8,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -311,17 +312,24 @@ public class MetadataController(
             {
                 progress.Report(0.1, "Importing tags...");
                 var importTags = JsonSerializer.Deserialize<List<Tag>>(tagsEl.GetRawText(), CoveJson.Default) ?? [];
+                var normalizedNames = importTags
+                    .Select(tag => TagNameRules.NormalizeCanonicalName(tag.Name))
+                    .ToArray();
+                var tagLookup = await RelationNameResolver.ResolveTagsAsync(dbCtx, normalizedNames, ct);
                 foreach (var tag in importTags)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Tags.FirstOrDefaultAsync(t => t.Name == tag.Name, ct);
+                    var normalizedName = TagNameRules.NormalizeCanonicalName(tag.Name);
+                    tagLookup.TryGetValue(normalizedName, out var existing);
                     if (existing != null)
                     {
                         if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; }
                     }
                     else
                     {
-                        dbCtx.Tags.Add(new Tag { Name = tag.Name, Description = tag.Description, Favorite = tag.Favorite });
+                        var created = new Tag { Name = normalizedName, Description = tag.Description, Favorite = tag.Favorite };
+                        dbCtx.Tags.Add(created);
+                        tagLookup[normalizedName] = created;
                     }
                 }
                 await dbCtx.SaveChangesAsync(ct);

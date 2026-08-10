@@ -24,6 +24,7 @@ import { AppFloatingUI } from "./components/AppFloatingUI";
 import { ServerAvailabilityBanner } from "./components/ServerAvailabilityBanner";
 import { MutationFailureNotice } from "./components/MutationFailureNotice";
 import { StartupGate } from "./components/StartupGate";
+import { TagNameConflictWarning } from "./features/tag-name-conflicts/TagNameConflictWarning";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -467,6 +468,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar currentPage={route.page} navigate={navigate} />
+      <TagNameConflictWarning />
       <main className="w-full px-3 sm:px-4 md:px-6 py-3 sm:py-5">
         <ErrorBoundary>
           <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div></div>}>

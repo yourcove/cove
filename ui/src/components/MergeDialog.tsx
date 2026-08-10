@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { QueryKey, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Merge, Loader2, X, ArrowRight } from "lucide-react";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 interface MergeItem {
   id: number;
@@ -106,7 +107,7 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
           )}
 
           {mutation.isError && (
-            <p className="text-sm text-red-400">Merge failed. Please try again.</p>
+            <p className="text-sm text-red-400">{getApiValidationFailureDetail(mutation.error)}</p>
           )}
         </div>
 

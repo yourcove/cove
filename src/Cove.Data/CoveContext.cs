@@ -23,6 +23,8 @@ public partial class CoveContext : DbContext
     private static readonly SemaphoreSlim[] DerivedArrayWriteStripes =
         Enumerable.Range(0, 257).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private bool _persistingDerivedCounts;
+    private int _tagNameValidationSuppressionDepth;
+    private int _authorizationFilterSuppressionDepth;
 
     /// <summary>
     /// Monotonic token that changes whenever the set of loaded data extensions changes. Consumed by
@@ -461,6 +463,7 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return base.SaveChanges();
 
+        NormalizeAndValidateTagNames();
         ProtectDenormalizedIdArraysFromDirectWrites();
         var arrayTargets = CollectDerivedArrayTargets();
         var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
@@ -500,6 +503,7 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return await base.SaveChangesAsync(cancellationToken);
 
+        await NormalizeAndValidateTagNamesAsync(cancellationToken);
         ProtectDenormalizedIdArraysFromDirectWrites();
         var arrayTargets = CollectDerivedArrayTargets();
         var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
@@ -527,6 +531,243 @@ public partial class CoveContext : DbContext
             {
                 ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
             }
+        }
+    }
+
+    /// <summary>
+    /// Temporarily disables shared tag-namespace validation for the internal merge implementation,
+    /// which must persist intermediate states before deleting source tags. Callers must leave the
+    /// database in a scanner-clean state before committing their transaction.
+    /// </summary>
+    public IDisposable SuppressTagNameValidation()
+    {
+        _tagNameValidationSuppressionDepth++;
+        return new TagNameValidationScope(this);
+    }
+
+    /// <summary>
+    /// Bypasses row-level read filters for a narrowly scoped internal data-maintenance operation.
+    /// The caller remains responsible for API authorization. This is required for merges because
+    /// references belonging to other users or hidden content must be transferred before a source
+    /// entity is deleted.
+    /// </summary>
+    internal IDisposable SuppressAuthorizationFilters()
+    {
+        _authorizationFilterSuppressionDepth++;
+        return new AuthorizationFilterScope(this);
+    }
+
+    private void NormalizeAndValidateTagNames()
+    {
+        if (_tagNameValidationSuppressionDepth > 0)
+            return;
+
+        var candidates = NormalizeChangedTagNames();
+        if (candidates.Count == 0)
+            return;
+
+        ValidateTrackedTagNames(candidates);
+        var excludedTagIds = CandidateAndDeletedTagIds(candidates);
+        var excludedAliasIds = CandidateAndDeletedAliasIds(candidates);
+        var deletedTagIds = DeletedIds<Tag>();
+        var existingTags = Tags.IgnoreQueryFilters().AsNoTracking()
+            .Where(tag => !excludedTagIds.Contains(tag.Id))
+            .Select(tag => new { tag.Id, tag.Name })
+            .ToList();
+        var existingAliases = Set<TagAlias>().IgnoreQueryFilters().AsNoTracking()
+            .Where(alias => !excludedAliasIds.Contains(alias.Id) && !deletedTagIds.Contains(alias.TagId))
+            .Select(alias => new { alias.Id, alias.TagId, alias.Alias })
+            .ToList();
+
+        ThrowForPersistedConflicts(candidates,
+            existingTags.Select(tag => new TagNameConflictTarget(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                tag.Name,
+                false,
+                tag.Id,
+                null))
+            .Concat(existingAliases
+                .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
+                .Where(row => row.Normalized != null)
+                .Select(row => new TagNameConflictTarget(
+                    TagNameRules.NamespaceKey(row.Normalized!),
+                    row.Alias.Alias,
+                    true,
+                    row.Alias.TagId,
+                    null))));
+    }
+
+    private async Task NormalizeAndValidateTagNamesAsync(CancellationToken cancellationToken)
+    {
+        if (_tagNameValidationSuppressionDepth > 0)
+            return;
+
+        var candidates = NormalizeChangedTagNames();
+        if (candidates.Count == 0)
+            return;
+
+        ValidateTrackedTagNames(candidates);
+        var excludedTagIds = CandidateAndDeletedTagIds(candidates);
+        var excludedAliasIds = CandidateAndDeletedAliasIds(candidates);
+        var deletedTagIds = DeletedIds<Tag>();
+        var existingTags = await Tags.IgnoreQueryFilters().AsNoTracking()
+            .Where(tag => !excludedTagIds.Contains(tag.Id))
+            .Select(tag => new { tag.Id, tag.Name })
+            .ToListAsync(cancellationToken);
+        var existingAliases = await Set<TagAlias>().IgnoreQueryFilters().AsNoTracking()
+            .Where(alias => !excludedAliasIds.Contains(alias.Id) && !deletedTagIds.Contains(alias.TagId))
+            .Select(alias => new { alias.Id, alias.TagId, alias.Alias })
+            .ToListAsync(cancellationToken);
+
+        ThrowForPersistedConflicts(candidates,
+            existingTags.Select(tag => new TagNameConflictTarget(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                tag.Name,
+                false,
+                tag.Id,
+                null))
+            .Concat(existingAliases
+                .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
+                .Where(row => row.Normalized != null)
+                .Select(row => new TagNameConflictTarget(
+                    TagNameRules.NamespaceKey(row.Normalized!),
+                    row.Alias.Alias,
+                    true,
+                    row.Alias.TagId,
+                    null))));
+    }
+
+    private List<TagNameCandidate> NormalizeChangedTagNames()
+    {
+        var candidates = new List<TagNameCandidate>();
+        foreach (var entry in ChangeTracker.Entries<Tag>().Where(entry => entry.State == EntityState.Added
+            || entry.State == EntityState.Modified && entry.Property(tag => tag.Name).IsModified))
+        {
+            entry.Entity.Name = TagNameRules.NormalizeCanonicalName(entry.Entity.Name);
+            candidates.Add(new TagNameCandidate(
+                TagNameRules.NamespaceKey(entry.Entity.Name),
+                entry.Entity.Name,
+                false,
+                entry.Entity.Id > 0 ? entry.Entity.Id : null,
+                null,
+                null));
+        }
+
+        foreach (var entry in ChangeTracker.Entries<TagAlias>()
+            .Where(entry => entry.State == EntityState.Added
+                || entry.State == EntityState.Modified && entry.Property(alias => alias.Alias).IsModified)
+            .ToArray())
+        {
+            var normalized = TagNameRules.NormalizeAlias(entry.Entity.Alias);
+            if (normalized == null)
+            {
+                entry.State = entry.State == EntityState.Added ? EntityState.Detached : EntityState.Deleted;
+                continue;
+            }
+
+            entry.Entity.Alias = normalized;
+            var owningTag = entry.Entity.Tag
+                ?? ChangeTracker.Entries<Tag>().FirstOrDefault(tag => tag.Entity.Id == entry.Entity.TagId)?.Entity;
+            candidates.Add(new TagNameCandidate(
+                TagNameRules.NamespaceKey(normalized),
+                normalized,
+                true,
+                entry.Entity.TagId > 0 ? entry.Entity.TagId : owningTag?.Id > 0 ? owningTag.Id : null,
+                owningTag?.Name,
+                entry.Entity.Id > 0 ? entry.Entity.Id : null));
+        }
+
+        return candidates;
+    }
+
+    private static void ValidateTrackedTagNames(IReadOnlyList<TagNameCandidate> candidates)
+    {
+        var duplicate = candidates
+            .GroupBy(candidate => candidate.Key, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate == null)
+            return;
+
+        ThrowTagNameConflict(duplicate.FirstOrDefault(candidate => candidate.IsAlias) ?? duplicate.First());
+    }
+
+    private static void ThrowForPersistedConflicts(
+        IReadOnlyList<TagNameCandidate> candidates,
+        IEnumerable<TagNameConflictTarget> existingNames)
+    {
+        var targets = existingNames
+            .GroupBy(target => target.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderBy(target => target.IsAlias).ThenBy(target => target.TagId).First(), StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            if (targets.ContainsKey(candidate.Key))
+                ThrowTagNameConflict(candidate);
+        }
+    }
+
+    private static void ThrowTagNameConflict(TagNameConflictTarget conflict)
+        => throw (conflict.IsAlias
+            ? TagNameConflictException.ForAlias(conflict.DisplayName, conflict.OwningTagName)
+            : new TagNameConflictException(conflict.DisplayName));
+
+    private int[] CandidateAndDeletedTagIds(IReadOnlyCollection<TagNameCandidate> candidates)
+        => candidates.Where(candidate => !candidate.IsAlias && candidate.TagId != null)
+            .Select(candidate => candidate.TagId!.Value)
+            .Concat(DeletedIds<Tag>())
+            .Distinct()
+            .ToArray();
+
+    private int[] CandidateAndDeletedAliasIds(IReadOnlyCollection<TagNameCandidate> candidates)
+        => candidates.Where(candidate => candidate.IsAlias && candidate.AliasId != null)
+            .Select(candidate => candidate.AliasId!.Value)
+            .Concat(DeletedIds<TagAlias>())
+            .Distinct()
+            .ToArray();
+
+    private int[] DeletedIds<TEntity>() where TEntity : class
+        => ChangeTracker.Entries<TEntity>()
+            .Where(entry => entry.State == EntityState.Deleted)
+            .Select(entry => entry.Property<int>("Id").CurrentValue)
+            .Where(id => id > 0)
+            .ToArray();
+
+    private record TagNameConflictTarget(
+        string Key,
+        string DisplayName,
+        bool IsAlias,
+        int? TagId,
+        string? OwningTagName);
+
+    private sealed record TagNameCandidate(
+        string Key,
+        string DisplayName,
+        bool IsAlias,
+        int? TagId,
+        string? OwningTagName,
+        int? AliasId)
+        : TagNameConflictTarget(Key, DisplayName, IsAlias, TagId, OwningTagName);
+
+    private sealed class TagNameValidationScope(CoveContext context) : IDisposable
+    {
+        private CoveContext? _context = context;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _context, null);
+            if (owner != null)
+                owner._tagNameValidationSuppressionDepth--;
+        }
+    }
+
+    private sealed class AuthorizationFilterScope(CoveContext context) : IDisposable
+    {
+        private CoveContext? _context = context;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _context, null);
+            if (owner != null)
+                owner._authorizationFilterSuppressionDepth--;
         }
     }
 

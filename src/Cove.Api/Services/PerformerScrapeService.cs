@@ -3,6 +3,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 
@@ -208,13 +209,7 @@ public class PerformerScrapeService(
             if (tagsMode == "replace")
                 performer.PerformerTags.Clear();
 
-            var normalizedKeys = normalizedTagNames
-                .Select(tagName => tagName.ToLowerInvariant())
-                .ToList();
-
-            var lookup = await db.Tags
-                .Where(tag => normalizedKeys.Contains(tag.Name.ToLower()))
-                .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+            var lookup = await RelationNameResolver.ResolveTagsAsync(db, normalizedTagNames, ct);
 
             var existingTagIds = performer.PerformerTags.Select(item => item.TagId).ToHashSet();
             var existingTagNames = performer.PerformerTags

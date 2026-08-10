@@ -38,6 +38,7 @@ import {
   FileText,
   Layers,
   UserCog,
+  AlertTriangle,
   X,
 } from "lucide-react";
 import { customFields, system, jobs, metadata, database, plugins as pluginsApi, logs as logsApi, tagGroups, auth as authApi, usersApi, entityEngagement } from "../api/client";
@@ -95,6 +96,9 @@ import { KEYBINDING_GROUPS, keybindingDefault, normalizeShortcutEvent, normalize
 import { openTutorialStoryboard } from "../components/TutorialStoryboardDialog";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { LibraryFolderTree } from "../components/LibraryFolderTree";
+import { TagNameConflictCleanupPanel } from "../features/tag-name-conflicts/TagNameConflictCleanupPanel";
+import { TagNameConflictReadinessStatus, TagNameConflictReadinessUnknownStatus } from "../features/tag-name-conflicts/TagNameConflictWarning";
+import { TAG_NAME_CONFLICTS_PERMISSION, useTagNameConflictSummary } from "../features/tag-name-conflicts/useTagNameConflicts";
 
 type LegacySettingsTab = "tasks" | "library" | "interface" | "user-settings" | "display-profiles" | "ai-data" | "security" | "metadata-providers" | "extensions" | "system" | "about";
 type BuiltInSettingsTab =
@@ -116,6 +120,7 @@ type BuiltInSettingsTab =
   | "operations-duplicates"
   | "operations-maintenance"
   | "operations-backup-restore"
+  | "operations-tag-name-conflicts"
   | "operations-extension-tasks"
   | "data-sources-scrapers"
   | "data-sources-metadata-servers"
@@ -201,6 +206,7 @@ const primaryTabs: BuiltInSettingsTabDefinition[] = [
   { key: "operations-duplicates", label: "Duplicates", icon: Search },
   { key: "operations-maintenance", label: "Maintenance", icon: HardDrive },
   { key: "operations-backup-restore", label: "Backup & Restore", icon: Upload },
+  { key: "operations-tag-name-conflicts", label: "Tag Name Conflicts", icon: AlertTriangle },
   { key: "operations-extension-tasks", label: "Extension Tasks", icon: Plug },
   { key: "data-sources-scrapers", label: "Scrapers", icon: SearchCode },
   { key: "data-sources-metadata-servers", label: "Metadata Servers", icon: Server },
@@ -230,7 +236,7 @@ const tabs: BuiltInSettingsTabDefinition[] = [...primaryTabs, ...authTabs];
 const tabByKey = new Map<BuiltInSettingsTab, BuiltInSettingsTabDefinition>(tabs.map((tab) => [tab.key, tab]));
 const settingsTabGroups: SettingsTabGroupDefinition[] = [
   { key: "my-settings", label: "My Settings", icon: UserCog, tabs: ["my-account", "my-appearance-theme", "my-theme", "my-playback-viewers", "my-lists-wall", "keyboard-shortcuts", "my-activity-history"] },
-  { key: "operations", label: "Operations", icon: PlayCircle, tabs: ["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-extension-tasks"] },
+  { key: "operations", label: "Operations", icon: PlayCircle, tabs: ["operations-jobs", "operations-scan-generate", "operations-downloads", "operations-duplicates", "operations-maintenance", "operations-backup-restore", "operations-tag-name-conflicts", "operations-extension-tasks"] },
   { key: "library", label: "Library", icon: FolderOpen, tabs: ["library-paths-storage", "library-scanning", "library-custom-fields", "library-display-profiles"] },
   { key: "data-sources", label: "Data Sources & Data", icon: SearchCode, tabs: ["data-sources-scrapers", "data-sources-metadata-servers", "data-sources-identify-batch-defaults", "data-sources-downloader-paths", "data-sources-ai-data"] },
   { key: "extensions", label: "Extensions", icon: Plug, tabs: ["extensions-installed", "extensions-registry", "extensions-customizations"] },
@@ -259,6 +265,7 @@ const settingsTabCanonicalPaths: Partial<Record<BuiltInSettingsTab, string>> = {
   "operations-duplicates": "/settings/operations/duplicates",
   "operations-maintenance": "/settings/operations/maintenance",
   "operations-backup-restore": "/settings/operations/backup-restore",
+  "operations-tag-name-conflicts": "/settings/operations/tag-name-conflicts",
   "operations-extension-tasks": "/settings/operations/extension-tasks",
   "data-sources-scrapers": "/settings/data-sources/scrapers",
   "data-sources-metadata-servers": "/settings/data-sources/metadata-servers",
@@ -318,6 +325,7 @@ const settingsPathAliases: Partial<Record<string, SettingsTab>> = {
   "operations/duplicate-finder": "operations-duplicates",
   "operations/maintenance": "operations-maintenance",
   "operations/backup-restore": "operations-backup-restore",
+  "operations/tag-name-conflicts": "operations-tag-name-conflicts",
   "operations/extension-tasks": "operations-extension-tasks",
   "data-sources": "data-sources-scrapers",
   "data-sources/scrapers": "data-sources-scrapers",
@@ -372,6 +380,7 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "operations-duplicates": "Open duplicate detection and cleanup tools.",
   "operations-maintenance": "Clean orphaned records, generated files, imports, and database statistics.",
   "operations-backup-restore": "Database/config backup, restore, import/export, and wipe operations.",
+  "operations-tag-name-conflicts": "Review tag names and aliases that conflict under the Cove 1.3.0 shared namespace rules.",
   "operations-extension-tasks": "Run tasks provided by enabled extensions.",
   "data-sources-scrapers": "Legacy YAML scraper directories, scraper preferences, and discovered scrapers.",
   "data-sources-metadata-servers": "MetadataServer endpoint configuration and validation.",
@@ -405,6 +414,7 @@ const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
   "operations-duplicates": ["duplicates", "duplicate finder", "exact duplicate", "cleanup"],
   "operations-maintenance": ["clean", "clean generated", "orphaned", "optimize", "vacuum", "analyse"],
   "operations-backup-restore": ["backup", "restore", "export", "import", "config backup", "wipe", "danger zone"],
+  "operations-tag-name-conflicts": ["tag", "alias", "conflict", "unique", "upgrade", "1.3.0", "merge"],
   "data-sources-downloader-paths": ["downloader", "save path", "path override", "site override"],
   "system-info-about": ["about", "version", "release history", "changelog", "setup tour"],
   "system-info-runtime-status": ["runtime", "status", "shutdown", "database", "config file", "app directory"],
@@ -1034,6 +1044,8 @@ export function SettingsPage() {
   const canReadSegments = hasPermission("segments.read");
   const canWriteSegments = hasPermission("segments.write");
   const canReadJobs = hasPermission("jobs.read");
+  const canManageTagNameConflicts = hasPermission(TAG_NAME_CONFLICTS_PERMISSION);
+  const tagNameConflictSummary = useTagNameConflictSummary(canManageTagNameConflicts);
   const libraryExtensionsPanels = getSettingsPanelsForTab("library", "extensions");
   const libraryStandalonePanels = getSettingsPanelsForTab("library");
   const extensionSettingsPathAliases = useMemo<Partial<Record<string, SettingsTab>>>(() => {
@@ -1438,11 +1450,13 @@ export function SettingsPage() {
           return canWriteSystemSettings || canReadJobs;
         case "operations-extension-tasks":
           return canWriteSystemSettings && availablePluginTasks.length > 0;
+        case "operations-tag-name-conflicts":
+          return canManageTagNameConflicts;
         default:
           return canWriteSystemSettings;
       }
     });
-  }, [availablePluginTasks.length, canReadJobs, canReadSegments, canWriteSystemSettings]);
+  }, [availablePluginTasks.length, canManageTagNameConflicts, canReadJobs, canReadSegments, canWriteSystemSettings]);
 
   const visibleExtensionSettingsTabs = useMemo(
     () => canWriteSystemSettings ? extensionSettingsTabs : [],
@@ -1952,6 +1966,10 @@ export function SettingsPage() {
               </SectionCard>
             ) : null}
           />
+        )}
+
+        {resolvedActiveTab === "operations-tag-name-conflicts" && canManageTagNameConflicts && (
+          <TagNameConflictCleanupPanel />
         )}
 
         {(["library-paths-storage", "library-scanning", "data-sources-downloader-paths"] as SettingsTab[]).includes(resolvedActiveTab) && (
@@ -3773,6 +3791,14 @@ export function SettingsPage() {
 
         {resolvedActiveTab === "system-info-runtime-status" && (
           <>
+            {canManageTagNameConflicts ? (
+              <SectionCard title="Cove 1.3.0 Readiness" description="Tag namespace compatibility checked by the running Cove 1.2 instance.">
+                {tagNameConflictSummary.data
+                  ? <TagNameConflictReadinessStatus unresolvedGroupCount={tagNameConflictSummary.data.unresolvedGroupCount} />
+                  : <TagNameConflictReadinessUnknownStatus checking={tagNameConflictSummary.isLoading} />}
+              </SectionCard>
+            ) : null}
+
             {canShutdownSystem ? (
               <SectionCard title="Shutdown" description="Stop the current Cove server process after pending requests complete.">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

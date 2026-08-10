@@ -11,6 +11,7 @@ using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 
 namespace Cove.Api.Services;
 
@@ -2180,11 +2181,9 @@ query Me {
         var tag = await _db.Tags
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
-            .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct)
-            ?? await _db.Tags
-                .Include(entity => entity.RemoteIds)
-                .Include(entity => entity.Aliases)
-                .FirstOrDefaultAsync(entity => entity.Name == remote.Name, ct);
+            .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct);
+        var matchedByRemoteId = tag != null;
+        tag ??= (await RelationNameResolver.ResolveTagsAsync(_db, [remote.Name], ct)).GetValueOrDefault(remote.Name.Trim());
 
         if (tag == null && !allowCreate)
         {
@@ -2197,7 +2196,8 @@ query Me {
             _db.Tags.Add(tag);
         }
 
-        tag.Name = remote.Name.Trim();
+        if (tag.Id == 0 || matchedByRemoteId)
+            tag.Name = remote.Name.Trim();
         tag.Description = Coalesce(tag.Description, remote.Description) ?? tag.Description;
         MergeAliases(tag, remote.Aliases);
         UpsertRemoteId(tag.RemoteIds, endpoint, remote.Id, id => id.Endpoint, id => id.RemoteId, (id, value) => id.RemoteId = value, value => new TagRemoteId { Endpoint = endpoint, RemoteId = value });
@@ -2526,7 +2526,7 @@ query Me {
             return [];
 
         var remoteIds = remoteTags.Select(tag => tag.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var remoteNames = remoteTags.Select(tag => tag.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var remoteNames = remoteTags.Select(tag => tag.Name.Trim()).Distinct(TagNameRules.NamespaceComparer).ToList();
 
         var matchedByRemoteId = remoteIds.Count == 0
             ? []
@@ -2536,12 +2536,7 @@ query Me {
                     .Select(remoteId => new { remoteId.RemoteId, TagId = tag.Id }))
                 .ToListAsync(ct);
 
-        var matchedByName = remoteNames.Count == 0
-            ? []
-            : await _db.Tags
-                .Where(tag => remoteNames.Contains(tag.Name))
-                .Select(tag => new { tag.Name, tag.Id })
-                .ToListAsync(ct);
+        var matchedByName = await RelationNameResolver.ResolveTagsAsync(_db, remoteNames, ct);
 
         var idsByRemoteId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in matchedByRemoteId)
@@ -2549,16 +2544,15 @@ query Me {
             idsByRemoteId.TryAdd(match.RemoteId, match.TagId);
         }
 
-        var idsByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var match in matchedByName)
-        {
-            idsByName.TryAdd(match.Name, match.Id);
-        }
-
         return remoteTags.Select(remoteTag =>
         {
             var name = remoteTag.Name.Trim();
-            var exists = idsByRemoteId.TryGetValue(remoteTag.Id, out var localId) || idsByName.TryGetValue(name, out localId);
+            var exists = idsByRemoteId.TryGetValue(remoteTag.Id, out var localId);
+            if (!exists && matchedByName.TryGetValue(name, out var nameMatch))
+            {
+                exists = true;
+                localId = nameMatch.Id;
+            }
             return new MetadataServerEntityCandidateDto(remoteTag.Id, name, exists, exists ? localId : null);
         }).ToList();
     }

@@ -2,6 +2,34 @@ import type { ServerAvailability } from "../state/serverAvailability";
 
 export const SERVER_UNAVAILABLE_DETAIL = "Cove can’t reach the server right now.";
 
+function getApiErrorDetails(message: string): { status: number; detail?: string } | null {
+  const match = message.match(/^API Error (\d{3})\s*:\s*([\s\S]*)$/i);
+  if (!match) return null;
+
+  const status = Number(match[1]);
+  const body = match[2].trim();
+  if (!body) return { status };
+
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (parsed && typeof parsed === "object" && "message" in parsed) {
+      const detail = (parsed as { message?: unknown }).message;
+      if (typeof detail === "string" && detail.trim()) return { status, detail: detail.trim() };
+    }
+  } catch {
+    // Non-JSON response bodies are implementation details, so keep the generic copy below.
+  }
+
+  return { status };
+}
+
+export function getApiValidationFailureDetail(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const apiError = getApiErrorDetails(message);
+  if (apiError && [400, 409, 422].includes(apiError.status) && apiError.detail) return apiError.detail;
+  return getRequestFailureDetail(error, "available");
+}
+
 export function getRequestFailureDetail(error: unknown, availability: ServerAvailability): string {
   if (availability !== "available") return SERVER_UNAVAILABLE_DETAIL;
 

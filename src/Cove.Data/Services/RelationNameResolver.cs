@@ -40,17 +40,47 @@ public static class RelationNameResolver
     /// </summary>
     public static async Task<Dictionary<string, Tag>> ResolveTagsAsync(CoveContext db, IReadOnlyCollection<string> names, CancellationToken ct = default)
     {
-        var normalized = NormalizeSet(names);
-        if (normalized.Count == 0)
-            return new Dictionary<string, Tag>(StringComparer.OrdinalIgnoreCase);
+        var requested = names
+            .Select(name => TagNameRules.NormalizeAlias(name))
+            .Where(name => name != null)
+            .Select(name => name!)
+            .Distinct(TagNameRules.NamespaceComparer)
+            .ToArray();
+        if (requested.Length == 0)
+            return new Dictionary<string, Tag>(TagNameRules.NamespaceComparer);
 
+        // Deliberately evaluate the shared namespace key in .NET. SQL trim/case-fold behavior varies
+        // by provider and collation; the scanner, write validator, and resolver must interpret a name
+        // identically during the 1.2 compatibility window.
         var candidates = await db.Tags
             .Include(tag => tag.Aliases)
-            .Where(tag => normalized.Contains(tag.Name.Trim().ToLower())
-                || tag.Aliases.Any(alias => normalized.Contains(alias.Alias.Trim().ToLower())))
+            .OrderBy(tag => tag.Id)
             .ToListAsync(ct);
 
-        return BuildLookup(names, candidates, tag => tag.Name, tag => tag.Aliases.Select(alias => alias.Alias));
+        var byName = new Dictionary<string, Tag>(StringComparer.Ordinal);
+        var byAlias = new Dictionary<string, Tag>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            byName.TryAdd(TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(candidate.Name)), candidate);
+            foreach (var alias in candidate.Aliases.OrderBy(alias => alias.Id))
+            {
+                var normalizedAlias = TagNameRules.NormalizeAlias(alias.Alias);
+                if (normalizedAlias != null)
+                    byAlias.TryAdd(TagNameRules.NamespaceKey(normalizedAlias), candidate);
+            }
+        }
+
+        var result = new Dictionary<string, Tag>(TagNameRules.NamespaceComparer);
+        foreach (var name in requested)
+        {
+            var key = TagNameRules.NamespaceKey(name);
+            if (byName.TryGetValue(key, out var canonicalMatch))
+                result[name] = canonicalMatch;
+            else if (byAlias.TryGetValue(key, out var aliasMatch))
+                result[name] = aliasMatch;
+        }
+
+        return result;
     }
 
     private static Dictionary<string, T> BuildLookup<T>(

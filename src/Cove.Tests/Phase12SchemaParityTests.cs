@@ -1,7 +1,11 @@
 using System.Net;
 using System.Net.Sockets;
+using Cove.Core.Auth;
+using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -52,13 +56,128 @@ public sealed class Phase12SchemaParityTests
         }
     }
 
-    private static CoveContext CreateContext(int port, string databaseName)
+    [Fact]
+    public async Task TagExternalReferenceInspector_CountsForeignKeysOutsideTheCoreMergeContract()
+    {
+        var managedRoot = ResolveManagedPostgresRoot();
+        if (managedRoot == null)
+            return;
+
+        var databaseName = $"tag_external_refs_{Guid.NewGuid():N}";
+        await using var environment = await CreateEnvironmentAsync(managedRoot);
+        await CreateDatabaseAsync(environment.AdminConnectionString, databaseName);
+
+        try
+        {
+            await using var context = CreateContext(environment.Port, databaseName);
+            await context.Database.MigrateAsync();
+            var referenced = new Cove.Core.Entities.Tag { Name = "Referenced fixture" };
+            var unreferenced = new Cove.Core.Entities.Tag { Name = "Unreferenced fixture" };
+            context.Tags.AddRange(referenced, unreferenced);
+            await context.SaveChangesAsync();
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE extension_tag_reference_fixture (
+                    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    tag_id integer NOT NULL REFERENCES tags("Id") ON DELETE RESTRICT
+                );
+                """);
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO extension_tag_reference_fixture (tag_id) VALUES ({referenced.Id})");
+
+            var counts = await new PostgresTagExternalReferenceInspector(context)
+                .CountAsync([referenced.Id, unreferenced.Id]);
+
+            Assert.Equal(1, counts[referenced.Id]);
+            Assert.Equal(0, counts[unreferenced.Id]);
+        }
+        finally
+        {
+            await DropDatabaseAsync(environment.AdminConnectionString, databaseName);
+        }
+    }
+
+    [Fact]
+    public async Task TagMergeService_TransfersRowsHiddenFromTheInitiatingPrincipal()
+    {
+        var managedRoot = ResolveManagedPostgresRoot();
+        if (managedRoot == null)
+            return;
+
+        var databaseName = $"tag_merge_filter_bypass_{Guid.NewGuid():N}";
+        await using var environment = await CreateEnvironmentAsync(managedRoot);
+        await CreateDatabaseAsync(environment.AdminConnectionString, databaseName);
+
+        try
+        {
+            int targetId;
+            int sourceId;
+            int initiatingUserId;
+            await using (var setup = CreateContext(environment.Port, databaseName))
+            {
+                await setup.Database.MigrateAsync();
+                var target = new Tag { Name = "Target fixture" };
+                var source = new Tag { Name = "Source fixture" };
+                var initiatingUser = new User { Username = "initiating-fixture", PasswordHash = "fixture" };
+                var otherUser = new User { Username = "other-fixture", PasswordHash = "fixture" };
+                setup.AddRange(target, source, initiatingUser, otherUser);
+                await setup.SaveChangesAsync();
+                setup.Ratings.AddRange(
+                    new Rating { UserId = initiatingUser.Id, HostType = RatingHostType.Tag, HostId = source.Id, Value = 60 },
+                    new Rating { UserId = otherUser.Id, HostType = RatingHostType.Tag, HostId = source.Id, Value = 80 });
+                await setup.SaveChangesAsync();
+                targetId = target.Id;
+                sourceId = source.Id;
+                initiatingUserId = initiatingUser.Id;
+            }
+
+            var principalAccessor = new CurrentPrincipalAccessor();
+            principalAccessor.Set(new CovePrincipal
+            {
+                UserId = initiatingUserId,
+                Username = "initiating-fixture",
+                Kind = PrincipalKind.User,
+                Roles = new HashSet<string>(StringComparer.Ordinal),
+                Permissions = new HashSet<string>(
+                    [Permissions.TagsRead, Permissions.TagsWrite, Permissions.TagsDelete],
+                    StringComparer.Ordinal),
+            });
+            try
+            {
+                await using var filtered = CreateContext(environment.Port, databaseName, principalAccessor);
+                await new TagMergeService(
+                        filtered,
+                        externalReferenceInspector: new PostgresTagExternalReferenceInspector(filtered))
+                    .MergeAsync(targetId, [sourceId]);
+            }
+            finally
+            {
+                principalAccessor.Set(null);
+            }
+
+            await using var verify = CreateContext(environment.Port, databaseName);
+            var ratings = await verify.Ratings
+                .IgnoreQueryFilters()
+                .OrderBy(rating => rating.UserId)
+                .ToListAsync();
+            Assert.Equal(2, ratings.Count);
+            Assert.All(ratings, rating => Assert.Equal(targetId, rating.HostId));
+        }
+        finally
+        {
+            await DropDatabaseAsync(environment.AdminConnectionString, databaseName);
+        }
+    }
+
+    private static CoveContext CreateContext(
+        int port,
+        string databaseName,
+        ICurrentPrincipalAccessor? principalAccessor = null)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseNpgsql(BuildConnectionString(port, databaseName), npgsqlOptions => npgsqlOptions.UseVector())
             .Options;
 
-        return new CoveContext(options);
+        return new CoveContext(options, principalAccessor);
     }
 
     private static string BuildConnectionString(int port, string databaseName)
@@ -218,4 +337,3 @@ public sealed class Phase12SchemaParityTests
         }
     }
 }
-

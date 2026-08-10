@@ -41,6 +41,7 @@ public static class Permissions
     public const string TagsRead = "tags.read";
     public const string TagsWrite = "tags.write";
     public const string TagsDelete = "tags.delete";
+    public const string TagNameConflictsManage = "tags.name-conflicts.manage";
     public const string TagGroupsRead = "taggroups.read";
     public const string TagGroupsWrite = "taggroups.write";
     public const string TagGroupsDelete = "taggroups.delete";
@@ -162,6 +163,7 @@ public static class Permissions
         new(TagsRead, "Tags", "View tags."),
         new(TagsWrite, "Tags", "Create or edit tags.", Implies: [TagsRead]),
         new(TagsDelete, "Tags", "Delete tags.", Dangerous: true, Implies: [TagsRead]),
+        new(TagNameConflictsManage, "Tags", "Review and resolve tag name and alias conflicts before namespace enforcement.", Dangerous: true, Implies: [TagsRead, TagsWrite, TagsDelete], GrantToAdminsByDefault: true),
         new(TagGroupsRead, "Tag Groups", "View tag groups."),
         new(TagGroupsWrite, "Tag Groups", "Create or edit tag groups.", Implies: [TagGroupsRead, TagsRead]),
         new(TagGroupsDelete, "Tag Groups", "Delete tag groups.", Dangerous: true, Implies: [TagGroupsRead, TagsRead]),
@@ -300,4 +302,3 @@ public sealed record PermissionDefinition(
     string[]? Implies = null,
     string Source = "core",
     bool GrantToAdminsByDefault = false);
-

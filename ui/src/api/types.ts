@@ -410,6 +410,62 @@ export interface TagUpdate extends Partial<TagCreate> {
   clearFields?: string[];
 }
 
+export interface TagNameConflictScan {
+  unresolvedGroupCount: number;
+  scannedAtUtc: string;
+  revision: string;
+  groups: TagNameConflictGroup[];
+}
+
+export interface TagNameConflictSummary {
+  unresolvedGroupCount: number;
+  scannedAtUtc: string;
+}
+
+export interface TagNameConflictGroup {
+  key: string;
+  revision: string;
+  normalizedName: string;
+  kinds: string[];
+  requiresMerge: boolean;
+  hasCrossTagClaims: boolean;
+  recommendedSurvivorTagId: number;
+  recommendedMergeTagIds: number[];
+  recommendedRemoveAliasIds: number[];
+  claims: TagNameConflictClaim[];
+  impacts: TagNameConflictImpact[];
+}
+
+export interface TagNameConflictClaim {
+  tagId: number;
+  tagName: string;
+  claimType: "tag-name" | "alias";
+  aliasId?: number | null;
+  originalValue: string;
+  normalizedValue?: string | null;
+  recommendedAction: "keep" | "merge-tag" | "remove-alias";
+  isRecommendedSurvivingClaim: boolean;
+}
+
+export interface TagNameClaimResolution {
+  tagId: number;
+  aliasId?: number | null;
+  action: "merge-tag" | "remove-alias" | "rename";
+  newValue?: string | null;
+}
+
+export interface TagNameConflictImpact {
+  tagId: number;
+  tagName: string;
+  taggedEntityCount: number;
+  segmentCount: number;
+  parentRelationshipCount: number;
+  childRelationshipCount: number;
+  ratingCount: number;
+  otherMetadataCount: number;
+  extensionMetadataCount: number;
+}
+
 export interface Studio {
   id: number;
   name: string;

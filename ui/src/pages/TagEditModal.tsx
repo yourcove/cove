@@ -7,6 +7,7 @@ import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
 import { StringListEditor } from "../components/StringListEditor";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 interface Props {
   tag: TagDetail;
@@ -48,7 +49,18 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   const parentTagProvenanceById = buildTagProvenanceById(tag.parents, tag.fieldProvenance, "parents");
   const childTagProvenanceById = buildTagProvenanceById(tag.children, tag.fieldProvenance, "children");
 
+  const mutation = useMutation({
+    meta: { suppressGlobalError: true },
+    mutationFn: (data: TagUpdate) => tags.update(tag.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tag", tag.id] });
+      queryClient.invalidateQueries({ queryKey: ["tags"] });
+      onClose();
+    },
+  });
+
   useEffect(() => {
+    mutation.reset();
     setName(tag.name);
     setSortName(tag.sortName ?? "");
     setDescription(tag.description ?? "");
@@ -66,14 +78,10 @@ export function TagEditModal({ tag, open, onClose }: Props) {
     setCustomFields({ ...(tag.customFields ?? {}) });
   }, [tag]);
 
-  const mutation = useMutation({
-    mutationFn: (data: TagUpdate) => tags.update(tag.id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tag", tag.id] });
-      queryClient.invalidateQueries({ queryKey: ["tags"] });
-      onClose();
-    },
-  });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
 
   const handleSave = () => {
     const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
@@ -102,7 +110,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   };
 
   return (
-    <EditModal title={`Edit Tag: ${tag.name}`} open={open} onClose={onClose}>
+    <EditModal title={`Edit Tag: ${tag.name}`} open={open} onClose={handleClose}>
       <Field label="Name *" fieldProvenance={tag.fieldProvenance} fieldKey="name">
         <TextInput value={name} onChange={setName} placeholder="Tag name" />
       </Field>
@@ -202,8 +210,14 @@ export function TagEditModal({ tag, open, onClose }: Props) {
         <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="tag" />
       </Field>
 
+      {mutation.error ? (
+        <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          {getApiValidationFailureDetail(mutation.error)}
+        </div>
+      ) : null}
+
       <div className="flex justify-end gap-3 mt-4">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
         <SaveButton loading={mutation.isPending} onClick={handleSave} />
       </div>
     </EditModal>

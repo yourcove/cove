@@ -14,6 +14,7 @@ public partial class CoveContext
     internal CovePrincipal? CurrentPrincipalForReadOptimization => CurrentPrincipal;
 
     private bool AuthorizationFiltersBypassed =>
+        _authorizationFilterSuppressionDepth > 0 ||
         CurrentPrincipal is null ||
         CurrentPrincipal.Kind == PrincipalKind.System ||
         CurrentPrincipal.Has("*");

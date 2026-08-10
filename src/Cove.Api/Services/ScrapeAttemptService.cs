@@ -954,10 +954,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = audio.AudioTags
             .Where(item => item.Tag != null)
@@ -1011,10 +1008,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = textDocument.TextTags
             .Where(item => item.Tag != null)
@@ -1068,10 +1062,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = image.ImageTags
             .Where(item => item.Tag != null)
@@ -1125,10 +1116,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = gallery.GalleryTags
             .Where(item => item.Tag != null)
@@ -1694,8 +1682,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (tagLookup.TryGetValue(normalizedName, out var existingTag))
             return existingTag;
 
-        var normalizedKey = normalizedName.ToLowerInvariant();
-        var tag = await db.Tags.FirstOrDefaultAsync(item => item.Name.ToLower() == normalizedKey, ct);
+        var tag = (await RelationNameResolver.ResolveTagsAsync(db, [normalizedName], ct)).GetValueOrDefault(normalizedName);
         if (tag == null)
         {
             if (!createMissing)

@@ -20,6 +20,7 @@ public static class DataServiceExtensions
         // Register it here so AddCoveData remains a complete composition unit outside Cove.Api.
         services.AddMemoryCache();
         services.AddSingleton<IBlobReferenceCoordinator, BlobReferenceCoordinator>();
+        services.AddScoped<BlobReferenceTransactionCoordinator>();
         services.AddScoped<BlobReferenceSaveChangesInterceptor>();
 
         services.AddSingleton(sp =>
@@ -84,6 +85,10 @@ public static class DataServiceExtensions
         services.AddScoped<FacePerformerPropagationService>();
         services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
         services.AddScoped<ISegmentRepository, SegmentRepository>();
+        services.AddScoped<ITagExternalReferenceInspector, PostgresTagExternalReferenceInspector>();
+        services.AddScoped<TagMergeService>();
+        services.AddScoped<TagNameConflictScanner>();
+        services.AddScoped<TagNameConflictCleanupService>();
         services.AddScoped<IDetectionRepository, DetectionRepository>();
         services.AddScoped<IFaceRepository, FaceRepository>();
         services.AddScoped<IPerformerMergeService, PerformerMergeService>();

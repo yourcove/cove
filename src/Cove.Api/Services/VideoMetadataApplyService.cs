@@ -3,6 +3,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -116,10 +117,7 @@ public class VideoMetadataApplyService(CoveContext db, IEventBus eventBus, IVide
         if (names.Count == 0)
             return;
 
-        var normalizedNames = names.Select(name => name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, names, ct);
 
         var existing = video.VideoTags
             .Where(item => item.Tag != null)

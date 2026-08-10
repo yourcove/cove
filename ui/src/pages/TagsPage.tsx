@@ -27,6 +27,7 @@ import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
 import { TAG_MULTI_SORT_KEYS, TAG_SORT_OPTIONS } from "../components/tagSortOptions";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 const GRAPH_VIEW_LIMIT = 5000;
 
@@ -159,7 +160,7 @@ export function TagsPage({ onNavigate }: Props) {
       onInvertSelection={invertSelection}
       selectionActions={(
         <>
-          {canWriteTag && selectedIds.size >= 2 && (
+          {canWriteTag && canDeleteTag && selectedIds.size >= 2 && (
             <button
               onClick={() => setShowMerge(true)}
               className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
@@ -342,7 +343,7 @@ export function TagCreateModal({ open, onClose, onCreated }: { open: boolean; on
       </Field>
       {mutation.error ? (
         <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-          {mutation.error.message}
+          {getApiValidationFailureDetail(mutation.error)}
         </div>
       ) : null}
       <CreateModalActions loading={mutation.isPending} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} onSave={() => mutation.mutate({
