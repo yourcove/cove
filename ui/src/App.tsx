@@ -552,7 +552,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
       {route.page === "home" && <HomePage onNavigate={navigate} />}
       {route.page === "manual" && <HomePage onNavigate={navigate} />}
       {route.page === "videos" && <VideosPage onNavigate={navigate} />}
-      {route.page === "video" && route.id !== undefined && <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} onNavigate={navigate} />}
+      {route.page === "video" && route.id !== undefined && <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} initialTab={route.videoTab} onNavigate={navigate} />}
       {route.page === "audios" && <AudiosPage onNavigate={navigate} />}
       {route.page === "audio" && route.id !== undefined && <AudioDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "texts" && <TextsPage onNavigate={navigate} />}

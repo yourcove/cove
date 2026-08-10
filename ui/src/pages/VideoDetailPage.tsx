@@ -48,8 +48,8 @@ import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
 import { trackInteraction } from "../utils/interactionTracking";
 import { formatDateTime } from "../utils/dateFormat";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
-import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailable } from "../components/VisualSimilarityPanel";
-import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailable } from "../components/AudioSimilarityPanel";
+import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailability } from "../components/VisualSimilarityPanel";
+import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailability } from "../components/AudioSimilarityPanel";
 import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
@@ -67,6 +67,7 @@ const VideoMetadataTaggerDialog = lazy(() => import("../components/MetadataTagge
 interface Props {
   id: number;
   initialSeekTo?: number;
+  initialTab?: string;
   onNavigate: (r: any) => void;
 }
 
@@ -166,7 +167,7 @@ function VideoQueuePanel({
 
 type TabKey = "details" | "segments" | "filters" | "file-info" | "edit" | "history" | string;
 
-export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
+export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: Props) {
   const { data: video, isLoading, error: videoError, refetch: retryVideo } = useQuery({
     queryKey: ["video", id],
     queryFn: () => videos.get(id),
@@ -191,7 +192,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const [showIdentify, setShowIdentify] = useState(false);
   const [showScrapeDialog, setShowScrapeDialog] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("details");
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "details");
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilterState>(EMPTY_SEGMENT_FILTER);
   const queryClient = useQueryClient();
@@ -454,8 +455,10 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const segmentFilterContext = useMemo<SegmentFilterContext>(() => ({ rawSegmentsById: segmentRawById, tagIdToGroupId }), [segmentRawById, tagIdToGroupId]);
 
   useEffect(() => { setSegmentFilter(EMPTY_SEGMENT_FILTER); }, [id]);
-  const hasVisualSimilarity = useVideoVisualSimilarityAvailable(id);
-  const hasAudioSimilarity = useVideoAudioSimilarityAvailable(id);
+  const visualSimilarityAvailability = useVideoVisualSimilarityAvailability(id);
+  const audioSimilarityAvailability = useVideoAudioSimilarityAvailability(id);
+  const hasVisualSimilarity = visualSimilarityAvailability.available;
+  const hasAudioSimilarity = audioSimilarityAvailability.available;
   const videoExtTabs = useMemo(() => getTabsForPage("video"), [getTabsForPage]);
 
   const tabs = filterItemsByPermission([
@@ -475,10 +478,14 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   }, hasPermission);
 
   useEffect(() => {
+    if ((activeTab === "similar" && visualSimilarityAvailability.loading)
+      || (activeTab === "audio-similar" && audioSimilarityAvailability.loading)) {
+      return;
+    }
     if (!tabs.some((tab) => tab.key === activeTab)) {
       setActiveTab("details");
     }
-  }, [activeTab, tabs]);
+  }, [activeTab, audioSimilarityAvailability.loading, tabs, visualSimilarityAvailability.loading]);
 
   useEffect(() => {
     if (!queue || queueCurrentId === id) {
@@ -494,12 +501,12 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
   const queueSyncedToVideo = queueCurrentId === id;
   const navigatePreviousVideo = useCallback(async () => {
     const targetId = await goPrevious();
-    if (targetId != null) onNavigate({ page: "video", id: targetId });
-  }, [goPrevious, onNavigate]);
+    if (targetId != null) onNavigate({ page: "video", id: targetId, videoTab: activeTab });
+  }, [activeTab, goPrevious, onNavigate]);
   const navigateNextVideo = useCallback(async () => {
     const targetId = await goNext();
-    if (targetId != null) onNavigate({ page: "video", id: targetId });
-  }, [goNext, onNavigate]);
+    if (targetId != null) onNavigate({ page: "video", id: targetId, videoTab: activeTab });
+  }, [activeTab, goNext, onNavigate]);
 
   const videoKeyboardShortcuts = useMemo(() => [
     { key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
@@ -724,7 +731,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
       canAddHistoricalLike={canWriteVideo}
     />
   ) : activeTab === "edit" ? (
-    <VideoEditPanel video={video} onSaved={() => setActiveTab("details")} onNavigate={onNavigate} onRequestReportTag={requestReportTag} />
+    <VideoEditPanel video={video} onCancel={() => setActiveTab("details")} onNavigate={onNavigate} onRequestReportTag={requestReportTag} />
   ) : activeTab.startsWith("ext:") ? (() => {
     const extTabKey = activeTab.replace("ext:", "");
     const extTab = videoExtTabs.find((tab) => tab.key === extTabKey);
@@ -802,7 +809,7 @@ export function VideoDetailPage({ id, initialSeekTo, onNavigate }: Props) {
           onToggleAutoplay={toggleAutoplay}
           onNavigate={(videoId, index) => {
             goToIndex(index);
-            onNavigate({ page: "video", id: videoId });
+            onNavigate({ page: "video", id: videoId, videoTab: activeTab });
           }}
         />
       ) : null}
@@ -2203,7 +2210,7 @@ function DetectionsPanel({
 }
 
 // ===== Inline Video Edit Panel =====
-function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { video: Video; onSaved: () => void; onNavigate?: (r: any) => void; onRequestReportTag?: (tag: any) => void }) {
+function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { video: Video; onCancel: () => void; onNavigate?: (r: any) => void; onRequestReportTag?: (tag: any) => void }) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
   const [title, setTitle] = useState(video.title || "");
@@ -2244,7 +2251,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
       await syncVideoEditPerformerContextTags(video.id, video.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
       return updated;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", video.id] }); queryClient.invalidateQueries({ queryKey: ["tagapplications"] }); queryClient.invalidateQueries({ queryKey: ["videos"] }); onSaved(); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", video.id] }); queryClient.invalidateQueries({ queryKey: ["tagapplications"] }); queryClient.invalidateQueries({ queryKey: ["videos"] }); },
   });
 
   const handleSave = () => {
@@ -2424,7 +2431,7 @@ function VideoEditPanel({ video, onSaved, onNavigate, onRequestReportTag }: { vi
       {mutation.error && <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 text-sm">{(mutation.error as Error).message}</div>}
 
       <div className="flex justify-end gap-3 pt-2">
-        <button onClick={onSaved} className="px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
+        <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
         <button onClick={handleSave} disabled={mutation.isPending} className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50">
           {mutation.isPending ? "Saving…" : "Save"}
         </button>
