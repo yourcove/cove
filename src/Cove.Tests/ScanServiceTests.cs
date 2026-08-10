@@ -2067,10 +2067,15 @@ public class ScanServiceTests
 
     private sealed class NoOpThumbnailService(string? generatedRoot = null) : IThumbnailService
     {
-        public int VideoThumbnailCallCount { get; private set; }
-        public int VideoPreviewCallCount { get; private set; }
-        public int VideoSpriteCallCount { get; private set; }
-        public int ImageThumbnailCallCount { get; private set; }
+        private int _videoThumbnailCallCount;
+        private int _videoPreviewCallCount;
+        private int _videoSpriteCallCount;
+        private int _imageThumbnailCallCount;
+
+        public int VideoThumbnailCallCount => Volatile.Read(ref _videoThumbnailCallCount);
+        public int VideoPreviewCallCount => Volatile.Read(ref _videoPreviewCallCount);
+        public int VideoSpriteCallCount => Volatile.Read(ref _videoSpriteCallCount);
+        public int ImageThumbnailCallCount => Volatile.Read(ref _imageThumbnailCallCount);
 
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
@@ -2090,30 +2095,30 @@ public class ScanServiceTests
 
         public Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
         {
-            VideoThumbnailCallCount++;
+            Interlocked.Increment(ref _videoThumbnailCallCount);
             return Task.CompletedTask;
         }
 
         public Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
         {
-            VideoThumbnailCallCount++;
+            Interlocked.Increment(ref _videoThumbnailCallCount);
             return Task.FromResult(false);
         }
 
         public Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default)
         {
-            ImageThumbnailCallCount++;
+            Interlocked.Increment(ref _imageThumbnailCallCount);
             return Task.FromResult(false);
         }
 
         public Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
         {
-            VideoPreviewCallCount++;
+            Interlocked.Increment(ref _videoPreviewCallCount);
             return Task.CompletedTask;
         }
         public Task<bool> RegenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
         {
-            VideoPreviewCallCount++;
+            Interlocked.Increment(ref _videoPreviewCallCount);
             return Task.FromResult(false);
         }
 
@@ -2121,13 +2126,13 @@ public class ScanServiceTests
 
         public Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
         {
-            VideoSpriteCallCount++;
+            Interlocked.Increment(ref _videoSpriteCallCount);
             return Task.CompletedTask;
         }
 
         public Task<bool> RegenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
         {
-            VideoSpriteCallCount++;
+            Interlocked.Increment(ref _videoSpriteCallCount);
             return Task.FromResult(false);
         }
 
