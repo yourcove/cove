@@ -261,12 +261,15 @@ public class TranscodeService : ITranscodeService
     /// </summary>
     private string BuildEncodeArgs(string ffmpeg, string inputPath, string? resolution, double startSeconds, string encoder, string outputContainerArgs)
     {
-        var scaleChain = BuildScaleChain(resolution);
-        var videoFilter = FfmpegHwAccel.VideoFilterForEncoder(encoder, scaleChain);
-
         // Input/decode args: software by default; honor an explicit override and add any encoder
         // device setup (e.g. the VAAPI render node).
         var decodeArgs = !string.IsNullOrWhiteSpace(_config.FfmpegInputArgs) ? _config.FfmpegInputArgs! : string.Empty;
+
+        // If the override pins decoded frames to GPU surfaces, bridge them back to system memory
+        // before the software scale chain (issue #30) — otherwise the graph cannot connect and the
+        // transcode aborts on every resolution change.
+        var scaleChain = FfmpegHwAccel.BridgeGpuFramesForSoftwareFilters(decodeArgs, BuildScaleChain(resolution));
+        var videoFilter = FfmpegHwAccel.VideoFilterForEncoder(encoder, scaleChain);
         var inputArgs = Join(FfmpegHwAccel.InputArgsForEncoder(encoder), decodeArgs);
 
         // Encode args: full user override if provided, else encoder-correct constant-quality args.

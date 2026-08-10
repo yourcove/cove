@@ -260,6 +260,54 @@ internal static class FfmpegHwAccel
         return names;
     }
 
+
+    /// <summary>Hardware pixel formats that <c>-hwaccel_output_format</c> can pin decoded frames to.
+    /// Software formats (nv12, yuv420p, ...) passed to the same flag force a download and need no
+    /// bridging.</summary>
+    private static readonly HashSet<string> GpuSurfaceFormats = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cuda", "qsv", "vaapi", "vulkan", "opencl", "d3d11", "d3d11va", "dxva2_vld",
+        "videotoolbox_vld", "drm_prime", "mediacodec",
+    };
+
+    /// <summary>Filters that consume or produce GPU frames. If the chain already contains one the
+    /// user has built a GPU-aware graph and it must not be second-guessed.</summary>
+    private static readonly string[] GpuAwareFilterMarkers =
+    [
+        "hwdownload", "hwupload", "scale_cuda", "scale_npp", "scale_qsv", "scale_vaapi",
+        "scale_vulkan", "yadif_cuda", "overlay_cuda", "tonemap_opencl",
+    ];
+
+    /// <summary>True when the given input/decode arguments keep decoded frames in GPU memory
+    /// (e.g. <c>-hwaccel cuda -hwaccel_output_format cuda</c>). Plain <c>-hwaccel X</c> without an
+    /// output format downloads frames to system memory automatically and needs no bridging.</summary>
+    public static bool InputArgsKeepFramesOnGpu(string? inputArgs)
+    {
+        if (string.IsNullOrWhiteSpace(inputArgs)) return false;
+        var m = System.Text.RegularExpressions.Regex.Match(
+            inputArgs, @"-hwaccel_output_format\s+(\S+)");
+        return m.Success && GpuSurfaceFormats.Contains(m.Groups[1].Value);
+    }
+
+    /// <summary>
+    /// Guard for user-supplied decode args that pin frames to GPU surfaces (issue #30): a software
+    /// filter chain (<c>scale</c>, <c>fps</c>, <c>tile</c>, ...) cannot read GPU frames, so ffmpeg
+    /// aborts with "Impossible to convert between the formats" / exit -22 and the encoder never
+    /// receives a packet. When the input args keep frames on the GPU and the chain has no GPU-aware
+    /// filter of its own, prepend <c>hwdownload,format=nv12</c> so the graph connects. The download
+    /// costs the same transfer a plain <c>-hwaccel X</c> decode performs implicitly, so hardware
+    /// decode + hardware encode are both preserved. Chains that already contain hwdownload/hwupload
+    /// or a GPU scaler are returned untouched.
+    /// </summary>
+    public static string BridgeGpuFramesForSoftwareFilters(string? inputArgs, string filterChain)
+    {
+        if (string.IsNullOrEmpty(filterChain)) return filterChain;
+        if (!InputArgsKeepFramesOnGpu(inputArgs)) return filterChain;
+        foreach (var marker in GpuAwareFilterMarkers)
+            if (filterChain.Contains(marker, StringComparison.OrdinalIgnoreCase)) return filterChain;
+        return "hwdownload,format=nv12," + filterChain;
+    }
+
     /// <summary>Verify an encoder can actually open a session by encoding a single synthetic frame.</summary>
     public static bool ProbeEncoder(string ffmpegPath, string encoder, out string error)
     {
