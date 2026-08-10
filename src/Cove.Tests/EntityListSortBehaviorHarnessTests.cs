@@ -471,7 +471,16 @@ public class EntityListSortBehaviorHarnessTests
                 case "play_duration":
                 case "read_duration": affinity.TotalConsumedSec = tiedValue ? 500 : 100; break;
                 case "resume_time": affinity.LastPositionSec = tiedValue ? 50 : 10; break;
-                case "last_like_at": affinity.FavoritedAt = tiedValue ? new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc); break;
+                case "last_like_at":
+                    fixture.Context.Interactions.Add(new Interaction
+                    {
+                        UserId = TestUserId,
+                        HostType = InteractionHostType.Video,
+                        HostId = entityIds[index],
+                        Kind = InteractionKind.LikeCount,
+                        At = fixture.Now.AddDays(tiedValue ? 10 : 5),
+                    });
+                    break;
                 case "last_played_at":
                 case "last_read_at": affinity.LastConsumedAt = tiedValue ? new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc); break;
             }
@@ -598,6 +607,13 @@ public class EntityListSortBehaviorHarnessTests
         var lastLikeIds = lastLikeResult.Items.Select(gallery => gallery.Id).ToArray();
         Assert.Equal([9102, 9101, 9103], lastLikeIds[..3]);
         Assert.True(Array.IndexOf(lastLikeIds, 9104) > Array.IndexOf(lastLikeIds, 9103));
+
+        var singleLastLikeResult = await new GalleryRepository(fixture.Context).FindAsync(null, new FindFilter
+        {
+            Page = 1, PerPage = 10, Sort = "last_like_at", Direction = CoveSortDirection.Desc,
+        });
+        var singleLastLikeIds = singleLastLikeResult.Items.Select(gallery => gallery.Id).ToArray();
+        Assert.True(Array.IndexOf(singleLastLikeIds, 9104) > Array.IndexOf(singleLastLikeIds, 9103));
     }
 
     [Fact]
@@ -1026,7 +1042,7 @@ public class EntityListSortBehaviorHarnessTests
             "rating" => Order(fixture.Videos, video => fixture.Rating(RatingHostType.Video, video.Id), descending),
             "play_count" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).ViewCount, descending),
             "like_counter" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).LikeCount, descending),
-            "last_like_at" => Order(fixture.Videos, video => fixture.Affinity(AffinityHostType.Video, video.Id).FavoritedAt, descending),
+            "last_like_at" => Order(fixture.Videos, video => fixture.LastLike(InteractionHostType.Video, video.Id), descending),
             "duration" => Order(fixture.Videos, video => video.MaxDuration, descending),
             "file_size" => Order(fixture.Videos, video => video.MaxFileSize, descending),
             "file_mod_time" => Order(fixture.Videos, video => video.MaxFileModTime, descending),
@@ -1213,7 +1229,7 @@ public class EntityListSortBehaviorHarnessTests
             "total_file_size" => Order(fixture.Performers, performer => performer.VideoPerformers.Sum(link => link.Video!.MaxFileSize), descending),
             "tag_count" => Order(fixture.Performers, performer => performer.PerformerTags.Count, descending),
             "career_length" => OrderWithDirectionalIdTieBreaker(fixture.Performers, CareerLength, descending),
-            "last_like_at" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => fixture.Affinity(AffinityHostType.Performer, performer.Id).FavoritedAt, descending),
+            "last_like_at" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => performer.VideoPerformers.Max(link => fixture.LastLike(InteractionHostType.Video, link.VideoId)), descending),
             "last_played_at" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => performer.VideoPerformers.Max(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LastConsumedAt), descending),
             "measurements" => OrderMeasurements(fixture.Performers, descending),
             "like_counter" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => performer.VideoPerformers.Sum(link => fixture.Affinity(AffinityHostType.Video, link.VideoId).LikeCount), descending),
@@ -1811,10 +1827,6 @@ public class EntityListSortBehaviorHarnessTests
             AddAffinity(AffinityHostType.Video, videos[0].Id, viewCount: 1, likeCount: 10, totalConsumedSec: 100, lastPositionSec: 11, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Video, videos[1].Id, viewCount: 3, likeCount: 20, totalConsumedSec: 200, lastPositionSec: 22, lastConsumedAt: now.AddDays(-20), favoritedAt: now.AddDays(-8));
             AddAffinity(AffinityHostType.Video, videos[2].Id, viewCount: 9, likeCount: 30, totalConsumedSec: 300, lastPositionSec: 33, lastConsumedAt: now.AddDays(-10), favoritedAt: now.AddDays(-6));
-            // Performer-host FavoritedAt drives the performer last_like_at sort.
-            AddAffinity(AffinityHostType.Performer, performers[0].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-10));
-            AddAffinity(AffinityHostType.Performer, performers[1].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-8));
-            AddAffinity(AffinityHostType.Performer, performers[2].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-6));
             AddAffinity(AffinityHostType.Image, images[0].Id, viewCount: 1, likeCount: 5, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-30));
             AddAffinity(AffinityHostType.Image, images[1].Id, viewCount: 1, likeCount: 15, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-20));
             AddAffinity(AffinityHostType.Image, images[2].Id, viewCount: 1, likeCount: 25, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-10));

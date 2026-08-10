@@ -73,6 +73,7 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
         public required TEntity Entity { get; init; }
         public UserEntityAffinity? Affinity { get; init; }
         public Rating? Rating { get; init; }
+        public DateTime? LastInteractionAt { get; init; }
     }
 
     private readonly IQueryable<SortRow> _query;
@@ -94,10 +95,14 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
         AffinityHostType? affinityHostType,
         RatingHostType? ratingHostType,
         bool includeAffinity,
-        bool includeRating)
+        bool includeRating,
+        InteractionHostType? interactionHostType = null,
+        InteractionKind? interactionKind = null,
+        bool includeInteraction = false)
     {
         var hasAffinity = includeAffinity && userId.HasValue && affinityHostType.HasValue;
         var hasRating = includeRating && userId.HasValue && ratingHostType.HasValue;
+        var hasInteraction = includeInteraction && userId.HasValue && interactionHostType.HasValue && interactionKind.HasValue;
         IQueryable<SortRow> rows = query.Select(entity => new SortRow { Entity = entity });
 
         if (hasAffinity)
@@ -120,6 +125,7 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
                         Entity = item.row.Entity,
                         Affinity = affinity,
                         Rating = item.row.Rating,
+                        LastInteractionAt = item.row.LastInteractionAt,
                     });
         }
 
@@ -145,6 +151,37 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
                         Entity = item.row.Entity,
                         Affinity = item.row.Affinity,
                         Rating = rating,
+                        LastInteractionAt = item.row.LastInteractionAt,
+                    });
+        }
+
+        if (hasInteraction)
+        {
+            var selectedUserId = userId!.Value;
+            var selectedHostType = interactionHostType!.Value;
+            var selectedKind = interactionKind!.Value;
+            var interactions = db.Interactions
+                .Where(interaction =>
+                    interaction.UserId == selectedUserId &&
+                    interaction.HostType == selectedHostType &&
+                    interaction.Kind == selectedKind)
+                .GroupBy(interaction => interaction.HostId)
+                .Select(group => new { HostId = group.Key, At = group.Max(interaction => interaction.At) });
+
+            rows = rows
+                .GroupJoin(
+                    interactions,
+                    row => EF.Property<int>(row.Entity, "Id"),
+                    interaction => interaction.HostId,
+                    (row, matches) => new { row, matches })
+                .SelectMany(
+                    item => item.matches.DefaultIfEmpty(),
+                    (item, interaction) => new SortRow
+                    {
+                        Entity = item.row.Entity,
+                        Affinity = item.row.Affinity,
+                        Rating = item.row.Rating,
+                        LastInteractionAt = interaction == null ? null : interaction.At,
                     });
         }
 
@@ -207,6 +244,15 @@ public sealed class CompoundSortQuery<TEntity> where TEntity : class
                 ? (descending ? DateTime.MinValue : DateTime.MaxValue)
                 : EF.Property<DateTime?>(row.Affinity, propertyName)
                     ?? (descending ? DateTime.MinValue : DateTime.MaxValue),
+            descending);
+    }
+
+    public void AppendInteractionTimestamp(bool descending)
+    {
+        _ordered = CompoundSortOrdering.Append(
+            _query,
+            _ordered,
+            row => row.LastInteractionAt ?? (descending ? DateTime.MinValue : DateTime.MaxValue),
             descending);
     }
 
