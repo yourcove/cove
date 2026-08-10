@@ -356,10 +356,6 @@ public class RepositorySortBehaviorTests
         AddLikeInteraction(context, leaderVideo.Id, new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, middleVideo.Id, new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, compactVideo.Id, new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc));
-        // last_like_at now sorts by the current user's FavoritedAt affinity for the entity.
-        AddFavoriteAffinity(context, AffinityHostType.Performer, leader.Id, new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc));
-        AddFavoriteAffinity(context, AffinityHostType.Performer, middle.Id, new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc));
-        AddFavoriteAffinity(context, AffinityHostType.Performer, compact.Id, new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc));
         await context.SaveChangesAsync();
 
         var repository = new PerformerRepository(context);
@@ -402,9 +398,9 @@ public class RepositorySortBehaviorTests
         AddVideoAffinity(context, mostLikedVideo.Id, viewCount: 10, likeCount: 10, lastConsumedAt: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
         AddVideoAffinity(context, olderTieVideo.Id, viewCount: 5, likeCount: 5, lastConsumedAt: new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
         AddVideoAffinity(context, youngerTieVideo.Id, viewCount: 5, likeCount: 5, lastConsumedAt: new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
-        AddFavoriteAffinity(context, AffinityHostType.Performer, mostLiked.Id, new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
-        AddFavoriteAffinity(context, AffinityHostType.Performer, olderTie.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
-        AddFavoriteAffinity(context, AffinityHostType.Performer, youngerTie.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddLikeInteraction(context, mostLikedVideo.Id, new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddLikeInteraction(context, olderTieVideo.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
+        AddLikeInteraction(context, youngerTieVideo.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
         await context.SaveChangesAsync();
 
         var repository = new PerformerRepository(context);
@@ -568,9 +564,10 @@ public class RepositorySortBehaviorTests
         context.Videos.AddRange(alphaVideo, betaVideo);
         await context.SaveChangesAsync();
 
-        // last_like_at now sorts by the current user's FavoritedAt affinity for the video.
-        AddFavoriteAffinity(context, AffinityHostType.Video, alphaVideo.Id, new DateTime(2024, 1, 5, 12, 0, 0, DateTimeKind.Utc));
-        AddFavoriteAffinity(context, AffinityHostType.Video, betaVideo.Id, new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc));
+        // last_like_at follows the latest LikeCount interaction shown in like history, not favorite state.
+        context.Interactions.AddRange(
+            new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = alphaVideo.Id, Kind = InteractionKind.LikeCount, At = new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc) },
+            new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = betaVideo.Id, Kind = InteractionKind.LikeCount, At = new DateTime(2024, 1, 5, 12, 0, 0, DateTimeKind.Utc) });
         await context.SaveChangesAsync();
 
         var repository = new VideoRepository(context);
@@ -584,7 +581,7 @@ public class RepositorySortBehaviorTests
         var (codeItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "code", Direction = Cove.Core.Enums.SortDirection.Asc });
 
         Assert.Equal(["beta-video", "alpha-video"], fileModItems.Select(video => video.Title ?? string.Empty).ToArray());
-        Assert.Equal(["beta-video", "alpha-video"], favoriteItems.Select(video => video.Title ?? string.Empty).ToArray());
+        Assert.Equal(["alpha-video", "beta-video"], favoriteItems.Select(video => video.Title ?? string.Empty).ToArray());
         Assert.Equal(["alpha-video", "beta-video"], pathItems.Select(video => video.Title ?? string.Empty).ToArray());
         Assert.Equal(["alpha-video", "beta-video"], phashItems.Select(video => video.Title ?? string.Empty).ToArray());
         Assert.Equal(["alpha-video", "beta-video"], ageItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -778,11 +775,6 @@ public class RepositorySortBehaviorTests
     private static void AddVideoAffinity(CoveContext context, int videoId, int viewCount = 0, int likeCount = 0, DateTime? lastConsumedAt = null)
     {
         context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = TestUserId, HostType = AffinityHostType.Video, HostId = videoId, ViewCount = viewCount, LikeCount = likeCount, LastConsumedAt = lastConsumedAt });
-    }
-
-    private static void AddFavoriteAffinity(CoveContext context, AffinityHostType hostType, int hostId, DateTime favoritedAt)
-    {
-        context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = TestUserId, HostType = hostType, HostId = hostId, IsFavorite = true, FavoritedAt = favoritedAt });
     }
 
     private static void AddLikeInteraction(CoveContext context, int videoId, DateTime at)

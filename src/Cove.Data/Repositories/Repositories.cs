@@ -580,7 +580,7 @@ public class PerformerRepository : IPerformerRepository
             "tag_count" => desc ? query.OrderByDescending(p => p.TagCount) : query.OrderBy(p => p.TagCount),
             "like_counter" => ApplyVideoAffinityIntSumSort(query, nameof(UserEntityAffinity.LikeCount), desc),
             "play_count" => ApplyPlayCountSort(query, desc),
-            "last_like_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Performer, nameof(UserEntityAffinity.FavoritedAt), desc),
+            "last_like_at" => ApplyLastLikeAtSort(query, desc),
             "last_played_at" => ApplyLastPlayedAtSort(query, desc),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id, desc),
             _ => desc ? query.OrderByDescending(p => p.UpdatedAt) : query.OrderBy(p => p.UpdatedAt),
@@ -655,7 +655,16 @@ public class PerformerRepository : IPerformerRepository
                             && performer.VideoPerformers.Any(link => link.VideoId == affinity.HostId))
                         .Sum(affinity => affinity.ViewCount), desc);
             },
-            ["last_like_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc),
+            ["last_like_at"] = (compound, desc) =>
+            {
+                if (userId is int selectedUserId)
+                    compound.Append(performer => _db.Interactions
+                        .Where(interaction => interaction.UserId == selectedUserId
+                            && interaction.HostType == InteractionHostType.Video
+                            && interaction.Kind == InteractionKind.LikeCount
+                            && performer.VideoPerformers.Any(link => link.VideoId == interaction.HostId))
+                        .Max(interaction => (DateTime?)interaction.At) ?? (desc ? DateTime.MinValue : DateTime.MaxValue), desc);
+            },
             ["last_played_at"] = (compound, desc) =>
             {
                 if (userId is int selectedUserId)
@@ -674,11 +683,32 @@ public class PerformerRepository : IPerformerRepository
         var userId = EngagementQueryHelpers.CurrentUserId(_db);
         var compound = CompoundSortQuery<Performer>.Create(
             _db, query, userId, AffinityHostType.Performer, RatingHostType.Performer,
-            includeAffinity: clauses.Any(clause => clause.Key.Equals("last_like_at", StringComparison.OrdinalIgnoreCase)),
+            includeAffinity: false,
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
         return compound.Finish(performer => performer.Id);
+    }
+
+    private IQueryable<Performer> ApplyLastLikeAtSort(IQueryable<Performer> query, bool desc)
+    {
+        var userId = EngagementQueryHelpers.CurrentUserId(_db);
+        if (userId is not int selectedUserId)
+            return desc ? query.OrderByDescending(performer => performer.Id) : query.OrderBy(performer => performer.Id);
+
+        return desc
+            ? query.OrderByDescending(performer => _db.Interactions
+                .Where(interaction => interaction.UserId == selectedUserId
+                    && interaction.HostType == InteractionHostType.Video
+                    && interaction.Kind == InteractionKind.LikeCount
+                    && performer.VideoPerformers.Any(link => link.VideoId == interaction.HostId))
+                .Max(interaction => (DateTime?)interaction.At) ?? DateTime.MinValue).ThenByDescending(performer => performer.Id)
+            : query.OrderBy(performer => _db.Interactions
+                .Where(interaction => interaction.UserId == selectedUserId
+                    && interaction.HostType == InteractionHostType.Video
+                    && interaction.Kind == InteractionKind.LikeCount
+                    && performer.VideoPerformers.Any(link => link.VideoId == interaction.HostId))
+                .Max(interaction => (DateTime?)interaction.At) ?? DateTime.MaxValue).ThenBy(performer => performer.Id);
     }
 
 }
@@ -1761,8 +1791,8 @@ public class GalleryRepository : IGalleryRepository
                     gallery.ImageGalleries.Select(link => _db.UserEntityAffinities.Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Image && affinity.HostId == link.ImageId).Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()
                     + gallery.VideoGalleries.Select(link => _db.UserEntityAffinities.Where(affinity => affinity.UserId == currentUserId && affinity.HostType == AffinityHostType.Video && affinity.HostId == link.VideoId).Sum(affinity => (int?)affinity.LikeCount) ?? 0).Sum()).ThenBy(gallery => gallery.Id),
             "last_like_at" => desc
-                ? query.OrderByDescending(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max()).ThenByDescending(gallery => gallery.Id)
-                : query.OrderBy(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max()).ThenBy(gallery => gallery.Id),
+                ? query.OrderByDescending(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max() ?? DateTime.MinValue).ThenByDescending(gallery => gallery.Id)
+                : query.OrderBy(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max() ?? DateTime.MaxValue).ThenBy(gallery => gallery.Id),
             "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount) : query.OrderBy(g => g.PerformerCount),
             "tag_count" => desc ? query.OrderByDescending(g => g.TagCount) : query.OrderBy(g => g.TagCount),
             "typical_resolution" => ApplyGalleryTypicalResolutionSort(query, desc),
@@ -1865,7 +1895,7 @@ public class GalleryRepository : IGalleryRepository
                             && interaction.HostId == link.VideoId
                             && interaction.Kind == InteractionKind.LikeCount)
                         .Max(interaction => (DateTime?)interaction.At)))
-                    .Max(), desc),
+                    .Max() ?? (desc ? DateTime.MinValue : DateTime.MaxValue), desc),
         });
 
     private IQueryable<Gallery> ApplyGalleryMultiSort(

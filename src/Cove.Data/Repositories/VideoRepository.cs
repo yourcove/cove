@@ -440,7 +440,7 @@ public class VideoRepository : IVideoRepository
 
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "play_count", "like_counter", "last_like_at", "last_played_at", "play_duration", "resume_time",
+        "play_count", "like_counter", "last_played_at", "play_duration", "resume_time",
     };
 
     private static CompoundSortRegistry<Video> CreateMultiSortRegistry()
@@ -454,7 +454,7 @@ public class VideoRepository : IVideoRepository
             ["rating"] = (compound, desc) => compound.AppendRating(desc),
             ["play_count"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), desc),
             ["like_counter"] = (compound, desc) => compound.AppendAffinityInt(nameof(UserEntityAffinity.LikeCount), desc),
-            ["last_like_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.FavoritedAt), desc),
+            ["last_like_at"] = (compound, desc) => compound.AppendInteractionTimestamp(desc),
             ["last_played_at"] = (compound, desc) => compound.AppendAffinityTimestamp(nameof(UserEntityAffinity.LastConsumedAt), desc),
             ["play_duration"] = (compound, desc) => compound.AppendAffinityDouble(nameof(UserEntityAffinity.TotalConsumedSec), desc),
             ["resume_time"] = (compound, desc) => compound.AppendAffinityDouble(nameof(UserEntityAffinity.LastPositionSec), desc),
@@ -512,7 +512,10 @@ public class VideoRepository : IVideoRepository
             AffinityHostType.Video,
             RatingHostType.Video,
             includeAffinity: clauses.Any(clause => AffinityMultiSortKeys.Contains(clause.Key)),
-            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
+            includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)),
+            interactionHostType: InteractionHostType.Video,
+            interactionKind: InteractionKind.LikeCount,
+            includeInteraction: clauses.Any(clause => clause.Key.Equals("last_like_at", StringComparison.OrdinalIgnoreCase)));
 
         registry.Apply(compound, clauses);
 
@@ -544,7 +547,7 @@ public class VideoRepository : IVideoRepository
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Video, desc),
             "play_count" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc),
-            "last_like_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.FavoritedAt), desc),
+            "last_like_at" => EngagementQueryHelpers.ApplyInteractionTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), InteractionHostType.Video, InteractionKind.LikeCount, desc),
             "organized" => desc ? query.OrderByDescending(s => s.Organized) : query.OrderBy(s => s.Organized),
             "last_played_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), desc),
             "play_duration" => EngagementQueryHelpers.ApplyAffinityDoubleSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.TotalConsumedSec), desc),
