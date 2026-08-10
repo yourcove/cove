@@ -3,6 +3,7 @@ using Cove.Core.Entities;
 using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Cove.Tests;
 
@@ -418,21 +419,97 @@ public sealed class TagNameConflictCleanupServiceTests
         var refreshed = await cleanup.ResolveAllRecommendedAsync();
 
         Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.Empty(db.ChangeTracker.Entries());
         var aliases = await db.Set<TagAlias>().Where(alias => alias.TagId == duplicateAliases.Id).ToListAsync();
         Assert.Equal("same", Assert.Single(aliases).Alias);
         Assert.False(await db.Tags.AnyAsync(tag => tag.Id == literalEmpty.Id));
         Assert.Equal(TagNameRules.EmptyCanonicalName, (await db.Tags.SingleAsync(tag => tag.Id == whitespace.Id)).Name);
     }
 
-    private static CoveContext CreateContext()
+    [Fact]
+    public async Task ResolveAllRecommendedAsync_ClearsCompletedMergeGraphBeforeSavingLaterGroup()
+    {
+        var priorFilterId = 0;
+        var laterAliasOwnerId = 0;
+        var observedLaterGroupSave = false;
+        var priorFilterTrackedDuringLaterGroupSave = false;
+        var interceptor = new SavingChangesProbe(context =>
+        {
+            if (!context.ChangeTracker.Entries<TagAlias>().Any(entry =>
+                entry.Entity.TagId == laterAliasOwnerId
+                && entry.State is EntityState.Modified or EntityState.Deleted))
+                return;
+
+            observedLaterGroupSave = true;
+            priorFilterTrackedDuringLaterGroupSave |= context.ChangeTracker.Entries<SavedFilter>()
+                .Any(entry => entry.Entity.Id == priorFilterId);
+        });
+        await using var db = CreateContext(interceptor);
+        var mergeTarget = new Tag
+        {
+            Name = "Alpha",
+            Description = "Preferred survivor fixture",
+            Favorite = true,
+        };
+        var mergeSource = new Tag { Name = " alpha " };
+        var laterAliasOwner = new Tag
+        {
+            Name = "Zulu",
+            Aliases =
+            [
+                new TagAlias { Alias = "Duplicate" },
+                new TagAlias { Alias = " duplicate " },
+            ],
+        };
+        db.Tags.AddRange(mergeTarget, mergeSource, laterAliasOwner);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var storedFilter = new SavedFilter
+        {
+            Mode = "videos",
+            Name = "Prior merge graph fixture",
+            ObjectFilter = System.Text.Json.JsonSerializer.Serialize(new { tagIds = new[] { mergeSource.Id } }),
+        };
+        db.SavedFilters.Add(storedFilter);
+        await db.SaveChangesAsync();
+        priorFilterId = storedFilter.Id;
+        laterAliasOwnerId = laterAliasOwner.Id;
+        db.ChangeTracker.Clear();
+
+        var scanner = new TagNameConflictScanner(db);
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+        var refreshed = await cleanup.ResolveAllRecommendedAsync();
+
+        Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.True(observedLaterGroupSave);
+        Assert.False(priorFilterTrackedDuringLaterGroupSave);
+    }
+
+    private static CoveContext CreateContext(params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite("Data Source=:memory:")
-            .Options;
-        var context = new CoveContext(options);
+            .UseSqlite("Data Source=:memory:");
+        if (interceptors.Length > 0)
+            options.AddInterceptors(interceptors);
+        var context = new CoveContext(options.Options);
         context.Database.OpenConnection();
         context.Database.EnsureCreated();
         return context;
+    }
+
+    private sealed class SavingChangesProbe(Action<DbContext> inspect) : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is { } context)
+                inspect(context);
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     private sealed class ThrowingImpactInspector : ITagExternalReferenceInspector

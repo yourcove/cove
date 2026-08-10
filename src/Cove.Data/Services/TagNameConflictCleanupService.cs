@@ -7,7 +7,9 @@ namespace Cove.Data.Services;
 
 /// <summary>
 /// Transactional compatibility cleanup for the future shared tag namespace. Every operation starts
-/// from a fresh scan, so stale browser state cannot merge a group whose membership has changed.
+/// from a fresh scan, so stale browser state cannot merge a group whose membership has changed. The
+/// bulk operation owns the supplied scoped context and clears its tracker between groups; callers
+/// must not share that context with unrelated pending changes.
 /// </summary>
 public sealed class TagNameConflictCleanupService(
     CoveContext db,
@@ -76,11 +78,15 @@ public sealed class TagNameConflictCleanupService(
             {
                 var group = scan.Groups.FirstOrDefault();
                 if (group == null)
-                    return new ResolveAllOutcome(attemptMerges, await scanner.ScanAsync(ct));
+                    return new ResolveAllOutcome(attemptMerges, scan);
 
                 var merge = await ResolveGroupAsync(group, group.RecommendedSurvivorTagId, null, ct);
                 if (merge != null)
                     attemptMerges.Add(merge);
+                // Every group has been fully saved and validated at this point. Releasing its tracked
+                // merge graph keeps later SaveChanges calls from repeatedly walking every JSON row
+                // inspected by a previous merge while the outer serializable transaction stays open.
+                db.ChangeTracker.Clear();
                 scan = await scanner.ScanAsync(ct);
             }
 
