@@ -457,6 +457,7 @@ export interface TagNameClaimResolution {
 export interface TagNameConflictImpact {
   tagId: number;
   tagName: string;
+  referenceCount: number;
   taggedEntityCount: number;
   segmentCount: number;
   parentRelationshipCount: number;

@@ -38,6 +38,45 @@ public sealed class TagNameConflictScannerTests
     }
 
     [Fact]
+    public async Task ScanAsync_RecommendsTheCanonicalOwnerWithTheMostReferencesThenLowestId()
+    {
+        await using var db = CreateContext();
+        var lowerId = new Tag { Name = "Alpha" };
+        var higherId = new Tag
+        {
+            Name = " alpha ",
+            Description = "Intrinsic metadata must not affect the reference score.",
+            Favorite = true,
+        };
+        var firstVideo = new Video { Title = "First survivor score fixture" };
+        var secondVideo = new Video { Title = "Second survivor score fixture" };
+        var thirdVideo = new Video { Title = "Third survivor score fixture" };
+        db.AddRange(lowerId, higherId, firstVideo, secondVideo, thirdVideo);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        db.Set<VideoTag>().AddRange(
+            new VideoTag { VideoId = firstVideo.Id, TagId = lowerId.Id },
+            new VideoTag { VideoId = secondVideo.Id, TagId = higherId.Id },
+            new VideoTag { VideoId = thirdVideo.Id, TagId = higherId.Id });
+        await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var higherImpactGroup = Assert.Single((await scanner.ScanAsync()).Groups);
+
+        Assert.Equal(higherId.Id, higherImpactGroup.RecommendedSurvivorTagId);
+        Assert.Equal(1, Assert.Single(higherImpactGroup.Impacts, impact => impact.TagId == lowerId.Id).ReferenceCount);
+        Assert.Equal(2, Assert.Single(higherImpactGroup.Impacts, impact => impact.TagId == higherId.Id).ReferenceCount);
+
+        db.Set<VideoTag>().Remove(await db.Set<VideoTag>()
+            .SingleAsync(link => link.VideoId == thirdVideo.Id && link.TagId == higherId.Id));
+        await db.SaveChangesAsync();
+
+        var tiedGroup = Assert.Single((await scanner.ScanAsync()).Groups);
+        Assert.Equal(lowerId.Id, tiedGroup.RecommendedSurvivorTagId);
+    }
+
+    [Fact]
     public async Task ScanAsync_GroupsEveryFutureNamespaceConflictAndUsesSharedSurvivorPolicy()
     {
         await using var db = CreateContext();
@@ -212,9 +251,9 @@ public sealed class TagNameConflictScannerTests
 
         var alpha = Assert.Single(result.Groups, group => group.NormalizedName == "Alpha");
         Assert.Contains(TagNameConflictKinds.CanonicalNameCollision, alpha.Kinds);
-        Assert.Equal(tags[0].Id, alpha.RecommendedSurvivorTagId);
+        Assert.Equal(tags[1].Id, alpha.RecommendedSurvivorTagId);
         Assert.True(alpha.RequiresMerge);
-        Assert.Equal([tags[1].Id], alpha.RecommendedMergeTagIds);
+        Assert.Equal([tags[0].Id], alpha.RecommendedMergeTagIds);
         Assert.Equal(2, alpha.Claims.Count(claim => claim.ClaimType == TagNameClaimTypes.CanonicalName));
 
         var beta = Assert.Single(result.Groups, group => group.NormalizedName == "Beta");
@@ -253,6 +292,7 @@ public sealed class TagNameConflictScannerTests
         Assert.Equal(1, impacted.RatingCount);
         Assert.Equal(13, impacted.OtherMetadataCount);
         Assert.Equal(4, impacted.ExtensionMetadataCount);
+        Assert.Equal(22, impacted.ReferenceCount);
     }
 
     private static CoveContext CreateContext()

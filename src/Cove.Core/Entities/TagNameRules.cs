@@ -39,7 +39,9 @@ public static class TagNameRules
         return $"namespace-{Convert.ToHexString(hash).ToLowerInvariant()}";
     }
 
-    public static string ConflictGroupRevision(IEnumerable<TagNameRevisionClaim> claims)
+    public static string ConflictGroupRevision(
+        IEnumerable<TagNameRevisionClaim> claims,
+        int recommendedSurvivorTagId)
     {
         var ordered = claims
             .OrderBy(claim => claim.TagId)
@@ -47,7 +49,11 @@ public static class TagNameRules
             .ThenBy(claim => claim.AliasId)
             .ThenBy(claim => claim.OriginalValue, StringComparer.Ordinal)
             .ToArray();
-        var payload = JsonSerializer.SerializeToUtf8Bytes(ordered);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            Claims = ordered,
+            RecommendedSurvivorTagId = recommendedSurvivorTagId,
+        });
         return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
     }
 
@@ -143,16 +149,18 @@ public sealed record TagNameResolutionRecommendation(
 
 /// <summary>
 /// Deterministic survivor and default-action policy shared by the scanner and cleanup executor.
-/// Canonical claims take precedence so an older alias never causes a needless whole-tag merge: the
-/// lowest canonical owner wins when one exists, otherwise the lowest alias owner wins. Alias claims
-/// outside that survivor are removed by default; other canonical claims merge by default.
+/// Canonical claims remain the candidate set whenever one exists so an alias collision does not
+/// create a needless whole-tag merge. Within that candidate set, the owner with the most references
+/// wins and the lowest tag ID breaks a tie. Alias claims outside the survivor are removed by default;
+/// other canonical claims merge by default.
 /// </summary>
 public static class TagNameResolutionPolicy
 {
     public static TagNameResolutionRecommendation Recommend(
         IReadOnlyCollection<TagNamePolicyClaim> claims,
         bool isBlankAliasGroup = false,
-        int? survivorTagId = null)
+        int? survivorTagId = null,
+        IReadOnlyDictionary<int, long>? referenceCounts = null)
     {
         if (claims.Count == 0)
             throw new ArgumentException("At least one tag-name claim is required.", nameof(claims));
@@ -164,7 +172,11 @@ public static class TagNameResolutionPolicy
             .Distinct()
             .Order()
             .ToArray();
-        var survivor = survivorTagId ?? canonicalOwnerIds.FirstOrDefault(ownerIds[0]);
+        var candidateOwnerIds = canonicalOwnerIds.Length > 0 ? canonicalOwnerIds : ownerIds;
+        var survivor = survivorTagId ?? candidateOwnerIds
+            .OrderByDescending(tagId => referenceCounts?.GetValueOrDefault(tagId) ?? 0)
+            .ThenBy(tagId => tagId)
+            .First();
         if (!ownerIds.Contains(survivor))
             throw new ArgumentException("The selected survivor does not own a claim in this conflict group.", nameof(survivorTagId));
 

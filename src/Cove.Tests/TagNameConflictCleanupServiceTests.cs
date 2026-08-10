@@ -97,9 +97,12 @@ public sealed class TagNameConflictCleanupServiceTests
         await using var db = CreateContext();
         var olderAliasOwner = new Tag { Name = "Older", Aliases = [new TagAlias { Alias = "Shared" }] };
         var canonicalOwner = new Tag { Name = " shared " };
-        db.Tags.AddRange(olderAliasOwner, canonicalOwner);
+        var referencedVideo = new Video { Title = "Alias owner reference fixture" };
+        db.AddRange(olderAliasOwner, canonicalOwner, referencedVideo);
         using (db.SuppressTagNameValidation())
             await db.SaveChangesAsync();
+        db.Set<VideoTag>().Add(new VideoTag { VideoId = referencedVideo.Id, TagId = olderAliasOwner.Id });
+        await db.SaveChangesAsync();
 
         var scanner = new TagNameConflictScanner(db);
         var group = Assert.Single((await scanner.ScanAsync()).Groups);
@@ -114,6 +117,58 @@ public sealed class TagNameConflictCleanupServiceTests
         Assert.Equal(2, await db.Tags.CountAsync());
         Assert.Empty(await db.Set<TagAlias>().ToListAsync());
         Assert.Equal("shared", (await db.Tags.SingleAsync(tag => tag.Id == canonicalOwner.Id)).Name);
+    }
+
+    [Fact]
+    public async Task ResolveAllRecommendedAsync_MergesIntoTheCanonicalOwnerWithTheMostReferences()
+    {
+        await using var db = CreateContext();
+        var lowerId = new Tag { Name = "Alpha" };
+        var referenced = new Tag { Name = " alpha " };
+        var video = new Video { Title = "Recommended merge target fixture" };
+        db.AddRange(lowerId, referenced, video);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+        db.Set<VideoTag>().Add(new VideoTag { VideoId = video.Id, TagId = referenced.Id });
+        await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var scan = await scanner.ScanAsync();
+        Assert.Equal(referenced.Id, Assert.Single(scan.Groups).RecommendedSurvivorTagId);
+
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+        var refreshed = await cleanup.ResolveAllRecommendedAsync(scan.Revision);
+
+        Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.False(await db.Tags.AnyAsync(tag => tag.Id == lowerId.Id));
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == referenced.Id));
+        Assert.Equal(referenced.Id, (await db.Set<VideoTag>().SingleAsync()).TagId);
+    }
+
+    [Fact]
+    public async Task ResolveAllRecommendedAsync_RejectsAConfirmedScanWhenReferenceCountsChangeItsRecommendation()
+    {
+        await using var db = CreateContext();
+        var lowerId = new Tag { Name = "Alpha" };
+        var newlyReferenced = new Tag { Name = " alpha " };
+        var video = new Video { Title = "Stale recommendation fixture" };
+        db.AddRange(lowerId, newlyReferenced, video);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var staleScan = await scanner.ScanAsync();
+        Assert.Equal(lowerId.Id, Assert.Single(staleScan.Groups).RecommendedSurvivorTagId);
+
+        db.Set<VideoTag>().Add(new VideoTag { VideoId = video.Id, TagId = newlyReferenced.Id });
+        await db.SaveChangesAsync();
+
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            cleanup.ResolveAllRecommendedAsync(staleScan.Revision));
+
+        Assert.Contains("changed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, await db.Tags.CountAsync());
     }
 
     [Fact]

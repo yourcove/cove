@@ -32,8 +32,7 @@ public sealed class TagNameConflictScanner(
         string Key,
         string NormalizedName,
         List<string> Kinds,
-        List<Claim> Claims,
-        TagNameResolutionRecommendation Recommendation);
+        List<Claim> Claims);
 
     public Task<TagNameConflictScanDto> ScanAsync(CancellationToken ct = default)
         => ScanCoreAsync(includeImpacts: true, ct);
@@ -130,14 +129,11 @@ public sealed class TagNameConflictScanner(
             var normalizedName = string.Equals(namespaceClaims.Key, TagNameRules.NamespaceKey(TagNameRules.EmptyCanonicalName), StringComparison.Ordinal)
                 ? TagNameRules.EmptyCanonicalName
                 : canonicalClaims.FirstOrDefault()?.NormalizedValue ?? orderedClaims[0].NormalizedValue!;
-            var recommendation = TagNameResolutionPolicy.Recommend(
-                orderedClaims.Select(claim => claim.ToPolicyClaim()).ToArray());
             groups.Add(new ConflictGroup(
                 TagNameRules.NamespaceGroupKey(namespaceClaims.Key),
                 normalizedName,
                 kinds,
-                orderedClaims,
-                recommendation));
+                orderedClaims));
         }
 
         var blankAliases = claims
@@ -147,15 +143,11 @@ public sealed class TagNameConflictScanner(
             .ToList();
         if (blankAliases.Count > 0)
         {
-            var recommendation = TagNameResolutionPolicy.Recommend(
-                blankAliases.Select(claim => claim.ToPolicyClaim()).ToArray(),
-                isBlankAliasGroup: true);
             groups.Add(new ConflictGroup(
                 TagNameRules.BlankAliasGroupKey,
                 "<blank alias>",
                 [TagNameConflictKinds.BlankAlias],
-                blankAliases,
-                recommendation));
+                blankAliases));
         }
 
         var conflictTagIds = groups
@@ -177,47 +169,57 @@ public sealed class TagNameConflictScanner(
                     0,
                     0,
                     0,
+                    0,
                     0));
 
         var resultGroups = groups
             .OrderBy(group => group.NormalizedName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(group => group.Key, StringComparer.Ordinal)
-            .Select(group => new TagNameConflictGroupDto(
-                group.Key,
-                TagNameRules.ConflictGroupRevision(group.Claims.Select(claim => new TagNameRevisionClaim(
-                    claim.TagId,
-                    claim.TagName,
-                    claim.ClaimType,
-                    claim.AliasId,
-                    claim.OriginalValue,
-                    claim.NormalizedValue))),
-                group.NormalizedName,
-                group.Kinds,
-                group.Recommendation.MergeTagIds.Count > 0,
-                group.Claims.Select(claim => claim.TagId).Distinct().Count() > 1,
-                group.Recommendation.SurvivorTagId,
-                group.Recommendation.MergeTagIds,
-                group.Recommendation.RemoveAliasIds,
-                group.Claims.Select(claim => new TagNameClaimDto(
-                    claim.TagId,
-                    claim.TagName,
-                    claim.ClaimType,
-                    claim.AliasId,
-                    claim.OriginalValue,
-                    claim.NormalizedValue,
-                    group.Recommendation.Claims[claim.Identity].Action,
-                    group.Recommendation.Claims[claim.Identity].IsSurvivingClaim)).ToList(),
-                group.Claims
-                    .Select(claim => claim.TagId)
-                    .Distinct()
-                    .Order()
-                    .Select(tagId => impacts[tagId])
-                    .ToList()))
+            .Select(group => CreateGroupDto(group, impacts))
             .ToList();
 
         var scanRevision = TagNameRules.ConflictScanRevision(resultGroups.Select(group =>
             new TagNameGroupRevision(group.Key, group.Revision)));
         return new TagNameConflictScanDto(resultGroups.Count, DateTime.UtcNow, scanRevision, resultGroups);
+    }
+
+    private static TagNameConflictGroupDto CreateGroupDto(
+        ConflictGroup group,
+        IReadOnlyDictionary<int, TagNameImpactDto> impacts)
+    {
+        var ownerIds = group.Claims.Select(claim => claim.TagId).Distinct().Order().ToArray();
+        var recommendation = TagNameResolutionPolicy.Recommend(
+            group.Claims.Select(claim => claim.ToPolicyClaim()).ToArray(),
+            isBlankAliasGroup: group.Kinds.Contains(TagNameConflictKinds.BlankAlias),
+            referenceCounts: ownerIds.ToDictionary(tagId => tagId, tagId => impacts[tagId].ReferenceCount));
+        var revisionClaims = group.Claims.Select(claim => new TagNameRevisionClaim(
+            claim.TagId,
+            claim.TagName,
+            claim.ClaimType,
+            claim.AliasId,
+            claim.OriginalValue,
+            claim.NormalizedValue));
+
+        return new TagNameConflictGroupDto(
+            group.Key,
+            TagNameRules.ConflictGroupRevision(revisionClaims, recommendation.SurvivorTagId),
+            group.NormalizedName,
+            group.Kinds,
+            recommendation.MergeTagIds.Count > 0,
+            ownerIds.Length > 1,
+            recommendation.SurvivorTagId,
+            recommendation.MergeTagIds,
+            recommendation.RemoveAliasIds,
+            group.Claims.Select(claim => new TagNameClaimDto(
+                claim.TagId,
+                claim.TagName,
+                claim.ClaimType,
+                claim.AliasId,
+                claim.OriginalValue,
+                claim.NormalizedValue,
+                recommendation.Claims[claim.Identity].Action,
+                recommendation.Claims[claim.Identity].IsSurvivingClaim)).ToList(),
+            ownerIds.Select(tagId => impacts[tagId]).ToList());
     }
 
     private async Task<Dictionary<int, TagNameImpactDto>> LoadImpactsAsync(
@@ -414,13 +416,6 @@ public sealed class TagNameConflictScanner(
         foreach (var serializedIds in shareLinkEntityIds)
             AddJsonReferences(serializedIds, rootIsTagIdArray: true);
 
-        var tagsById = tags.Where(tag => tagIds.Contains(tag.Id)).ToDictionary(tag => tag.Id);
-        foreach (var tagId in tagIds)
-        {
-            var tag = tagsById[tagId];
-            otherMetadata[tagId] += CountIntrinsicMetadata(tag);
-        }
-
         if (externalReferenceInspector != null)
         {
             var counts = await externalReferenceInspector.CountAsync(tagIds, ct);
@@ -428,6 +423,18 @@ public sealed class TagNameConflictScanner(
                 if (extensionMetadata.ContainsKey(tagId))
                     extensionMetadata[tagId] = count;
         }
+
+        var referenceCounts = tagIds.ToDictionary(tagId => tagId, tagId =>
+            (long)taggedEntities[tagId]
+            + segments[tagId]
+            + parents[tagId]
+            + children[tagId]
+            + ratings[tagId]
+            + otherMetadata[tagId]
+            + extensionMetadata[tagId]);
+        var tagsById = tags.Where(tag => tagIds.Contains(tag.Id)).ToDictionary(tag => tag.Id);
+        foreach (var tagId in tagIds)
+            otherMetadata[tagId] += CountIntrinsicMetadata(tagsById[tagId]);
 
         return tagIds.ToDictionary(tagId => tagId, tagId =>
         {
@@ -441,7 +448,8 @@ public sealed class TagNameConflictScanner(
                 children[tagId],
                 ratings[tagId],
                 otherMetadata[tagId],
-                extensionMetadata[tagId]);
+                extensionMetadata[tagId],
+                referenceCounts[tagId]);
         });
     }
 

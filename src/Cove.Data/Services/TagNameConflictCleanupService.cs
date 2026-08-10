@@ -42,7 +42,7 @@ public sealed class TagNameConflictCleanupService(
     {
         var outcome = await ExecuteTransactionAsync(async () =>
         {
-            var scan = await scanner.ScanWithoutImpactsAsync(ct);
+            var scan = await scanner.ScanAsync(ct);
             var group = scan.Groups.SingleOrDefault(candidate => candidate.Key == groupKey)
                 ?? throw new InvalidOperationException("The conflict group changed. Refresh the scan and try again.");
             if (expectedRevision != null
@@ -67,7 +67,7 @@ public sealed class TagNameConflictCleanupService(
         var outcome = await ExecuteTransactionAsync(async () =>
         {
             var attemptMerges = new List<TagMergeResult>();
-            var scan = await scanner.ScanWithoutImpactsAsync(ct);
+            var scan = await scanner.ScanAsync(ct);
             if (expectedRevision != null
                 && !string.Equals(scan.Revision, expectedRevision, StringComparison.Ordinal))
                 throw new InvalidOperationException("The conflict scan changed. Refresh it and review all recommended actions before trying again.");
@@ -81,7 +81,7 @@ public sealed class TagNameConflictCleanupService(
                 var merge = await ResolveGroupAsync(group, group.RecommendedSurvivorTagId, null, ct);
                 if (merge != null)
                     attemptMerges.Add(merge);
-                scan = await scanner.ScanWithoutImpactsAsync(ct);
+                scan = await scanner.ScanAsync(ct);
             }
 
             throw new InvalidOperationException("Conflict cleanup did not converge before the safety limit.");
@@ -108,7 +108,7 @@ public sealed class TagNameConflictCleanupService(
         var recommendation = TagNameResolutionPolicy.Recommend(
             policyClaims,
             group.Kinds.Contains(TagNameConflictKinds.BlankAlias),
-            requestedSurvivorTagId);
+            requestedSurvivorTagId ?? group.RecommendedSurvivorTagId);
         var claimsByIdentity = group.Claims.ToDictionary(
             claim => new TagNameClaimIdentity(claim.TagId, claim.AliasId));
         var actions = recommendation.Claims.ToDictionary(

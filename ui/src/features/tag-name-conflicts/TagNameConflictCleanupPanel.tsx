@@ -142,14 +142,16 @@ export function TagNameConflictCleanupPanel() {
       unresolvedGroupCount: scan.data.unresolvedGroupCount,
       scannedAtUtc: scan.data.scannedAtUtc,
     });
-    setSelectedSurvivors((current) => Object.fromEntries(
-      scan.data.groups.map((group) => {
+    setSelectedSurvivors((current) => {
+      const retained: Record<string, number> = {};
+      for (const group of scan.data.groups) {
         const currentSurvivor = current[group.key];
         const survivorStillOwnsAClaim = currentSurvivor != null
           && group.claims.some((claim) => claim.tagId === currentSurvivor);
-        return [group.key, survivorStillOwnsAClaim ? currentSurvivor : group.recommendedSurvivorTagId];
-      }),
-    ));
+        if (survivorStillOwnsAClaim) retained[group.key] = currentSurvivor;
+      }
+      return retained;
+    });
   }, [queryClient, scan.data]);
 
   const planFor = (group: TagNameConflictGroup) => buildGroupPlan(
@@ -390,16 +392,17 @@ function ConflictGroupCard({
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Impact before changes</h4>
           {canSelectSurvivor ? (
             <p className="mt-1 text-xs text-secondary">
-              Cove recommends the lowest-ID canonical-name owner when one exists, so an older alias does not force a canonical tag merge; alias-only groups use the lowest-ID owner. You can choose another survivor.
+              Cove recommends the canonical-name owner with the most references when one exists, so an alias alone does not force a whole-tag merge. Alias-only groups use the most-referenced owner. Ties use the lowest tag ID, and you can choose another survivor.
             </p>
           ) : null}
           <div className="mt-2 overflow-x-auto rounded-xl border border-border">
-            <table className="min-w-[900px] w-full text-left text-sm">
+            <table className="min-w-[980px] w-full text-left text-sm">
               <thead className="bg-card text-xs text-secondary">
                 <tr>
                   <th className="px-3 py-2 font-medium">Survivor</th>
                   <th className="px-3 py-2 font-medium">Tag</th>
                   <th className="px-3 py-2 font-medium">Action</th>
+                  <th className="px-3 py-2 font-medium">References</th>
                   <th className="px-3 py-2 font-medium">Entities</th>
                   <th className="px-3 py-2 font-medium">Segments</th>
                   <th className="px-3 py-2 font-medium">Parents</th>
@@ -442,6 +445,7 @@ function ImpactRow({ impact, recommended, selected, selectable, willMerge, radio
         {recommended ? <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-200">Recommended</span> : null}
       </td>
       <td className={`px-3 py-2 ${willMerge ? "text-amber-200" : "text-secondary"}`}>{selected ? "Survivor" : willMerge ? "Merge" : "Keep separate"}</td>
+      <CountCell value={impact.referenceCount} />
       <CountCell value={impact.taggedEntityCount} />
       <CountCell value={impact.segmentCount} />
       <CountCell value={impact.parentRelationshipCount} />

@@ -30,8 +30,8 @@ const conflictScan: TagNameConflictScan = {
       { tagId: 9, tagName: "Other", claimType: "alias", aliasId: 12, originalValue: "shared", normalizedValue: "shared", recommendedAction: "remove-alias", isRecommendedSurvivingClaim: false },
     ],
     impacts: [
-      { tagId: 4, tagName: "Shared", taggedEntityCount: 2, segmentCount: 3, parentRelationshipCount: 1, childRelationshipCount: 0, ratingCount: 1, otherMetadataCount: 4, extensionMetadataCount: 0 },
-      { tagId: 9, tagName: "Other", taggedEntityCount: 7, segmentCount: 5, parentRelationshipCount: 0, childRelationshipCount: 2, ratingCount: 0, otherMetadataCount: 6, extensionMetadataCount: 0 },
+      { tagId: 4, tagName: "Shared", referenceCount: 11, taggedEntityCount: 2, segmentCount: 3, parentRelationshipCount: 1, childRelationshipCount: 0, ratingCount: 1, otherMetadataCount: 4, extensionMetadataCount: 0 },
+      { tagId: 9, tagName: "Other", referenceCount: 20, taggedEntityCount: 7, segmentCount: 5, parentRelationshipCount: 0, childRelationshipCount: 2, ratingCount: 0, otherMetadataCount: 6, extensionMetadataCount: 0 },
     ],
   }],
 };
@@ -84,7 +84,8 @@ describe("TagNameConflictCleanupPanel", () => {
     expect(screen.getByText("Tag name and alias")).toBeInTheDocument();
     expect(screen.getByText("Tag name")).toBeInTheDocument();
     expect(screen.getByText("Alias")).toBeInTheDocument();
-    expect(screen.getByText(/lowest-ID canonical-name owner/i)).toBeInTheDocument();
+    expect(screen.getByText(/most references/i)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "References" })).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("6")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Keep tag Shared" })).toBeChecked();
@@ -97,6 +98,29 @@ describe("TagNameConflictCleanupPanel", () => {
       { tagId: 4, aliasId: null, action: "merge-tag" },
     ]));
     expect(queryClient.getQueryData(["tag-name-conflicts"])).toEqual(expect.objectContaining({ unresolvedGroupCount: 0 }));
+  });
+
+  it("adopts a refreshed recommendation until the administrator selects an override", () => {
+    const queryClient = new QueryClient();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <TagNameConflictCleanupPanel />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("radio", { name: "Keep tag Shared" })).toBeChecked();
+    conflictScan.groups[0].recommendedSurvivorTagId = 9;
+
+    try {
+      view.rerender(
+        <QueryClientProvider client={queryClient}>
+          <TagNameConflictCleanupPanel />
+        </QueryClientProvider>,
+      );
+      expect(screen.getByRole("radio", { name: "Keep tag Other" })).toBeChecked();
+    } finally {
+      conflictScan.groups[0].recommendedSurvivorTagId = 4;
+    }
   });
 
   it("keeps every claim on a source tag synchronized when that whole tag will merge", async () => {

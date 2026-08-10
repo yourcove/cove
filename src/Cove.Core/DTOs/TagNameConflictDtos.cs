@@ -42,7 +42,8 @@ public sealed record TagNameImpactDto(
     int ChildRelationshipCount,
     int RatingCount,
     int OtherMetadataCount,
-    int ExtensionMetadataCount);
+    int ExtensionMetadataCount,
+    long ReferenceCount);
 
 public sealed record TagNameClaimResolutionDto(
     int TagId,
