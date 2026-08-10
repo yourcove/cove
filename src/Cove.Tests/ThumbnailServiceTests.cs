@@ -100,6 +100,7 @@ public class ThumbnailServiceTests
                 [service.GetPreviewPath(1)] = [4, 5, 6],
                 [service.GetSpritePath(1)] = [7, 8, 9],
                 [service.GetSpriteVttPath(1)] = [10, 11, 12],
+                [service.GetSegmentAnimatedPreviewPath(1, 5)] = [13, 14, 15],
             };
             foreach (var (path, bytes) in assets)
             {
@@ -110,9 +111,78 @@ public class ThumbnailServiceTests
             Assert.False(await service.RegenerateVideoThumbnailAsync(1));
             Assert.False(await service.RegenerateVideoPreviewAsync(1));
             Assert.False(await service.RegenerateVideoSpriteAsync(1));
+            Assert.False(await service.GenerateSegmentPreviewFromFileAsync(1, 1, 5, null, overwrite: true));
 
             foreach (var (path, expectedBytes) in assets)
                 Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GetVideoFileInfoAsync_UsesTheExplicitSourceFile()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-thumbnail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var firstPath = Path.Combine(tempRoot, "first.mp4");
+            var selectedPath = Path.Combine(tempRoot, "selected.mp4");
+            await File.WriteAllBytesAsync(firstPath, [1]);
+            await File.WriteAllBytesAsync(selectedPath, [2]);
+
+            var services = new ServiceCollection();
+            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            services.AddSingleton(dbOptions);
+            services.AddScoped<CoveContext>(_ => new TestCoveContext(dbOptions));
+
+            await using var provider = services.BuildServiceProvider();
+            int videoId;
+            int selectedFileId;
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var video = new Video { Title = "multi-file" };
+                video.Files.Add(new VideoFile
+                {
+                    Basename = Path.GetFileName(firstPath),
+                    ParentFolder = new Folder { Path = tempRoot },
+                    Duration = 10,
+                });
+                var selectedFile = new VideoFile
+                {
+                    Basename = Path.GetFileName(selectedPath),
+                    ParentFolder = new Folder { Path = tempRoot },
+                    Duration = 20,
+                };
+                video.Files.Add(selectedFile);
+                db.Videos.Add(video);
+                await db.SaveChangesAsync();
+                videoId = video.Id;
+                selectedFileId = selectedFile.Id;
+            }
+
+            var service = new ThumbnailService(
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                new StubJobService(),
+                new CoveConfiguration { GeneratedPath = Path.Combine(tempRoot, "generated") },
+                new ZipFileReader(),
+                new NullBlobService(),
+                NullLogger<ThumbnailService>.Instance);
+
+            var source = await service.GetVideoFileInfoAsync(videoId, selectedFileId, CancellationToken.None);
+            var missingSource = await service.GetVideoFileInfoAsync(videoId, int.MaxValue, CancellationToken.None);
+
+            Assert.Equal(selectedPath, source.FilePath);
+            Assert.Equal(20, source.Duration);
+            Assert.Null(missingSource.FilePath);
+            Assert.Equal(0, missingSource.Duration);
         }
         finally
         {

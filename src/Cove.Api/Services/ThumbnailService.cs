@@ -59,7 +59,7 @@ public class ThumbnailService(
     CoveConfiguration config,
     IZipFileReader zipFileReader,
     IBlobService blobService,
-    ILogger<ThumbnailService> logger) : IThumbnailService
+    ILogger<ThumbnailService> logger) : IThumbnailService, IVideoAssetGenerator
 {
     private string ThumbnailDir => Path.Combine(config.GeneratedPath, "screenshots");
     private string ImageThumbnailDir => Path.Combine(config.GeneratedPath, "thumbnails");
@@ -908,32 +908,30 @@ public class ThumbnailService(
 
     public async Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds, CancellationToken ct)
     {
-        await GenerateVideoThumbnailCoreAsync(videoId, atSeconds, ct);
+        await GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct);
     }
 
     public Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
-        => GenerateVideoThumbnailCoreAsync(videoId, atSeconds, ct);
+        => GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct);
 
-    private async Task<bool> GenerateVideoThumbnailCoreAsync(int videoId, double? atSeconds, CancellationToken ct)
+    public Task<bool> GenerateThumbnailFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        double? atSeconds,
+        CancellationToken ct = default)
+        => GenerateVideoThumbnailCoreAsync(videoId, sourceFileId, atSeconds, ct);
+
+    private async Task<bool> GenerateVideoThumbnailCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        double? atSeconds,
+        CancellationToken ct)
     {
         var thumbPath = atSeconds.HasValue
             ? GetTimestampedThumbnailPath(videoId, atSeconds.Value)
             : GetThumbnailPath(videoId);
 
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-        var videoFile = await db.VideoFiles
-            .Include(f => f.ParentFolder)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(f => f.VideoId == videoId, ct);
-
-        if (videoFile == null) return false;
-
-        var filePath = videoFile.ParentFolder != null
-            ? Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename)
-            : videoFile.Basename;
-
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (!File.Exists(filePath)) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
@@ -946,7 +944,7 @@ public class ThumbnailService(
         var thumbDir = Path.GetDirectoryName(thumbPath)!;
         Directory.CreateDirectory(thumbDir);
 
-        var seekSeconds = atSeconds ?? videoFile.Duration * 0.2;
+        var seekSeconds = atSeconds ?? duration * 0.2;
         if (seekSeconds <= 0) seekSeconds = 1;
 
         // Limit concurrent FFmpeg processes
@@ -1067,19 +1065,41 @@ public class ThumbnailService(
         return Path.Combine(VttDir, hash[..2], $"{videoId}_thumbs.vtt");
     }
 
-    public async Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec, CancellationToken ct)
+    public Task GenerateSegmentAnimatedPreviewAsync(
+        int videoId,
+        double startSec,
+        double? endSec,
+        CancellationToken ct)
+        => GenerateSegmentAnimatedPreviewCoreAsync(videoId, sourceFileId: null, startSec, endSec, ct);
+
+    public Task<bool> GenerateSegmentPreviewFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        double startSec,
+        double? endSec,
+        bool overwrite,
+        CancellationToken ct = default)
+        => GenerateSegmentAnimatedPreviewCoreAsync(videoId, sourceFileId, startSec, endSec, ct, overwrite);
+
+    private async Task<bool> GenerateSegmentAnimatedPreviewCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        double startSec,
+        double? endSec,
+        CancellationToken ct,
+        bool overwrite = false)
     {
         var previewPath = GetSegmentAnimatedPreviewPath(videoId, startSec);
-        if (File.Exists(previewPath)) return;
+        if (!overwrite && File.Exists(previewPath)) return true;
 
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, ct);
-        if (filePath == null || duration <= 0) return;
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
+        if (filePath == null || duration <= 0) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null)
         {
             logger.LogWarning("FFmpeg not found, cannot generate segment preview for video {VideoId}", videoId);
-            return;
+            return false;
         }
 
         var clampedStart = Math.Max(0, Math.Min(startSec, Math.Max(0, duration - 0.1)));
@@ -1096,17 +1116,20 @@ public class ThumbnailService(
         await sem.WaitAsync(ct);
         try
         {
-            if (File.Exists(previewPath)) return;
+            if (!overwrite && File.Exists(previewPath)) return true;
 
-            var tempPath = previewPath + ".tmp.webp";
+            var tempPath = previewPath + $".tmp.{Guid.NewGuid():N}.webp";
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
                 var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
                 await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
 
-                if (File.Exists(tempPath))
-                    File.Move(tempPath, previewPath, overwrite: true);
+                if (!File.Exists(tempPath))
+                    return false;
+
+                File.Move(tempPath, previewPath, overwrite: true);
+                return true;
             }
             finally
             {
@@ -1119,6 +1142,7 @@ public class ThumbnailService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Error generating segment preview for video {VideoId} at {StartSec}", videoId, startSec);
+            return false;
         }
         finally
         {
@@ -1129,18 +1153,29 @@ public class ThumbnailService(
     /// <summary>Generate a multi-segment video preview clip (mp4) for a video.</summary>
     public async Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
     {
-        await GenerateVideoPreviewCoreAsync(videoId, overwrite: false, ct);
+        await GenerateVideoPreviewCoreAsync(videoId, sourceFileId: null, overwrite: false, ct);
     }
 
     public Task<bool> RegenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
-        => GenerateVideoPreviewCoreAsync(videoId, overwrite: true, ct);
+        => GenerateVideoPreviewCoreAsync(videoId, sourceFileId: null, overwrite: true, ct);
 
-    private async Task<bool> GenerateVideoPreviewCoreAsync(int videoId, bool overwrite, CancellationToken ct)
+    public Task<bool> GeneratePreviewFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        bool overwrite,
+        CancellationToken ct = default)
+        => GenerateVideoPreviewCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    private async Task<bool> GenerateVideoPreviewCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
     {
         var previewPath = GetPreviewPath(videoId);
         if (!overwrite && File.Exists(previewPath)) return true;
 
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, ct);
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (filePath == null || duration <= 0) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
@@ -1368,14 +1403,28 @@ public class ThumbnailService(
     /// the fps filter approach which decodes the entire video.</summary>
     public async Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
     {
-        await GenerateVideoSpriteCoreAsync(videoId, overwrite: false, ct);
+        await GenerateVideoSpriteCoreAsync(videoId, sourceFileId: null, overwrite: false, ct);
     }
 
     public Task<bool> RegenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
-        => GenerateVideoSpriteCoreAsync(videoId, overwrite: true, ct);
+        => GenerateVideoSpriteCoreAsync(videoId, sourceFileId: null, overwrite: true, ct);
 
-    private Task<bool> GenerateVideoSpriteCoreAsync(int videoId, bool overwrite, CancellationToken ct)
-        => RunWithSpriteGenerationLockAsync(videoId, () => GenerateVideoSpriteLockedAsync(videoId, overwrite, ct), ct);
+    public Task<bool> GenerateSpriteFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        bool overwrite,
+        CancellationToken ct = default)
+        => GenerateVideoSpriteCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    private Task<bool> GenerateVideoSpriteCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
+        => RunWithSpriteGenerationLockAsync(
+            videoId,
+            () => GenerateVideoSpriteLockedAsync(videoId, sourceFileId, overwrite, ct),
+            ct);
 
     internal static async Task<T> RunWithSpriteGenerationLockAsync<T>(
         int videoId,
@@ -1394,13 +1443,17 @@ public class ThumbnailService(
         }
     }
 
-    private async Task<bool> GenerateVideoSpriteLockedAsync(int videoId, bool overwrite, CancellationToken ct)
+    private async Task<bool> GenerateVideoSpriteLockedAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
     {
         var destinationSpritePath = GetSpritePath(videoId);
         var destinationVttPath = GetSpriteVttPath(videoId);
         if (!overwrite && File.Exists(destinationSpritePath) && File.Exists(destinationVttPath)) return true;
 
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, ct);
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
         if (filePath == null || duration <= 0) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
@@ -1759,15 +1812,25 @@ public class ThumbnailService(
         return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
     }
 
-    private async Task<(string? filePath, double duration)> GetVideoFileInfoAsync(int videoId, CancellationToken ct)
+    internal async Task<(string? FilePath, double Duration)> GetVideoFileInfoAsync(
+        int videoId,
+        int? sourceFileId,
+        CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-        var videoFile = await db.VideoFiles
+        var query = db.VideoFiles
             .Include(f => f.ParentFolder)
             .AsNoTracking()
-            .FirstOrDefaultAsync(f => f.VideoId == videoId, ct);
+            .Where(f => f.VideoId == videoId);
+
+        if (sourceFileId.HasValue)
+            query = query.Where(f => f.Id == sourceFileId.Value);
+
+        var videoFile = await query
+            .OrderBy(f => f.Id)
+            .FirstOrDefaultAsync(ct);
 
         if (videoFile == null) return (null, 0);
 
@@ -1780,78 +1843,32 @@ public class ThumbnailService(
 
     private async Task RunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
     {
-        var process = new System.Diagnostics.Process
+        var result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
+        if (result.TimedOut)
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
             logger.LogWarning("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return;
         }
 
-        if (process.ExitCode != 0)
-        {
-            var stderr = await stderrTask;
-            logger.LogWarning("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
-        }
+        if (result.ExitCode != 0)
+            logger.LogWarning("FFmpeg failed (exit {Code}): {Error}", result.ExitCode, result.StandardError[..Math.Min(500, result.StandardError.Length)]);
     }
 
     private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
     {
-        var process = new System.Diagnostics.Process
+        var result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
+        if (result.TimedOut)
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
             if (logger.IsEnabled(LogLevel.Trace))
                 logger.LogTrace("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
-        if (process.ExitCode == 0)
+        if (result.ExitCode == 0)
             return true;
 
-        var stderr = await stderrTask;
         if (logger.IsEnabled(LogLevel.Trace))
-            logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+            logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", result.ExitCode, result.StandardError[..Math.Min(500, result.StandardError.Length)]);
         return false;
     }
 
