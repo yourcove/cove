@@ -43,7 +43,7 @@ public class ScanService : IScanService
         var discoveryService = new ScanDiscoveryService(scopeFactory, config, logger);
         var assetGenerationService = new ScanAssetGenerationService(scopeFactory, fingerprintService, thumbnailService, logger);
 
-        _videoProcessor = new ScanVideoProcessor(config, fingerprintService, thumbnailService, mediaProbeService, folderResolver, fileIdentity, logger);
+        _videoProcessor = new ScanVideoProcessor(config, fingerprintService, mediaProbeService, folderResolver, fileIdentity, logger);
         _imageProcessor = new ScanImageProcessor(config, fingerprintService, thumbnailService, folderResolver, fileIdentity, logger);
         _galleryProcessor = new ScanGalleryProcessor(zipGalleryReader, folderResolver, logger);
         _audioProcessor = new ScanAudioProcessor(config, fingerprintService, mediaProbeService, folderResolver, fileIdentity, logger);

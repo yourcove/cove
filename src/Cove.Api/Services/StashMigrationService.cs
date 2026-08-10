@@ -56,7 +56,7 @@ public partial class StashMigrationService
     private readonly ILogger<StashMigrationService> _logger;
     private string? _currentImportCustomPerformerImageLocation;
 
-    private sealed record SceneGeneratedData(string? Oshash, string? Md5, string? CoverBlobId);
+    private sealed record SceneGeneratedData(string? Oshash, string? Md5, bool HasExplicitCover);
     private sealed record ImportedRatingSeed(int StashId, int? Value);
     private sealed record ImportedAffinitySeed(int StashId, int LikeCount = 0, int ViewCount = 0, double? LastPositionSec = null, double TotalConsumedSec = 0, DateTime? LastConsumedAt = null);
     private sealed class ImportedAffinityAggregate
@@ -590,7 +590,7 @@ public partial class StashMigrationService
                 await RunMigrationPhaseAsync(
                     "generated content",
                     sw,
-                    () => CopyGeneratedContentAsync(stashConfig, sceneGeneratedMap, options, progress, GeneratedAssetsStart, GeneratedAssetsEnd, ct));
+                    () => CopyGeneratedContentAsync(stashConfig, sceneGeneratedMap, progress, GeneratedAssetsStart, GeneratedAssetsEnd, ct));
             }
             else
             {

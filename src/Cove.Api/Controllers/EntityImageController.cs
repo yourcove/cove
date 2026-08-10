@@ -14,7 +14,12 @@ namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api")]
-public class EntityImageController(CoveContext db, IBlobService blobService, IThumbnailService thumbnailService, IStreamService streamService) : ControllerBase
+public class EntityImageController(
+    CoveContext db,
+    IBlobService blobService,
+    IThumbnailService thumbnailService,
+    IStreamService streamService,
+    ILogger<EntityImageController>? logger = null) : ControllerBase
 {
     // ── Segments ────────────────────────────────────────────────
 
@@ -27,13 +32,13 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.VisibleSegments().FirstOrDefaultAsync(segment => segment.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         entity.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return Ok(new { blobId = entity.ImageBlobId });
     }
@@ -71,10 +76,11 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.VisibleSegments().FirstOrDefaultAsync(segment => segment.Id == id, ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
         entity.ImageBlobId = null;
         entity.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return NoContent();
     }
@@ -97,13 +103,13 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var screenshot = await streamService.GetVideoScreenshot(entity.HostId, atSeconds, ct);
         if (screenshot == null) return NotFound();
 
-        if (!string.IsNullOrWhiteSpace(entity.ImageBlobId))
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
 
         await using var screenshotStream = screenshot.Value.stream;
         entity.ImageBlobId = await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct);
         entity.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return Ok(new { success = true });
     }
@@ -120,12 +126,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Videos.FirstOrDefaultAsync(video => video.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return Ok(new { blobId = entity.ImageBlobId });
     }
@@ -161,9 +167,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Videos.FirstOrDefaultAsync(video => video.Id == id, ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
         entity.ImageBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return NoContent();
     }
@@ -180,12 +187,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Performers.FirstOrDefaultAsync(performer => performer.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageOverrideBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageOverrideBlobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageOverrideBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return Ok(new { blobId = entity.ImageOverrideBlobId });
     }
@@ -221,7 +228,7 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         foreach (var blobId in blobIds)
         {
             await thumbnailService.DeleteBlobGeneratedFilesAsync(blobId!, CancellationToken.None);
-            await blobService.DeleteBlobAsync(blobId!, CancellationToken.None);
+            await blobService.DeleteBlobIfUnreferencedAsync(blobId!, CancellationToken.None);
         }
 
         return NoContent();
@@ -238,8 +245,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var source = await StoreCoverSourceBlobAsync(dto, ct);
         if (source.Error != null) return BadRequest(source.Error);
 
-        await ReplaceBlobAsync(entity.ImageOverrideBlobId, source.BlobId!, blobId => entity.ImageOverrideBlobId = blobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
+        entity.ImageOverrideBlobId = source.BlobId!;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return Ok(new { blobId = entity.ImageOverrideBlobId });
     }
@@ -256,12 +265,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Audios.FirstOrDefaultAsync(audio => audio.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return Ok(new { blobId = entity.ImageBlobId });
     }
@@ -284,9 +293,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Audios.FirstOrDefaultAsync(audio => audio.Id == id, ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
         entity.ImageBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return NoContent();
     }
@@ -303,12 +313,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.TextDocuments.FirstOrDefaultAsync(text => text.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return Ok(new { blobId = entity.ImageBlobId });
     }
@@ -331,9 +341,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.TextDocuments.FirstOrDefaultAsync(text => text.Id == id, ct);
         if (entity?.ImageBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
         entity.ImageBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return NoContent();
     }
@@ -350,12 +361,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Faces.FirstOrDefaultAsync(face => face.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.CoverBlobId != null)
-            await blobService.DeleteBlobAsync(entity.CoverBlobId, ct);
+        var previousBlobId = entity.CoverBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.CoverBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.CoverBlobId);
 
         return Ok(new { blobId = entity.CoverBlobId });
     }
@@ -378,9 +389,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Faces.FirstOrDefaultAsync(face => face.Id == id, ct);
         if (entity?.CoverBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.CoverBlobId, ct);
+        var previousBlobId = entity.CoverBlobId;
         entity.CoverBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.CoverBlobId);
 
         return NoContent();
     }
@@ -397,12 +409,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Studios.FirstOrDefaultAsync(studio => studio.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageOverrideBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageOverrideBlobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageOverrideBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return Ok(new { blobId = entity.ImageOverrideBlobId });
     }
@@ -427,9 +439,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         if (entity == null) return NotFound();
         if (entity.ImageOverrideBlobId == null) return NoContent();
 
-        await blobService.DeleteBlobAsync(entity.ImageOverrideBlobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
         entity.ImageOverrideBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return NoContent();
     }
@@ -445,8 +458,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var source = await StoreCoverSourceBlobAsync(dto, ct);
         if (source.Error != null) return BadRequest(source.Error);
 
-        await ReplaceBlobAsync(entity.ImageOverrideBlobId, source.BlobId!, blobId => entity.ImageOverrideBlobId = blobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
+        entity.ImageOverrideBlobId = source.BlobId!;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return Ok(new { blobId = entity.ImageOverrideBlobId });
     }
@@ -463,12 +478,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Tags.FirstOrDefaultAsync(tag => tag.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageOverrideBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageOverrideBlobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageOverrideBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return Ok(new { blobId = entity.ImageOverrideBlobId });
     }
@@ -493,9 +508,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         if (entity == null) return NotFound();
         if (entity.ImageOverrideBlobId == null) return NoContent();
 
-        await blobService.DeleteBlobAsync(entity.ImageOverrideBlobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
         entity.ImageOverrideBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return NoContent();
     }
@@ -511,8 +527,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var source = await StoreCoverSourceBlobAsync(dto, ct);
         if (source.Error != null) return BadRequest(source.Error);
 
-        await ReplaceBlobAsync(entity.ImageOverrideBlobId, source.BlobId!, blobId => entity.ImageOverrideBlobId = blobId, ct);
+        var previousBlobId = entity.ImageOverrideBlobId;
+        entity.ImageOverrideBlobId = source.BlobId!;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageOverrideBlobId);
 
         return Ok(new { blobId = entity.ImageOverrideBlobId });
     }
@@ -529,12 +547,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Groups.FirstOrDefaultAsync(group => group.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.FrontImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.FrontImageBlobId, ct);
+        var previousBlobId = entity.FrontImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.FrontImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.FrontImageBlobId);
 
         return Ok(new { blobId = entity.FrontImageBlobId });
     }
@@ -574,9 +592,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         if (entity == null) return NotFound();
         if (entity.FrontImageBlobId == null) return NoContent();
 
-        await blobService.DeleteBlobAsync(entity.FrontImageBlobId, ct);
+        var previousBlobId = entity.FrontImageBlobId;
         entity.FrontImageBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.FrontImageBlobId);
 
         return NoContent();
     }
@@ -592,8 +611,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var source = await StoreCoverSourceBlobAsync(dto, ct);
         if (source.Error != null) return BadRequest(source.Error);
 
-        await ReplaceBlobAsync(entity.FrontImageBlobId, source.BlobId!, blobId => entity.FrontImageBlobId = blobId, ct);
+        var previousBlobId = entity.FrontImageBlobId;
+        entity.FrontImageBlobId = source.BlobId!;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.FrontImageBlobId);
 
         return Ok(new { blobId = entity.FrontImageBlobId });
     }
@@ -610,12 +631,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Groups.FirstOrDefaultAsync(group => group.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.BackImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.BackImageBlobId, ct);
+        var previousBlobId = entity.BackImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.BackImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.BackImageBlobId);
 
         return Ok(new { blobId = entity.BackImageBlobId });
     }
@@ -638,9 +659,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Groups.FirstOrDefaultAsync(group => group.Id == id, ct);
         if (entity?.BackImageBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.BackImageBlobId, ct);
+        var previousBlobId = entity.BackImageBlobId;
         entity.BackImageBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.BackImageBlobId);
 
         return NoContent();
     }
@@ -657,12 +679,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.ImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return Ok(new { blobId = entity.ImageBlobId });
     }
@@ -685,11 +707,11 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
+        var previousBlobId = entity.ImageBlobId;
         entity.ImageBlobId = null;
         entity.CoverImageId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
 
         return NoContent();
     }
@@ -708,21 +730,22 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
                 .AnyAsync(ig => ig.GalleryId == id && ig.ImageId == dto.ImageId.Value, ct);
             if (!belongs) return BadRequest("Image does not belong to this gallery");
 
-            if (entity.ImageBlobId != null)
-                await blobService.DeleteBlobAsync(entity.ImageBlobId, ct);
-
+            var previousBlobId = entity.ImageBlobId;
             entity.ImageBlobId = null;
             entity.CoverImageId = dto.ImageId.Value;
             await db.SaveChangesAsync(ct);
+            await CleanupReplacedBlobAsync(previousBlobId, entity.ImageBlobId);
             return Ok();
         }
 
         var source = await StoreCoverSourceBlobAsync(dto, ct);
         if (source.Error != null) return BadRequest(source.Error);
 
+        var previousSourceBlobId = entity.ImageBlobId;
         entity.CoverImageId = null;
-        await ReplaceBlobAsync(entity.ImageBlobId, source.BlobId!, blobId => entity.ImageBlobId = blobId, ct);
+        entity.ImageBlobId = source.BlobId!;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousSourceBlobId, entity.ImageBlobId);
 
         return Ok(new { blobId = entity.ImageBlobId });
     }
@@ -739,12 +762,12 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
         if (entity == null) return NotFound();
 
-        if (entity.BackImageBlobId != null)
-            await blobService.DeleteBlobAsync(entity.BackImageBlobId, ct);
+        var previousBlobId = entity.BackImageBlobId;
 
         await using var stream = file.OpenReadStream();
         entity.BackImageBlobId = await blobService.StoreBlobAsync(stream, file.ContentType, ct);
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.BackImageBlobId);
 
         return Ok(new { blobId = entity.BackImageBlobId });
     }
@@ -767,9 +790,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
         if (entity?.BackImageBlobId == null) return NotFound();
 
-        await blobService.DeleteBlobAsync(entity.BackImageBlobId, ct);
+        var previousBlobId = entity.BackImageBlobId;
         entity.BackImageBlobId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.BackImageBlobId);
 
         return NoContent();
     }
@@ -785,8 +809,10 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var source = await StoreCoverSourceBlobAsync(dto, ct);
         if (source.Error != null) return BadRequest(source.Error);
 
-        await ReplaceBlobAsync(entity.BackImageBlobId, source.BlobId!, blobId => entity.BackImageBlobId = blobId, ct);
+        var previousBlobId = entity.BackImageBlobId;
+        entity.BackImageBlobId = source.BlobId!;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, entity.BackImageBlobId);
 
         return Ok(new { blobId = entity.BackImageBlobId });
     }
@@ -805,12 +831,11 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
             .AnyAsync(ig => ig.GalleryId == id && ig.ImageId == dto.ImageId, ct);
         if (!belongs) return BadRequest("Image does not belong to this gallery");
 
-        if (gallery.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(gallery.ImageBlobId, ct);
-
+        var previousBlobId = gallery.ImageBlobId;
         gallery.ImageBlobId = null;
         gallery.CoverImageId = dto.ImageId;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, gallery.ImageBlobId);
         return Ok();
     }
 
@@ -822,12 +847,11 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         var gallery = await db.Galleries.FirstOrDefaultAsync(entity => entity.Id == id, ct);
         if (gallery == null) return NotFound();
 
-        if (gallery.ImageBlobId != null)
-            await blobService.DeleteBlobAsync(gallery.ImageBlobId, ct);
-
+        var previousBlobId = gallery.ImageBlobId;
         gallery.ImageBlobId = null;
         gallery.CoverImageId = null;
         await db.SaveChangesAsync(ct);
+        await CleanupReplacedBlobAsync(previousBlobId, gallery.ImageBlobId);
         return NoContent();
     }
 
@@ -857,12 +881,20 @@ public class EntityImageController(CoveContext db, IBlobService blobService, ITh
         return (await blobService.StoreBlobAsync(screenshotStream, screenshot.Value.contentType, ct), null);
     }
 
-    private async Task ReplaceBlobAsync(string? currentBlobId, string newBlobId, Action<string> assign, CancellationToken ct)
+    private async Task CleanupReplacedBlobAsync(string? previousBlobId, string? currentBlobId)
     {
-        assign(newBlobId);
+        if (string.IsNullOrWhiteSpace(previousBlobId)
+            || string.Equals(previousBlobId, currentBlobId, StringComparison.Ordinal))
+            return;
 
-        if (!string.IsNullOrWhiteSpace(currentBlobId) && !string.Equals(currentBlobId, newBlobId, StringComparison.Ordinal))
-            await blobService.DeleteBlobAsync(currentBlobId, ct);
+        try
+        {
+            await blobService.DeleteBlobIfUnreferencedAsync(previousBlobId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to clean up replaced blob {BlobId}; the persisted image state remains valid", previousBlobId);
+        }
     }
 
     private async Task<IActionResult> ServeBlobAsync(string blobId, int? maxDimension, bool immutable, CancellationToken ct)

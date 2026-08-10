@@ -4,7 +4,11 @@ using Cove.Core.Interfaces;
 
 namespace Cove.Api.Services;
 
-public partial class BlobService(CoveConfiguration config, ILogger<BlobService> logger) : IBlobService
+public partial class BlobService(
+    CoveConfiguration config,
+    ILogger<BlobService> logger,
+    IBlobReferenceCounter referenceCounter,
+    IBlobReferenceCoordinator referenceCoordinator) : IBlobService
 {
     private const string MetadataSuffix = ".metadata.json";
 
@@ -25,6 +29,7 @@ public partial class BlobService(CoveConfiguration config, ILogger<BlobService> 
         .ToDictionary(kvp => kvp.Value, kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
     private string BlobDir => Path.Combine(config.GeneratedPath, "blobs");
+    internal IBlobReferenceCounter ReferenceCounter { get; set; } = referenceCounter;
 
     [LoggerMessage(EventId = 2601, Level = LogLevel.Trace,
         Message = "Stored blob {BlobId} at {Path}")]
@@ -82,6 +87,7 @@ public partial class BlobService(CoveConfiguration config, ILogger<BlobService> 
             throw;
         }
 
+        referenceCoordinator.MarkAvailable(blobId);
         TraceBlobStored(blobId, path);
         return blobId;
     }
@@ -120,21 +126,41 @@ public partial class BlobService(CoveConfiguration config, ILogger<BlobService> 
     }
 
     public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)
+        => DeleteBlobCoreAsync(blobId, ct);
+
+    public Task DeleteBlobIfUnreferencedAsync(string blobId, CancellationToken ct = default)
+        => DeleteBlobCoreAsync(blobId, ct);
+
+    private async Task DeleteBlobCoreAsync(string blobId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (!IsCanonicalBlobId(blobId))
-            return Task.CompletedTask;
+            return;
+
+        await using var referenceLease = await referenceCoordinator.AcquireAsync(ct);
+        if (referenceCoordinator.WasDeleted(blobId))
+            return;
+
+        var references = await ReferenceCounter.CountReferencesAsync(blobId, maximum: 1, ct);
+        if (references > 0)
+        {
+            logger.LogDebug(
+                "Retaining blob {BlobId} because {ReferenceCount} database reference(s) remain",
+                blobId,
+                references);
+            return;
+        }
 
         var (path, _) = ResolveBlobFile(blobId);
         if (path != null)
         {
             File.Delete(path);
-            TraceBlobDeleted(blobId, path);
         }
 
+        referenceCoordinator.MarkDeleted(blobId);
         DeleteIfExists(GetMetadataPath(blobId));
-
-        return Task.CompletedTask;
+        if (path != null)
+            TraceBlobDeleted(blobId, path);
     }
 
     private string GetBlobPath(string blobId, string extension)

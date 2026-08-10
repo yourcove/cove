@@ -40,22 +40,20 @@ internal static class ScanExistingFileIndex
 
     public static ScanFileChangeReason GetChangeReason(ExistingFileScanInfo existingFile, DiscoveredFile file, bool rescan)
     {
+        if (existingFile.Size != file.Size)
+            return ScanFileChangeReason.SizeChanged;
+
+        if (file.ModTime > existingFile.ModTime
+            && file.ModTime - existingFile.ModTime > FileModTimeUnchangedTolerance)
+            return ScanFileChangeReason.ModTimeChanged;
+
         if (rescan)
             return ScanFileChangeReason.RescanForced;
 
         if (existingFile.NeedsMetadataProbe)
             return ScanFileChangeReason.MetadataProbe;
 
-        if (existingFile.Size != file.Size)
-            return ScanFileChangeReason.SizeChanged;
-
-        if (existingFile.ModTime >= file.ModTime
-            || file.ModTime - existingFile.ModTime <= FileModTimeUnchangedTolerance)
-        {
-            return ScanFileChangeReason.Unchanged;
-        }
-
-        return ScanFileChangeReason.ModTimeChanged;
+        return ScanFileChangeReason.Unchanged;
     }
 
     public static ExistingFileKind GetExpectedKind(

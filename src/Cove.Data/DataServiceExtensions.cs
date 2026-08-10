@@ -19,6 +19,8 @@ public static class DataServiceExtensions
         // Segment span projection services are part of the data layer and share this host cache.
         // Register it here so AddCoveData remains a complete composition unit outside Cove.Api.
         services.AddMemoryCache();
+        services.AddSingleton<IBlobReferenceCoordinator, BlobReferenceCoordinator>();
+        services.AddScoped<BlobReferenceSaveChangesInterceptor>();
 
         services.AddSingleton(sp =>
         {
@@ -48,6 +50,7 @@ public static class DataServiceExtensions
                 npgsqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(2), null);
             });
             options.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, CoveModelCacheKeyFactory>();
+            options.AddInterceptors(sp.GetRequiredService<BlobReferenceSaveChangesInterceptor>());
             // Loaded data extensions contribute their own entities/tables to the model at runtime
             // (CoveContext.OnModelCreating calls ext.ConfigureModel), but those are intentionally not
             // part of the core migration snapshot — extensions own their schema. Without this, EF's

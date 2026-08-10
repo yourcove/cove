@@ -11,7 +11,6 @@ namespace Cove.Api.Services;
 internal sealed class ScanVideoProcessor(
     CoveConfiguration config,
     IFingerprintService fingerprintService,
-    IThumbnailService thumbnailService,
     IMediaProbeService mediaProbeService,
     ScanFolderResolver folderResolver,
     ScanFileIdentityService fileIdentity,
@@ -29,6 +28,7 @@ internal sealed class ScanVideoProcessor(
         ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
         int? parentFolderId = null,
         bool contentChanged = false,
+        bool forceMetadataProbe = false,
         ScanOperationOptions? scanOptions = null,
         MoveDetectionIndex? moveIndex = null,
         string? videoProbeJson = null)
@@ -74,7 +74,7 @@ internal sealed class ScanVideoProcessor(
 
             // Re-probe when the bytes changed in place (re-encode/replacement) or when metadata was
             // never captured (e.g. FFprobe was unavailable on the initial scan).
-            if (contentChanged || NeedsMetadataProbe(existing))
+            if (contentChanged || forceMetadataProbe || NeedsMetadataProbe(existing))
             {
                 if (videoProbeJson != null)
                     ApplyFfprobeMetadata(existing, videoProbeJson);
@@ -89,7 +89,6 @@ internal sealed class ScanVideoProcessor(
                     phashEnabled: scanOptions?.GeneratePhashes == true,
                     md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
                     ct);
-                InvalidateStaleVideoAssets(existing, scanOptions);
             }
 
             if (syncCaptions)
@@ -165,25 +164,6 @@ internal sealed class ScanVideoProcessor(
 
         logger.LogTrace("Added video file for {Path}", path);
         return (videoFile, false, false);
-    }
-
-    // Delete a changed video's stale visual assets (cover/preview/sprite) so the generation phase
-    // recreates them from the new content — but only for the asset types this scan is (re)generating,
-    // so a metadata-only scan never destroys assets it will not rebuild.
-    private void InvalidateStaleVideoAssets(VideoFile videoFile, ScanOperationOptions? options)
-    {
-        if (options == null || videoFile.VideoId is not int vid)
-            return;
-
-        if (options.GenerateCovers)
-            TryDeleteGeneratedFile(thumbnailService.GetThumbnailPathForVideo(vid));
-        if (options.GeneratePreviews)
-            TryDeleteGeneratedFile(thumbnailService.GetPreviewPath(vid));
-        if (options.GenerateSprites)
-        {
-            TryDeleteGeneratedFile(thumbnailService.GetSpritePath(vid));
-            TryDeleteGeneratedFile(thumbnailService.GetSpriteVttPath(vid));
-        }
     }
 
     private async Task EnrichVideoFileAsync(

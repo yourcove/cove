@@ -330,6 +330,73 @@ public class ScanServiceTests
     }
 
     [Fact]
+    public void GetChangeReason_ForcedRescanDoesNotMaskConfirmedSizeChange()
+    {
+        var modTime = DateTime.UtcNow;
+        var existing = new ExistingFileScanInfo(
+            "/library/video.mp4",
+            1,
+            ExistingFileKind.Video,
+            Size: 100,
+            ModTime: modTime,
+            NeedsMetadataProbe: false);
+        var discovered = new DiscoveredFile(
+            "/library/video.mp4",
+            "/library/video.mp4",
+            ".mp4",
+            new FileStat(Size: 101, ModTime: modTime, ObservedModTime: modTime));
+
+        Assert.Equal(
+            ScanFileChangeReason.SizeChanged,
+            ScanExistingFileIndex.GetChangeReason(existing, discovered, rescan: true));
+    }
+
+    [Fact]
+    public void GetChangeReason_ForcedRescanDoesNotMaskConfirmedModTimeChange()
+    {
+        var modTime = DateTime.UtcNow;
+        var existing = new ExistingFileScanInfo(
+            "/library/video.mp4",
+            1,
+            ExistingFileKind.Video,
+            Size: 100,
+            ModTime: modTime,
+            NeedsMetadataProbe: false);
+        var discoveredModTime = modTime.AddMinutes(1);
+        var discovered = new DiscoveredFile(
+            "/library/video.mp4",
+            "/library/video.mp4",
+            ".mp4",
+            new FileStat(Size: 100, ModTime: discoveredModTime, ObservedModTime: discoveredModTime));
+
+        Assert.Equal(
+            ScanFileChangeReason.ModTimeChanged,
+            ScanExistingFileIndex.GetChangeReason(existing, discovered, rescan: true));
+    }
+
+    [Fact]
+    public void GetChangeReason_ForcedRescanOfUnchangedBytesIsMetadataOnly()
+    {
+        var modTime = DateTime.UtcNow;
+        var existing = new ExistingFileScanInfo(
+            "/library/video.mp4",
+            1,
+            ExistingFileKind.Video,
+            Size: 100,
+            ModTime: modTime,
+            NeedsMetadataProbe: false);
+        var discovered = new DiscoveredFile(
+            "/library/video.mp4",
+            "/library/video.mp4",
+            ".mp4",
+            new FileStat(Size: 100, ModTime: modTime, ObservedModTime: modTime));
+
+        Assert.Equal(
+            ScanFileChangeReason.RescanForced,
+            ScanExistingFileIndex.GetChangeReason(existing, discovered, rescan: true));
+    }
+
+    [Fact]
     public async Task StartScan_SkipsZeroByteVideoWithoutCreatingLibraryRecord()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -1412,6 +1479,116 @@ public class ScanServiceTests
             Assert.Equal("known.en.vtt", caption.Filename);
             Assert.Equal("en", caption.LanguageCode);
             Assert.Equal("vtt", caption.CaptionType);
+            Assert.Equal(16, video.Width);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ForcedRescanDoesNotGenerateFrameCoverForExplicitBlobCover()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "known.mp4");
+            await WriteValidVideoAsync(videoPath);
+
+            await using var environment = await CreateEnvironmentAsync(
+                tempRoot,
+                videoPath,
+                imageBlobId: "imported-cover");
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                Rescan = true,
+                GenerateCovers = true,
+            });
+
+            Assert.Equal(0, environment.ThumbnailService.VideoThumbnailCallCount);
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var db = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal("imported-cover", (await db.Videos.SingleAsync()).ImageBlobId);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ForcedRescanPreservesExistingGeneratedVideoAssets()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "known.mp4");
+            await WriteValidVideoAsync(videoPath);
+            var thumbnailService = new NoOpThumbnailService(Path.Combine(tempRoot, "generated"));
+
+            await using var environment = await CreateEnvironmentAsync(
+                tempRoot,
+                videoPath,
+                thumbnailService: thumbnailService);
+            var generatedAssets = await WriteGeneratedVideoAssetsAsync(thumbnailService, videoId: 1);
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                Rescan = true,
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateSprites = true,
+            });
+
+            Assert.Equal(0, thumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(0, thumbnailService.VideoPreviewCallCount);
+            Assert.Equal(0, thumbnailService.VideoSpriteCallCount);
+            await AssertGeneratedAssetsUnchangedAsync(generatedAssets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ContentChangePreservesExistingAssetsWhenReplacementGenerationFails()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "known.mp4");
+            await WriteValidVideoAsync(videoPath);
+            var thumbnailService = new NoOpThumbnailService(Path.Combine(tempRoot, "generated"));
+
+            await using var environment = await CreateEnvironmentAsync(
+                tempRoot,
+                videoPath,
+                storedModTime: DateTime.UtcNow.AddDays(-1),
+                thumbnailService: thumbnailService);
+            var generatedAssets = await WriteGeneratedVideoAssetsAsync(thumbnailService, videoId: 1);
+
+            environment.Service.StartScan(new ScanOperationOptions
+            {
+                GenerateCovers = true,
+                GeneratePreviews = true,
+                GenerateSprites = true,
+            });
+
+            Assert.Equal(1, thumbnailService.VideoThumbnailCallCount);
+            Assert.Equal(1, thumbnailService.VideoPreviewCallCount);
+            Assert.Equal(1, thumbnailService.VideoSpriteCallCount);
+            Assert.Contains("1 asset generation failure", environment.JobService.LatestSubTask);
+            await AssertGeneratedAssetsUnchangedAsync(generatedAssets);
         }
         finally
         {
@@ -1667,7 +1844,9 @@ public class ScanServiceTests
         string videoPath,
         DateTime? storedModTime = null,
         IMediaProbeService? mediaProbeService = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? imageBlobId = null,
+        NoOpThumbnailService? thumbnailService = null)
     {
         var services = new ServiceCollection();
         var dbOptions = new DbContextOptionsBuilder<CoveContext>()
@@ -1692,6 +1871,7 @@ public class ScanServiceTests
             var video = new Video
             {
                 Title = "Known video",
+                ImageBlobId = imageBlobId,
             };
 
             var fileInfo = new FileInfo(videoPath);
@@ -1735,7 +1915,7 @@ public class ScanServiceTests
         var probeService = mediaProbeService ?? new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
         var clock = timeProvider ?? ReadyTimeProvider;
         var galleryReader = new ZipGalleryReader(new ZipFileReader());
-        var thumbnailService = new NoOpThumbnailService();
+        thumbnailService ??= new NoOpThumbnailService();
         var service = new ScanService(
             jobService,
             provider.GetRequiredService<IServiceScopeFactory>(),
@@ -1751,6 +1931,36 @@ public class ScanServiceTests
             NullLogger<ScanService>.Instance);
 
         return new TestEnvironment(provider, service, jobService, thumbnailService, config);
+    }
+
+    private static async Task<Dictionary<string, byte[]>> WriteGeneratedVideoAssetsAsync(
+        NoOpThumbnailService thumbnailService,
+        int videoId)
+    {
+        var assets = new Dictionary<string, byte[]>
+        {
+            [thumbnailService.GetThumbnailPathForVideo(videoId)] = [1, 2, 3],
+            [thumbnailService.GetPreviewPath(videoId)] = [4, 5, 6],
+            [thumbnailService.GetSpritePath(videoId)] = [7, 8, 9],
+            [thumbnailService.GetSpriteVttPath(videoId)] = [10, 11, 12],
+        };
+
+        foreach (var (path, bytes) in assets)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, bytes);
+        }
+
+        return assets;
+    }
+
+    private static async Task AssertGeneratedAssetsUnchangedAsync(IReadOnlyDictionary<string, byte[]> assets)
+    {
+        foreach (var (path, expectedBytes) in assets)
+        {
+            Assert.True(File.Exists(path), $"Expected generated asset to remain: {path}");
+            Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path));
+        }
     }
 
     private static string NormalizeStoredFolderPath(string path)
@@ -1855,7 +2065,7 @@ public class ScanServiceTests
         public string StartGenerateImagePhashes() => "noop";
     }
 
-    private sealed class NoOpThumbnailService : IThumbnailService
+    private sealed class NoOpThumbnailService(string? generatedRoot = null) : IThumbnailService
     {
         public int VideoThumbnailCallCount { get; private set; }
         public int VideoPreviewCallCount { get; private set; }
@@ -1884,6 +2094,12 @@ public class ScanServiceTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
+        {
+            VideoThumbnailCallCount++;
+            return Task.FromResult(false);
+        }
+
         public Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default)
         {
             ImageThumbnailCallCount++;
@@ -1895,6 +2111,11 @@ public class ScanServiceTests
             VideoPreviewCallCount++;
             return Task.CompletedTask;
         }
+        public Task<bool> RegenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
+        {
+            VideoPreviewCallCount++;
+            return Task.FromResult(false);
+        }
 
         public Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default) => Task.CompletedTask;
 
@@ -1904,19 +2125,28 @@ public class ScanServiceTests
             return Task.CompletedTask;
         }
 
-        public string GetThumbnailPathForVideo(int videoId) => string.Empty;
+        public Task<bool> RegenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
+        {
+            VideoSpriteCallCount++;
+            return Task.FromResult(false);
+        }
+
+        public string GetThumbnailPathForVideo(int videoId) => GetGeneratedPath($"{videoId}.jpg");
 
         public string GetTimestampedThumbnailPath(int videoId, double seconds) => string.Empty;
 
         public string GetSegmentAnimatedPreviewPath(int videoId, double seconds) => string.Empty;
 
-        public string GetPreviewPath(int videoId) => string.Empty;
+        public string GetPreviewPath(int videoId) => GetGeneratedPath($"{videoId}.mp4");
 
-        public string GetSpritePath(int videoId) => string.Empty;
+        public string GetSpritePath(int videoId) => GetGeneratedPath($"{videoId}_sprite.jpg");
 
-        public string GetSpriteVttPath(int videoId) => string.Empty;
+        public string GetSpriteVttPath(int videoId) => GetGeneratedPath($"{videoId}_thumbs.vtt");
 
         public string StartGenerateAllThumbnails() => "noop";
+
+        private string GetGeneratedPath(string filename)
+            => generatedRoot == null ? string.Empty : Path.Combine(generatedRoot, filename);
     }
 
     private sealed class TestEnvironment(

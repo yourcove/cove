@@ -25,10 +25,25 @@ public interface IThumbnailService
     Task DeleteImageGeneratedFilesAsync(int imageId, CancellationToken ct = default);
     Task DeleteBlobGeneratedFilesAsync(string blobId, CancellationToken ct = default);
     Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default);
+    async Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
+    {
+        await GenerateVideoThumbnailAsync(videoId, atSeconds, ct);
+        return true;
+    }
     Task<bool> GenerateImageThumbnailAsync(int imageId, int maxDimension = 640, bool overwrite = false, CancellationToken ct = default);
     Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default);
+    async Task<bool> RegenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
+    {
+        await GenerateVideoPreviewAsync(videoId, ct);
+        return true;
+    }
     Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec = null, CancellationToken ct = default);
     Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default);
+    async Task<bool> RegenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
+    {
+        await GenerateVideoSpriteAsync(videoId, ct);
+        return true;
+    }
     string GetThumbnailPathForVideo(int videoId);
     string GetTimestampedThumbnailPath(int videoId, double seconds);
     string GetSegmentAnimatedPreviewPath(int videoId, double seconds);
@@ -44,7 +59,7 @@ public class ThumbnailService(
     CoveConfiguration config,
     IZipFileReader zipFileReader,
     IBlobService blobService,
-    ILogger<ThumbnailService> logger) : IThumbnailService
+    ILogger<ThumbnailService> logger) : IThumbnailService, IVideoAssetGenerator
 {
     private string ThumbnailDir => Path.Combine(config.GeneratedPath, "screenshots");
     private string ImageThumbnailDir => Path.Combine(config.GeneratedPath, "thumbnails");
@@ -58,6 +73,8 @@ public class ThumbnailService(
     private string? _hwEncoder;
     private string? _hwEncoderFingerprint;
     private readonly object _hwEncoderLock = new();
+    private static readonly SemaphoreSlim[] SpriteGenerationLocks =
+        Enumerable.Range(0, 257).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     /// <summary>Get (or create) a semaphore sized to MaxParallelTasks. FFmpeg threads are
     /// limited so total CPU usage ≈ MaxParallelTasks cores.</summary>
@@ -891,43 +908,43 @@ public class ThumbnailService(
 
     public async Task GenerateVideoThumbnailAsync(int videoId, double? atSeconds, CancellationToken ct)
     {
+        await GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct);
+    }
+
+    public Task<bool> RegenerateVideoThumbnailAsync(int videoId, double? atSeconds = null, CancellationToken ct = default)
+        => GenerateVideoThumbnailCoreAsync(videoId, sourceFileId: null, atSeconds, ct);
+
+    public Task<bool> GenerateThumbnailFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        double? atSeconds,
+        CancellationToken ct = default)
+        => GenerateVideoThumbnailCoreAsync(videoId, sourceFileId, atSeconds, ct);
+
+    private async Task<bool> GenerateVideoThumbnailCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        double? atSeconds,
+        CancellationToken ct)
+    {
         var thumbPath = atSeconds.HasValue
             ? GetTimestampedThumbnailPath(videoId, atSeconds.Value)
             : GetThumbnailPath(videoId);
 
-        // Delete existing thumbnail so we always regenerate on explicit request
-        if (File.Exists(thumbPath))
-        {
-            try { File.Delete(thumbPath); } catch { /* best effort */ }
-        }
-
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-
-        var videoFile = await db.VideoFiles
-            .Include(f => f.ParentFolder)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(f => f.VideoId == videoId, ct);
-
-        if (videoFile == null) return;
-
-        var filePath = videoFile.ParentFolder != null
-            ? Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename)
-            : videoFile.Basename;
-
-        if (!File.Exists(filePath)) return;
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
+        if (!File.Exists(filePath)) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null)
         {
             logger.LogWarning("FFmpeg not found. Cannot generate thumbnail for video {VideoId}", videoId);
-            return;
+            return false;
         }
 
         var thumbDir = Path.GetDirectoryName(thumbPath)!;
         Directory.CreateDirectory(thumbDir);
 
-        var seekSeconds = atSeconds ?? videoFile.Duration * 0.2;
+        var seekSeconds = atSeconds ?? duration * 0.2;
         if (seekSeconds <= 0) seekSeconds = 1;
 
         // Limit concurrent FFmpeg processes
@@ -935,10 +952,7 @@ public class ThumbnailService(
         await sem.WaitAsync(ct);
         try
         {
-            // Double-check after acquiring semaphore (another request may have generated it)
-            if (File.Exists(thumbPath)) return;
-
-            var tempPath = thumbPath + ".tmp.jpg";
+            var tempPath = thumbPath + $".tmp.{Guid.NewGuid():N}.jpg";
             try
             {
                 if (!await TryGenerateVideoThumbnailViaInProcessAsync(ffmpegPath, filePath, thumbPath, tempPath, seekSeconds, ct))
@@ -948,12 +962,13 @@ public class ThumbnailService(
                     if (!await TryRunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(20), ct))
                     {
                         logger.LogWarning("FFmpeg failed for video {VideoId} thumbnail generation", videoId);
-                        return;
+                        return false;
                     }
 
-                    if (File.Exists(tempPath))
-                        File.Move(tempPath, thumbPath, overwrite: true);
+                    return TryCommitGeneratedFile(tempPath, thumbPath, ct);
                 }
+
+                return true;
             }
             finally
             {
@@ -966,6 +981,7 @@ public class ThumbnailService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Error generating thumbnail for video {VideoId}", videoId);
+            return false;
         }
         finally
         {
@@ -993,7 +1009,8 @@ public class ThumbnailService(
             if (!File.Exists(tempPath))
                 return false;
 
-            File.Move(tempPath, thumbPath, overwrite: true);
+            if (!TryCommitGeneratedFile(tempPath, thumbPath, ct))
+                return false;
             return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1048,19 +1065,41 @@ public class ThumbnailService(
         return Path.Combine(VttDir, hash[..2], $"{videoId}_thumbs.vtt");
     }
 
-    public async Task GenerateSegmentAnimatedPreviewAsync(int videoId, double startSec, double? endSec, CancellationToken ct)
+    public Task GenerateSegmentAnimatedPreviewAsync(
+        int videoId,
+        double startSec,
+        double? endSec,
+        CancellationToken ct)
+        => GenerateSegmentAnimatedPreviewCoreAsync(videoId, sourceFileId: null, startSec, endSec, ct);
+
+    public Task<bool> GenerateSegmentPreviewFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        double startSec,
+        double? endSec,
+        bool overwrite,
+        CancellationToken ct = default)
+        => GenerateSegmentAnimatedPreviewCoreAsync(videoId, sourceFileId, startSec, endSec, ct, overwrite);
+
+    private async Task<bool> GenerateSegmentAnimatedPreviewCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        double startSec,
+        double? endSec,
+        CancellationToken ct,
+        bool overwrite = false)
     {
         var previewPath = GetSegmentAnimatedPreviewPath(videoId, startSec);
-        if (File.Exists(previewPath)) return;
+        if (!overwrite && File.Exists(previewPath)) return true;
 
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, ct);
-        if (filePath == null || duration <= 0) return;
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
+        if (filePath == null || duration <= 0) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null)
         {
             logger.LogWarning("FFmpeg not found, cannot generate segment preview for video {VideoId}", videoId);
-            return;
+            return false;
         }
 
         var clampedStart = Math.Max(0, Math.Min(startSec, Math.Max(0, duration - 0.1)));
@@ -1077,17 +1116,20 @@ public class ThumbnailService(
         await sem.WaitAsync(ct);
         try
         {
-            if (File.Exists(previewPath)) return;
+            if (!overwrite && File.Exists(previewPath)) return true;
 
-            var tempPath = previewPath + ".tmp.webp";
+            var tempPath = previewPath + $".tmp.{Guid.NewGuid():N}.webp";
             try
             {
                 var decodeArgs = GetFfmpegDecodeArgs();
                 var args = $"{decodeArgs} -v error -y -ss {clampedStart.ToString("F2", CultureInfo.InvariantCulture)} -i \"{filePath}\" -t {previewDuration.ToString("F2", CultureInfo.InvariantCulture)} -vf \"fps={SegmentPreviewFps},scale={SegmentPreviewWidth}:-2:flags=lanczos\" -loop 0 -an -quality 75 -compression_level 4 \"{tempPath}\"";
                 await RunFfmpegAsync(ffmpegPath, args, TimeSpan.FromSeconds(60), ct);
 
-                if (File.Exists(tempPath))
-                    File.Move(tempPath, previewPath, overwrite: true);
+                if (!File.Exists(tempPath))
+                    return false;
+
+                File.Move(tempPath, previewPath, overwrite: true);
+                return true;
             }
             finally
             {
@@ -1100,6 +1142,7 @@ public class ThumbnailService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Error generating segment preview for video {VideoId} at {StartSec}", videoId, startSec);
+            return false;
         }
         finally
         {
@@ -1108,31 +1151,55 @@ public class ThumbnailService(
     }
 
     /// <summary>Generate a multi-segment video preview clip (mp4) for a video.</summary>
-    public async Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct)
+    public async Task GenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
+    {
+        await GenerateVideoPreviewCoreAsync(videoId, sourceFileId: null, overwrite: false, ct);
+    }
+
+    public Task<bool> RegenerateVideoPreviewAsync(int videoId, CancellationToken ct = default)
+        => GenerateVideoPreviewCoreAsync(videoId, sourceFileId: null, overwrite: true, ct);
+
+    public Task<bool> GeneratePreviewFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        bool overwrite,
+        CancellationToken ct = default)
+        => GenerateVideoPreviewCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    private async Task<bool> GenerateVideoPreviewCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
     {
         var previewPath = GetPreviewPath(videoId);
-        if (File.Exists(previewPath)) return;
+        if (!overwrite && File.Exists(previewPath)) return true;
 
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, ct);
-        if (filePath == null || duration <= 0) return;
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
+        if (filePath == null || duration <= 0) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
         if (ffmpegPath == null)
         {
             logger.LogWarning("FFmpeg not found, cannot generate preview for video {VideoId}", videoId);
-            return;
+            return false;
         }
 
         var previewDir = Path.GetDirectoryName(previewPath)!;
         Directory.CreateDirectory(previewDir);
 
-        var tmpDir = Path.Combine(config.GeneratedPath, "tmp", $"preview_{videoId}");
+        var tmpDir = Path.Combine(config.GeneratedPath, "tmp", $"preview_{videoId}_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tmpDir);
+        var generatedPreviewPath = Path.Combine(tmpDir, Path.GetFileName(previewPath));
 
         var sem = GetFfmpegSemaphore();
-        await sem.WaitAsync(ct);
+        var semaphoreAcquired = false;
         try
         {
+            await sem.WaitAsync(ct);
+            semaphoreAcquired = true;
+            if (!overwrite && File.Exists(previewPath)) return true;
+
             var segmentCount = Math.Clamp(config.Ui.PreviewSegments <= 0 ? DefaultPreviewSegments : config.Ui.PreviewSegments, 1, 100);
             var segmentDuration = Math.Clamp(config.Ui.PreviewSegmentDuration <= 0 ? DefaultPreviewSegmentDuration : config.Ui.PreviewSegmentDuration, 0.1, 30d);
             var preset = NormalizePreviewPreset(config.PreviewPreset);
@@ -1143,7 +1210,7 @@ public class ThumbnailService(
             var usableEnd = Math.Max(usableStart, duration - excludeEnd);
             var usableDuration = usableEnd - usableStart;
             if (usableDuration <= 0)
-                return;
+                return false;
 
             var decodeArgs = GetFfmpegDecodeArgs();
 
@@ -1154,12 +1221,15 @@ public class ThumbnailService(
                 var durationArgs = usableDuration < duration ? $"-t {usableDuration.ToString("F2", CultureInfo.InvariantCulture)}" : string.Empty;
                 await RunPreviewEncodeAsync(
                     ffmpegPath,
-                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{previewPath}\"",
-                    previewPath,
+                    $"{decodeArgs} -v error -y {seekArgs} -i \"{filePath}\" {durationArgs} -max_muxing_queue_size 1024 {VideoCodecPlaceholder} -vf \"scale={PreviewWidth}:-2\" -pix_fmt yuv420p -profile:v high -level 4.2 {audioArg} \"{generatedPreviewPath}\"",
+                    generatedPreviewPath,
                     TimeSpan.FromMinutes(5),
                     preset,
                     ct);
-                return;
+                var committed = TryCommitGeneratedFile(generatedPreviewPath, previewPath, ct);
+                if (!committed)
+                    logger.LogWarning("Preview generation failed for video {VideoId} - output not created", videoId);
+                return committed;
             }
 
             var interval = usableDuration / segmentCount;
@@ -1193,7 +1263,7 @@ public class ThumbnailService(
             if (validChunks.Count == 0)
             {
                 logger.LogWarning("Preview generation for video {VideoId} produced no usable chunks", videoId);
-                return;
+                return false;
             }
 
             // Create concat file — use forward slashes for FFmpeg compatibility on all platforms
@@ -1203,21 +1273,41 @@ public class ThumbnailService(
 
             // Concatenate chunks into final preview
             await RunFfmpegAsync(ffmpegPath,
-                $"-v error -y -f concat -safe 0 -i \"{concatListPath}\" -c:v copy \"{previewPath}\"",
+                $"-v error -y -f concat -safe 0 -i \"{concatListPath}\" -c:v copy \"{generatedPreviewPath}\"",
                 TimeSpan.FromSeconds(30), ct);
 
-            if (!File.Exists(previewPath))
+            if (!TryCommitGeneratedFile(generatedPreviewPath, previewPath, ct))
+            {
                 logger.LogWarning("Preview generation failed for video {VideoId} - output not created", videoId);
+                return false;
+            }
+
+            return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Error generating preview for video {VideoId}", videoId);
+            return false;
         }
         finally
         {
-            sem.Release();
+            if (semaphoreAcquired)
+                sem.Release();
             try { if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true); } catch { }
         }
+    }
+
+    internal static bool TryCommitGeneratedFile(
+        string generatedPath,
+        string destinationPath,
+        CancellationToken ct = default)
+    {
+        if (!File.Exists(generatedPath) || new FileInfo(generatedPath).Length == 0)
+            return false;
+
+        ct.ThrowIfCancellationRequested();
+        File.Move(generatedPath, destinationPath, overwrite: true);
+        return true;
     }
 
     // Sentinel token for the video codec args slot in preview encode templates. A plain
@@ -1311,25 +1401,79 @@ public class ThumbnailService(
     /// <summary>Generate a sprite sheet (JPEG grid) and VTT timeline file for a video.
     /// Uses in-process FFmpeg decoding with seek-based extraction — 5-17× faster than
     /// the fps filter approach which decodes the entire video.</summary>
-    public async Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct)
+    public async Task GenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
     {
-        var spritePath = GetSpritePath(videoId);
-        var vttPath = GetSpriteVttPath(videoId);
-        if (File.Exists(spritePath) && File.Exists(vttPath)) return;
+        await GenerateVideoSpriteCoreAsync(videoId, sourceFileId: null, overwrite: false, ct);
+    }
 
-        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, ct);
-        if (filePath == null || duration <= 0) return;
+    public Task<bool> RegenerateVideoSpriteAsync(int videoId, CancellationToken ct = default)
+        => GenerateVideoSpriteCoreAsync(videoId, sourceFileId: null, overwrite: true, ct);
+
+    public Task<bool> GenerateSpriteFromFileAsync(
+        int videoId,
+        int sourceFileId,
+        bool overwrite,
+        CancellationToken ct = default)
+        => GenerateVideoSpriteCoreAsync(videoId, sourceFileId, overwrite, ct);
+
+    private Task<bool> GenerateVideoSpriteCoreAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
+        => RunWithSpriteGenerationLockAsync(
+            videoId,
+            () => GenerateVideoSpriteLockedAsync(videoId, sourceFileId, overwrite, ct),
+            ct);
+
+    internal static async Task<T> RunWithSpriteGenerationLockAsync<T>(
+        int videoId,
+        Func<Task<T>> operation,
+        CancellationToken ct = default)
+    {
+        var gate = SpriteGenerationLocks[(int)((uint)videoId % (uint)SpriteGenerationLocks.Length)];
+        await gate.WaitAsync(ct);
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<bool> GenerateVideoSpriteLockedAsync(
+        int videoId,
+        int? sourceFileId,
+        bool overwrite,
+        CancellationToken ct)
+    {
+        var destinationSpritePath = GetSpritePath(videoId);
+        var destinationVttPath = GetSpriteVttPath(videoId);
+        if (!overwrite && File.Exists(destinationSpritePath) && File.Exists(destinationVttPath)) return true;
+
+        var (filePath, duration) = await GetVideoFileInfoAsync(videoId, sourceFileId, ct);
+        if (filePath == null || duration <= 0) return false;
 
         var ffmpegPath = GetCachedFfmpegPath();
-        if (ffmpegPath == null) return;
+        if (ffmpegPath == null) return false;
 
-        var spriteDir = Path.GetDirectoryName(spritePath)!;
+        var spriteDir = Path.GetDirectoryName(destinationSpritePath)!;
         Directory.CreateDirectory(spriteDir);
+        var tmpDir = Path.Combine(config.GeneratedPath, "tmp", $"sprite_{videoId}_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        var spritePath = Path.Combine(tmpDir, Path.GetFileName(destinationSpritePath));
+        var vttPath = Path.Combine(tmpDir, Path.GetFileName(destinationVttPath));
         var sem = GetFfmpegSemaphore();
-        await sem.WaitAsync(ct);
+        var semaphoreAcquired = false;
 
         try
         {
+            await sem.WaitAsync(ct);
+            semaphoreAcquired = true;
+            if (!overwrite && File.Exists(destinationSpritePath) && File.Exists(destinationVttPath)) return true;
+
             // Calculate grid dimensions
             var frameCount = Math.Min(SpriteFrameCount, Math.Max(1, (int)(duration / 2)));
             var cols = (int)Math.Ceiling(Math.Sqrt(frameCount));
@@ -1337,7 +1481,10 @@ public class ThumbnailService(
             var interval = duration / frameCount;
 
             if (await TryGenerateVideoSpriteViaInProcessAsync(ffmpegPath, filePath, spritePath, vttPath, frameCount, cols, rows, interval, duration, ct))
-                return;
+            {
+                CommitGeneratedSpriteFiles(spritePath, vttPath, destinationSpritePath, destinationVttPath, ct);
+                return true;
+            }
 
             // The whole-file fps-filter decode is acceptable for short videos but pathological for long
             // ones, so only attempt it under the duration threshold; otherwise drop straight to the fast
@@ -1349,7 +1496,8 @@ public class ThumbnailService(
                 if (await TryGenerateVideoSpriteViaFfmpegAsync(ffmpegPath, filePath, spritePath, frameCount, cols, rows, duration, ct))
                 {
                     await WriteSpriteVttAsync(spritePath, vttPath, frameCount, cols, rows, interval, ct, duration: duration);
-                    return;
+                    CommitGeneratedSpriteFiles(spritePath, vttPath, destinationSpritePath, destinationVttPath, ct);
+                    return true;
                 }
             }
             else
@@ -1370,7 +1518,7 @@ public class ThumbnailService(
             if (frames == null)
             {
                 logger.LogWarning("Sprite generation failed for video {VideoId} - frame extraction returned null", videoId);
-                return;
+                return false;
             }
 
             var fw = frames[0].Width;
@@ -1396,18 +1544,135 @@ public class ThumbnailService(
             if (!File.Exists(spritePath))
             {
                 logger.LogWarning("Sprite generation failed for video {VideoId}", videoId);
-                return;
+                return false;
             }
 
             await WriteSpriteVttAsync(spritePath, vttPath, frameCount, cols, rows, interval, ct, fw, fh, duration);
+            CommitGeneratedSpriteFiles(spritePath, vttPath, destinationSpritePath, destinationVttPath, ct);
+            return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Error generating sprite for video {VideoId}", videoId);
+            return false;
         }
         finally
         {
-            sem.Release();
+            if (semaphoreAcquired)
+                sem.Release();
+            try { if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true); } catch { }
+        }
+    }
+
+    internal static void CommitGeneratedSpriteFiles(
+        string generatedSpritePath,
+        string generatedVttPath,
+        string destinationSpritePath,
+        string destinationVttPath,
+        CancellationToken ct = default)
+    {
+        if (!File.Exists(generatedSpritePath)
+            || new FileInfo(generatedSpritePath).Length == 0
+            || !File.Exists(generatedVttPath)
+            || new FileInfo(generatedVttPath).Length == 0)
+        {
+            throw new InvalidDataException("Generated sprite and VTT must both be present and non-empty before replacement.");
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        var backupSuffix = $".backup.{Guid.NewGuid():N}";
+        var spriteBackupPath = destinationSpritePath + backupSuffix;
+        var vttBackupPath = destinationVttPath + backupSuffix;
+        var spriteExisted = File.Exists(destinationSpritePath);
+        var vttExisted = File.Exists(destinationVttPath);
+        var replacementStarted = false;
+        var cleanupBackups = false;
+
+        try
+        {
+            if (spriteExisted)
+                File.Copy(destinationSpritePath, spriteBackupPath);
+            if (vttExisted)
+                File.Copy(destinationVttPath, vttBackupPath);
+
+            ct.ThrowIfCancellationRequested();
+            File.Move(generatedSpritePath, destinationSpritePath, overwrite: true);
+            replacementStarted = true;
+            ct.ThrowIfCancellationRequested();
+            File.Move(generatedVttPath, destinationVttPath, overwrite: true);
+            ct.ThrowIfCancellationRequested();
+            cleanupBackups = true;
+        }
+        catch (Exception commitException)
+        {
+            if (!replacementStarted)
+            {
+                cleanupBackups = true;
+                throw;
+            }
+
+            Exception? rollbackException = null;
+            try
+            {
+                RestoreGeneratedAsset(destinationSpritePath, spriteBackupPath, spriteExisted);
+            }
+            catch (Exception ex)
+            {
+                rollbackException = ex;
+            }
+
+            try
+            {
+                RestoreGeneratedAsset(destinationVttPath, vttBackupPath, vttExisted);
+            }
+            catch (Exception ex)
+            {
+                rollbackException = rollbackException == null
+                    ? ex
+                    : new AggregateException(rollbackException, ex);
+            }
+
+            if (rollbackException != null)
+                throw new AggregateException("Sprite/VTT replacement and rollback both failed.", commitException, rollbackException);
+            cleanupBackups = true;
+            throw;
+        }
+        finally
+        {
+            // A failed rollback can leave these as the only recoverable copies of the prior pair.
+            if (cleanupBackups)
+            {
+                TryDeleteFile(spriteBackupPath);
+                TryDeleteFile(vttBackupPath);
+            }
+        }
+    }
+
+    private static void RestoreGeneratedAsset(string destinationPath, string backupPath, bool existed)
+    {
+        if (existed)
+        {
+            if (!File.Exists(backupPath))
+                throw new IOException($"Generated asset backup is missing: {backupPath}");
+            File.Move(backupPath, destinationPath, overwrite: true);
+        }
+        else if (File.Exists(destinationPath))
+        {
+            File.Delete(destinationPath);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup of a private temporary or backup file.
         }
     }
 
@@ -1547,15 +1812,25 @@ public class ThumbnailService(
         return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
     }
 
-    private async Task<(string? filePath, double duration)> GetVideoFileInfoAsync(int videoId, CancellationToken ct)
+    internal async Task<(string? FilePath, double Duration)> GetVideoFileInfoAsync(
+        int videoId,
+        int? sourceFileId,
+        CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-        var videoFile = await db.VideoFiles
+        var query = db.VideoFiles
             .Include(f => f.ParentFolder)
             .AsNoTracking()
-            .FirstOrDefaultAsync(f => f.VideoId == videoId, ct);
+            .Where(f => f.VideoId == videoId);
+
+        if (sourceFileId.HasValue)
+            query = query.Where(f => f.Id == sourceFileId.Value);
+
+        var videoFile = await query
+            .OrderBy(f => f.Id)
+            .FirstOrDefaultAsync(ct);
 
         if (videoFile == null) return (null, 0);
 
@@ -1568,78 +1843,32 @@ public class ThumbnailService(
 
     private async Task RunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
     {
-        var process = new System.Diagnostics.Process
+        var result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
+        if (result.TimedOut)
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
             logger.LogWarning("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return;
         }
 
-        if (process.ExitCode != 0)
-        {
-            var stderr = await stderrTask;
-            logger.LogWarning("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
-        }
+        if (result.ExitCode != 0)
+            logger.LogWarning("FFmpeg failed (exit {Code}): {Error}", result.ExitCode, result.StandardError[..Math.Min(500, result.StandardError.Length)]);
     }
 
     private async Task<bool> TryRunFfmpegAsync(string ffmpegPath, string args, TimeSpan timeout, CancellationToken ct)
     {
-        var process = new System.Diagnostics.Process
+        var result = await FfmpegProcessRunner.RunAsync(ffmpegPath, args, timeout, ct);
+        if (result.TimedOut)
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
             if (logger.IsEnabled(LogLevel.Trace))
                 logger.LogTrace("FFmpeg timed out: {Args}", args[..Math.Min(200, args.Length)]);
             return false;
         }
 
-        if (process.ExitCode == 0)
+        if (result.ExitCode == 0)
             return true;
 
-        var stderr = await stderrTask;
         if (logger.IsEnabled(LogLevel.Trace))
-            logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", process.ExitCode, stderr[..Math.Min(500, stderr.Length)]);
+            logger.LogTrace("FFmpeg failed (exit {Code}): {Error}", result.ExitCode, result.StandardError[..Math.Min(500, result.StandardError.Length)]);
         return false;
     }
 
@@ -1650,7 +1879,10 @@ public class ThumbnailService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-            var videoIds = await db.Videos.Select(s => s.Id).ToListAsync(ct);
+            var videoIds = await db.Videos
+                .Where(video => string.IsNullOrEmpty(video.ImageBlobId))
+                .Select(video => video.Id)
+                .ToListAsync(ct);
             var total = videoIds.Count;
             var processed = 0;
             var generated = 0;

@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Cove.Api.Services;
 using Cove.Core.Interfaces;
+using Cove.Data.Services;
 
 namespace Cove.Tests;
 
@@ -183,6 +184,72 @@ public class BlobServiceTests
     }
 
     [Fact]
+    public async Task DeleteBlobAsync_PreservesPayloadReferencedByMultipleEntities()
+    {
+        await WithBlobServiceAsync(async (service, _) =>
+        {
+            await using var upload = new MemoryStream([1, 2, 3, 4]);
+            var blobId = await service.StoreBlobAsync(upload, "image/png");
+            service.ReferenceCounter = new FixedBlobReferenceCounter(2);
+
+            await service.DeleteBlobAsync(blobId);
+
+            var retained = await service.GetBlobAsync(blobId);
+            Assert.NotNull(retained);
+            await retained.Value.Stream.DisposeAsync();
+        });
+    }
+
+    [Fact]
+    public async Task DeleteBlobAsync_PreservesPayloadWithOnePersistedReference()
+    {
+        await WithBlobServiceAsync(async (service, _) =>
+        {
+            await using var upload = new MemoryStream([1, 2, 3, 4]);
+            var blobId = await service.StoreBlobAsync(upload, "image/png");
+            service.ReferenceCounter = new FixedBlobReferenceCounter(1);
+
+            await service.DeleteBlobAsync(blobId);
+
+            var retained = await service.GetBlobAsync(blobId);
+            Assert.NotNull(retained);
+            await retained.Value.Stream.DisposeAsync();
+        });
+    }
+
+    [Fact]
+    public async Task DeleteBlobIfUnreferencedAsync_PreservesTheLastRemainingReference()
+    {
+        await WithBlobServiceAsync(async (service, _) =>
+        {
+            await using var upload = new MemoryStream([1, 2, 3, 4]);
+            var blobId = await service.StoreBlobAsync(upload, "image/png");
+            service.ReferenceCounter = new FixedBlobReferenceCounter(1);
+
+            await service.DeleteBlobIfUnreferencedAsync(blobId);
+
+            var retained = await service.GetBlobAsync(blobId);
+            Assert.NotNull(retained);
+            await retained.Value.Stream.DisposeAsync();
+        });
+    }
+
+    [Fact]
+    public async Task DeleteBlobIfUnreferencedAsync_DeletesPayloadWithNoPersistedReference()
+    {
+        await WithBlobServiceAsync(async (service, _) =>
+        {
+            await using var upload = new MemoryStream([1, 2, 3, 4]);
+            var blobId = await service.StoreBlobAsync(upload, "image/png");
+            service.ReferenceCounter = new FixedBlobReferenceCounter(0);
+
+            await service.DeleteBlobIfUnreferencedAsync(blobId);
+
+            Assert.Null(await service.GetBlobAsync(blobId));
+        });
+    }
+
+    [Fact]
     public async Task StoreBlobAsync_CancellationRemovesPartialPayloadAndMetadata()
     {
         await WithBlobServiceAsync(async (service, tempRoot) =>
@@ -342,7 +409,11 @@ public class BlobServiceTests
         try
         {
             var config = new CoveConfiguration { GeneratedPath = tempRoot };
-            var service = new BlobService(config, NullLogger<BlobService>.Instance);
+            var service = new BlobService(
+                config,
+                NullLogger<BlobService>.Instance,
+                new FixedBlobReferenceCounter(0),
+                new BlobReferenceCoordinator());
             await action(service, tempRoot);
         }
         finally
@@ -350,5 +421,11 @@ public class BlobServiceTests
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    private sealed class FixedBlobReferenceCounter(int count) : IBlobReferenceCounter
+    {
+        public Task<int> CountReferencesAsync(string blobId, int maximum, CancellationToken ct = default)
+            => Task.FromResult(Math.Min(count, maximum));
     }
 }

@@ -425,7 +425,11 @@ VALUES (1, 'Imported Performer', 0, 0, '2021-01-02T03:04:05Z', '2022-02-03T04:05
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
         await stash.OpenAsync();
-        await ExecuteSqlAsync(stash, "CREATE TABLE blobs (checksum TEXT PRIMARY KEY, blob BLOB);");
+        await ExecuteSqlAsync(stash, """
+CREATE TABLE blobs (checksum TEXT PRIMARY KEY, blob BLOB);
+CREATE TABLE performers (id INTEGER PRIMARY KEY, image_blob TEXT);
+INSERT INTO performers (id, image_blob) VALUES (1, 'avif-checksum');
+""");
 
         await using (var command = stash.CreateCommand())
         {
@@ -453,6 +457,42 @@ VALUES (1, 'Imported Performer', 0, 0, '2021-01-02T03:04:05Z', '2022-02-03T04:05
             CancellationToken.None);
 
         Assert.Equal(["image/avif"], recordingBlobService.ContentTypes);
+    }
+
+    [Fact]
+    public async Task ImportBlobsAsync_SkipsRowsNotReferencedByImportedEntities()
+    {
+        await using var context = CreateContext();
+        var recordingBlobService = new RecordingBlobService();
+
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, """
+CREATE TABLE blobs (checksum TEXT PRIMARY KEY, blob BLOB);
+CREATE TABLE performers (id INTEGER PRIMARY KEY, image_blob TEXT);
+CREATE TABLE scenes (id INTEGER PRIMARY KEY, cover_blob TEXT);
+INSERT INTO blobs (checksum, blob) VALUES
+    ('used-image', X'89504E47'),
+    ('unreferenced-blob', X'89504E47'),
+    ('scene-cover', X'89504E47');
+INSERT INTO performers (id, image_blob) VALUES (1, 'used-image');
+INSERT INTO scenes (id, cover_blob) VALUES (1, 'scene-cover');
+""");
+
+        var service = CreateService(context, recordingBlobService);
+        var result = await InvokePrivateAsync(
+            service,
+            "ImportBlobsAsync",
+            stash,
+            null,
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None);
+
+        var imported = Assert.IsType<Dictionary<string, string>>(result);
+        Assert.Equal(["scene-cover", "used-image"], imported.Keys.Order());
+        Assert.Equal(2, recordingBlobService.ContentTypes.Count);
     }
 
     [Fact]
@@ -795,7 +835,8 @@ CREATE TABLE scenes (
   play_duration REAL NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  last_played_at TEXT
+  last_played_at TEXT,
+  cover_blob TEXT
 );
 CREATE TABLE scenes_tags (scene_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
 CREATE TABLE performers_scenes (scene_id INTEGER NOT NULL, performer_id INTEGER NOT NULL);
@@ -832,8 +873,8 @@ CREATE TABLE video_captions (
   caption_type TEXT NOT NULL
 );
 CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint TEXT NOT NULL);
-INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at, last_played_at)
-VALUES (1, 'Imported Scene', 0, 15, 45, '2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z', '2024-03-01T00:00:00Z');
+INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at, last_played_at, cover_blob)
+VALUES (1, 'Imported Scene', 0, 15, 45, '2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z', '2024-03-01T00:00:00Z', 'scene-cover');
 INSERT INTO scenes_view_dates (scene_id, view_date) VALUES (1, '2024-01-15T00:00:00Z');
 INSERT INTO scenes_o_dates (scene_id, o_date) VALUES
   (1, '2024-01-20T12:30:00Z'),
@@ -853,7 +894,7 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
             service,
             "ImportScenesAsync",
             stash,
-            new Dictionary<string, string>(),
+            new Dictionary<string, string> { ["scene-cover"] = "cove-scene-cover" },
             new Dictionary<int, int> { [99] = folder.Id },
             new Dictionary<int, int>(),
             new Dictionary<int, int>(),
@@ -892,6 +933,7 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
                 .ToListAsync());
         Assert.Equal(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), scene.CreatedAt);
         Assert.Equal(new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), scene.UpdatedAt);
+        Assert.Equal("cove-scene-cover", scene.ImageBlobId);
         Assert.Equal(new DateTime(2024, 1, 5, 0, 0, 0, DateTimeKind.Utc), file.CreatedAt);
         Assert.Equal(new DateTime(2024, 4, 1, 0, 0, 0, DateTimeKind.Utc), file.UpdatedAt);
     }
@@ -1288,7 +1330,8 @@ CREATE TABLE scenes (
     resume_time REAL NOT NULL,
     play_duration REAL NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    cover_blob TEXT
 );
 CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
 CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
@@ -1341,6 +1384,9 @@ INSERT INTO groups (id, name, front_image_blob) VALUES
     (50, 'Containing Group', NULL),
     (51, 'Sub Group', NULL),
     (52, 'Containing Group', 'cover-only-group');
+INSERT INTO blobs (checksum, blob) VALUES
+    ('cover-only-group', X'FFD8FF'),
+    ('scene-only-cover', X'FFD8FF');
 INSERT INTO groups_tags (group_id, tag_id) VALUES
     (50, 40),
     (50, 40),
@@ -1352,8 +1398,8 @@ INSERT INTO groups_relations (containing_id, sub_id, order_index, description) V
     (50, 52, 8, 'Collapsed self relation'),
     (999, 51, 4, 'Missing containing group'),
     (50, 999, 5, 'Missing subgroup');
-INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at)
-VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+INSERT INTO scenes (id, title, organized, resume_time, play_duration, created_at, updated_at, cover_blob)
+VALUES (10, 'Imported Scene', 0, 0, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z', 'scene-only-cover');
 INSERT INTO groups_scenes (group_id, scene_id, scene_index) VALUES (50, 10, 1);
 INSERT INTO galleries (id, title, organized, created_at, updated_at)
 VALUES (20, 'Imported Gallery', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
@@ -1366,7 +1412,8 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
 
         try
         {
-            var service = CreateService(context);
+            var recordingBlobService = new RecordingBlobService();
+            var service = CreateService(context, recordingBlobService);
             var result = await service.ImportAsync(
                 dbPath,
                 new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false));
@@ -1393,10 +1440,68 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             Assert.Equal(subGroup.Id, groupRelation.SubGroupId);
             Assert.Equal(3, groupRelation.OrderIndex);
             Assert.Equal("Imported relation", groupRelation.Description);
+            Assert.Equal(2, recordingBlobService.ContentTypes.Count);
+            Assert.NotNull(video.ImageBlobId);
+            Assert.NotNull(group.FrontImageBlobId);
+            Assert.NotEqual(video.ImageBlobId, group.FrontImageBlobId);
         }
         finally
         {
             TryDeleteFile(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task CopyGeneratedContentAsync_SkipsScreenshotForExplicitCoverAndRetainsLegacyFallback()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-generated-migration-{Guid.NewGuid():N}");
+        var stashGeneratedPath = Path.Combine(tempRoot, "stash-generated");
+        var stashScreenshotsPath = Path.Combine(stashGeneratedPath, "screenshots");
+        var coveGeneratedPath = Path.Combine(tempRoot, "cove-generated");
+        Directory.CreateDirectory(stashScreenshotsPath);
+
+        try
+        {
+            const string generatedHash = "scene-hash";
+            await File.WriteAllBytesAsync(Path.Combine(stashScreenshotsPath, $"{generatedHash}.jpg"), [1, 2, 3]);
+            await File.WriteAllBytesAsync(Path.Combine(stashScreenshotsPath, $"{generatedHash}.mp4"), [4, 5, 6]);
+
+            var configPath = Path.Combine(tempRoot, "config.yml");
+            await File.WriteAllTextAsync(configPath, $"generated: {stashGeneratedPath}\nvideo_file_naming_algorithm: MD5\n");
+
+            var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
+            Assert.NotNull(stashConfig);
+
+            var generatedDataType = typeof(StashMigrationService).GetNestedType("SceneGeneratedData", BindingFlags.NonPublic);
+            Assert.NotNull(generatedDataType);
+            var generatedMapType = typeof(Dictionary<,>).MakeGenericType(typeof(int), generatedDataType!);
+            var generatedMap = Assert.IsAssignableFrom<System.Collections.IDictionary>(Activator.CreateInstance(generatedMapType));
+            generatedMap.Add(41, Activator.CreateInstance(generatedDataType!, null, generatedHash, true));
+            generatedMap.Add(42, Activator.CreateInstance(generatedDataType!, null, generatedHash, false));
+
+            await using var context = CreateContext();
+            var service = CreateService(
+                context,
+                configuration: new CoveConfiguration { GeneratedPath = coveGeneratedPath });
+
+            await InvokePrivateAsync(
+                service,
+                "CopyGeneratedContentAsync",
+                stashConfig,
+                generatedMap,
+                NullJobProgress.Instance,
+                0d,
+                1d,
+                CancellationToken.None);
+
+            Assert.Empty(Directory.EnumerateFiles(coveGeneratedPath, "41.jpg", SearchOption.AllDirectories));
+            Assert.Single(Directory.EnumerateFiles(coveGeneratedPath, "42.jpg", SearchOption.AllDirectories));
+            Assert.Single(Directory.EnumerateFiles(coveGeneratedPath, "41.mp4", SearchOption.AllDirectories));
+            Assert.Single(Directory.EnumerateFiles(coveGeneratedPath, "42.mp4", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            TryDeleteDirectory(tempRoot);
         }
     }
 
@@ -1922,9 +2027,12 @@ VALUES
                 Assert.Equal("Manual marker", segment.Title);
         }
 
-    private static StashMigrationService CreateService(CoveContext context, IBlobService? blobService = null)
+    private static StashMigrationService CreateService(
+        CoveContext context,
+        IBlobService? blobService = null,
+        CoveConfiguration? configuration = null)
     {
-        var config = new CoveConfiguration();
+        var config = configuration ?? new CoveConfiguration();
         var configService = new ConfigService(config, NullLogger<ConfigService>.Instance);
         var scopeFactory = new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         return new StashMigrationService(

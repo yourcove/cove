@@ -239,6 +239,7 @@ public partial class StashMigrationService
 
         foreach (var row in sceneRows)
         {
+            var coverBlobId = GetBlobId(blobMap, row.CoverBlob);
             var viewHistory = sceneViewDates.GetValueOrDefault(row.Id, []);
             var importedLastPlayedAt = ParseDateTimeOrNull(row.LastPlayedAt);
 
@@ -251,6 +252,7 @@ public partial class StashMigrationService
                 Organized = row.Organized,
                 Code = row.Code,
                 Director = row.Director,
+                ImageBlobId = coverBlobId,
                 CreatedAt = ParseDateTime(row.CreatedAt),
                 UpdatedAt = ParseDateTime(row.UpdatedAt),
                 Urls = sceneUrls.GetValueOrDefault(row.Id, []).Select(u => new SceneUrl { Url = u }).ToList(),
@@ -397,7 +399,7 @@ public partial class StashMigrationService
             generatedMap[coveId] = new SceneGeneratedData(
                 GetFingerprintValue(primaryFingerprints, "oshash"),
                 GetFingerprintValue(primaryFingerprints, "md5"),
-                GetBlobId(blobMap, row.CoverBlob));
+                GetBlobId(blobMap, row.CoverBlob) != null);
         }
 
         return (count, idMap, generatedMap);

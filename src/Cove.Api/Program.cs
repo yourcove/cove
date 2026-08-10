@@ -289,8 +289,13 @@ try
     builder.Services.AddGalleryServices();
 
     // Application services
-    builder.Services.AddSingleton<IThumbnailService, ThumbnailService>();
+    builder.Services.AddSingleton<ThumbnailService>();
+    builder.Services.AddSingleton<IThumbnailService>(sp => sp.GetRequiredService<ThumbnailService>());
+    builder.Services.AddSingleton<IVideoAssetGenerator>(sp => sp.GetRequiredService<ThumbnailService>());
     builder.Services.AddSingleton<IFingerprintService, FingerprintService>();
+    builder.Services.AddSingleton<FileFingerprintWriter>();
+    builder.Services.AddSingleton<NonVideoGenerationService>();
+    builder.Services.AddSingleton<GenerateJobService>();
     builder.Services.AddSingleton<IMediaProbeService, FfprobeMediaProbeService>();
     builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton<IScanFileValidator, ScanFileValidator>();
@@ -300,6 +305,7 @@ try
     builder.Services.AddScoped<ICleanService, CleanService>();
     builder.Services.AddSingleton<Cove.Api.Services.MaintenanceState>();
     builder.Services.AddScoped<IBackupService, BackupService>();
+    builder.Services.AddSingleton<IBlobReferenceCounter, BlobReferenceCounter>();
     builder.Services.AddSingleton<IBlobService, BlobService>();
     builder.Services.AddSingleton<ConfigService>();
     builder.Services.AddSingleton<IFfmpegCapabilities, FfmpegCapabilitiesService>();

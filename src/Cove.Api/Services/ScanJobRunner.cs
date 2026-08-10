@@ -67,26 +67,27 @@ internal sealed class ScanJobRunner(
             var captionFilesByDir = new ConcurrentDictionary<string, IReadOnlyList<string>>(FilesystemPaths.PathComparer);
 
             // Written from multiple scan workers, so these must be concurrent collections.
-            var assetVideoPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
-            var assetImagePaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
-            var assetAudioPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
-            var assetTextPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var processedVideoPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var changedVideoIds = new ConcurrentDictionary<int, byte>();
+            var processedImagePaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var processedAudioPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
+            var processedTextPaths = new ConcurrentDictionary<string, byte>(FilesystemPaths.PathComparer);
 
             void AddAssetCandidate(ExistingFileKind kind, string path)
             {
                 switch (kind)
                 {
                     case ExistingFileKind.Video:
-                        assetVideoPaths.TryAdd(path, 0);
+                        processedVideoPaths.TryAdd(path, 0);
                         break;
                     case ExistingFileKind.Image:
-                        assetImagePaths.TryAdd(path, 0);
+                        processedImagePaths.TryAdd(path, 0);
                         break;
                     case ExistingFileKind.Audio:
-                        assetAudioPaths.TryAdd(path, 0);
+                        processedAudioPaths.TryAdd(path, 0);
                         break;
                     case ExistingFileKind.Text:
-                        assetTextPaths.TryAdd(path, 0);
+                        processedTextPaths.TryAdd(path, 0);
                         break;
                 }
             }
@@ -177,16 +178,17 @@ internal sealed class ScanJobRunner(
                 // Phase 2a: classify every discovered file against the in-memory index.
                 // This is cheap (no I/O, no DB) so it stays single-threaded; it skips
                 // unchanged files and collects only the ones that actually need work.
-                var filesToProcess = new List<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)>(files.Count);
+                var filesToProcess = new List<ScanWorkItem>(files.Count);
                 foreach (var file in files)
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    // True when a known file's bytes changed on disk (or a rescan forces reprocessing):
+                    // True only when the file's bytes are known to have changed on disk:
                     // its metadata, identity hash, and derived assets must be refreshed, not just its
-                    // size/modtime. A metadata-only reprobe (metadata was never captured) is handled
-                    // separately and does not count as a content change.
+                    // size/modtime. Forced and missing-metadata probes are handled separately and do
+                    // not invalidate fingerprints or generated assets.
                     var contentChanged = false;
+                    var forceMetadataProbe = false;
                     var isKnownFile = existingFiles.TryGetValue(file.StoredPath, out var existingFile);
                     if (isKnownFile)
                     {
@@ -216,7 +218,7 @@ internal sealed class ScanJobRunner(
                                 break;
                             case ScanFileChangeReason.RescanForced:
                                 rescanForcedCount++;
-                                contentChanged = true;
+                                forceMetadataProbe = true;
                                 break;
                         }
 
@@ -258,7 +260,7 @@ internal sealed class ScanJobRunner(
 
                     directoryScanContext.MarkRequiresConfirmation(file.Path);
                     changedOrNewCount++;
-                    filesToProcess.Add((file, isKnownFile, contentChanged));
+                    filesToProcess.Add(new ScanWorkItem(file, isKnownFile, contentChanged, forceMetadataProbe));
                 }
 
                 // Resolve every parent folder once, up front, into a shared id map. Workers then look
@@ -284,7 +286,7 @@ internal sealed class ScanJobRunner(
                     var workerCount = Math.Min(maxParallelism, filesToProcess.Count);
                     progress.Report(0.15, $"Processing {filesToProcess.Count:N0} changed/new file(s) using up to {workerCount} worker(s)...");
 
-                    var workQueue = new ConcurrentQueue<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)>(filesToProcess);
+                    var workQueue = new ConcurrentQueue<ScanWorkItem>(filesToProcess);
 
                     int? ResolveFolderId(DiscoveredFile file)
                     {
@@ -302,12 +304,12 @@ internal sealed class ScanJobRunner(
                             workerDb.Database.SetCommandTimeout(ScanCommandTimeout);
 
                         // The current un-committed batch, plus the entity events to publish once it commits.
-                        var batchItems = new List<(DiscoveredFile File, bool IsKnownFile, bool ContentChanged)>(ScanSaveBatchSize);
+                        var batchItems = new List<ScanWorkItem>(ScanSaveBatchSize);
                         var batchEvents = new List<Action>(ScanSaveBatchSize);
 
                         // Stage one file's entities into the worker context (no save). Appends the event
                         // to fire once persisted. Galleries are excluded here as they commit internally.
-                        async Task<bool> StageAsync((DiscoveredFile File, bool IsKnownFile, bool ContentChanged) work, List<Action> events)
+                        async Task<bool> StageAsync(ScanWorkItem work, List<Action> events)
                         {
                             var file = work.File;
                             var isKnownFile = work.IsKnownFile;
@@ -325,20 +327,22 @@ internal sealed class ScanJobRunner(
 
                             if (videoExts.Contains(file.Extension))
                             {
-                                if (!isKnownFile || contentChanged)
-                                    assetVideoPaths.TryAdd(file.Path, 0);
-                                var (videoFile, relinked, moved) = await videoProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, videoProbeJson: validation.ProbeJson);
+                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                    processedVideoPaths.TryAdd(file.Path, 0);
+                                var (videoFile, relinked, moved) = await videoProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, syncCaptions: true, knownNew: !isKnownFile, captionFilesByDir: captionFilesByDir, parentFolderId: folderId, contentChanged: contentChanged, forceMetadataProbe: work.ForceMetadataProbe, scanOptions: options, moveIndex: moveIndex, videoProbeJson: validation.ProbeJson);
                                 events.Add(() =>
                                 {
                                     RecordPersistedFile(isKnownFile || moved);
-                                    if (videoFile.VideoId.HasValue)
-                                        PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked);
+                                    if (!videoFile.VideoId.HasValue) return;
+                                    PublishScanEntityEvent("Video", videoFile.VideoId.Value, isKnownFile || relinked);
+                                    if (contentChanged)
+                                        changedVideoIds.TryAdd(videoFile.VideoId.Value, 0);
                                 });
                             }
                             else if (imageExts.Contains(file.Extension))
                             {
-                                if (!isKnownFile || contentChanged)
-                                    assetImagePaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                    processedImagePaths.TryAdd(file.Path, 0);
                                 var (image, relinked, moved) = await imageProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
                                 events.Add(() =>
                                 {
@@ -348,8 +352,8 @@ internal sealed class ScanJobRunner(
                             }
                             else if (audioExts.Contains(file.Extension))
                             {
-                                if (!isKnownFile || contentChanged)
-                                    assetAudioPaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                    processedAudioPaths.TryAdd(file.Path, 0);
                                 var (audio, relinked, moved) = await audioProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex, mediaProbeJson: validation.ProbeJson);
                                 events.Add(() =>
                                 {
@@ -359,8 +363,8 @@ internal sealed class ScanJobRunner(
                             }
                             else if (textExts.Contains(file.Extension))
                             {
-                                if (!isKnownFile || contentChanged)
-                                    assetTextPaths.TryAdd(file.Path, 0);
+                                if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
+                                    processedTextPaths.TryAdd(file.Path, 0);
                                 var (textDocument, relinked, moved) = await textProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
                                 events.Add(() =>
                                 {
@@ -374,7 +378,7 @@ internal sealed class ScanJobRunner(
 
                         // Process a single item in its own transaction. Used for galleries (which commit
                         // internally) and as the fallback when a batch save fails.
-                        async Task ProcessSingleAsync((DiscoveredFile File, bool IsKnownFile, bool ContentChanged) work)
+                        async Task ProcessSingleAsync(ScanWorkItem work)
                         {
                             var file = work.File;
                             var isKnownFile = work.IsKnownFile;
@@ -536,10 +540,11 @@ internal sealed class ScanJobRunner(
                 var assetSummary = await assetGenerationService.GenerateRequestedAssetsAsync(
                     db,
                     progress,
-                    new HashSet<string>(assetVideoPaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<string>(assetImagePaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<string>(assetAudioPaths.Keys, FilesystemPaths.PathComparer),
-                    new HashSet<string>(assetTextPaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(processedVideoPaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(processedImagePaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(processedAudioPaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<string>(processedTextPaths.Keys, FilesystemPaths.PathComparer),
+                    new HashSet<int>(changedVideoIds.Keys),
                     options,
                     ResolveMaxParallelism(),
                     ct);
@@ -729,6 +734,12 @@ internal sealed class ScanJobRunner(
 
     private void TraceFolderGalleryCreated(string path, int imageCount)
         => logger.LogTrace("Created folder gallery for {Path} with {ImageCount} images", path, imageCount);
+
+    private readonly record struct ScanWorkItem(
+        DiscoveredFile File,
+        bool IsKnownFile,
+        bool ContentChanged,
+        bool ForceMetadataProbe);
 
     private sealed class ScopedProgress(Cove.Core.Interfaces.IJobProgress parent, double rangeStart, double rangeEnd) : ExtJobProgress
     {
