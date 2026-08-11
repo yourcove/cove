@@ -93,6 +93,7 @@ public static class DataServiceExtensions
         services.AddScoped<EntityNameConflictCleanupService>();
         services.AddScoped<TagNameConflictScanner>();
         services.AddScoped<TagNameConflictCleanupService>();
+        services.AddScoped<NameRuleEnforcementService>();
         services.AddScoped<IDetectionRepository, DetectionRepository>();
         services.AddScoped<IFaceRepository, FaceRepository>();
         services.AddScoped<PerformerMergeService>();

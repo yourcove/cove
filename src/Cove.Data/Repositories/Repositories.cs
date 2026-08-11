@@ -1243,7 +1243,8 @@ public class TagRepository : ITagRepository
 
     public async Task<Dictionary<string, Tag>> FindOrCreateByNamesAsync(IReadOnlyList<string> names, CancellationToken ct = default)
     {
-        const string tagNameUniqueConstraint = "IX_tags_Name";
+        const string legacyTagNameUniqueConstraint = "IX_tags_Name";
+        const string sharedTagNamespaceUniqueConstraint = "UQ_tag_name_claims_namespace";
         const int maxAttempts = 3;
 
         var normalizedNames = names
@@ -1286,7 +1287,9 @@ public class TagRepository : ITagRepository
                 var inner = ex.InnerException;
                 var sqlState = inner?.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
                 var constraint = inner?.GetType().GetProperty("ConstraintName")?.GetValue(inner) as string;
-                if (sqlState != "23505" || constraint != tagNameUniqueConstraint) throw;
+                if (sqlState is not "23505" and not "23P01"
+                    || constraint is not legacyTagNameUniqueConstraint and not sharedTagNamespaceUniqueConstraint)
+                    throw;
                 foreach (var tag in created)
                     _db.Entry(tag).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
             }
