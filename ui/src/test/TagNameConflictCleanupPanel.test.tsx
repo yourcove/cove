@@ -100,6 +100,28 @@ describe("TagNameConflictCleanupPanel", () => {
     expect(queryClient.getQueryData(["tag-name-conflicts"])).toEqual(expect.objectContaining({ unresolvedGroupCount: 0 }));
   });
 
+  it("links tag owners from both claims and the impact table", () => {
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagNameConflictCleanupPanel />
+      </QueryClientProvider>,
+    );
+
+    const sharedLinks = screen.getAllByRole("link", { name: "Open tag Shared (#4) in new tab" });
+    const otherLinks = screen.getAllByRole("link", { name: "Open tag Other (#9) in new tab" });
+    expect(sharedLinks).toHaveLength(2);
+    expect(otherLinks).toHaveLength(2);
+    for (const [links, href] of [[sharedLinks, "/tag/4"], [otherLinks, "/tag/9"]] as const) {
+      for (const link of links) expect(link).toHaveAttribute("href", href);
+    }
+    for (const link of [...sharedLinks, ...otherLinks]) {
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noreferrer");
+      expect(link).toHaveAttribute("title", "Open tag in new tab");
+    }
+  });
+
   it("adopts a refreshed recommendation until the administrator selects an override", () => {
     const queryClient = new QueryClient();
     const view = render(
@@ -210,6 +232,9 @@ describe("TagNameConflictCleanupPanel", () => {
       expect(screen.getByText("public.extension_segment_links")).toBeInTheDocument();
       expect(screen.getByText("tag_id")).toBeInTheDocument();
       expect(screen.getByText("restrict")).toBeInTheDocument();
+      const otherTagLinks = screen.getAllByRole("link", { name: "Open tag Other (#9) in new tab" });
+      expect(otherTagLinks).toHaveLength(3);
+      for (const link of otherTagLinks) expect(link).toHaveAttribute("href", "/tag/9");
 
       await user.selectOptions(
         screen.getByRole("combobox", { name: "Database action for public.extension_segment_links.tag_id on tag 9" }),

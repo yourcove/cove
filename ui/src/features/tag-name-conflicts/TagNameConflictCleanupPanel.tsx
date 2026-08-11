@@ -11,6 +11,7 @@ import type {
   TagNameConflictImpact,
 } from "../../api/types";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { buildRouteUrl } from "../../router/location";
 import { getApiValidationFailureDetail } from "../../utils/requestFailure";
 import {
   tagNameConflictQueryKey,
@@ -419,7 +420,10 @@ function ConflictGroupCard({
                     <span className="font-medium text-foreground">{displayValue(claim.originalValue)}</span>
                     {isSurviving ? <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-200">Keeps name</span> : null}
                   </div>
-                  <div className="mt-1 text-xs text-secondary">Tag #{claim.tagId}: {displayValue(claim.tagName)}{claim.normalizedValue != null && claim.normalizedValue !== claim.originalValue ? ` → ${displayValue(claim.normalizedValue)}` : ""}</div>
+                  <div className="mt-1 text-xs text-secondary">
+                    <TagDetailLink tagId={claim.tagId} tagName={claim.tagName} prefix={`Tag #${claim.tagId}: `} />
+                    {claim.normalizedValue != null && claim.normalizedValue !== claim.originalValue ? ` → ${displayValue(claim.normalizedValue)}` : ""}
+                  </div>
                   {!isSurviving ? (
                     <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
                       <label className="sr-only" htmlFor={`action-${group.key}-${key}`}>Resolution for {claim.claimType} {claim.originalValue}</label>
@@ -534,7 +538,7 @@ function ExternalReferenceTable({
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="text-sm font-medium text-foreground">{displayValue(impact.tagName)} <span className="font-normal text-muted">#{impact.tagId}</span></span>
+        <TagDetailLink tagId={impact.tagId} tagName={impact.tagName} className="text-sm font-medium text-foreground" showId />
         <span className={`text-xs ${willMerge ? "text-amber-200" : "text-secondary"}`}>
           {willMerge
             ? hasRestrictedLocation ? "Owner repair required before merge" : "Review required before merge"
@@ -593,7 +597,7 @@ function ImpactRow({ impact, recommended, selected, selectable, willMerge, radio
         {selectable ? <input type="radio" name={`survivor-${radioGroup}`} checked={selected} onChange={onSelect} aria-label={`Keep tag ${impact.tagName}`} className="accent-accent" /> : <span className="text-muted">—</span>}
       </td>
       <td className="px-3 py-2 font-medium text-foreground">
-        <span>{displayValue(impact.tagName)} <span className="font-normal text-muted">#{impact.tagId}</span></span>
+        <TagDetailLink tagId={impact.tagId} tagName={impact.tagName} showId />
         {recommended ? <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-200">Recommended</span> : null}
       </td>
       <td className={`px-3 py-2 ${willMerge ? "text-amber-200" : "text-secondary"}`}>{selected ? "Survivor" : willMerge ? "Merge" : "Keep separate"}</td>
@@ -626,6 +630,21 @@ function describePlan(plan: GroupPlan | null) {
 
 function CountCell({ value }: { value: number }) {
   return <td className={`px-3 py-2 tabular-nums ${value > 0 ? "text-foreground" : "text-muted"}`}>{value.toLocaleString()}</td>;
+}
+
+function TagDetailLink({ tagId, tagName, prefix = "", showId = false, className = "" }: { tagId: number; tagName: string; prefix?: string; showId?: boolean; className?: string }) {
+  return (
+    <a
+      href={buildRouteUrl({ page: "tag", id: tagId })}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open tag ${displayValue(tagName)} (#${tagId}) in new tab`}
+      title="Open tag in new tab"
+      className={`${className} hover:text-accent hover:underline`}
+    >
+      {prefix}{displayValue(tagName)}{showId ? <span className="font-normal text-muted"> #{tagId}</span> : null}
+    </a>
+  );
 }
 
 function StatusBox({ tone, children }: { tone: "success" | "error"; children: ReactNode }) {
