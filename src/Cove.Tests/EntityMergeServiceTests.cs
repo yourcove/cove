@@ -198,10 +198,6 @@ public sealed class EntityMergeServiceTests
             });
         await db.SaveChangesAsync();
 
-        var conflict = Assert.Single((await new EntityNameConflictScanner(db)
-            .ScanAsync(NameConflictEntityTypes.Performer)).Groups);
-        Assert.True(Assert.Single(conflict.Impacts, impact => impact.EntityId == source.Id).OtherMetadataCount >= 5);
-
         await new PerformerMergeService(db).MergeAsync(target.Id, [source.Id]);
 
         Assert.False(await db.Performers.AnyAsync(performer => performer.Id == source.Id));
@@ -275,8 +271,6 @@ public sealed class EntityMergeServiceTests
 
         Assert.False(await db.Performers.AnyAsync(performer => performer.Id == source.Id));
         Assert.Null((await db.Performers.SingleAsync(performer => performer.Id == target.Id)).Disambiguation);
-        Assert.Empty((await new EntityNameConflictScanner(db)
-            .ScanAsync(NameConflictEntityTypes.Performer)).Groups);
     }
 
     [Fact]
@@ -319,10 +313,6 @@ public sealed class EntityMergeServiceTests
                 RefId = source.Id,
             });
         await db.SaveChangesAsync();
-
-        var conflict = Assert.Single((await new EntityNameConflictScanner(db)
-            .ScanAsync(NameConflictEntityTypes.Studio)).Groups);
-        Assert.True(Assert.Single(conflict.Impacts, impact => impact.EntityId == source.Id).OtherMetadataCount >= 3);
 
         await new StudioMergeService(db).MergeAsync(target.Id, [source.Id]);
 

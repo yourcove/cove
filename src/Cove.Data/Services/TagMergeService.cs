@@ -12,10 +12,8 @@ namespace Cove.Data.Services;
 public sealed record TagMergeResult(int TargetId, IReadOnlyList<int> MergedSourceIds);
 
 /// <summary>
-/// Authoritative relationship-transfer implementation for tag merges. The ordinary merge endpoint,
-/// the 1.2 compatibility cleanup tool, and the future enforcement migration are required to follow
-/// this contract; do not add a tag reference to Cove without updating this service, its impact scan,
-/// and the conflict-resolution specification together.
+/// Authoritative relationship-transfer implementation for tag merges. Do not add a tag reference
+/// to Cove without updating this service and the entity-merge contract together.
 /// </summary>
 public sealed class TagMergeService(
     CoveContext db,

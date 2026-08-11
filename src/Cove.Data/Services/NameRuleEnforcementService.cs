@@ -69,16 +69,13 @@ public sealed class NameRuleUpgradePreparation
 }
 
 /// <summary>
-/// Bridges the 1.2 compatibility scanners and the 1.3 schema migration. PostgreSQL cannot
+/// Prepares the 1.3 schema migration using Cove's managed normalization rules. PostgreSQL cannot
 /// reproduce .NET Trim/ToLowerInvariant for every Unicode value, so Cove stages the exact
 /// normalized display values and identity keys on the migration connection. The migration locks
 /// and revalidates every original row before using that staging data, preventing a concurrent
 /// writer from invalidating the preflight.
 /// </summary>
-public sealed class NameRuleEnforcementService(
-    CoveContext db,
-    TagNameConflictScanner tagScanner,
-    EntityNameConflictScanner entityScanner)
+public sealed class NameRuleEnforcementService(CoveContext db)
 {
     public const string MigrationId = "20260810170000_EnforceUniqueNames";
     public const string GuardFailureMarker = "COVE_NAME_RULE_GUARD";
@@ -105,7 +102,7 @@ public sealed class NameRuleEnforcementService(
 
     private async Task<NameRuleUpgradePreparation> PreflightCoreAsync(CancellationToken ct)
     {
-        // Keep all scanners and staging projections on one database snapshot. The migration later
+        // Keep all preflight reads and staging projections on one database snapshot. The migration later
         // locks and compares every original row against this snapshot before applying any changes.
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
         var coreTableCount = await db.Database.SqlQueryRaw<int>("""
@@ -128,16 +125,6 @@ public sealed class NameRuleEnforcementService(
                 "The database contains only part of Cove's core name schema. Restore or migrate the core schema before running the Cove 1.3.0 name-rule preflight.");
         }
 
-        var tagScan = await tagScanner.ScanWithoutImpactsAsync(ct);
-        var performerScan = await entityScanner.ScanWithoutImpactsAsync(NameConflictEntityTypes.Performer, ct);
-        var studioScan = await entityScanner.ScanWithoutImpactsAsync(NameConflictEntityTypes.Studio, ct);
-        if (tagScan.UnresolvedGroupCount > 0
-            || performerScan.UnresolvedGroupCount > 0
-            || studioScan.UnresolvedGroupCount > 0)
-        {
-            throw CreateBlockedException(tagScan, performerScan, studioScan);
-        }
-
         // Explicit projections intentionally avoid the key columns: they do not exist until this
         // enforcement migration succeeds, while every projected column exists at the 1.2 checkpoint.
         var tagRows = await db.Tags.IgnoreQueryFilters().AsNoTracking()
@@ -156,6 +143,32 @@ public sealed class NameRuleEnforcementService(
             .OrderBy(studio => studio.Id)
             .Select(studio => new { studio.Id, studio.Name })
             .ToListAsync(ct);
+
+        var (tagGroupCount, tagClaimCount) = CountTagConflicts(
+            tagRows.Select(tag => (tag.Id, tag.Name)),
+            aliasRows.Select(alias => (alias.Id, alias.TagId, alias.Alias)));
+        var performerConflicts = performerRows
+            .GroupBy(
+                performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+                StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Count())
+            .ToArray();
+        var studioConflicts = studioRows
+            .GroupBy(studio => EntityNameRules.StudioIdentityKey(studio.Name), StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Count())
+            .ToArray();
+        if (tagGroupCount > 0 || performerConflicts.Length > 0 || studioConflicts.Length > 0)
+        {
+            throw new NameRuleUpgradeBlockedException(
+                tagGroupCount,
+                tagClaimCount,
+                performerConflicts.Length,
+                performerConflicts.Sum(),
+                studioConflicts.Length,
+                studioConflicts.Sum());
+        }
 
         var tags = tagRows.Select(tag =>
         {
@@ -216,17 +229,67 @@ public sealed class NameRuleEnforcementService(
         return preparation;
     }
 
-    private static NameRuleUpgradeBlockedException CreateBlockedException(
-        Cove.Core.DTOs.TagNameConflictScanDto tags,
-        Cove.Core.DTOs.EntityNameConflictScanDto performers,
-        Cove.Core.DTOs.EntityNameConflictScanDto studios)
-        => new(
-            tags.UnresolvedGroupCount,
-            tags.Groups.Sum(group => group.Claims.Count),
-            performers.UnresolvedGroupCount,
-            performers.Groups.Sum(group => group.Candidates.Count),
-            studios.UnresolvedGroupCount,
-            studios.Groups.Sum(group => group.Candidates.Count));
+    private static (int GroupCount, int ClaimCount) CountTagConflicts(
+        IEnumerable<(int Id, string Name)> tags,
+        IEnumerable<(int Id, int TagId, string Alias)> aliases)
+    {
+        var tagRows = tags.ToArray();
+        var tagIds = tagRows.Select(tag => tag.Id).ToHashSet();
+        var claims = tagRows
+            .Select(tag => new TagPreflightClaim(
+                tag.Id,
+                IsCanonical: true,
+                NamespaceKey: TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                IsWhitespaceOnlyCanonical: string.IsNullOrWhiteSpace(tag.Name)))
+            .Concat(aliases
+                .Where(alias => tagIds.Contains(alias.TagId))
+                .Select(alias =>
+                {
+                    var normalized = TagNameRules.NormalizeAlias(alias.Alias);
+                    return new TagPreflightClaim(
+                        alias.TagId,
+                        IsCanonical: false,
+                        NamespaceKey: normalized == null ? null : TagNameRules.NamespaceKey(normalized),
+                        IsWhitespaceOnlyCanonical: false);
+                }))
+            .ToArray();
+
+        var groupCount = 0;
+        var claimCount = 0;
+        foreach (var group in claims
+            .Where(claim => claim.NamespaceKey != null)
+            .GroupBy(claim => claim.NamespaceKey!, StringComparer.Ordinal))
+        {
+            var canonical = group.Where(claim => claim.IsCanonical).ToArray();
+            var alias = group.Where(claim => !claim.IsCanonical).ToArray();
+            var isConflict = canonical.Select(claim => claim.TagId).Distinct().Count() > 1
+                || canonical.Any(name => alias.Any(item => item.TagId != name.TagId))
+                || alias.Select(claim => claim.TagId).Distinct().Count() > 1
+                || canonical.Any(name => alias.Any(item => item.TagId == name.TagId))
+                || alias.GroupBy(claim => claim.TagId).Any(owner => owner.Count() > 1)
+                || canonical.Any(claim => claim.IsWhitespaceOnlyCanonical);
+            if (!isConflict)
+                continue;
+
+            groupCount++;
+            claimCount += group.Count();
+        }
+
+        var blankAliasCount = claims.Count(claim => !claim.IsCanonical && claim.NamespaceKey == null);
+        if (blankAliasCount > 0)
+        {
+            groupCount++;
+            claimCount += blankAliasCount;
+        }
+
+        return (groupCount, claimCount);
+    }
+
+    private sealed record TagPreflightClaim(
+        int TagId,
+        bool IsCanonical,
+        string? NamespaceKey,
+        bool IsWhitespaceOnlyCanonical);
 
     public async Task<IAsyncDisposable> StageAsync(
         NameRuleUpgradePreparation preparation,
