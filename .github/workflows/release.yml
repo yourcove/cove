@@ -202,12 +202,9 @@ jobs:
             exit 1
           fi
 
-  # ── Build Docker images (stable releases only) ───────────────────
+  # ── Build Docker images for stable and prerelease tags ───────────
   build-docker:
     needs: [build-ui, check-version]
-    # Only publish Docker images for stable semver tags (v1.0.0, v2.1.3)
-    # Skip for prerelease tags such as v1.0.0-alpha.1, v1.0.0-beta.2, or v1.0.0-rc.1
-    if: needs.check-version.outputs.is_stable == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -243,10 +240,11 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.check-version.outputs.is_stable == 'true' }}
+            type=raw,value=latest,enable=${{ needs.check-version.outputs.is_stable == 'true' }}
 
       - uses: docker/build-push-action@v7
         with:
@@ -264,9 +262,12 @@ jobs:
 
   # ── Create GitHub Release ───────────────────────────────────────
   release:
-    needs: [build-native, check-version]
-    # Always run after native builds succeed (Docker may have been skipped)
-    if: always() && needs.build-native.result == 'success'
+    needs: [build-native, build-docker, check-version]
+    # Publish the release only after all native packages and container images succeed.
+    if: >-
+      always()
+      && needs.build-native.result == 'success'
+      && needs.build-docker.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -311,6 +312,7 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ needs.check-version.outputs.is_stable != 'true' }}
+          make_latest: ${{ needs.check-version.outputs.is_stable == 'true' }}
           files: release-files/*
           body: |
             ${{ steps.changelog.outputs.CHANGELOG }}
@@ -319,19 +321,21 @@ jobs:
 
             Standalone executables for Windows, Linux, and macOS are attached below.
 
-            ${{ needs.check-version.outputs.is_stable == 'true' && format('## Docker Images
+            ${{ needs.check-version.outputs.is_stable != 'true' && '> **Pre-release:** These container tags are isolated and do not update the stable or nightly aliases.' || '' }}
+
+            ## Docker Images
 
             **All-in-one** (includes PostgreSQL + FFmpeg):
             ```
-            docker pull {0}/{1}:{2}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
             ```
 
             **App only** (requires external PostgreSQL):
             ```
-            docker pull {0}/{1}-app:{2}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-app:${{ steps.version.outputs.VERSION }}
             ```
 
-            See [Docker setup docs](docker/README.md) for docker-compose examples.', env.REGISTRY, env.IMAGE_NAME, steps.version.outputs.VERSION) || '> This is a pre-release. Docker images are only published for stable releases (e.g. v1.0.0).' }}
+            See [Docker setup docs](docker/README.md) for docker-compose examples.
 
   # ── CI checks (runs on all pushes and PRs too) ──────────────────
   ci:
