@@ -80,4 +80,25 @@ describe("ListQueryState", () => {
     expect(screen.getByText("content state")).toBeInTheDocument();
     expect(screen.queryByText("empty state")).not.toBeInTheDocument();
   });
+
+  it("keeps a persistent header mounted across query states", () => {
+    const header = <input aria-label="List search" />;
+    const { rerender } = render(
+      <ListQueryState header={header} isLoading={false} loadError={null} isEmpty={false} loading={<div>loading</div>} empty={<div>empty</div>}>
+        <div>content</div>
+      </ListQueryState>,
+    );
+    const search = screen.getByRole("textbox", { name: "List search" });
+    search.focus();
+
+    rerender(
+      <ListQueryState header={header} isLoading loadError={null} isEmpty={false} loading={<div>loading</div>} empty={<div>empty</div>}>
+        <div>content</div>
+      </ListQueryState>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "List search" })).toBe(search);
+    expect(search).toHaveFocus();
+    expect(screen.getByText("loading")).toBeInTheDocument();
+  });
 });

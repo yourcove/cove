@@ -117,6 +117,38 @@ describe("useDetailListQuery", () => {
     expect(result.current.data.items).toEqual([]);
   });
 
+  it("keeps infinite-list results visible while a changed filter loads", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveSearch!: (value: { items: { id: number }[]; totalCount: number; page: number; perPage: number }) => void;
+    const searchResult = new Promise<{ items: { id: number }[]; totalCount: number; page: number; perPage: number }>((resolve) => {
+      resolveSearch = resolve;
+    });
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ items: [{ id: 1 }], totalCount: 120, page: 1, perPage: 60 })
+      .mockReturnValueOnce(searchResult);
+    const { result, rerender } = renderHook(({ q }) => useDetailListQuery({
+      queryKey: ["related-items-infinite-search"],
+      filter: { page: 1, perPage: 0, q },
+      queryFn,
+    }), {
+      initialProps: { q: "" },
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.data.items).toEqual([{ id: 1 }]));
+
+    rerender({ q: "friend" });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data.items).toEqual([{ id: 1 }]);
+    expect(result.current.infiniteScroll?.hasNextPage).toBe(false);
+    act(() => result.current.loadMore());
+    expect(queryFn).toHaveBeenCalledTimes(2);
+
+    resolveSearch({ items: [{ id: 2 }], totalCount: 1, page: 1, perPage: 60 });
+    await waitFor(() => expect(result.current.data.items).toEqual([{ id: 2 }]));
+  });
+
   it("retains a successful empty infinite result when a refetch fails", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const queryFn = vi.fn()

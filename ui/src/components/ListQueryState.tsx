@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ListLoadError } from "./ListLoadError";
 
 interface ListQueryStateProps {
+  header?: ReactNode;
   isLoading: boolean;
   loadError: Error | null;
   isEmpty: boolean;
@@ -14,6 +15,7 @@ interface ListQueryStateProps {
 }
 
 export function ListQueryState({
+  header,
   isLoading,
   loadError,
   isEmpty,
@@ -24,8 +26,10 @@ export function ListQueryState({
   errorTitle,
   errorClassName = "mt-3",
 }: ListQueryStateProps) {
-  if (isLoading) return <>{loading}</>;
-  if (loadError) return <ListLoadError error={loadError} onRetry={onRetry} title={errorTitle} className={errorClassName} />;
-  if (isEmpty) return <>{empty}</>;
-  return <>{children}</>;
+  let content = children;
+  if (isLoading) content = loading;
+  else if (loadError) content = <ListLoadError error={loadError} onRetry={onRetry} title={errorTitle} className={errorClassName} />;
+  else if (isEmpty) content = empty;
+
+  return <>{header}{content}</>;
 }

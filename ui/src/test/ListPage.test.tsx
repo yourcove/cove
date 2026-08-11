@@ -61,11 +61,42 @@ describe("ListPage active filter chips", () => {
     );
 
     expect(screen.getByRole("status", { name: "Loading Videos" })).toBeInTheDocument();
-    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByText("0 items")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Videos" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Search list" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Videos" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search list" })).toBeInTheDocument();
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
+  });
+
+  it("keeps the focused search control mounted while collection results become pending", () => {
+    const queryClient = new QueryClient();
+    const renderListPage = (loadState: { status: "success"; data: unknown } | { status: "pending" }) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={81}
+            loadState={loadState}
+          >
+            <div>collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderListPage({ status: "success", data: {} }));
+    const search = screen.getByRole("textbox", { name: "Search list" });
+    search.focus();
+
+    rerender(renderListPage({ status: "pending" }));
+
+    expect(screen.getByRole("textbox", { name: "Search list" })).toBe(search);
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("status", { name: "Loading Videos" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+    expect(screen.queryByText("collection content")).not.toBeInTheDocument();
   });
 
   it("returns to the last valid page when refreshed results remove the current page", async () => {
@@ -292,9 +323,10 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByText("Cove couldn’t complete the request. Please try again.")).toBeInTheDocument();
     expect(screen.queryByText("Request failed: 502 Bad Gateway")).not.toBeInTheDocument();
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
     expect(screen.queryByText("0 items")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Videos" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Search list" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Videos" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search list" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
