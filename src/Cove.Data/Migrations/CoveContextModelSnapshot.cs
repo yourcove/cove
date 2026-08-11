@@ -2472,6 +2472,10 @@ namespace Cove.Data.Migrations
                     b.Property<string>("ImageOverrideBlobId")
                         .HasColumnType("text");
 
+                    b.Property<string>("IdentityKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Measurements")
                         .HasColumnType("text");
 
@@ -3223,6 +3227,10 @@ namespace Cove.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("Organized")
                         .HasColumnType("boolean");
 
@@ -3424,6 +3432,10 @@ namespace Cove.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("NamespaceKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("Organized")
                         .HasColumnType("boolean");
 
@@ -3514,6 +3526,10 @@ namespace Cove.Data.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("NamespaceKey")
                         .IsRequired()
                         .HasColumnType("text");
 

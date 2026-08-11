@@ -5,13 +5,19 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 
 namespace Cove.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.SystemRead)]
-public class DatabaseController(CoveContext db, IBackupService backupService, CoveConfiguration config, ILogger<DatabaseController> logger) : ControllerBase
+public class DatabaseController(
+    CoveContext db,
+    IBackupService backupService,
+    CoveConfiguration config,
+    ILogger<DatabaseController> logger,
+    NameRuleEnforcementService? nameRuleEnforcement = null) : ControllerBase
 {
     [HttpPost("backup")]
     [RequiresPermission(Permissions.SystemBackup)]
@@ -55,6 +61,35 @@ public class DatabaseController(CoveContext db, IBackupService backupService, Co
             pendingMigrations.Length,
             string.Join(", ", pendingMigrations));
 
+        NameRuleUpgradePreparation? nameRulePreparation = null;
+        if (pendingMigrations.Contains(NameRuleEnforcementService.MigrationId, StringComparer.Ordinal))
+        {
+            if (nameRuleEnforcement == null)
+                throw new InvalidOperationException("The name-rule enforcement service is unavailable.");
+
+            try
+            {
+                nameRulePreparation = await nameRuleEnforcement.PreflightAsync(ct);
+            }
+            catch (NameRuleUpgradeBlockedException exception)
+            {
+                logger.LogWarning(
+                    "Name-rule upgrade preflight blocked migration with {GroupCount} unresolved groups and {ClaimCount} claims",
+                    exception.UnresolvedGroupCount,
+                    exception.UnresolvedClaimCount);
+                return Conflict(new
+                {
+                    code = "NAME_RULE_CONFLICTS",
+                    message = exception.Message,
+                    unresolvedGroupCount = exception.UnresolvedGroupCount,
+                    unresolvedClaimCount = exception.UnresolvedClaimCount,
+                    tagUnresolvedGroupCount = exception.TagGroupCount,
+                    performerUnresolvedGroupCount = exception.PerformerGroupCount,
+                    studioUnresolvedGroupCount = exception.StudioGroupCount,
+                });
+            }
+        }
+
         var backup = await backupService.CreateBackupAsync("pre_migration", ct);
         logger.LogInformation("Pre-migration database backup created at {Path}", backup.BackupPath);
 
@@ -63,7 +98,23 @@ public class DatabaseController(CoveContext db, IBackupService backupService, Co
         // out and EF's retry strategy re-runs it, looping. Lift the timeout for the gated migration
         // run so big datasets can finish. The context is request-scoped, so this only affects this call.
         db.Database.SetCommandTimeout(TimeSpan.FromHours(2));
-        await db.Database.MigrateAsync(ct);
+        await using var nameRuleStaging = nameRulePreparation != null
+            ? await nameRuleEnforcement!.StageAsync(nameRulePreparation, ct)
+            : null;
+        try
+        {
+            await db.Database.MigrateAsync(ct);
+        }
+        catch (PostgresException exception) when (NameRuleEnforcementService.IsGuardFailure(exception))
+        {
+            logger.LogWarning("Name-rule upgrade guard rejected a concurrently changed or unstaged database");
+            return Conflict(new
+            {
+                code = "NAME_RULE_PREFLIGHT_CHANGED",
+                message = NameRuleEnforcementService.GuardFailureMessage,
+                preMigrationBackupPath = backup.BackupPath,
+            });
+        }
 
         var remainingMigrations = (await db.Database.GetPendingMigrationsAsync(ct)).ToArray();
         logger.LogInformation(
@@ -174,4 +225,3 @@ public class DatabaseController(CoveContext db, IBackupService backupService, Co
         return Ok(new { path });
     }
 }
-

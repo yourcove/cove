@@ -3,6 +3,8 @@ namespace Cove.Core.Entities;
 public class Tag : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string NamespaceKey { get; set; } = string.Empty;
     public string? SortName { get; set; }
     public string? Description { get; set; }
     public string? Color { get; set; }
@@ -60,6 +62,8 @@ public class TagAlias
     public int Id { get; set; }
     public int TagId { get; set; }
     public string Alias { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string NamespaceKey { get; set; } = string.Empty;
     public Tag? Tag { get; set; }
 }
 
@@ -79,4 +83,3 @@ public class TagRemoteId
     public string RemoteId { get; set; } = string.Empty;
     public Tag? Tag { get; set; }
 }
-

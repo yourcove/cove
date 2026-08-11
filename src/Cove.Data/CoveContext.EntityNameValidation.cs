@@ -19,10 +19,10 @@ public partial class CoveContext
 
     private void NormalizeAndValidateEntityNames()
     {
+        var performers = NormalizeChangedPerformerNames(normalizeValues: _entityNameValidationSuppressionDepth == 0);
+        var studios = NormalizeChangedStudioNames(normalizeValues: _entityNameValidationSuppressionDepth == 0);
         if (_entityNameValidationSuppressionDepth > 0)
             return;
-
-        var performers = NormalizeChangedPerformerNames();
         ValidateTrackedIdentityCandidates(performers);
         if (performers.Count > 0)
         {
@@ -41,7 +41,6 @@ public partial class CoveContext
             ThrowForPersistedIdentityConflicts(performers, existing);
         }
 
-        var studios = NormalizeChangedStudioNames();
         ValidateTrackedIdentityCandidates(studios);
         if (studios.Count > 0)
         {
@@ -63,10 +62,10 @@ public partial class CoveContext
 
     private async Task NormalizeAndValidateEntityNamesAsync(CancellationToken cancellationToken)
     {
+        var performers = NormalizeChangedPerformerNames(normalizeValues: _entityNameValidationSuppressionDepth == 0);
+        var studios = NormalizeChangedStudioNames(normalizeValues: _entityNameValidationSuppressionDepth == 0);
         if (_entityNameValidationSuppressionDepth > 0)
             return;
-
-        var performers = NormalizeChangedPerformerNames();
         ValidateTrackedIdentityCandidates(performers);
         if (performers.Count > 0)
         {
@@ -86,7 +85,6 @@ public partial class CoveContext
             ThrowForPersistedIdentityConflicts(performers, existing);
         }
 
-        var studios = NormalizeChangedStudioNames();
         ValidateTrackedIdentityCandidates(studios);
         if (studios.Count > 0)
         {
@@ -107,7 +105,7 @@ public partial class CoveContext
         }
     }
 
-    private List<EntityIdentityCandidate> NormalizeChangedPerformerNames()
+    private List<EntityIdentityCandidate> NormalizeChangedPerformerNames(bool normalizeValues)
     {
         var candidates = new List<EntityIdentityCandidate>();
         foreach (var entry in ChangeTracker.Entries<Performer>()
@@ -118,9 +116,15 @@ public partial class CoveContext
                     entry.Property(performer => performer.Name).OriginalValue,
                     entry.Property(performer => performer.Disambiguation).OriginalValue)
                 : null;
-            entry.Entity.Name = EntityNameRules.NormalizeCanonicalName(entry.Entity.Name);
-            entry.Entity.Disambiguation = EntityNameRules.NormalizeDisambiguation(entry.Entity.Disambiguation);
-            var identityKey = EntityNameRules.PerformerIdentityKey(entry.Entity.Name, entry.Entity.Disambiguation);
+            var normalizedName = EntityNameRules.NormalizeCanonicalName(entry.Entity.Name);
+            var normalizedDisambiguation = EntityNameRules.NormalizeDisambiguation(entry.Entity.Disambiguation);
+            if (normalizeValues)
+            {
+                entry.Entity.Name = normalizedName;
+                entry.Entity.Disambiguation = normalizedDisambiguation;
+            }
+            var identityKey = EntityNameRules.PerformerIdentityKey(normalizedName, normalizedDisambiguation);
+            entry.Entity.IdentityKey = identityKey;
             if (string.Equals(identityKey, originalIdentityKey, StringComparison.Ordinal))
                 continue;
             candidates.Add(new EntityIdentityCandidate(
@@ -132,7 +136,7 @@ public partial class CoveContext
         return candidates;
     }
 
-    private List<EntityIdentityCandidate> NormalizeChangedStudioNames()
+    private List<EntityIdentityCandidate> NormalizeChangedStudioNames(bool normalizeValues)
     {
         var candidates = new List<EntityIdentityCandidate>();
         foreach (var entry in ChangeTracker.Entries<Studio>()
@@ -141,8 +145,11 @@ public partial class CoveContext
             var originalIdentityKey = entry.State == EntityState.Modified
                 ? EntityNameRules.StudioIdentityKey(entry.Property(studio => studio.Name).OriginalValue)
                 : null;
-            entry.Entity.Name = EntityNameRules.NormalizeCanonicalName(entry.Entity.Name);
-            var identityKey = EntityNameRules.StudioIdentityKey(entry.Entity.Name);
+            var normalizedName = EntityNameRules.NormalizeCanonicalName(entry.Entity.Name);
+            if (normalizeValues)
+                entry.Entity.Name = normalizedName;
+            var identityKey = EntityNameRules.StudioIdentityKey(normalizedName);
+            entry.Entity.NameKey = identityKey;
             if (string.Equals(identityKey, originalIdentityKey, StringComparison.Ordinal))
                 continue;
             candidates.Add(new EntityIdentityCandidate(

@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Linq.Expressions;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
+using Npgsql;
 using NpgsqlTypes;
 using System.Data;
 
@@ -19,6 +20,7 @@ public partial class CoveContext : DbContext
 {
     private static IReadOnlyList<IDataExtension> _dataExtensions = [];
     private static int _modelGeneration;
+    private readonly bool _includeDataExtensionsInModel;
     private const int DerivedArrayAdvisoryLockNamespace = 0x434F5600;
     private const int TagNamespaceAdvisoryLockKey = 0x434F564E;
     private static readonly SemaphoreSlim[] DerivedArrayWriteStripes =
@@ -49,12 +51,26 @@ public partial class CoveContext : DbContext
             Interlocked.Increment(ref _modelGeneration);
     }
 
-    public CoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null) : base(options)
+    public CoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null)
+        : this(options, principalAccessor, includeDataExtensionsInModel: true)
     {
-        _principalAccessor = principalAccessor;
     }
 
-    protected CoveContext(DbContextOptions options) : base(options) { }
+    internal CoveContext(
+        DbContextOptions<CoveContext> options,
+        ICurrentPrincipalAccessor? principalAccessor,
+        bool includeDataExtensionsInModel) : base(options)
+    {
+        _principalAccessor = principalAccessor;
+        _includeDataExtensionsInModel = includeDataExtensionsInModel;
+    }
+
+    protected CoveContext(DbContextOptions options) : base(options)
+    {
+        _includeDataExtensionsInModel = true;
+    }
+
+    internal bool IncludeDataExtensionsInModel => _includeDataExtensionsInModel;
 
     // Core entities
     public DbSet<Video> Videos => Set<Video>();
@@ -162,7 +178,11 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<StudioUrl>().ToTable("studio_urls");
         modelBuilder.Entity<PerformerAlias>().ToTable("performer_aliases");
         modelBuilder.Entity<StudioAlias>().ToTable("studio_aliases");
-        modelBuilder.Entity<TagAlias>().ToTable("tag_aliases");
+        modelBuilder.Entity<TagAlias>(entity =>
+        {
+            entity.ToTable("tag_aliases");
+            entity.Property(alias => alias.NamespaceKey).IsRequired();
+        });
         modelBuilder.Entity<VideoPlayHistory>().ToTable("video_play_history");
 
         modelBuilder.Entity<VideoFile>()
@@ -218,7 +238,7 @@ public partial class CoveContext : DbContext
             entity.HasIndex(face => new { face.PerformerId, face.TopSuggestionComputedAt });
         });
 
-        foreach (var ext in _dataExtensions)
+        foreach (var ext in _includeDataExtensionsInModel ? _dataExtensions : [])
         {
             ext.ConfigureModel(modelBuilder);
         }
@@ -485,7 +505,7 @@ public partial class CoveContext : DbContext
                 CleanupEngagementRowsForDeletedEntities();
                 var derivedCountTargets = CollectDerivedCountTargets();
                 var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-                var result = base.SaveChanges();
+                var result = SaveChangesWithNameConstraintTranslation();
                 AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
                 MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
                 PersistDerivedCounts(derivedCountTargets);
@@ -579,11 +599,8 @@ public partial class CoveContext : DbContext
 
     private void NormalizeAndValidateTagNames()
     {
-        if (_tagNameValidationSuppressionDepth > 0)
-            return;
-
-        var candidates = NormalizeChangedTagNames();
-        if (candidates.Count == 0)
+        var candidates = NormalizeChangedTagNames(normalizeValues: _tagNameValidationSuppressionDepth == 0);
+        if (_tagNameValidationSuppressionDepth > 0 || candidates.Count == 0)
             return;
 
         ValidateTrackedTagNames(candidates);
@@ -619,11 +636,8 @@ public partial class CoveContext : DbContext
 
     private async Task NormalizeAndValidateTagNamesAsync(CancellationToken cancellationToken)
     {
-        if (_tagNameValidationSuppressionDepth > 0)
-            return;
-
-        var candidates = NormalizeChangedTagNames();
-        if (candidates.Count == 0)
+        var candidates = NormalizeChangedTagNames(normalizeValues: _tagNameValidationSuppressionDepth == 0);
+        if (_tagNameValidationSuppressionDepth > 0 || candidates.Count == 0)
             return;
 
         ValidateTrackedTagNames(candidates);
@@ -657,16 +671,25 @@ public partial class CoveContext : DbContext
                     null))));
     }
 
-    private List<TagNameCandidate> NormalizeChangedTagNames()
+    private List<TagNameCandidate> NormalizeChangedTagNames(bool normalizeValues)
     {
         var candidates = new List<TagNameCandidate>();
-        foreach (var entry in ChangeTracker.Entries<Tag>().Where(entry => entry.State == EntityState.Added
-            || entry.State == EntityState.Modified && entry.Property(tag => tag.Name).IsModified))
+        foreach (var entry in ChangeTracker.Entries<Tag>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
         {
-            entry.Entity.Name = TagNameRules.NormalizeCanonicalName(entry.Entity.Name);
+            var originalNamespaceKey = entry.State == EntityState.Modified
+                ? TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(
+                    entry.Property(tag => tag.Name).OriginalValue))
+                : null;
+            var normalized = TagNameRules.NormalizeCanonicalName(entry.Entity.Name);
+            if (normalizeValues)
+                entry.Entity.Name = normalized;
+            entry.Entity.NamespaceKey = TagNameRules.NamespaceKey(normalized);
+            if (string.Equals(entry.Entity.NamespaceKey, originalNamespaceKey, StringComparison.Ordinal))
+                continue;
             candidates.Add(new TagNameCandidate(
-                TagNameRules.NamespaceKey(entry.Entity.Name),
-                entry.Entity.Name,
+                entry.Entity.NamespaceKey,
+                normalized,
                 false,
                 entry.Entity.Id > 0 ? entry.Entity.Id : null,
                 null,
@@ -674,22 +697,34 @@ public partial class CoveContext : DbContext
         }
 
         foreach (var entry in ChangeTracker.Entries<TagAlias>()
-            .Where(entry => entry.State == EntityState.Added
-                || entry.State == EntityState.Modified && entry.Property(alias => alias.Alias).IsModified)
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
             .ToArray())
         {
+            var originalNormalized = entry.State == EntityState.Modified
+                ? TagNameRules.NormalizeAlias(entry.Property(alias => alias.Alias).OriginalValue)
+                : null;
+            var originalNamespaceKey = originalNormalized == null
+                ? null
+                : TagNameRules.NamespaceKey(originalNormalized);
             var normalized = TagNameRules.NormalizeAlias(entry.Entity.Alias);
             if (normalized == null)
             {
-                entry.State = entry.State == EntityState.Added ? EntityState.Detached : EntityState.Deleted;
+                if (normalizeValues)
+                    entry.State = entry.State == EntityState.Added ? EntityState.Detached : EntityState.Deleted;
+                else
+                    entry.Entity.NamespaceKey = string.Empty;
                 continue;
             }
 
-            entry.Entity.Alias = normalized;
+            if (normalizeValues)
+                entry.Entity.Alias = normalized;
+            entry.Entity.NamespaceKey = TagNameRules.NamespaceKey(normalized);
+            if (string.Equals(entry.Entity.NamespaceKey, originalNamespaceKey, StringComparison.Ordinal))
+                continue;
             var owningTag = entry.Entity.Tag
                 ?? ChangeTracker.Entries<Tag>().FirstOrDefault(tag => tag.Entity.Id == entry.Entity.TagId)?.Entity;
             candidates.Add(new TagNameCandidate(
-                TagNameRules.NamespaceKey(normalized),
+                entry.Entity.NamespaceKey,
                 normalized,
                 true,
                 entry.Entity.TagId > 0 ? entry.Entity.TagId : owningTag?.Id > 0 ? owningTag.Id : null,
@@ -1275,12 +1310,69 @@ public partial class CoveContext : DbContext
 
     private async Task<int> SaveChangesWithDerivedCountsAsync(DerivedCountTargets derivedCountTargets, PostSaveDerivedCountTargets postSaveDerivedCountTargets, CancellationToken cancellationToken)
     {
-        var result = await base.SaveChangesAsync(cancellationToken);
+        var result = await SaveChangesWithNameConstraintTranslationAsync(cancellationToken);
         AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
         MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
         await PersistDerivedCountsAsync(derivedCountTargets, cancellationToken);
         return result;
     }
+
+    private int SaveChangesWithNameConstraintTranslation()
+    {
+        try
+        {
+            return base.SaveChanges();
+        }
+        catch (DbUpdateException exception)
+        {
+            if (IsTagNameConstraint(exception))
+                throw TagNameConflictException.ForConcurrentWrite();
+            var entityType = EntityNameConstraintType(exception);
+            if (entityType != null)
+                throw new EntityNameConflictException(entityType, exception);
+            throw;
+        }
+    }
+
+    private async Task<int> SaveChangesWithNameConstraintTranslationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            if (IsTagNameConstraint(exception))
+                throw TagNameConflictException.ForConcurrentWrite();
+            var entityType = EntityNameConstraintType(exception);
+            if (entityType != null)
+                throw new EntityNameConflictException(entityType, exception);
+            throw;
+        }
+    }
+
+    private static string? EntityNameConstraintType(DbUpdateException exception)
+    {
+        if (exception.InnerException is not PostgresException postgres
+            || postgres.SqlState is not PostgresErrorCodes.ExclusionViolation and not PostgresErrorCodes.UniqueViolation)
+        {
+            return null;
+        }
+
+        return postgres.ConstraintName switch
+        {
+            "UQ_performers_identity" => NameConflictEntityTypes.Performer,
+            "UQ_studios_name" => NameConflictEntityTypes.Studio,
+            _ => null,
+        };
+    }
+
+    private static bool IsTagNameConstraint(DbUpdateException exception)
+        => exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.ExclusionViolation,
+            ConstraintName: "UQ_tag_name_claims_namespace",
+        };
 
     private void MaintainDenormalizedIdArrays(DerivedArrayTargets targets)
     {
@@ -2956,5 +3048,8 @@ public partial class CoveContext : DbContext
 public sealed class CoveModelCacheKeyFactory : Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory
 {
     public object Create(DbContext context, bool designTime)
-        => (context.GetType(), CoveContext.ModelGeneration, designTime);
+        => context is CoveContext coveContext
+            ? (context.GetType(), coveContext.IncludeDataExtensionsInModel,
+                coveContext.IncludeDataExtensionsInModel ? CoveContext.ModelGeneration : 0, designTime)
+            : (context.GetType(), false, 0, designTime);
 }

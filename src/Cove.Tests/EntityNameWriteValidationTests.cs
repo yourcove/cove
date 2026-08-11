@@ -17,6 +17,7 @@ public sealed class EntityNameWriteValidationTests
 
         Assert.Equal("Alpha", first.Name);
         Assert.Equal("One", first.Disambiguation);
+        Assert.Equal(EntityNameRules.PerformerIdentityKey("Alpha", "One"), first.IdentityKey);
 
         db.Performers.Add(new Performer { Name = "alpha", Disambiguation = "one" });
         var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
@@ -69,6 +70,7 @@ public sealed class EntityNameWriteValidationTests
         await db.SaveChangesAsync();
 
         Assert.Equal("Studio", first.Name);
+        Assert.Equal(EntityNameRules.StudioIdentityKey("Studio"), first.NameKey);
         db.Studios.Add(new Studio { Name = "studio" });
 
         var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
@@ -95,7 +97,9 @@ public sealed class EntityNameWriteValidationTests
         Assert.True(second.Favorite);
         Assert.Equal("duplicate", second.Name);
         Assert.Equal("one", second.Disambiguation);
+        Assert.Equal(EntityNameRules.PerformerIdentityKey(second.Name, second.Disambiguation), second.IdentityKey);
         Assert.Equal("duplicate STUDIO", secondStudio.Name);
+        Assert.Equal(EntityNameRules.StudioIdentityKey(secondStudio.Name), secondStudio.NameKey);
         Assert.Equal("Updated without changing its identity", secondStudio.Details);
     }
 

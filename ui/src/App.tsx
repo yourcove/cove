@@ -25,6 +25,7 @@ import { ServerAvailabilityBanner } from "./components/ServerAvailabilityBanner"
 import { MutationFailureNotice } from "./components/MutationFailureNotice";
 import { StartupGate } from "./components/StartupGate";
 import { TagNameConflictWarning } from "./features/tag-name-conflicts/TagNameConflictWarning";
+import { getApiValidationFailureDetail } from "./utils/requestFailure";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -396,7 +397,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
 
   // Migration gate: block the app until migrations are explicitly applied.
   if (status?.migrationRequired) {
-    const migrationError = migrateMutation.error instanceof Error ? migrateMutation.error.message : null;
+    const migrationError = migrateMutation.error ? getApiValidationFailureDetail(migrateMutation.error) : null;
     const migrationResult = migrateMutation.data;
 
     return (
