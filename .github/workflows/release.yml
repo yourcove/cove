@@ -167,14 +167,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify release is in the main history
+      - name: Verify stable release is in the main history
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Prerelease tags may point to commits outside $DEFAULT_BRANCH."
+            exit 0
+          fi
+
           git fetch origin "$DEFAULT_BRANCH" --no-tags
           RELEASE_COMMIT="$(git rev-parse "${GITHUB_SHA}^{commit}")"
           if ! git merge-base --is-ancestor "$RELEASE_COMMIT" FETCH_HEAD; then
-            echo "Release tags must point to a commit in $DEFAULT_BRANCH." >&2
+            echo "Stable release tags must point to a commit in $DEFAULT_BRANCH." >&2
             exit 1
           fi
 
