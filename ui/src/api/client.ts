@@ -4,8 +4,6 @@ import type {
   Video, VideoCreate, VideoUpdate, VideoListEntry,
   Performer, PerformerCreate, PerformerUpdate,
   Tag, TagDetail, TagCreate, TagUpdate, TagSegmentWall,
-  TagNameConflictScan, TagNameConflictSummary, TagNameClaimResolution, TagExternalReferenceResolution,
-  EntityNameConflictScan, EntityNameConflictSummary, NameConflictEntityType, EntityNameConflictResolution, EntityExternalReferenceResolution,
   TagApplication, TagApplicationCreate, TagGroup, TagGroupCreate, TagGroupUpdate,
   TagGraphNode, TagGraphResponse,
   Studio, StudioCreate, StudioUpdate,
@@ -786,50 +784,6 @@ export const tags = {
     request<{ draftId: string | null }>(`/tags/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
   batchTagMetadataServer: (data: MetadataServerTagBatchTagRequest) =>
     request<{ jobId: string; itemCount: number }>("/tags/metadata-server/batch-tag", { method: "POST", body: JSON.stringify(data) }),
-};
-
-export const tagNameConflicts = {
-  scan: () => request<TagNameConflictScan>("/tag-name-conflicts", { timeoutMs: null }),
-  summary: () => request<TagNameConflictSummary>("/tag-name-conflicts/summary", { timeoutMs: null }),
-  resolve: (
-    groupKey: string,
-    expectedRevision: string,
-    survivorTagId?: number,
-    resolutions?: TagNameClaimResolution[],
-    externalReferenceResolutions?: TagExternalReferenceResolution[],
-  ) =>
-    request<TagNameConflictScan>("/tag-name-conflicts/resolve", {
-      method: "POST",
-      body: JSON.stringify({ groupKey, expectedRevision, survivorTagId, resolutions, externalReferenceResolutions }),
-      timeoutMs: null,
-    }),
-  resolveAll: (expectedRevision: string) => request<TagNameConflictScan>("/tag-name-conflicts/resolve-all", {
-    method: "POST",
-    body: JSON.stringify({ expectedRevision }),
-    timeoutMs: null,
-  }),
-};
-
-export const entityNameConflicts = {
-  scan: (entityType: NameConflictEntityType) => request<EntityNameConflictScan>(`/entity-name-conflicts/${entityType}`, { timeoutMs: null }),
-  summary: () => request<EntityNameConflictSummary>("/entity-name-conflicts/summary", { timeoutMs: null }),
-  resolve: (
-    entityType: NameConflictEntityType,
-    groupKey: string,
-    expectedRevision: string,
-    survivorEntityId: number,
-    resolutions: EntityNameConflictResolution[],
-    externalReferenceResolutions: EntityExternalReferenceResolution[],
-  ) => request<EntityNameConflictScan>("/entity-name-conflicts/resolve", {
-    method: "POST",
-    body: JSON.stringify({ entityType, groupKey, expectedRevision, survivorEntityId, resolutions, externalReferenceResolutions }),
-    timeoutMs: null,
-  }),
-  resolveAll: (entityType: NameConflictEntityType, expectedRevision: string) => request<EntityNameConflictScan>("/entity-name-conflicts/resolve-all", {
-    method: "POST",
-    body: JSON.stringify({ entityType, expectedRevision }),
-    timeoutMs: null,
-  }),
 };
 
 export const tagGroups = {

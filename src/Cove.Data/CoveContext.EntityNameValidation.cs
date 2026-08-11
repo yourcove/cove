@@ -8,8 +8,8 @@ public partial class CoveContext
     private int _entityNameValidationSuppressionDepth;
 
     /// <summary>
-    /// Allows the compatibility cleanup and merge services to pass through a pre-existing duplicate
-    /// state while they remove it. Callers must validate the affected namespace before committing.
+    /// Allows merge services to pass through a pre-existing duplicate state while they remove it.
+    /// Callers must validate the affected namespace before committing.
     /// </summary>
     public IDisposable SuppressEntityNameValidation()
     {

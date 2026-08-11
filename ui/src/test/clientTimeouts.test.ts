@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { database, entityNameConflicts, extensions, scrapeAttempts, tagNameConflicts } from "../api/client";
+import { database, extensions, scrapeAttempts } from "../api/client";
 import { resetServerAvailabilityForTests } from "../state/serverAvailability";
 
 function pendingJsonResponse() {
@@ -60,27 +60,4 @@ describe("API client timeout policies", () => {
     await request;
   });
 
-  it("does not time out transactional tag-name cleanup", async () => {
-    vi.useFakeTimers();
-    const fetchRequest = pendingJsonResponse();
-
-    const request = tagNameConflicts.resolveAll("reviewed-scan-revision");
-    await vi.advanceTimersByTimeAsync(60 * 60_000);
-
-    expect(fetchRequest.signal?.aborted).toBe(false);
-    fetchRequest.finish();
-    await request;
-  });
-
-  it("does not time out transactional performer and studio cleanup", async () => {
-    vi.useFakeTimers();
-    const fetchRequest = pendingJsonResponse();
-
-    const request = entityNameConflicts.resolveAll("performer", "reviewed-scan-revision");
-    await vi.advanceTimersByTimeAsync(60 * 60_000);
-
-    expect(fetchRequest.signal?.aborted).toBe(false);
-    fetchRequest.finish();
-    await request;
-  });
 });

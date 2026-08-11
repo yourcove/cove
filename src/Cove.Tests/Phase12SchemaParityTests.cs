@@ -445,11 +445,11 @@ public sealed class Phase12SchemaParityTests
             var exception = await Assert.ThrowsAsync<NameRuleUpgradeBlockedException>(
                 () => enforcement.PreflightAsync());
 
-            Assert.True(exception.TagGroupCount >= 5);
+            Assert.Equal(5, exception.TagGroupCount);
             Assert.Equal(2, exception.PerformerGroupCount);
             Assert.Equal(1, exception.StudioGroupCount);
-            Assert.True(exception.UnresolvedGroupCount >= 8);
-            Assert.True(exception.UnresolvedClaimCount >= 15);
+            Assert.Equal(8, exception.UnresolvedGroupCount);
+            Assert.Equal(15, exception.UnresolvedClaimCount);
             Assert.DoesNotContain("fixture", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "tag_aliases", "NamespaceKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "performers", "IdentityKey"));
@@ -779,16 +779,6 @@ public sealed class Phase12SchemaParityTests
                 var rowSecurity = await ReadRowSecuritySettingAsync(context);
                 Assert.Equal("on", rowSecurity);
 
-                var scanner = new TagNameConflictScanner(context, restrictedInspector);
-                var scan = await scanner.ScanAsync();
-                var cleanup = new TagNameConflictCleanupService(
-                    context,
-                    scanner,
-                    new TagMergeService(context, externalReferenceInspector: restrictedInspector),
-                    externalReferenceInspector: restrictedInspector);
-                var cleanupException = await Assert.ThrowsAsync<TagMergeBlockedException>(
-                    () => cleanup.ResolveAllRecommendedAsync(scan.Revision));
-                Assert.True(cleanupException.HasUninspectableReferences);
                 await transaction.RollbackAsync();
             }
 
@@ -1183,10 +1173,7 @@ public sealed class Phase12SchemaParityTests
     }
 
     private static NameRuleEnforcementService CreateNameRuleEnforcement(CoveContext context)
-        => new(
-            context,
-            new TagNameConflictScanner(context),
-            new EntityNameConflictScanner(context));
+        => new(context);
 
     private static CoveContext CreateExtensionModelContext(int port, string databaseName)
     {
