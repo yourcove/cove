@@ -42,10 +42,10 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
   });
 
   const loadMore = useCallback(() => {
-    if (infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
+    if (!infiniteQuery.isPlaceholderData && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
       void infiniteQuery.fetchNextPage();
     }
-  }, [infiniteQuery.fetchNextPage, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage]);
+  }, [infiniteQuery.fetchNextPage, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.isPlaceholderData]);
 
   const fetchAllIds = useCallback(
     () => fetchAllMatchingIds(filter, queryPage),
@@ -61,7 +61,7 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
   const refetch = infinitePageSize ? infiniteQuery.refetch : pageQuery.refetch;
 
   const infiniteScroll = infinitePageSize ? {
-    hasNextPage: infiniteQuery.hasNextPage,
+    hasNextPage: !infiniteQuery.isPlaceholderData && infiniteQuery.hasNextPage,
     isFetchingNextPage: infiniteQuery.isFetchingNextPage,
     onLoadMore: loadMore,
     loadedCount: infiniteQuery.loadedThroughCount,
@@ -76,6 +76,7 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     loadError,
     refetch,
     infiniteQuery,
+    isPlaceholderData: infinitePageSize && infiniteQuery.isPlaceholderData,
     infiniteFilterKey,
     loadMore,
     infiniteScroll,

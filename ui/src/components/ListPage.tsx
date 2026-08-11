@@ -873,29 +873,25 @@ export function ListPage({
   }, [filter, infinitePageSize, onFilterChange, page, resolvedLoadState.status, totalPages]);
 
   return (
-    <QueryState
-      state={resolvedLoadState}
-      loading={(
-        <div className="list-page space-y-0">
-          <div role="status" aria-label={`Loading ${title}`} className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
-          </div>
-        </div>
-      )}
-      errorTitle={`Could not load ${title}`}
-      errorClassName="mx-1 mt-3"
-    >
-      <div className="list-page space-y-0">
+    <div className="list-page space-y-0">
       {/* Toolbar - matches standard FilteredListToolbar */}
       <div className="list-page-toolbar mx-1 mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 shadow-sm shadow-black/20 sm:px-2.5 sm:py-2">
         {/* Title + count + byline */}
         <div className="list-page-title-group mr-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2">
           <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
           <span className="text-xs text-muted hidden sm:inline">
-            {totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
+            {resolvedLoadState.status === "pending"
+              ? "Loading…"
+              : resolvedLoadState.status === "error"
+                ? "Unavailable"
+                : totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
-            {totalCount > 0 ? totalCount.toLocaleString() : "0"}
+            {resolvedLoadState.status === "pending"
+              ? "…"
+              : resolvedLoadState.status === "error"
+                ? "—"
+                : totalCount > 0 ? totalCount.toLocaleString() : "0"}
           </span>
           {metadataByline}
         </div>
@@ -1194,35 +1190,44 @@ export function ListPage({
         </div>
       )}
 
-      {/* Pagination top */}
-      {showPagingControls && totalPages > 1 && (
-        <div className="mx-1 mt-1 flex flex-wrap items-center justify-center gap-1 py-1">
-          <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
-        </div>
-      )}
-
-      {/* Content */}
-      <ListPageCardSizeContext.Provider value={{ cardMinWidthPx, zoomLevel }}>
-        <div className="list-page-content pt-3" style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}>
-          {children}
-          {infinitePageSize && infiniteScroll && !contentOwnsInfiniteLoading && (
-            <InfiniteScrollSentinel
-              hasMore={Boolean(infiniteScroll.hasNextPage)}
-              isLoading={Boolean(infiniteScroll.isFetchingNextPage)}
-              onLoadMore={infiniteScroll.onLoadMore}
-              loadedCount={infiniteScroll.loadedCount}
-              totalCount={infiniteScroll.totalCount}
-            />
+      {/* Results */}
+      <QueryState
+        state={resolvedLoadState}
+        loading={(
+          <div role="status" aria-label={`Loading ${title}`} className="flex h-64 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
+          </div>
+        )}
+        errorTitle={`Could not load ${title}`}
+        errorClassName="mx-1 mt-3"
+      >
+        <>
+          {showPagingControls && totalPages > 1 && (
+            <div className="mx-1 mt-1 flex flex-wrap items-center justify-center gap-1 py-1">
+              <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
+            </div>
           )}
-        </div>
-      </ListPageCardSizeContext.Provider>
-
-      {/* Pagination bottom */}
-      {showPagingControls && totalPages > 1 && (
-        <div className="flex flex-wrap items-center justify-center gap-1 py-4">
-          <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
-        </div>
-      )}
+          <ListPageCardSizeContext.Provider value={{ cardMinWidthPx, zoomLevel }}>
+            <div className="list-page-content pt-3" style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}>
+              {children}
+              {infinitePageSize && infiniteScroll && !contentOwnsInfiniteLoading && (
+                <InfiniteScrollSentinel
+                  hasMore={Boolean(infiniteScroll.hasNextPage)}
+                  isLoading={Boolean(infiniteScroll.isFetchingNextPage)}
+                  onLoadMore={infiniteScroll.onLoadMore}
+                  loadedCount={infiniteScroll.loadedCount}
+                  totalCount={infiniteScroll.totalCount}
+                />
+              )}
+            </div>
+          </ListPageCardSizeContext.Provider>
+          {showPagingControls && totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-center gap-1 py-4">
+              <PaginationControls page={page} totalPages={totalPages} goTo={goTo} />
+            </div>
+          )}
+        </>
+      </QueryState>
 
       {/* Filter Dialog */}
       {mergedCriteriaDefinitions && onObjectFilterChange && (
@@ -1251,7 +1256,6 @@ export function ListPage({
           preselectCriterion={filterDialogPreselect}
         />
       )}
-      </div>
-    </QueryState>
+    </div>
   );
 }

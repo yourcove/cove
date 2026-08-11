@@ -1,4 +1,4 @@
-import { useInfiniteQuery, type QueryKey } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, type QueryKey } from "@tanstack/react-query";
 import type { PaginatedResponse } from "../api/types";
 
 interface UsePaginatedInfiniteQueryOptions<TItem extends { id: string | number }> {
@@ -32,6 +32,7 @@ export function usePaginatedInfiniteQuery<TItem extends { id: string | number }>
     enabled,
     initialPageParam: 1,
     queryFn: ({ pageParam }) => queryFn(pageParam, chunkSize),
+    placeholderData: keepPreviousData,
     getNextPageParam: (lastPage) => {
       const loadedThrough = lastPage.page * lastPage.perPage;
       if (loadedThrough >= lastPage.totalCount || lastPage.items.length === 0) {

@@ -512,14 +512,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
       </div>
 
       <ListQueryState
-        isLoading={appearancesLoading}
-        loadError={appearancesLoadError}
-        isEmpty={faceAppearancesPage.totalCount === 0}
-        onRetry={() => { void retryAppearances(); }}
-        loading={<div className="text-sm text-secondary">Loading appearances...</div>}
-        empty={<div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">No appearances currently point to this face cluster.</div>}
-      >
-        <>
+        header={(
           <DetailListToolbar
             filter={appearanceFilter}
             onFilterChange={setAppearanceFilter}
@@ -534,6 +527,15 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             onDisplayModeChange={(mode: DetailListDisplayMode) => { if (mode === "grid" || mode === "list") setAppearanceDisplayMode(mode); }}
             availableDisplayModes={["grid", "list"]}
           />
+        )}
+        isLoading={appearancesLoading}
+        loadError={appearancesLoadError}
+        isEmpty={faceAppearancesPage.totalCount === 0}
+        onRetry={() => { void retryAppearances(); }}
+        loading={<div className="text-sm text-secondary">Loading appearances...</div>}
+        empty={<div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">No appearances currently point to this face cluster.</div>}
+      >
+        <>
           <FaceAppearancesGrid appearances={faceAppearancesPage.items} displayMode={appearanceDisplayMode} onNavigate={onNavigate} zoomLevel={appearanceZoomLevel} infinitePageSize={appearancesInfinitePageSize} hasNextPage={appearancesInfiniteQuery.hasNextPage} isFetchingNextPage={appearancesInfiniteQuery.isFetchingNextPage} loadMore={loadMoreAppearances} />
           <DetailListPagination filter={appearanceFilter} onFilterChange={setAppearanceFilter} totalCount={faceAppearancesPage.totalCount} allowInfinitePageSize />
         </>
@@ -552,14 +554,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
       </div>
 
       <ListQueryState
-        isLoading={similarLoading}
-        loadError={similarLoadError}
-        isEmpty={similarFacesPage.totalCount === 0}
-        onRetry={() => { void retrySimilar(); }}
-        loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
-        empty={<div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">No similar faces are available for this cluster yet.</div>}
-      >
-        <>
+        header={(
           <DetailListToolbar
             filter={similarFilter}
             onFilterChange={setSimilarFilter}
@@ -574,6 +569,15 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
             onDisplayModeChange={(mode: DetailListDisplayMode) => { if (mode === "grid" || mode === "list") setSimilarDisplayMode(mode); }}
             availableDisplayModes={["grid", "list"]}
           />
+        )}
+        isLoading={similarLoading}
+        loadError={similarLoadError}
+        isEmpty={similarFacesPage.totalCount === 0}
+        onRetry={() => { void retrySimilar(); }}
+        loading={<div className="text-sm text-secondary">Loading similar faces...</div>}
+        empty={<div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-secondary">No similar faces are available for this cluster yet.</div>}
+      >
+        <>
           <SimilarFacesView faces={similarFacesPage.items} displayMode={similarDisplayMode} onNavigate={onNavigate} canReadPerformers={canReadPerformers} zoomLevel={similarZoomLevel} infinitePageSize={similarInfinitePageSize} hasNextPage={similarInfiniteQuery.hasNextPage} isFetchingNextPage={similarInfiniteQuery.isFetchingNextPage} loadMore={loadMoreSimilar} />
           <DetailListPagination filter={similarFilter} onFilterChange={setSimilarFilter} totalCount={similarFacesPage.totalCount} allowInfinitePageSize />
         </>
