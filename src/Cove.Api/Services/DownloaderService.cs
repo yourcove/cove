@@ -1700,10 +1700,7 @@ public partial class DownloaderService(
 
     private static async Task<Dictionary<string, Performer>> LoadPerformersByNameAsync(CoveContext db, IReadOnlyList<string> performerNames, bool createMissing, CancellationToken ct)
     {
-        var normalizedNames = performerNames.Select(name => name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(db, performerNames, ct);
 
         foreach (var performerName in performerNames)
         {
@@ -1724,7 +1721,7 @@ public partial class DownloaderService(
     private static async Task<Studio?> FindOrCreateStudioAsync(CoveContext db, string studioName, bool createMissing, CancellationToken ct)
     {
         var normalizedStudioName = studioName.Trim();
-        var studio = await db.Studios.FirstOrDefaultAsync(item => item.Name == normalizedStudioName, ct);
+        var studio = await RelationNameResolver.ResolveStudioAsync(db, normalizedStudioName, ct);
         if (studio == null && !createMissing)
             return null;
 

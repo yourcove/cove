@@ -226,6 +226,8 @@ query Me {
     private readonly IFieldProvenanceService? _fieldProvenanceService;
     private readonly IEventBus? _eventBus;
     private readonly ILogger<MetadataServerService> _logger;
+    private Dictionary<string, int[]>? _performerIdentityIndex;
+    private Dictionary<string, int[]>? _studioIdentityIndex;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -461,9 +463,7 @@ query Me {
                 var parent = await _db.Studios
                     .Include(s => s.RemoteIds)
                     .FirstOrDefaultAsync(s => s.RemoteIds.Any(id => id.Endpoint == box.Endpoint && id.RemoteId == remote.Parent.Id), ct)
-                    ?? await _db.Studios
-                        .Include(s => s.RemoteIds)
-                        .FirstOrDefaultAsync(s => s.Name == remote.Parent.Name, ct);
+                    ?? await FindStudioByIdentityAsync(remote.Parent.Name, ct);
 
                 if (parent == null)
                 {
@@ -568,7 +568,7 @@ query Me {
 
                 var match = !string.IsNullOrWhiteSpace(remoteId)
                     ? await GetPerformerMatchAsync(endpoint, remoteId, ct)
-                    : await FindBestPerformerMatchAsync(endpoint, performer.Name, ct);
+                    : await FindBestPerformerMatchAsync(endpoint, performer.Name, performer.Disambiguation, ct);
                 if (match == null)
                     return new MetadataServerBatchTagItemResultDto(performer.Id, performer.Name, "skipped", null, "No remote match found");
 
@@ -726,24 +726,29 @@ query Me {
         );
     }
 
-    private async Task<MetadataServerPerformerMatchDto?> FindBestPerformerMatchAsync(string endpoint, string name, CancellationToken ct)
+    private async Task<MetadataServerPerformerMatchDto?> FindBestPerformerMatchAsync(
+        string endpoint,
+        string name,
+        string? disambiguation,
+        CancellationToken ct)
     {
         var matches = await SearchPerformersAsync(name, endpoint, ct);
-        return matches.FirstOrDefault(match => !match.Deleted && string.Equals(match.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? matches.FirstOrDefault(match => !match.Deleted)
-            ?? matches.FirstOrDefault();
+        var identityKey = EntityNameRules.PerformerIdentityKey(name, disambiguation);
+        return matches.FirstOrDefault(match =>
+            !match.Deleted
+            && EntityNameRules.PerformerIdentityKey(match.Name, match.Disambiguation) == identityKey);
     }
 
     private async Task<MetadataServerStudioMatchDto?> FindBestStudioMatchAsync(string endpoint, string name, CancellationToken ct)
     {
         var box = ResolveBox(endpoint);
         var exact = await GetRemoteStudioAsync(box, studioId: null, studioName: name, ct);
-        if (exact != null)
+        var identityKey = EntityNameRules.StudioIdentityKey(name);
+        if (exact != null && EntityNameRules.StudioIdentityKey(exact.Name) == identityKey)
             return ToStudioMatchDto(box, exact);
 
         var matches = await SearchStudiosAsync(name, endpoint, ct);
-        return matches.FirstOrDefault(match => string.Equals(match.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? matches.FirstOrDefault();
+        return matches.FirstOrDefault(match => EntityNameRules.StudioIdentityKey(match.Name) == identityKey);
     }
 
     private async Task<MetadataServerTagMatchDto?> FindBestTagMatchAsync(string endpoint, string name, CancellationToken ct)
@@ -768,17 +773,25 @@ query Me {
         {
             ct.ThrowIfCancellationRequested();
 
-            var item = items[index];
-            var (entityId, entityName) = DescribeBatchEntity(item);
+            var originalItem = items[index];
+            var (entityId, entityName) = DescribeBatchEntity(originalItem);
             progress?.Report(items.Count == 0 ? 1d : (double)index / items.Count, entityName);
 
             MetadataServerBatchTagItemResultDto result;
             try
             {
+                // Every processor performs its one database save only after the remote result and
+                // provenance graph have been prepared. Reload into a clean tracker so a failed item
+                // cannot leave Modified/Added state that contaminates later items in this batch.
+                _db.ChangeTracker.Clear();
+                InvalidateEntityIdentityIndexes();
+                var item = await ReloadBatchEntityAsync(originalItem, entityId, ct);
                 result = await process(item);
             }
             catch (Exception ex)
             {
+                _db.ChangeTracker.Clear();
+                InvalidateEntityIdentityIndexes();
                 _logger.LogWarning(ex, "Failed metadata batch tagging for {EntityType} {EntityId}", typeof(T).Name, entityId);
                 result = new MetadataServerBatchTagItemResultDto(entityId, entityName, "failed", null, ex.Message);
             }
@@ -800,6 +813,38 @@ query Me {
 
         progress?.Report(1d, $"Processed {items.Count} items");
         return new MetadataServerBatchTagResultDto(items.Count, updated, skipped, failed, results);
+    }
+
+    private void InvalidateEntityIdentityIndexes()
+    {
+        _performerIdentityIndex = null;
+        _studioIdentityIndex = null;
+    }
+
+    private async Task<T> ReloadBatchEntityAsync<T>(T fallback, int entityId, CancellationToken ct)
+    {
+        object? entity = fallback switch
+        {
+            Performer => await _db.Performers
+                .Include(item => item.RemoteIds)
+                .Include(item => item.Aliases)
+                .Include(item => item.Urls)
+                .SingleOrDefaultAsync(item => item.Id == entityId, ct),
+            Studio => await _db.Studios
+                .Include(item => item.Parent)
+                .Include(item => item.RemoteIds)
+                .Include(item => item.Aliases)
+                .Include(item => item.Urls)
+                .SingleOrDefaultAsync(item => item.Id == entityId, ct),
+            Tag => await _db.Tags
+                .Include(item => item.RemoteIds)
+                .Include(item => item.Aliases)
+                .SingleOrDefaultAsync(item => item.Id == entityId, ct),
+            _ => fallback,
+        };
+        if (entity is T typed)
+            return typed;
+        throw new InvalidOperationException($"{typeof(T).Name} {entityId} no longer exists or is no longer accessible.");
     }
 
     private static (int Id, string Name) DescribeBatchEntity<T>(T item)
@@ -1650,9 +1695,14 @@ query Me {
         if (overrides == null)
             return null;
 
-        return overrides.FirstOrDefault(entityOverride =>
-            (!string.IsNullOrWhiteSpace(remoteId) && string.Equals(entityOverride.RemoteId, remoteId, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrWhiteSpace(name) && string.Equals(entityOverride.Name, name, StringComparison.OrdinalIgnoreCase)));
+        if (!string.IsNullOrWhiteSpace(remoteId))
+            return overrides.FirstOrDefault(entityOverride =>
+                string.Equals(entityOverride.RemoteId, remoteId, StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(name)
+            ? null
+            : overrides.FirstOrDefault(entityOverride =>
+                string.Equals(entityOverride.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 
     private static MetadataServerVideoEntityOverrideDto? MatchVideoEntityOverride(
@@ -2079,16 +2129,16 @@ query Me {
 
     private async Task<Performer?> FindOrCreatePerformerAsync(MetadataServerRemotePerformer remote, string endpoint, CancellationToken ct, bool allowCreate = true)
     {
-        var performer = await _db.Performers
+        var performer = _db.Performers.Local.FirstOrDefault(entity =>
+                entity.Id <= 0
+                && _db.Entry(entity).State != EntityState.Deleted
+                && entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id))
+            ?? await _db.Performers
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
             .Include(entity => entity.Urls)
             .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct)
-            ?? await _db.Performers
-                .Include(entity => entity.RemoteIds)
-                .Include(entity => entity.Aliases)
-                .Include(entity => entity.Urls)
-                .FirstOrDefaultAsync(entity => entity.Name == remote.Name, ct);
+            ?? await FindPerformerByIdentityAsync(remote.Name, remote.Disambiguation, ct);
 
         if (performer == null && !allowCreate)
         {
@@ -2097,7 +2147,11 @@ query Me {
 
         if (performer == null)
         {
-            performer = new Performer { Name = remote.Name };
+            performer = new Performer
+            {
+                Name = EntityNameRules.NormalizeCanonicalName(remote.Name),
+                Disambiguation = EntityNameRules.NormalizeDisambiguation(remote.Disambiguation),
+            };
             _db.Performers.Add(performer);
         }
 
@@ -2108,16 +2162,16 @@ query Me {
 
     private async Task<Studio?> FindOrCreateStudioAsync(MetadataServerRemoteStudio remote, string endpoint, CancellationToken ct, bool allowCreate = true)
     {
-        var studio = await _db.Studios
+        var studio = _db.Studios.Local.FirstOrDefault(entity =>
+                entity.Id <= 0
+                && _db.Entry(entity).State != EntityState.Deleted
+                && entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id))
+            ?? await _db.Studios
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
             .Include(entity => entity.Urls)
             .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct)
-            ?? await _db.Studios
-                .Include(entity => entity.RemoteIds)
-                .Include(entity => entity.Aliases)
-                .Include(entity => entity.Urls)
-                .FirstOrDefaultAsync(entity => entity.Name == remote.Name, ct);
+            ?? await FindStudioByIdentityAsync(remote.Name, ct);
 
         if (studio == null && !allowCreate)
         {
@@ -2126,7 +2180,7 @@ query Me {
 
         if (studio == null)
         {
-            studio = new Studio { Name = remote.Name };
+            studio = new Studio { Name = EntityNameRules.NormalizeCanonicalName(remote.Name) };
             _db.Studios.Add(studio);
         }
 
@@ -2144,13 +2198,11 @@ query Me {
             var parent = await _db.Studios
                 .Include(s => s.RemoteIds)
                 .FirstOrDefaultAsync(s => s.RemoteIds.Any(id => id.Endpoint == endpoint && id.RemoteId == remote.Parent.Id), ct)
-                ?? await _db.Studios
-                    .Include(s => s.RemoteIds)
-                    .FirstOrDefaultAsync(s => s.Name == remote.Parent.Name, ct);
+                ?? await FindStudioByIdentityAsync(remote.Parent.Name, ct);
 
             if (parent == null)
             {
-                parent = new Studio { Name = remote.Parent.Name };
+                parent = new Studio { Name = EntityNameRules.NormalizeCanonicalName(remote.Parent.Name) };
                 parent.RemoteIds.Add(new StudioRemoteId { Endpoint = endpoint, RemoteId = remote.Parent.Id });
                 _db.Studios.Add(parent);
             }
@@ -2174,6 +2226,97 @@ query Me {
         }
 
         return studio;
+    }
+
+    private async Task<Performer?> FindPerformerByIdentityAsync(
+        string name,
+        string? disambiguation,
+        CancellationToken ct)
+    {
+        var identityKey = EntityNameRules.PerformerIdentityKey(name, disambiguation);
+        _performerIdentityIndex ??= (await _db.Performers
+                .AsNoTracking()
+                .Select(entity => new { entity.Id, entity.Name, entity.Disambiguation })
+                .ToListAsync(ct))
+            .GroupBy(entity => EntityNameRules.PerformerIdentityKey(entity.Name, entity.Disambiguation), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(entity => entity.Id).Order().ToArray(), StringComparer.Ordinal);
+
+        var trackedIds = _db.ChangeTracker.Entries<Performer>()
+            .Where(entry => entry.Entity.Id > 0)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+        var persistedIds = _performerIdentityIndex.GetValueOrDefault(identityKey, [])
+            .Where(id => !trackedIds.Contains(id));
+        var local = _db.ChangeTracker.Entries<Performer>()
+            .Where(entry => entry.State != EntityState.Deleted
+                && EntityNameRules.PerformerIdentityKey(entry.Entity.Name, entry.Entity.Disambiguation) == identityKey)
+            .Select(entry => entry.Entity)
+            .ToArray();
+        var persisted = persistedIds.ToArray();
+        if (local.Length + persisted.Length > 1)
+            throw new EntityNameConflictException(NameConflictEntityTypes.Performer);
+        if (local.Length == 1)
+        {
+            if (local[0].Id <= 0)
+                return local[0];
+            return await _db.Performers
+                .Include(entity => entity.RemoteIds)
+                .Include(entity => entity.Aliases)
+                .Include(entity => entity.Urls)
+                .SingleAsync(entity => entity.Id == local[0].Id, ct);
+        }
+        if (persisted.Length == 0)
+            return null;
+
+        return await _db.Performers
+            .Include(entity => entity.RemoteIds)
+            .Include(entity => entity.Aliases)
+            .Include(entity => entity.Urls)
+            .SingleAsync(entity => entity.Id == persisted[0], ct);
+    }
+
+    private async Task<Studio?> FindStudioByIdentityAsync(string name, CancellationToken ct)
+    {
+        var identityKey = EntityNameRules.StudioIdentityKey(name);
+        _studioIdentityIndex ??= (await _db.Studios
+                .AsNoTracking()
+                .Select(entity => new { entity.Id, entity.Name })
+                .ToListAsync(ct))
+            .GroupBy(entity => EntityNameRules.StudioIdentityKey(entity.Name), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(entity => entity.Id).Order().ToArray(), StringComparer.Ordinal);
+
+        var trackedIds = _db.ChangeTracker.Entries<Studio>()
+            .Where(entry => entry.Entity.Id > 0)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+        var persistedIds = _studioIdentityIndex.GetValueOrDefault(identityKey, [])
+            .Where(id => !trackedIds.Contains(id));
+        var local = _db.ChangeTracker.Entries<Studio>()
+            .Where(entry => entry.State != EntityState.Deleted
+                && EntityNameRules.StudioIdentityKey(entry.Entity.Name) == identityKey)
+            .Select(entry => entry.Entity)
+            .ToArray();
+        var persisted = persistedIds.ToArray();
+        if (local.Length + persisted.Length > 1)
+            throw new EntityNameConflictException(NameConflictEntityTypes.Studio);
+        if (local.Length == 1)
+        {
+            if (local[0].Id <= 0)
+                return local[0];
+            return await _db.Studios
+                .Include(entity => entity.RemoteIds)
+                .Include(entity => entity.Aliases)
+                .Include(entity => entity.Urls)
+                .SingleAsync(entity => entity.Id == local[0].Id, ct);
+        }
+        if (persisted.Length == 0)
+            return null;
+
+        return await _db.Studios
+            .Include(entity => entity.RemoteIds)
+            .Include(entity => entity.Aliases)
+            .Include(entity => entity.Urls)
+            .SingleAsync(entity => entity.Id == persisted[0], ct);
     }
 
     private async Task<Tag?> FindOrCreateTagAsync(MetadataServerRemoteTag remote, string endpoint, CancellationToken ct, bool allowCreate = true)
@@ -2456,9 +2599,10 @@ query Me {
             return null;
 
         var localId = await _db.Studios
-            .Where(studio => studio.Name == remoteStudio.Name || studio.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remoteStudio.Id))
+            .Where(studio => studio.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remoteStudio.Id))
             .Select(studio => (int?)studio.Id)
             .FirstOrDefaultAsync(ct);
+        localId ??= (await FindStudioByIdentityAsync(remoteStudio.Name, ct))?.Id;
 
         return new MetadataServerEntityCandidateDto(remoteStudio.Id, remoteStudio.Name.Trim(), localId.HasValue, localId);
     }
@@ -2477,8 +2621,6 @@ query Me {
             return [];
 
         var remoteIds = remotePerformers.Select(performer => performer.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var remoteNames = remotePerformers.Select(performer => performer.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
         var matchedByRemoteId = remoteIds.Count == 0
             ? []
             : await _db.Performers
@@ -2487,31 +2629,31 @@ query Me {
                     .Select(remoteId => new { remoteId.RemoteId, PerformerId = performer.Id }))
                 .ToListAsync(ct);
 
-        var matchedByName = remoteNames.Count == 0
-            ? []
-            : await _db.Performers
-                .Where(performer => remoteNames.Contains(performer.Name))
-                .Select(performer => new { performer.Name, performer.Id })
-                .ToListAsync(ct);
-
         var idsByRemoteId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in matchedByRemoteId)
         {
             idsByRemoteId.TryAdd(match.RemoteId, match.PerformerId);
         }
 
-        var idsByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var match in matchedByName)
-        {
-            idsByName.TryAdd(match.Name, match.Id);
-        }
-
-        return remotePerformers.Select(remotePerformer =>
+        var result = new List<MetadataServerEntityCandidateDto>(remotePerformers.Count);
+        foreach (var remotePerformer in remotePerformers)
         {
             var name = remotePerformer.Name.Trim();
-            var exists = idsByRemoteId.TryGetValue(remotePerformer.Id, out var localId) || idsByName.TryGetValue(name, out localId);
-            return new MetadataServerEntityCandidateDto(remotePerformer.Id, name, exists, exists ? localId : null);
-        }).ToList();
+            var exists = idsByRemoteId.TryGetValue(remotePerformer.Id, out var localId);
+            if (!exists)
+            {
+                var identityMatch = await FindPerformerByIdentityAsync(name, remotePerformer.Disambiguation, ct);
+                localId = identityMatch?.Id ?? 0;
+                exists = identityMatch != null;
+            }
+            result.Add(new MetadataServerEntityCandidateDto(
+                remotePerformer.Id,
+                name,
+                exists,
+                exists ? localId : null,
+                EntityNameRules.NormalizeDisambiguation(remotePerformer.Disambiguation)));
+        }
+        return result;
     }
 
     private async Task<List<MetadataServerEntityCandidateDto>> BuildTagCandidatesAsync(string endpoint, MetadataServerRemoteVideo video, CancellationToken ct)

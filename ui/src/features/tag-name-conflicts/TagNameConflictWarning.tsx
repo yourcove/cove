@@ -1,30 +1,35 @@
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
-import { useTagNameConflictSummary, TAG_NAME_CONFLICTS_PERMISSION } from "./useTagNameConflicts";
+import {
+  ENTITY_NAME_CONFLICTS_PERMISSION,
+  TAG_NAME_CONFLICTS_PERMISSION,
+  useTagNameConflictSummary,
+} from "./useTagNameConflicts";
 
-export const TAG_NAME_CONFLICT_TOOL_PATH = "/settings/operations/tag-name-conflicts";
+export const TAG_NAME_CONFLICT_TOOL_PATH = "/settings/operations/name-conflicts";
 
 export function TagNameConflictWarning() {
   const { hasPermission } = useAuth();
-  const canManage = hasPermission(TAG_NAME_CONFLICTS_PERMISSION);
-  const summary = useTagNameConflictSummary(canManage);
-  if (!canManage)
+  const canManageEntityConflicts = hasPermission(ENTITY_NAME_CONFLICTS_PERMISSION);
+  const canManageTagConflicts = canManageEntityConflicts || hasPermission(TAG_NAME_CONFLICTS_PERMISSION);
+  const summary = useTagNameConflictSummary(canManageTagConflicts, canManageEntityConflicts);
+  if (!canManageTagConflicts)
     return null;
   if (!summary.data)
-    return <TagNameConflictReadinessUnknownBanner checking={summary.isLoading} />;
+    return <TagNameConflictReadinessUnknownBanner checking={summary.isLoading} includeEntityConflicts={canManageEntityConflicts} />;
   if (summary.data.unresolvedGroupCount === 0)
     return null;
 
-  return <TagNameConflictWarningBanner unresolvedGroupCount={summary.data.unresolvedGroupCount} />;
+  return <TagNameConflictWarningBanner unresolvedGroupCount={summary.data.unresolvedGroupCount} includeEntityConflicts={canManageEntityConflicts} />;
 }
 
-export function TagNameConflictReadinessUnknownBanner({ checking }: { checking: boolean }) {
+export function TagNameConflictReadinessUnknownBanner({ checking, includeEntityConflicts = true }: { checking: boolean; includeEntityConflicts?: boolean }) {
   return (
     <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-3 text-amber-100 sm:px-4 md:px-6" role="alert">
       <div className="mx-auto flex w-full items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden="true" />
         <div className="min-w-0 flex-1 text-sm">
-          <span className="font-semibold">{checking ? "Checking Cove 1.3.0 tag readiness." : "Cove 1.3.0 tag readiness could not be determined."}</span>{" "}
+          <span className="font-semibold">{checking ? `Checking Cove 1.3.0 ${includeEntityConflicts ? "name" : "tag-name"} readiness.` : `Cove 1.3.0 ${includeEntityConflicts ? "name" : "tag-name"} readiness could not be determined.`}</span>{" "}
           {checking ? "Do not upgrade until this check finishes." : "Retry the conflict scan before upgrading."}
         </div>
         <a
@@ -38,14 +43,14 @@ export function TagNameConflictReadinessUnknownBanner({ checking }: { checking: 
   );
 }
 
-export function TagNameConflictWarningBanner({ unresolvedGroupCount }: { unresolvedGroupCount: number }) {
+export function TagNameConflictWarningBanner({ unresolvedGroupCount, includeEntityConflicts = true }: { unresolvedGroupCount: number; includeEntityConflicts?: boolean }) {
   return (
     <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-3 text-amber-100 sm:px-4 md:px-6" role="alert">
       <div className="mx-auto flex w-full items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden="true" />
         <div className="min-w-0 flex-1 text-sm">
-          <span className="font-semibold">Tag names will become globally unique in Cove 1.3.0.</span>{" "}
-          Some current tags or aliases conflict after trimming. Review and resolve them before upgrading.
+          <span className="font-semibold">{includeEntityConflicts ? "Cove 1.3.0 will enforce new tag, performer, and studio name rules." : "Cove 1.3.0 will enforce globally unique tag names and aliases."}</span>{" "}
+          {includeEntityConflicts ? "Some current identities conflict after trimming and case folding. Review and resolve them before upgrading." : "Some current tag names or aliases conflict after trimming and case folding. Review and resolve them before upgrading."}
         </div>
         <a
           href={TAG_NAME_CONFLICT_TOOL_PATH}
@@ -59,9 +64,9 @@ export function TagNameConflictWarningBanner({ unresolvedGroupCount }: { unresol
   );
 }
 
-export function TagNameConflictReadinessStatus({ unresolvedGroupCount }: { unresolvedGroupCount: number }) {
+export function TagNameConflictReadinessStatus({ unresolvedGroupCount, includeEntityConflicts = true }: { unresolvedGroupCount: number; includeEntityConflicts?: boolean }) {
   if (unresolvedGroupCount === 0) {
-    return <p className="text-sm text-emerald-300">Ready: no tag-name conflicts would block the Cove 1.3.0 namespace preflight.</p>;
+    return <p className="text-sm text-emerald-300">{includeEntityConflicts ? "Ready: no tag, performer, or studio name conflicts would block the Cove 1.3.0 preflight." : "Ready: no tag-name conflicts would block the Cove 1.3.0 preflight."}</p>;
   }
 
   return (
@@ -69,7 +74,7 @@ export function TagNameConflictReadinessStatus({ unresolvedGroupCount }: { unres
       <div>
         <p className="text-sm font-semibold text-amber-100">Action required before Cove 1.3.0</p>
         <p className="mt-1 text-sm text-amber-100/80">
-          {unresolvedGroupCount} unresolved tag-name conflict {unresolvedGroupCount === 1 ? "group would" : "groups would"} block the upgrade preflight.
+          {unresolvedGroupCount} unresolved name conflict {unresolvedGroupCount === 1 ? "group would" : "groups would"} block the upgrade preflight.
         </p>
       </div>
       <a
@@ -82,11 +87,11 @@ export function TagNameConflictReadinessStatus({ unresolvedGroupCount }: { unres
   );
 }
 
-export function TagNameConflictReadinessUnknownStatus({ checking }: { checking: boolean }) {
+export function TagNameConflictReadinessUnknownStatus({ checking, includeEntityConflicts = true }: { checking: boolean; includeEntityConflicts?: boolean }) {
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between" role="status">
       <div>
-        <p className="text-sm font-semibold text-amber-100">{checking ? "Checking tag namespace readiness" : "Tag namespace readiness unknown"}</p>
+        <p className="text-sm font-semibold text-amber-100">{checking ? `Checking ${includeEntityConflicts ? "name-rule" : "tag-name"} readiness` : `${includeEntityConflicts ? "Name-rule" : "Tag-name"} readiness unknown`}</p>
         <p className="mt-1 text-sm text-amber-100/80">
           {checking ? "Wait for the compatibility scan to finish before upgrading." : "The compatibility scan failed. Retry it and confirm that no conflicts remain before upgrading."}
         </p>

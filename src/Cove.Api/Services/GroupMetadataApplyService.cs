@@ -232,7 +232,7 @@ public sealed class GroupMetadataApplyService(
             return false;
 
         var normalizedStudioName = studioName.Trim();
-        var studio = await db.Studios.FirstOrDefaultAsync(item => item.Name.ToLower() == normalizedStudioName.ToLower(), ct);
+        var studio = await RelationNameResolver.ResolveStudioAsync(db, normalizedStudioName, ct);
         if (studio == null)
         {
             if (!createMissing)

@@ -188,10 +188,7 @@ export function TagNameConflictCleanupPanel() {
 
   useEffect(() => {
     if (!scan.data) return;
-    queryClient.setQueryData(tagNameConflictSummaryQueryKey, {
-      unresolvedGroupCount: scan.data.unresolvedGroupCount,
-      scannedAtUtc: scan.data.scannedAtUtc,
-    });
+    queryClient.invalidateQueries({ queryKey: tagNameConflictSummaryQueryKey });
     setSelectedSurvivors((current) => {
       const retained: Record<string, number> = {};
       for (const group of scan.data.groups) {
@@ -225,10 +222,7 @@ export function TagNameConflictCleanupPanel() {
     },
     onSuccess: (nextScan) => {
       queryClient.setQueryData(tagNameConflictQueryKey, nextScan);
-      queryClient.setQueryData(tagNameConflictSummaryQueryKey, {
-        unresolvedGroupCount: nextScan.unresolvedGroupCount,
-        scannedAtUtc: nextScan.scannedAtUtc,
-      });
+      queryClient.invalidateQueries({ queryKey: tagNameConflictSummaryQueryKey });
       setChoices({});
       setExternalReferenceChoices({});
       setPendingAction(null);

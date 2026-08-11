@@ -10,9 +10,9 @@ namespace Cove.Data.Services;
 
 public sealed class FacePerformerPropagationService(CoveContext db, IFieldProvenanceService? fieldProvenanceService = null) : IFacePerformerPropagationService
 {
-    private const string ExtensionDataOwner = "cove.face-performer-propagation";
+    private const string ExtensionDataOwner = FacePerformerAssignmentData.ExtensionId;
     private const string SourceKey = "face-performer-propagation";
-    private const string AssignmentKeyPrefix = "performer-assignment:";
+    private const string AssignmentKeyPrefix = FacePerformerAssignmentData.KeyPrefix;
 
     private readonly CoveContext _db = db;
     private readonly IFieldProvenanceService? _fieldProvenanceService = fieldProvenanceService;
@@ -369,26 +369,19 @@ public sealed class FacePerformerPropagationService(CoveContext db, IFieldProven
     }
 
     private static string BuildAssignmentKey(int faceId, int performerId, FaceHostKind kind, int hostId)
-        => string.Create(CultureInfo.InvariantCulture, $"{AssignmentKeyPrefix}{faceId}:{performerId}:{FormatHostKind(kind)}:{hostId}");
+        => FacePerformerAssignmentData.BuildKey(new(
+            faceId,
+            performerId,
+            FormatHostKind(kind),
+            hostId));
 
     private static FaceAssignment? TryParseAssignment(string key)
     {
-        if (!key.StartsWith(AssignmentKeyPrefix, StringComparison.Ordinal))
-        {
+        if (!FacePerformerAssignmentData.TryParseKey(key, out var assignment)
+            || !TryParseHostKind(assignment.HostType, out var kind))
             return null;
-        }
 
-        var parts = key[AssignmentKeyPrefix.Length..].Split(':');
-        if (parts.Length != 4
-            || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var faceId)
-            || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var performerId)
-            || !TryParseHostKind(parts[2], out var kind)
-            || !int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hostId))
-        {
-            return null;
-        }
-
-        return new FaceAssignment(faceId, performerId, kind, hostId);
+        return new FaceAssignment(assignment.FaceId, assignment.PerformerId, kind, assignment.HostId);
     }
 
     private static string FormatHostKind(FaceHostKind kind) => kind == FaceHostKind.Video ? "video" : "image";

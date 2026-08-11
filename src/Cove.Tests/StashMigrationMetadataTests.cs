@@ -473,6 +473,7 @@ INSERT INTO tag_stash_ids (tag_id, endpoint, stash_id) VALUES
 
         Assert.Equal(existing.Id, idMap[1]);
         Assert.Equal(idMap[2], idMap[3]);
+        context.ChangeTracker.Clear();
         Assert.Equal(2, await context.Tags.CountAsync());
         var mergedExisting = await context.Tags
             .Include(tag => tag.Aliases)
@@ -1345,6 +1346,9 @@ CREATE TABLE studios (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE studio_urls (studio_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE studio_aliases (studio_id INTEGER NOT NULL, alias TEXT NOT NULL);
+CREATE TABLE studio_stash_ids (studio_id INTEGER NOT NULL, endpoint TEXT NOT NULL, stash_id TEXT NOT NULL);
 CREATE TABLE tags (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1383,6 +1387,9 @@ CREATE TABLE performers (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE performer_urls (performer_id INTEGER NOT NULL, url TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE performer_aliases (performer_id INTEGER NOT NULL, alias TEXT NOT NULL);
+CREATE TABLE performer_stash_ids (performer_id INTEGER NOT NULL, endpoint TEXT NOT NULL, stash_id TEXT NOT NULL);
 CREATE TABLE groups (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1452,10 +1459,43 @@ CREATE TABLE galleries (
     photographer TEXT
 );
 CREATE TABLE scenes_galleries (scene_id INTEGER NOT NULL, gallery_id INTEGER NOT NULL);
-INSERT INTO studios (id, name, favorite, created_at, updated_at)
-VALUES (30, 'Imported Studio', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+WITH RECURSIVE sequence(value) AS (
+    SELECT 0
+    UNION ALL
+    SELECT value + 1 FROM sequence WHERE value < 500
+)
+INSERT INTO studios (id, name, details, favorite, created_at, updated_at)
+SELECT
+    30 + value,
+    CASE WHEN value % 2 = 0 THEN ' Imported Studio ' ELSE 'IMPORTED STUDIO' END,
+    CASE WHEN value = 500 THEN 'Metadata from collapsed studio' ELSE NULL END,
+    CASE WHEN value = 500 THEN 1 ELSE 0 END,
+    '2024-01-01T00:00:00Z',
+    '2024-01-02T00:00:00Z'
+FROM sequence;
+INSERT INTO studio_urls (studio_id, url) VALUES (530, 'https://collapsed-studio.local');
+INSERT INTO studio_aliases (studio_id, alias) VALUES (530, 'Collapsed studio alias');
+INSERT INTO studio_stash_ids (studio_id, endpoint, stash_id) VALUES (530, 'fixture', 'collapsed-studio');
 INSERT INTO tags (id, name, favorite, created_at, updated_at)
 VALUES (40, 'Imported Tag', 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
+WITH RECURSIVE sequence(value) AS (
+    SELECT 0
+    UNION ALL
+    SELECT value + 1 FROM sequence WHERE value < 500
+)
+INSERT INTO performers (id, name, disambiguation, favorite, details, created_at, updated_at)
+SELECT
+    1000 + value,
+    CASE WHEN value % 2 = 0 THEN ' Imported Performer ' ELSE 'IMPORTED PERFORMER' END,
+    CASE WHEN value % 2 = 0 THEN ' Same identity ' ELSE 'SAME IDENTITY' END,
+    CASE WHEN value = 500 THEN 1 ELSE 0 END,
+    CASE WHEN value = 500 THEN 'Metadata from collapsed performer' ELSE NULL END,
+    '2024-01-01T00:00:00Z',
+    '2024-01-02T00:00:00Z'
+FROM sequence;
+INSERT INTO performer_urls (performer_id, url) VALUES (1500, 'https://collapsed-performer.local');
+INSERT INTO performer_aliases (performer_id, alias) VALUES (1500, 'Collapsed performer alias');
+INSERT INTO performer_stash_ids (performer_id, endpoint, stash_id) VALUES (1500, 'fixture', 'collapsed-performer');
 INSERT INTO studios_tags (studio_id, tag_id) VALUES
     (30, 40),
     (30, 40),
@@ -1501,12 +1541,35 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
 
             Assert.Equal(1, result.Videos);
             Assert.Equal(1, result.Galleries);
+            context.ChangeTracker.Clear();
             var video = await context.Videos.SingleAsync();
             var gallery = await context.Galleries.SingleAsync();
             var relationship = await context.Set<VideoGallery>().SingleAsync();
             Assert.Equal(video.Id, relationship.VideoId);
             Assert.Equal(gallery.Id, relationship.GalleryId);
-            var studio = await context.Studios.SingleAsync();
+            var studio = await context.Studios
+                .Include(item => item.Urls)
+                .Include(item => item.Aliases)
+                .Include(item => item.RemoteIds)
+                .SingleAsync();
+            Assert.Equal("Imported Studio", studio.Name);
+            Assert.Equal("Metadata from collapsed studio", studio.Details);
+            Assert.True(studio.Favorite);
+            Assert.Contains(studio.Urls, item => item.Url == "https://collapsed-studio.local");
+            Assert.Contains(studio.Aliases, item => item.Alias == "Collapsed studio alias");
+            Assert.Contains(studio.RemoteIds, item => item.Endpoint == "fixture" && item.RemoteId == "collapsed-studio");
+            var performer = await context.Performers
+                .Include(item => item.Urls)
+                .Include(item => item.Aliases)
+                .Include(item => item.RemoteIds)
+                .SingleAsync();
+            Assert.Equal("Imported Performer", performer.Name);
+            Assert.Equal("Same identity", performer.Disambiguation);
+            Assert.Equal("Metadata from collapsed performer", performer.Details);
+            Assert.True(performer.Favorite);
+            Assert.Contains(performer.Urls, item => item.Url == "https://collapsed-performer.local");
+            Assert.Contains(performer.Aliases, item => item.Alias == "Collapsed performer alias");
+            Assert.Contains(performer.RemoteIds, item => item.Endpoint == "fixture" && item.RemoteId == "collapsed-performer");
             var tag = await context.Tags.SingleAsync();
             var studioTag = await context.Set<StudioTag>().SingleAsync();
             Assert.Equal(studio.Id, studioTag.StudioId);
@@ -1684,6 +1747,51 @@ INSERT INTO studio_stash_ids (studio_id, endpoint, stash_id) VALUES
         Assert.Equal(2, importedStudio.RemoteIds.Count);
         Assert.Contains(importedStudio.RemoteIds, remoteId => remoteId.Endpoint == "https://stash-a.local" && remoteId.RemoteId == "101");
         Assert.Contains(importedStudio.RemoteIds, remoteId => remoteId.Endpoint == "https://stash-b.local" && remoteId.RemoteId == "202");
+    }
+
+    [Fact]
+    public async Task ImportStudiosAsync_DoesNotCreateAParentCycleWhenDuplicateIdentitiesCollapse()
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync();
+        await ExecuteSqlAsync(stash, """
+CREATE TABLE studios (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_id INTEGER,
+  details TEXT,
+  rating INTEGER,
+  favorite INTEGER NOT NULL,
+  image_blob TEXT,
+  created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+  updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
+);
+INSERT INTO studios (id, name, parent_id, favorite) VALUES
+  (1, 'First identity', 3, 0),
+  (2, ' first identity ', NULL, 0),
+  (3, 'Second identity', 2, 0);
+""");
+
+        var service = CreateService(context);
+        context.ChangeTracker.AutoDetectChangesEnabled = false;
+        var idMap = Assert.IsType<Dictionary<int, int>>(await InvokePrivateAsync(
+            service,
+            "ImportStudiosAsync",
+            stash,
+            new Dictionary<string, string>(),
+            NullJobProgress.Instance,
+            0d,
+            1d,
+            CancellationToken.None));
+        context.ChangeTracker.AutoDetectChangesEnabled = true;
+        context.ChangeTracker.Clear();
+
+        Assert.Equal(idMap[1], idMap[2]);
+        var first = await context.Studios.SingleAsync(studio => studio.Id == idMap[1]);
+        var second = await context.Studios.SingleAsync(studio => studio.Id == idMap[3]);
+        Assert.Equal(second.Id, first.ParentId);
+        Assert.Null(second.ParentId);
     }
 
     [Fact]

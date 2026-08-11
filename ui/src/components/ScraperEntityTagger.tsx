@@ -565,7 +565,7 @@ function ScraperEntityTaggerRow({
   const selectedResult = state?.results?.[state.selectedIndex ?? 0];
   const applyPlan = useMemo(() => buildDefaultApplyPlan(entityType, item, selectedResult), [entityType, item, selectedResult]);
   // Resolve which scraped names already exist locally via the same backend matcher the apply path uses
-  // (alias-aware for performers), instead of a client-side snapshot of every tag/performer.
+  // (exact name + blank disambiguation for performers), instead of a client-side snapshot of every tag/performer.
   const scrapedRelationNames = useMemo(
     () => ({ tags: applyPlan.scrapedData?.tags ?? [], performers: applyPlan.scrapedData?.performers ?? [] }),
     [applyPlan.scrapedData?.tags, applyPlan.scrapedData?.performers],

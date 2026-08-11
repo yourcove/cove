@@ -149,10 +149,7 @@ public class VideoMetadataApplyService(CoveContext db, IEventBus eventBus, IVide
         if (names.Count == 0)
             return;
 
-        var normalizedNames = names.Select(name => name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(db, names, ct);
 
         var existing = video.VideoPerformers
             .Where(item => item.Performer != null)
@@ -182,7 +179,7 @@ public class VideoMetadataApplyService(CoveContext db, IEventBus eventBus, IVide
             return;
 
         var normalizedStudioName = studioName.Trim();
-        var studio = await db.Studios.FirstOrDefaultAsync(item => item.Name == normalizedStudioName, ct);
+        var studio = await RelationNameResolver.ResolveStudioAsync(db, normalizedStudioName, ct);
         if (studio == null && !createMissing)
             return;
 

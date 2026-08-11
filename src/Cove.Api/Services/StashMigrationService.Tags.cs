@@ -83,6 +83,9 @@ public partial class StashMigrationService
             if (pendingTags.Count == 0)
                 return;
 
+            // RunBulkInsertPhaseAsync disables automatic change detection. Detect once per batch so
+            // metadata merged into existing tags and children appended after Add are persisted.
+            _db.ChangeTracker.DetectChanges();
             await _db.SaveChangesAsync(ct);
             foreach (var (stashIds, entity) in pendingTags)
                 foreach (var stashId in stashIds)

@@ -289,7 +289,14 @@ public class PerformerRepository : IPerformerRepository
 
     public async Task UpdateAsync(Performer entity, CancellationToken ct = default)
     {
-        _db.Performers.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+        {
+            var original = await _db.Performers.AsNoTracking()
+                .SingleOrDefaultAsync(performer => performer.Id == entity.Id, ct);
+            _db.Performers.Update(entity);
+            if (original != null)
+                _db.Entry(entity).OriginalValues.SetValues(original);
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -1338,7 +1345,14 @@ public class StudioRepository : IStudioRepository
 
     public async Task UpdateAsync(Studio entity, CancellationToken ct = default)
     {
-        _db.Studios.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+        {
+            var original = await _db.Studios.AsNoTracking()
+                .SingleOrDefaultAsync(studio => studio.Id == entity.Id, ct);
+            _db.Studios.Update(entity);
+            if (original != null)
+                _db.Entry(entity).OriginalValues.SetValues(original);
+        }
         await _db.SaveChangesAsync(ct);
     }
 

@@ -419,6 +419,44 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    public async Task MergeVideoAsync_MatchesPerformerIdentityAndNormalizedStudioName()
+    {
+        await using var context = CreateContext();
+        var sameNameDifferentPerson = new Performer { Name = "Jane Doe", Disambiguation = "Other person" };
+        var matchingPerformer = new Performer { Name = " jane doe ", Disambiguation = null };
+        var matchingStudio = new Studio { Name = " fixture studio " };
+        var video = new Video { Title = "Original Video" };
+        context.AddRange(sameNameDifferentPerson, matchingPerformer, matchingStudio, video);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideoByID", request.Query);
+            return GraphQlData($$"""
+                "findVideo": {{RemoteVideoJson}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        Assert.True(await service.MergeVideoAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None));
+        await context.SaveChangesAsync();
+
+        Assert.Equal(2, await context.Performers.CountAsync());
+        Assert.Single(await context.Studios.ToListAsync());
+        var saved = await context.Videos
+            .Include(item => item.VideoPerformers)
+            .SingleAsync(item => item.Id == video.Id);
+        Assert.Contains(saved.VideoPerformers, link => link.PerformerId == matchingPerformer.Id);
+        Assert.DoesNotContain(saved.VideoPerformers, link => link.PerformerId == sameNameDifferentPerson.Id);
+        Assert.Equal(matchingStudio.Id, saved.StudioId);
+    }
+
+    [Fact]
     public async Task BatchTagPerformersAsync_UsesGraphQlImportAndRestoresExcludedFields()
     {
         await using var context = CreateContext();
@@ -463,6 +501,112 @@ public sealed class MetadataServerServiceTests
         Assert.Equal("Local Jane", updated.Name);
         Assert.Equal(GenderEnum.Female, updated.Gender);
         Assert.Contains(updated.Urls, url => url.Url == "https://metadata.example/performers/remote-performer-1");
+    }
+
+    [Fact]
+    public async Task BatchTagPerformersAsync_IsolatesAnIdentityConflictFromLaterItems()
+    {
+        await using var context = CreateContext();
+        var conflictingIdentity = new Performer { Name = "Collision", Disambiguation = "Fixture performer" };
+        var first = new Performer { Name = "First local" };
+        first.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-first" });
+        var second = new Performer { Name = "Second local" };
+        second.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-second" });
+        context.AddRange(conflictingIdentity, first, second);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            var id = GetVariableString(request, "id");
+            var json = RemotePerformerJson
+                .Replace("remote-performer-1", id, StringComparison.Ordinal)
+                .Replace("Remote Jane", id == "remote-first" ? "Collision" : "Updated second", StringComparison.Ordinal)
+                .Replace("Fixture performer", id == "remote-first" ? "Fixture performer" : "Second identity", StringComparison.Ordinal);
+            return GraphQlData($$"""
+                "findPerformer": {{json}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.BatchTagPerformersAsync(
+            Endpoint,
+            [first.Id, second.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: null,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(1, result.Updated);
+        context.ChangeTracker.Clear();
+        Assert.Equal("First local", (await context.Performers.SingleAsync(item => item.Id == first.Id)).Name);
+        var updated = await context.Performers.SingleAsync(item => item.Id == second.Id);
+        Assert.Equal("Updated second", updated.Name);
+        Assert.Equal("Second identity", updated.Disambiguation);
+    }
+
+    [Fact]
+    public async Task BatchTagStudiosAsync_RebuildsIdentityLookupAfterAnEarlierRename()
+    {
+        await using var context = CreateContext();
+        var existingParent = new Studio { Name = "Existing parent", ImageBlobId = "existing-image" };
+        var first = new Studio { Name = "Former name" };
+        first.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-first" });
+        var second = new Studio { Name = "Second studio" };
+        second.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-second" });
+        context.AddRange(existingParent, first, second);
+        await context.SaveChangesAsync();
+
+        static string StudioJson(string id, string name, string? parentId = null, string? parentName = null)
+        {
+            var parent = parentId == null
+                ? "null"
+                : JsonSerializer.Serialize(new { id = parentId, name = parentName });
+            return $$"""
+                {
+                  "id": {{JsonSerializer.Serialize(id)}},
+                  "name": {{JsonSerializer.Serialize(name)}},
+                  "aliases": [],
+                  "urls": [],
+                  "images": [],
+                  "parent": {{parent}}
+                }
+                """;
+        }
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            var id = GetVariableString(request, "id");
+            var json = id switch
+            {
+                "remote-first" => StudioJson(id, "Renamed studio", "remote-existing-parent", "Existing parent"),
+                "remote-second" => StudioJson(id, "Second studio", "remote-new-parent", "Former name"),
+                "remote-new-parent" => StudioJson(id, "Former name"),
+                _ => throw new InvalidOperationException($"Unexpected studio id {id}"),
+            };
+            return GraphQlData($$"""
+                "findStudio": {{json}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.BatchTagStudiosAsync(
+            Endpoint,
+            [first.Id, second.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: null,
+            createParentStudios: true,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(2, result.Updated);
+        context.ChangeTracker.Clear();
+        var renamed = await context.Studios.SingleAsync(item => item.Id == first.Id);
+        var updatedSecond = await context.Studios.SingleAsync(item => item.Id == second.Id);
+        var createdParent = await context.Studios.SingleAsync(item => item.Name == "Former name");
+        Assert.Equal("Renamed studio", renamed.Name);
+        Assert.NotEqual(renamed.Id, createdParent.Id);
+        Assert.Equal(createdParent.Id, updatedSecond.ParentId);
     }
 
     [Fact]

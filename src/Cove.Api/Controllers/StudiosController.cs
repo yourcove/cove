@@ -10,6 +10,7 @@ using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
+using Cove.Data.Services;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
 
 namespace Cove.Api.Controllers;
@@ -17,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StudiosRead)]
-public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
+public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, StudioMergeService? studioMergeService = null) : ControllerBase
 {
     private sealed record StudioUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int PerformerCount, int ChildStudioCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -85,7 +86,14 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         if (dto.TagIds?.Count > 0) studio.StudioTags = dto.TagIds.Select(id => new StudioTag { TagId = id }).ToList();
         if (dto.RemoteIds?.Count > 0) studio.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new StudioRemoteId { Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
 
-        studio = await studioRepo.AddAsync(studio, ct);
+        try
+        {
+            studio = await studioRepo.AddAsync(studio, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = exception.Message });
+        }
         if (dto.CustomFields != null)
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, studio.Id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
@@ -131,7 +139,14 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             studio.RemoteIds.Clear();
             studio.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new StudioRemoteId { StudioId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
         }
-        await studioRepo.UpdateAsync(studio, ct);
+        try
+        {
+            await studioRepo.UpdateAsync(studio, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = exception.Message });
+        }
         if (dto.CustomFields != null)
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
@@ -380,58 +395,37 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     // ===== Merge =====
 
     [HttpPost("merge")]
-    [RequiresPermission(Permissions.StudiosWrite)]
+    [RequiresPermission(Permissions.StudiosWrite, Permissions.StudiosDelete)]
     [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosWrite, ActionArgumentName = "dto", PropertyName = "TargetId")]
-    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosWrite, ActionArgumentName = "dto", PropertyName = "SourceIds")]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosDelete, ActionArgumentName = "dto", PropertyName = "SourceIds")]
     public async Task<ActionResult<StudioDto>> MergeStudios([FromBody] StudioMergeDto dto, CancellationToken ct)
     {
-        var target = await studioRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
-        if (target == null) return NotFound("Target studio not found");
-
-        var sources = await db.Studios
-            .Include(s => s.Aliases)
-            .Include(s => s.Urls)
-            .Include(s => s.Children)
-            .Include(s => s.Videos)
-            .Include(s => s.Galleries)
-            .Include(s => s.Images)
-            .Include(s => s.Groups)
-            .Where(s => dto.SourceIds.Contains(s.Id) && s.Id != target.Id)
-            .ToListAsync(ct);
-
-        foreach (var source in sources)
+        StudioMergeResult result;
+        try
         {
-            // Move videos
-            foreach (var video in source.Videos)
-                video.StudioId = target.Id;
-            // Move galleries
-            foreach (var gallery in source.Galleries)
-                gallery.StudioId = target.Id;
-            // Move images
-            foreach (var image in source.Images)
-                image.StudioId = target.Id;
-            // Move groups
-            foreach (var group in source.Groups)
-                group.StudioId = target.Id;
-            // Reparent child studios
-            foreach (var child in source.Children)
-                child.ParentId = target.Id;
-            // Add source name as alias
-            if (!target.Aliases.Any(a => a.Alias == source.Name))
-                target.Aliases.Add(new StudioAlias { Alias = source.Name, StudioId = target.Id });
-            // Delete source
-            db.Studios.Remove(source);
+            var service = studioMergeService ?? new StudioMergeService(
+                db,
+                eventBus,
+                new PostgresEntityExternalReferenceInspector(db));
+            result = await service.MergeAsync(dto.TargetId, dto.SourceIds, ct);
         }
-
-        await db.SaveChangesAsync(ct);
-        if (sources.Count > 0)
+        catch (KeyNotFoundException)
         {
-            eventBus?.Publish(new EntityEvent(EventType.StudioUpdated, "Studio", target.Id));
-            foreach (var source in sources)
-                eventBus?.Publish(new EntityEvent(EventType.StudioDeleted, "Studio", source.Id));
+            return NotFound("Target studio not found");
         }
-        var result = await studioRepo.GetByIdWithRelationsAsync(target.Id, ct);
-        return Ok(await MapToDetailDtoAsync(result!, ct));
+        catch (EntityMergeBlockedException exception)
+        {
+            return Conflict(new
+            {
+                code = "STUDIO_MERGE_EXTENSION_REFERENCES",
+                message = exception.Message,
+                exception.ReferenceCount,
+                exception.AffectedEntityCount,
+                exception.HasUninspectableReferences,
+            });
+        }
+        var merged = await studioRepo.GetByIdWithRelationsAsync(result.TargetId, ct);
+        return Ok(await MapToDetailDtoAsync(merged!, ct));
     }
 
     // ===== Metadata Server =====
@@ -486,10 +480,16 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             .FirstOrDefaultAsync(s => s.Id == id, ct);
         if (studio == null) return NotFound();
 
-        var imported = await metadataServerService.MergeStudioAsync(studio, dto.Endpoint, dto.StudioId, dto, ct);
-        if (!imported) return NotFound();
-
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            var imported = await metadataServerService.MergeStudioAsync(studio, dto.Endpoint, dto.StudioId, dto, ct);
+            if (!imported) return NotFound();
+            await db.SaveChangesAsync(ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = exception.Message });
+        }
         eventBus?.Publish(new EntityEvent(EventType.StudioUpdated, "Studio", studio.Id));
         var updated = await studioRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));

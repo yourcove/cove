@@ -86,12 +86,17 @@ public static class DataServiceExtensions
         services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
         services.AddScoped<ISegmentRepository, SegmentRepository>();
         services.AddScoped<ITagExternalReferenceInspector, PostgresTagExternalReferenceInspector>();
+        services.AddScoped<IEntityExternalReferenceInspector, PostgresEntityExternalReferenceInspector>();
         services.AddScoped<TagMergeService>();
+        services.AddScoped<StudioMergeService>();
+        services.AddScoped<EntityNameConflictScanner>();
+        services.AddScoped<EntityNameConflictCleanupService>();
         services.AddScoped<TagNameConflictScanner>();
         services.AddScoped<TagNameConflictCleanupService>();
         services.AddScoped<IDetectionRepository, DetectionRepository>();
         services.AddScoped<IFaceRepository, FaceRepository>();
-        services.AddScoped<IPerformerMergeService, PerformerMergeService>();
+        services.AddScoped<PerformerMergeService>();
+        services.AddScoped<IPerformerMergeService>(sp => sp.GetRequiredService<PerformerMergeService>());
         services.AddScoped<ITagApplicationRepository, TagApplicationRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();
         services.AddScoped<ICustomFieldRepository, CustomFieldRepository>();

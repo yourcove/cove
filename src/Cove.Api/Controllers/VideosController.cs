@@ -546,10 +546,16 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         if (video == null) return NotFound();
 
-        var imported = await metadataServerService.MergeVideoAsync(video, dto.Endpoint, dto.VideoId, dto, ct);
-        if (!imported) return NotFound();
-
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            var imported = await metadataServerService.MergeVideoAsync(video, dto.Endpoint, dto.VideoId, dto, ct);
+            if (!imported) return NotFound();
+            await db.SaveChangesAsync(ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "RELATED_ENTITY_NAME_CONFLICT", message = exception.Message, exception.EntityType });
+        }
         PublishVideoEvent(EventType.VideoUpdated, id);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct));

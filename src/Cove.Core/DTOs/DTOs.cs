@@ -1613,7 +1613,8 @@ public record MetadataServerEntityCandidateDto(
     string RemoteId,
     string Name,
     bool ExistsLocally,
-    int? LocalId
+    int? LocalId,
+    string? Disambiguation = null
 );
 
 public record MetadataServerVideoEntityOverrideDto

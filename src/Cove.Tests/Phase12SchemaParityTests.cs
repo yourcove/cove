@@ -84,11 +84,14 @@ public sealed class Phase12SchemaParityTests
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"INSERT INTO extension_tag_reference_fixture (tag_id) VALUES ({referenced.Id})");
 
-            var counts = await new PostgresTagExternalReferenceInspector(context)
-                .CountAsync([referenced.Id, unreferenced.Id]);
+            var references = await new PostgresTagExternalReferenceInspector(context)
+                .InspectAsync([referenced.Id, unreferenced.Id]);
 
-            Assert.Equal(1, counts[referenced.Id]);
-            Assert.Equal(0, counts[unreferenced.Id]);
+            var reference = Assert.Single(references);
+            Assert.Equal(referenced.Id, reference.TagId);
+            Assert.Equal(1, reference.RowCount);
+            Assert.Equal("extension_tag_reference_fixture", reference.TableName);
+            Assert.Equal("tag_id", reference.ColumnName);
         }
         finally
         {
@@ -168,6 +171,60 @@ public sealed class Phase12SchemaParityTests
         }
     }
 
+    [Fact]
+    public async Task ExternalReferenceInspectors_DoNotExcludeExtensionForeignKeysAddedToCoreTables()
+    {
+        var managedRoot = ResolveManagedPostgresRoot();
+        if (managedRoot == null)
+            return;
+
+        var databaseName = $"extension_core_table_refs_{Guid.NewGuid():N}";
+        await using var environment = await CreateEnvironmentAsync(managedRoot);
+        await CreateDatabaseAsync(environment.AdminConnectionString, databaseName);
+
+        try
+        {
+            int studioId;
+            int tagId;
+            int videoId;
+            await using (var setup = CreateContext(environment.Port, databaseName))
+            {
+                await setup.Database.MigrateAsync();
+                var studio = new Studio { Name = "Extension studio fixture" };
+                var tag = new Tag { Name = "Extension tag fixture" };
+                var video = new Video { Title = "Extension reference fixture" };
+                setup.AddRange(studio, tag, video);
+                await setup.SaveChangesAsync();
+                studioId = studio.Id;
+                tagId = tag.Id;
+                videoId = video.Id;
+                await setup.Database.ExecuteSqlRawAsync("""
+                    ALTER TABLE videos ADD COLUMN extension_studio_id integer NULL REFERENCES studios("Id") ON DELETE RESTRICT;
+                    ALTER TABLE videos ADD COLUMN extension_tag_id integer NULL REFERENCES tags("Id") ON DELETE RESTRICT;
+                    """);
+                await setup.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE videos SET extension_studio_id = {studioId}, extension_tag_id = {tagId} WHERE \"Id\" = {videoId}");
+            }
+
+            await using var context = CreateExtensionModelContext(environment.Port, databaseName);
+            var studioReference = Assert.Single(await new PostgresEntityExternalReferenceInspector(context)
+                .InspectAsync(NameConflictEntityTypes.Studio, [studioId]));
+            Assert.Equal("videos", studioReference.TableName);
+            Assert.Equal("extension_studio_id", studioReference.ColumnName);
+            Assert.Equal(1, studioReference.RowCount);
+
+            var tagReference = Assert.Single(await new PostgresTagExternalReferenceInspector(context)
+                .InspectAsync([tagId]));
+            Assert.Equal("videos", tagReference.TableName);
+            Assert.Equal("extension_tag_id", tagReference.ColumnName);
+            Assert.Equal(1, tagReference.RowCount);
+        }
+        finally
+        {
+            await DropDatabaseAsync(environment.AdminConnectionString, databaseName);
+        }
+    }
+
     private static CoveContext CreateContext(
         int port,
         string databaseName,
@@ -178,6 +235,14 @@ public sealed class Phase12SchemaParityTests
             .Options;
 
         return new CoveContext(options, principalAccessor);
+    }
+
+    private static CoveContext CreateExtensionModelContext(int port, string databaseName)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(BuildConnectionString(port, databaseName), npgsqlOptions => npgsqlOptions.UseVector())
+            .Options;
+        return new ExtensionModelContext(options);
     }
 
     private static string BuildConnectionString(int port, string databaseName)
@@ -334,6 +399,30 @@ public sealed class Phase12SchemaParityTests
         public async ValueTask DisposeAsync()
         {
             await manager.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private sealed class ExtensionModelContext(DbContextOptions<CoveContext> options) : CoveContext(options)
+    {
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<Video>()
+                .Property<int?>("ExtensionStudioId")
+                .HasColumnName("extension_studio_id");
+            modelBuilder.Entity<Video>()
+                .HasOne<Studio>()
+                .WithMany()
+                .HasForeignKey("ExtensionStudioId")
+                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<Video>()
+                .Property<int?>("ExtensionTagId")
+                .HasColumnName("extension_tag_id");
+            modelBuilder.Entity<Video>()
+                .HasOne<Tag>()
+                .WithMany()
+                .HasForeignKey("ExtensionTagId")
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

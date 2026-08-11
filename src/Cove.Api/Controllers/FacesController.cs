@@ -810,7 +810,14 @@ public class FacesController(
         await TrySetLocalPerformerImageFromFaceAsync(face, performer, dto.SetPerformerImage, cancellationToken);
 
         db.Performers.Add(performer);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
+        }
 
         await facePerformerPropagationService.ApplyLinkChangeAsync(id, face.PerformerId, performer.Id, cancellationToken);
         face.PerformerId = performer.Id;
@@ -2350,7 +2357,6 @@ public class FacesController(
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
-
 
 
 

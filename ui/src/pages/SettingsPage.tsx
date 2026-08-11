@@ -96,9 +96,9 @@ import { KEYBINDING_GROUPS, keybindingDefault, normalizeShortcutEvent, normalize
 import { openTutorialStoryboard } from "../components/TutorialStoryboardDialog";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { LibraryFolderTree } from "../components/LibraryFolderTree";
-import { TagNameConflictCleanupPanel } from "../features/tag-name-conflicts/TagNameConflictCleanupPanel";
+import { NameConflictCleanupPanel } from "../features/tag-name-conflicts/NameConflictCleanupPanel";
 import { TagNameConflictReadinessStatus, TagNameConflictReadinessUnknownStatus } from "../features/tag-name-conflicts/TagNameConflictWarning";
-import { TAG_NAME_CONFLICTS_PERMISSION, useTagNameConflictSummary } from "../features/tag-name-conflicts/useTagNameConflicts";
+import { ENTITY_NAME_CONFLICTS_PERMISSION, TAG_NAME_CONFLICTS_PERMISSION, useTagNameConflictSummary } from "../features/tag-name-conflicts/useTagNameConflicts";
 
 type LegacySettingsTab = "tasks" | "library" | "interface" | "user-settings" | "display-profiles" | "ai-data" | "security" | "metadata-providers" | "extensions" | "system" | "about";
 type BuiltInSettingsTab =
@@ -206,7 +206,7 @@ const primaryTabs: BuiltInSettingsTabDefinition[] = [
   { key: "operations-duplicates", label: "Duplicates", icon: Search },
   { key: "operations-maintenance", label: "Maintenance", icon: HardDrive },
   { key: "operations-backup-restore", label: "Backup & Restore", icon: Upload },
-  { key: "operations-tag-name-conflicts", label: "Tag Name Conflicts", icon: AlertTriangle },
+  { key: "operations-tag-name-conflicts", label: "Name Conflicts", icon: AlertTriangle },
   { key: "operations-extension-tasks", label: "Extension Tasks", icon: Plug },
   { key: "data-sources-scrapers", label: "Scrapers", icon: SearchCode },
   { key: "data-sources-metadata-servers", label: "Metadata Servers", icon: Server },
@@ -265,7 +265,7 @@ const settingsTabCanonicalPaths: Partial<Record<BuiltInSettingsTab, string>> = {
   "operations-duplicates": "/settings/operations/duplicates",
   "operations-maintenance": "/settings/operations/maintenance",
   "operations-backup-restore": "/settings/operations/backup-restore",
-  "operations-tag-name-conflicts": "/settings/operations/tag-name-conflicts",
+  "operations-tag-name-conflicts": "/settings/operations/name-conflicts",
   "operations-extension-tasks": "/settings/operations/extension-tasks",
   "data-sources-scrapers": "/settings/data-sources/scrapers",
   "data-sources-metadata-servers": "/settings/data-sources/metadata-servers",
@@ -326,6 +326,7 @@ const settingsPathAliases: Partial<Record<string, SettingsTab>> = {
   "operations/maintenance": "operations-maintenance",
   "operations/backup-restore": "operations-backup-restore",
   "operations/tag-name-conflicts": "operations-tag-name-conflicts",
+  "operations/name-conflicts": "operations-tag-name-conflicts",
   "operations/extension-tasks": "operations-extension-tasks",
   "data-sources": "data-sources-scrapers",
   "data-sources/scrapers": "data-sources-scrapers",
@@ -380,7 +381,7 @@ const tabDescriptions: Partial<Record<BuiltInSettingsTab, string>> = {
   "operations-duplicates": "Open duplicate detection and cleanup tools.",
   "operations-maintenance": "Clean orphaned records, generated files, imports, and database statistics.",
   "operations-backup-restore": "Database/config backup, restore, import/export, and wipe operations.",
-  "operations-tag-name-conflicts": "Review tag names and aliases that conflict under the Cove 1.3.0 shared namespace rules.",
+  "operations-tag-name-conflicts": "Review tag namespaces, performer identities, and studio names that conflict under Cove 1.3.0 rules.",
   "operations-extension-tasks": "Run tasks provided by enabled extensions.",
   "data-sources-scrapers": "Legacy YAML scraper directories, scraper preferences, and discovered scrapers.",
   "data-sources-metadata-servers": "MetadataServer endpoint configuration and validation.",
@@ -414,7 +415,7 @@ const settingsSearchKeywords: Partial<Record<BuiltInSettingsTab, string[]>> = {
   "operations-duplicates": ["duplicates", "duplicate finder", "exact duplicate", "cleanup"],
   "operations-maintenance": ["clean", "clean generated", "orphaned", "optimize", "vacuum", "analyse"],
   "operations-backup-restore": ["backup", "restore", "export", "import", "config backup", "wipe", "danger zone"],
-  "operations-tag-name-conflicts": ["tag", "alias", "conflict", "unique", "upgrade", "1.3.0", "merge"],
+  "operations-tag-name-conflicts": ["tag", "alias", "performer", "disambiguation", "studio", "name", "conflict", "unique", "upgrade", "1.3.0", "merge"],
   "data-sources-downloader-paths": ["downloader", "save path", "path override", "site override"],
   "system-info-about": ["about", "version", "release history", "changelog", "setup tour"],
   "system-info-runtime-status": ["runtime", "status", "shutdown", "database", "config file", "app directory"],
@@ -1044,8 +1045,9 @@ export function SettingsPage() {
   const canReadSegments = hasPermission("segments.read");
   const canWriteSegments = hasPermission("segments.write");
   const canReadJobs = hasPermission("jobs.read");
-  const canManageTagNameConflicts = hasPermission(TAG_NAME_CONFLICTS_PERMISSION);
-  const tagNameConflictSummary = useTagNameConflictSummary(canManageTagNameConflicts);
+  const canManageEntityNameConflicts = hasPermission(ENTITY_NAME_CONFLICTS_PERMISSION);
+  const canManageTagNameConflicts = canManageEntityNameConflicts || hasPermission(TAG_NAME_CONFLICTS_PERMISSION);
+  const tagNameConflictSummary = useTagNameConflictSummary(canManageTagNameConflicts, canManageEntityNameConflicts);
   const libraryExtensionsPanels = getSettingsPanelsForTab("library", "extensions");
   const libraryStandalonePanels = getSettingsPanelsForTab("library");
   const extensionSettingsPathAliases = useMemo<Partial<Record<string, SettingsTab>>>(() => {
@@ -1969,7 +1971,7 @@ export function SettingsPage() {
         )}
 
         {resolvedActiveTab === "operations-tag-name-conflicts" && canManageTagNameConflicts && (
-          <TagNameConflictCleanupPanel />
+          <NameConflictCleanupPanel includeEntityConflicts={canManageEntityNameConflicts} />
         )}
 
         {(["library-paths-storage", "library-scanning", "data-sources-downloader-paths"] as SettingsTab[]).includes(resolvedActiveTab) && (
@@ -3792,10 +3794,10 @@ export function SettingsPage() {
         {resolvedActiveTab === "system-info-runtime-status" && (
           <>
             {canManageTagNameConflicts ? (
-              <SectionCard title="Cove 1.3.0 Readiness" description="Tag namespace compatibility checked by the running Cove 1.2 instance.">
+              <SectionCard title="Cove 1.3.0 Readiness" description={canManageEntityNameConflicts ? "Tag, performer, and studio name compatibility checked by the running Cove 1.2 instance." : "Tag-name compatibility checked by the running Cove 1.2 instance."}>
                 {tagNameConflictSummary.data
-                  ? <TagNameConflictReadinessStatus unresolvedGroupCount={tagNameConflictSummary.data.unresolvedGroupCount} />
-                  : <TagNameConflictReadinessUnknownStatus checking={tagNameConflictSummary.isLoading} />}
+                  ? <TagNameConflictReadinessStatus unresolvedGroupCount={tagNameConflictSummary.data.unresolvedGroupCount} includeEntityConflicts={canManageEntityNameConflicts} />
+                  : <TagNameConflictReadinessUnknownStatus checking={tagNameConflictSummary.isLoading} includeEntityConflicts={canManageEntityNameConflicts} />}
               </SectionCard>
             ) : null}
 

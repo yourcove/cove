@@ -119,12 +119,12 @@ public class ScrapeAttemptServiceTests
     }
 
     [Fact]
-    public async Task ApplyAttemptAsync_VideoPerformerMatchesExistingByAliasInsteadOfCreating()
+    public async Task ApplyAttemptAsync_VideoPerformerDoesNotTreatANonUniqueAliasAsIdentity()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
         await using var db = CreateDbContext(dbName);
 
-        // Existing performer whose primary name differs from the scraped name, but carries it as an alias.
+        // Performer aliases are deliberately non-unique, so they cannot identify a relation owner.
         var existingPerformer = new Performer
         {
             Name = "Jane Doe",
@@ -167,24 +167,22 @@ public class ScrapeAttemptServiceTests
                 ReplaceFields: [],
                 CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
                 CreateMissingPerformers: true,
-                // The UI predicted "create", but an alias match must still win server-side.
                 PerformerSelections: [new ScrapeCollectionItemSelectionDto("Myra Moans", "create")]),
             CancellationToken.None);
 
         Assert.NotNull(result);
 
-        // No duplicate: still exactly one performer, and the video links to the aliased existing one.
-        Assert.Equal(1, await db.Performers.CountAsync());
-        Assert.False(await db.Performers.AnyAsync(performer => performer.Name == "Myra Moans"));
+        Assert.Equal(2, await db.Performers.CountAsync());
+        Assert.True(await db.Performers.AnyAsync(performer => performer.Name == "Myra Moans" && performer.Disambiguation == null));
 
         var updatedVideo = await db.Videos
             .Include(item => item.VideoPerformers).ThenInclude(item => item.Performer)
             .SingleAsync(item => item.Id == video.Id);
-        Assert.Equal(["Jane Doe"], updatedVideo.VideoPerformers.Select(item => item.Performer!.Name).ToArray());
+        Assert.Equal(["Myra Moans"], updatedVideo.VideoPerformers.Select(item => item.Performer!.Name).ToArray());
     }
 
     [Fact]
-    public async Task ResolveRelationsAsync_MatchesPerformerByAliasAndReportsMissingAsUnmatched()
+    public async Task ResolveRelationsAsync_DoesNotMatchPerformerAliases()
     {
         var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
         await using var db = CreateDbContext(dbName);
@@ -215,14 +213,61 @@ public class ScrapeAttemptServiceTests
             },
             CancellationToken.None);
 
-        // Alias match reports the existing primary name; the unmatched name is simply absent.
-        var performerMatch = Assert.Single(result.Performers);
-        Assert.Equal("Myra Moans", performerMatch.Input);
-        Assert.Equal("Jane Doe", performerMatch.MatchedName);
+        Assert.Empty(result.Performers);
 
         var tagMatch = Assert.Single(result.Tags);
         Assert.Equal("Redhead", tagMatch.Input);
         Assert.Equal("Redhead", tagMatch.MatchedName);
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_NameOnlyPerformerCreatesTheNullDisambiguationIdentity()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+        var disambiguated = new Performer { Name = "Shared name", Disambiguation = "Specific person" };
+        var video = new Video { Title = "Current title", TagIds = [], PerformerIds = [] };
+        db.AddRange(disambiguated, video);
+        await db.SaveChangesAsync();
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = "{}",
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["PerformerNames"] = new[] { "Shared name" },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync();
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
+                CreateMissingPerformers: true,
+                PerformerSelections: [new ScrapeCollectionItemSelectionDto("Shared name", "create")]),
+            CancellationToken.None);
+
+        var performers = await db.Performers.OrderBy(item => item.Id).ToListAsync();
+        Assert.Equal(2, performers.Count);
+        var nameOnly = Assert.Single(performers, performer => performer.Disambiguation == null);
+        var updatedVideo = await db.Videos.Include(item => item.VideoPerformers).SingleAsync(item => item.Id == video.Id);
+        Assert.Contains(updatedVideo.VideoPerformers, link => link.PerformerId == nameOnly.Id);
+        Assert.DoesNotContain(updatedVideo.VideoPerformers, link => link.PerformerId == disambiguated.Id);
     }
 
     [Fact]

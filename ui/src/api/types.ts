@@ -422,6 +422,92 @@ export interface TagNameConflictSummary {
   scannedAtUtc: string;
 }
 
+export type NameConflictEntityType = "performer" | "studio";
+
+export interface EntityNameConflictSummary {
+  performerUnresolvedGroupCount: number;
+  studioUnresolvedGroupCount: number;
+  unresolvedGroupCount: number;
+  scannedAtUtc: string;
+}
+
+export interface CombinedNameConflictSummary {
+  unresolvedGroupCount: number;
+  tagUnresolvedGroupCount: number;
+  performerUnresolvedGroupCount: number;
+  studioUnresolvedGroupCount: number;
+  scannedAtUtc: string;
+}
+
+export interface EntityNameConflictScan {
+  entityType: NameConflictEntityType;
+  unresolvedGroupCount: number;
+  scannedAtUtc: string;
+  revision: string;
+  groups: EntityNameConflictGroup[];
+}
+
+export interface EntityNameConflictGroup {
+  entityType: NameConflictEntityType;
+  key: string;
+  revision: string;
+  normalizedName: string;
+  normalizedDisambiguation?: string | null;
+  recommendedSurvivorEntityId: number;
+  recommendedMergeEntityIds: number[];
+  candidates: EntityNameConflictCandidate[];
+  impacts: EntityNameImpact[];
+}
+
+export interface EntityNameConflictCandidate {
+  entityId: number;
+  name: string;
+  disambiguation?: string | null;
+  normalizedName: string;
+  normalizedDisambiguation?: string | null;
+  recommendedAction: "keep" | "merge-entity";
+  isRecommendedSurvivor: boolean;
+}
+
+export interface EntityNameImpact {
+  entityId: number;
+  name: string;
+  disambiguation?: string | null;
+  linkedEntityCount: number;
+  groupCount: number;
+  hierarchyCount: number;
+  faceCount: number;
+  ratingCount: number;
+  otherMetadataCount: number;
+  extensionMetadataCount: number;
+  externalReferences: EntityExternalReference[];
+  referenceCount: number;
+}
+
+export interface EntityExternalReference {
+  entityId: number;
+  referenceKey: string;
+  schemaName: string;
+  tableName: string;
+  columnName: string;
+  deleteBehavior: string;
+  rowCount: number | null;
+  accessLimitation: "row-level-security" | "database-permission" | null;
+}
+
+export interface EntityNameConflictResolution {
+  entityId: number;
+  action: "keep" | "merge-entity" | "rename";
+  newName?: string | null;
+  newDisambiguation?: string | null;
+}
+
+export interface EntityExternalReferenceResolution {
+  entityId: number;
+  referenceKey: string;
+  action: "update-to-survivor" | "delete-rows";
+}
+
 export interface TagNameConflictGroup {
   key: string;
   revision: string;
@@ -2510,6 +2596,7 @@ export interface MetadataServerEntityCandidate {
   name: string;
   existsLocally: boolean;
   localId?: number;
+  disambiguation?: string;
 }
 
 export interface MetadataServerVideoEntityOverride {

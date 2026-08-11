@@ -306,12 +306,19 @@ public class MetadataController(
             progress.Report(0.05, "Reading import file...");
             var json = await System.IO.File.ReadAllTextAsync(filePath, ct);
             var importData = JsonSerializer.Deserialize<JsonElement>(json, CoveJson.Default);
+            var importTags = ReadImportEntities<Tag>(importData, "tags");
+            var importStudios = ReadImportEntities<Studio>(importData, "studios");
+            var importPerformers = ReadImportEntities<Performer>(importData, "performers");
+            var importGroups = ReadImportEntities<Group>(importData, "groups");
+
+            // An import can touch several entity kinds. Keep all staged saves atomic so a later
+            // identity conflict or malformed relationship cannot leave an unretryable partial job.
+            await using var transaction = await dbCtx.Database.BeginTransactionAsync(ct);
 
             // Import tags first (no dependencies)
-            if (importData.TryGetProperty("tags", out var tagsEl))
+            if (importTags.Count > 0)
             {
                 progress.Report(0.1, "Importing tags...");
-                var importTags = JsonSerializer.Deserialize<List<Tag>>(tagsEl.GetRawText(), CoveJson.Default) ?? [];
                 var normalizedNames = importTags
                     .Select(tag => TagNameRules.NormalizeCanonicalName(tag.Name))
                     .ToArray();
@@ -336,65 +343,23 @@ public class MetadataController(
             }
 
             // Import studios (may reference parent studios)
-            if (importData.TryGetProperty("studios", out var studiosEl))
+            if (importStudios.Count > 0)
             {
                 progress.Report(0.3, "Importing studios...");
-                var importStudios = JsonSerializer.Deserialize<List<Studio>>(studiosEl.GetRawText(), CoveJson.Default) ?? [];
-                foreach (var studio in importStudios)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Studios.FirstOrDefaultAsync(s => s.Name == studio.Name, ct);
-                    if (existing != null)
-                    {
-                        if (overwrite) { existing.Details = studio.Details; }
-                    }
-                    else
-                    {
-                        dbCtx.Studios.Add(new Studio { Name = studio.Name, Details = studio.Details });
-                    }
-                }
-                await dbCtx.SaveChangesAsync(ct);
+                await ImportStudiosAsync(dbCtx, importStudios, overwrite, ct);
             }
 
             // Import performers
-            if (importData.TryGetProperty("performers", out var performersEl))
+            if (importPerformers.Count > 0)
             {
                 progress.Report(0.5, "Importing performers...");
-                var importPerformers = JsonSerializer.Deserialize<List<Performer>>(performersEl.GetRawText(), CoveJson.Default) ?? [];
-                foreach (var performer in importPerformers)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Performers.FirstOrDefaultAsync(p => p.Name == performer.Name && p.Disambiguation == performer.Disambiguation, ct);
-                    if (existing != null)
-                    {
-                        if (overwrite)
-                        {
-                            existing.Gender = performer.Gender;
-                            existing.Birthdate = performer.Birthdate;
-                            existing.Ethnicity = performer.Ethnicity;
-                            existing.Country = performer.Country;
-                            existing.Details = performer.Details;
-                        }
-                    }
-                    else
-                    {
-                        dbCtx.Performers.Add(new Performer
-                        {
-                            Name = performer.Name, Disambiguation = performer.Disambiguation,
-                            Gender = performer.Gender, Birthdate = performer.Birthdate,
-                            Ethnicity = performer.Ethnicity, Country = performer.Country,
-                            Details = performer.Details, Favorite = performer.Favorite
-                        });
-                    }
-                }
-                await dbCtx.SaveChangesAsync(ct);
+                await ImportPerformersAsync(dbCtx, importPerformers, overwrite, ct);
             }
 
             // Import groups
-            if (importData.TryGetProperty("groups", out var groupsEl))
+            if (importGroups.Count > 0)
             {
                 progress.Report(0.7, "Importing groups...");
-                var importGroups = JsonSerializer.Deserialize<List<Group>>(groupsEl.GetRawText(), CoveJson.Default) ?? [];
                 foreach (var group in importGroups)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -411,11 +376,149 @@ public class MetadataController(
                 await dbCtx.SaveChangesAsync(ct);
             }
 
+            await transaction.CommitAsync(ct);
+
             progress.Report(1.0, "Import completed");
             logger.LogInformation("Metadata import completed from: {Path}", filePath);
         }, exclusive: false);
 
         return Ok(new { jobId });
+    }
+
+    internal static List<TEntity> ReadImportEntities<TEntity>(JsonElement root, string propertyName)
+        where TEntity : class
+        => root.TryGetProperty(propertyName, out var value)
+            ? JsonSerializer.Deserialize<List<TEntity>>(value.GetRawText(), CoveJson.Default) ?? []
+            : [];
+
+    internal static Dictionary<string, TEntity> BuildUniqueImportIdentityLookup<TEntity>(
+        IEnumerable<TEntity> candidates,
+        Func<TEntity, string> identitySelector,
+        IReadOnlySet<string> requestedKeys,
+        string entityType)
+        where TEntity : class
+    {
+        var result = new Dictionary<string, TEntity>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            var key = identitySelector(candidate);
+            if (!requestedKeys.Contains(key))
+                continue;
+            if (!result.TryAdd(key, candidate))
+                throw new EntityNameConflictException(entityType);
+        }
+
+        return result;
+    }
+
+    internal static async Task ImportStudiosAsync(
+        CoveContext db,
+        IReadOnlyCollection<Studio> imported,
+        bool overwrite,
+        CancellationToken ct)
+    {
+        var groups = imported
+            .GroupBy(studio => EntityNameRules.StudioIdentityKey(studio.Name), StringComparer.Ordinal)
+            .ToArray();
+        var requestedKeys = groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        var existingByIdentity = BuildUniqueImportIdentityLookup(
+            await db.Studios.ToListAsync(ct),
+            studio => EntityNameRules.StudioIdentityKey(studio.Name),
+            requestedKeys,
+            NameConflictEntityTypes.Studio);
+
+        foreach (var group in groups)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = group.Last();
+            if (existingByIdentity.TryGetValue(group.Key, out var existing))
+            {
+                if (overwrite)
+                    ApplyImportedStudioMetadata(existing, source);
+                continue;
+            }
+
+            var created = new Studio
+            {
+                Name = EntityNameRules.NormalizeCanonicalName(group.First().Name),
+            };
+            ApplyImportedStudioMetadata(created, source);
+            db.Studios.Add(created);
+            existingByIdentity[group.Key] = created;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    internal static async Task ImportPerformersAsync(
+        CoveContext db,
+        IReadOnlyCollection<Performer> imported,
+        bool overwrite,
+        CancellationToken ct)
+    {
+        var groups = imported
+            .GroupBy(
+                performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+                StringComparer.Ordinal)
+            .ToArray();
+        var requestedKeys = groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        var existingByIdentity = BuildUniqueImportIdentityLookup(
+            await db.Performers.ToListAsync(ct),
+            performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+            requestedKeys,
+            NameConflictEntityTypes.Performer);
+
+        foreach (var group in groups)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = group.Last();
+            if (existingByIdentity.TryGetValue(group.Key, out var existing))
+            {
+                if (overwrite)
+                    ApplyImportedPerformerMetadata(existing, source);
+                continue;
+            }
+
+            var first = group.First();
+            var created = new Performer
+            {
+                Name = EntityNameRules.NormalizeCanonicalName(first.Name),
+                Disambiguation = EntityNameRules.NormalizeDisambiguation(first.Disambiguation),
+            };
+            ApplyImportedPerformerMetadata(created, source);
+            db.Performers.Add(created);
+            existingByIdentity[group.Key] = created;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    internal static void ApplyImportedStudioMetadata(Studio target, Studio source)
+    {
+        target.Details = source.Details;
+        target.Favorite = source.Favorite;
+        target.Organized = source.Organized;
+    }
+
+    internal static void ApplyImportedPerformerMetadata(Performer target, Performer source)
+    {
+        target.Gender = source.Gender;
+        target.Birthdate = source.Birthdate;
+        target.DeathDate = source.DeathDate;
+        target.Ethnicity = source.Ethnicity;
+        target.Country = source.Country;
+        target.EyeColor = source.EyeColor;
+        target.HairColor = source.HairColor;
+        target.HeightCm = source.HeightCm;
+        target.Weight = source.Weight;
+        target.Measurements = source.Measurements;
+        target.FakeTits = source.FakeTits;
+        target.PenisLength = source.PenisLength;
+        target.Circumcised = source.Circumcised;
+        target.CareerStart = source.CareerStart;
+        target.CareerEnd = source.CareerEnd;
+        target.Tattoos = source.Tattoos;
+        target.Piercings = source.Piercings;
+        target.Details = source.Details;
+        target.Favorite = source.Favorite;
     }
 
     [HttpPost("clean-generated")]

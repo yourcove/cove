@@ -464,6 +464,7 @@ public partial class CoveContext : DbContext
             return base.SaveChanges();
 
         NormalizeAndValidateTagNames();
+        NormalizeAndValidateEntityNames();
         ProtectDenormalizedIdArraysFromDirectWrites();
         var arrayTargets = CollectDerivedArrayTargets();
         var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
@@ -504,6 +505,7 @@ public partial class CoveContext : DbContext
             return await base.SaveChangesAsync(cancellationToken);
 
         await NormalizeAndValidateTagNamesAsync(cancellationToken);
+        await NormalizeAndValidateEntityNamesAsync(cancellationToken);
         ProtectDenormalizedIdArraysFromDirectWrites();
         var arrayTargets = CollectDerivedArrayTargets();
         var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
