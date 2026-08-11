@@ -30,8 +30,8 @@ const conflictScan: TagNameConflictScan = {
       { tagId: 9, tagName: "Other", claimType: "alias", aliasId: 12, originalValue: "shared", normalizedValue: "shared", recommendedAction: "remove-alias", isRecommendedSurvivingClaim: false },
     ],
     impacts: [
-      { tagId: 4, tagName: "Shared", referenceCount: 11, taggedEntityCount: 2, segmentCount: 3, parentRelationshipCount: 1, childRelationshipCount: 0, ratingCount: 1, otherMetadataCount: 4, extensionMetadataCount: 0 },
-      { tagId: 9, tagName: "Other", referenceCount: 20, taggedEntityCount: 7, segmentCount: 5, parentRelationshipCount: 0, childRelationshipCount: 2, ratingCount: 0, otherMetadataCount: 6, extensionMetadataCount: 0 },
+      { tagId: 4, tagName: "Shared", referenceCount: 11, taggedEntityCount: 2, segmentCount: 3, parentRelationshipCount: 1, childRelationshipCount: 0, ratingCount: 1, otherMetadataCount: 4, extensionMetadataCount: 0, externalReferences: [] },
+      { tagId: 9, tagName: "Other", referenceCount: 20, taggedEntityCount: 7, segmentCount: 5, parentRelationshipCount: 0, childRelationshipCount: 2, ratingCount: 0, otherMetadataCount: 6, extensionMetadataCount: 0, externalReferences: [] },
     ],
   }],
 };
@@ -96,7 +96,7 @@ describe("TagNameConflictCleanupPanel", () => {
 
     await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith("namespace-fixture", "revision-fixture", 9, [
       { tagId: 4, aliasId: null, action: "merge-tag" },
-    ]));
+    ], []));
     expect(queryClient.getQueryData(["tag-name-conflicts"])).toEqual(expect.objectContaining({ unresolvedGroupCount: 0 }));
   });
 
@@ -167,7 +167,7 @@ describe("TagNameConflictCleanupPanel", () => {
       await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith("namespace-fixture", "revision-fixture", 4, [
         { tagId: 9, aliasId: null, action: "merge-tag" },
         { tagId: 9, aliasId: 12, action: "merge-tag" },
-      ]));
+      ], []));
     } finally {
       group.claims = original.claims;
       group.requiresMerge = original.requiresMerge;
@@ -176,11 +176,21 @@ describe("TagNameConflictCleanupPanel", () => {
     }
   });
 
-  it("allows alias removal but blocks an optional merge while extension-owned references remain", async () => {
+  it("shows each non-core table and requires an explicit database action before an optional merge", async () => {
     const user = userEvent.setup();
     conflictScan.groups[0].impacts[1].extensionMetadataCount = 3;
+    conflictScan.groups[0].impacts[1].externalReferences = [{
+      tagId: 9,
+      referenceKey: "foreign-key-fixture",
+      schemaName: "public",
+      tableName: "extension_segment_links",
+      columnName: "tag_id",
+      deleteBehavior: "restrict",
+      rowCount: 3,
+      accessLimitation: null,
+    }];
     try {
-      const queryClient = new QueryClient();
+      const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
       render(
         <QueryClientProvider client={queryClient}>
           <TagNameConflictCleanupPanel />
@@ -195,10 +205,66 @@ describe("TagNameConflictCleanupPanel", () => {
         "merge-tag",
       );
 
-      expect(screen.getByText(/tags currently set to merge have 3 extension-owned references/i)).toBeInTheDocument();
+      expect(screen.getByText(/choose whether to update or delete all 3 non-core references/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Resolve group" })).toBeDisabled();
+      expect(screen.getByText("public.extension_segment_links")).toBeInTheDocument();
+      expect(screen.getByText("tag_id")).toBeInTheDocument();
+      expect(screen.getByText("restrict")).toBeInTheDocument();
+
+      await user.selectOptions(
+        screen.getByRole("combobox", { name: "Database action for public.extension_segment_links.tag_id on tag 9" }),
+        "update-to-survivor",
+      );
+      expect(screen.getByRole("button", { name: "Resolve group" })).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Resolve group" }));
+      expect(screen.getByText(/update 3 non-core row references to the survivor/i)).toBeInTheDocument();
+      await user.click(screen.getAllByRole("button", { name: "Resolve group" })[1]);
+
+      await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith("namespace-fixture", "revision-fixture", 4, [
+        { tagId: 9, aliasId: 12, action: "merge-tag" },
+      ], [{
+        tagId: 9,
+        referenceKey: "foreign-key-fixture",
+        action: "update-to-survivor",
+      }]));
     } finally {
       conflictScan.groups[0].impacts[1].extensionMetadataCount = 0;
+      conflictScan.groups[0].impacts[1].externalReferences = [];
+    }
+  });
+
+  it("blocks a merge when database access prevents an exact non-core inventory", async () => {
+    const user = userEvent.setup();
+    conflictScan.groups[0].impacts[1].externalReferences = [{
+      tagId: 9,
+      referenceKey: "foreign-key-restricted-fixture",
+      schemaName: "private_extension",
+      tableName: "tag_links",
+      columnName: "tag_id",
+      deleteBehavior: "cascade",
+      rowCount: null,
+      accessLimitation: "row-level-security",
+    }];
+    try {
+      const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TagNameConflictCleanupPanel />
+        </QueryClientProvider>,
+      );
+
+      await user.selectOptions(
+        screen.getByRole("combobox", { name: "Resolution for alias shared on tag 9" }),
+        "merge-tag",
+      );
+
+      expect(screen.getByText(/cannot verify or change those rows/i)).toBeInTheDocument();
+      expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
+      expect(screen.getByText("Use extension or database administrator")).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: /Database action for private_extension/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Resolve group" })).toBeDisabled();
+    } finally {
+      conflictScan.groups[0].impacts[1].externalReferences = [];
     }
   });
 
@@ -217,7 +283,7 @@ describe("TagNameConflictCleanupPanel", () => {
 
     await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith("namespace-fixture", "revision-fixture", 4, [
       { tagId: 9, aliasId: 12, action: "remove-alias" },
-    ]));
+    ], []));
   });
 
   it("submits the confirmed scan revision when applying all recommended fixes", async () => {

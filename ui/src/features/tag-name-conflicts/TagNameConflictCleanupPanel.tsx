@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Tags } from "lucide-react";
 import { tagNameConflicts } from "../../api/client";
 import type {
+  TagExternalReference,
+  TagExternalReferenceResolution,
   TagNameClaimResolution,
   TagNameConflictClaim,
   TagNameConflictGroup,
@@ -28,25 +30,41 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 type ResolutionAction = TagNameClaimResolution["action"];
+type ExternalReferenceAction = TagExternalReferenceResolution["action"];
 type ClaimChoice = { action: ResolutionAction; newValue: string };
 type GroupChoices = Record<string, ClaimChoice>;
+type ExternalReferenceChoices = Record<string, ExternalReferenceAction | "">;
 type PendingAction = { kind: "group"; group: TagNameConflictGroup } | { kind: "all"; expectedRevision: string } | null;
 
 type GroupPlan = {
   survivingClaimKey: string | null;
   actions: Map<string, ClaimChoice | { action: "keep"; newValue: string }>;
   resolutions: TagNameClaimResolution[];
+  externalReferenceResolutions: TagExternalReferenceResolution[];
   mergeTagIds: Set<number>;
   removedAliasCount: number;
   renamedClaimCount: number;
   hasInvalidRename: boolean;
+  externalUpdatedRowCount: number;
+  externalDeletedRowCount: number;
+  hasUnresolvedExternalReferences: boolean;
+  hasRestrictedExternalReferences: boolean;
 };
 
 function claimKey(claim: Pick<TagNameConflictClaim, "tagId" | "aliasId">) {
   return claim.aliasId == null ? `tag-${claim.tagId}` : `alias-${claim.aliasId}`;
 }
 
-function buildGroupPlan(group: TagNameConflictGroup, survivorTagId: number, choices: GroupChoices = {}): GroupPlan {
+function externalReferenceKey(reference: Pick<TagExternalReference, "tagId" | "referenceKey">) {
+  return `${reference.tagId}:${reference.referenceKey}`;
+}
+
+function buildGroupPlan(
+  group: TagNameConflictGroup,
+  survivorTagId: number,
+  choices: GroupChoices = {},
+  externalReferenceChoices: ExternalReferenceChoices = {},
+): GroupPlan {
   const isBlankAliasGroup = group.kinds.includes("blank-alias");
   const survivingClaim = isBlankAliasGroup
     ? undefined
@@ -87,14 +105,45 @@ function buildGroupPlan(group: TagNameConflictGroup, survivorTagId: number, choi
       .map((resolution) => resolution.tagId),
   );
   const effectiveResolutions = resolutions.filter((resolution) => !mergeTagIds.has(resolution.tagId));
+  const externalReferenceResolutions: TagExternalReferenceResolution[] = [];
+  let externalUpdatedRowCount = 0;
+  let externalDeletedRowCount = 0;
+  let hasUnresolvedExternalReferences = false;
+  let hasRestrictedExternalReferences = false;
+  for (const impact of group.impacts) {
+    if (!mergeTagIds.has(impact.tagId)) continue;
+    for (const reference of impact.externalReferences ?? []) {
+      if (reference.accessLimitation != null || reference.rowCount == null) {
+        hasRestrictedExternalReferences = true;
+        continue;
+      }
+      const action = externalReferenceChoices[externalReferenceKey(reference)];
+      if (!action) {
+        hasUnresolvedExternalReferences = true;
+        continue;
+      }
+      externalReferenceResolutions.push({
+        tagId: reference.tagId,
+        referenceKey: reference.referenceKey,
+        action,
+      });
+      if (action === "update-to-survivor") externalUpdatedRowCount += reference.rowCount;
+      else externalDeletedRowCount += reference.rowCount;
+    }
+  }
   return {
     survivingClaimKey,
     actions,
     resolutions,
+    externalReferenceResolutions,
     mergeTagIds,
     removedAliasCount: effectiveResolutions.filter((resolution) => resolution.action === "remove-alias").length,
     renamedClaimCount: effectiveResolutions.filter((resolution) => resolution.action === "rename").length,
     hasInvalidRename: effectiveResolutions.some((resolution) => resolution.action === "rename" && !resolution.newValue?.trim()),
+    externalUpdatedRowCount,
+    externalDeletedRowCount,
+    hasUnresolvedExternalReferences,
+    hasRestrictedExternalReferences,
   };
 }
 
@@ -134,6 +183,7 @@ export function TagNameConflictCleanupPanel() {
   const scan = useTagNameConflictScan();
   const [selectedSurvivors, setSelectedSurvivors] = useState<Record<string, number>>({});
   const [choices, setChoices] = useState<Record<string, GroupChoices>>({});
+  const [externalReferenceChoices, setExternalReferenceChoices] = useState<Record<string, ExternalReferenceChoices>>({});
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   useEffect(() => {
@@ -158,6 +208,7 @@ export function TagNameConflictCleanupPanel() {
     group,
     selectedSurvivors[group.key] ?? group.recommendedSurvivorTagId,
     choices[group.key],
+    externalReferenceChoices[group.key],
   );
 
   const mutation = useMutation({
@@ -169,6 +220,7 @@ export function TagNameConflictCleanupPanel() {
         action.group.revision,
         survivorTagId,
         planFor(action.group).resolutions,
+        planFor(action.group).externalReferenceResolutions,
       );
     },
     onSuccess: (nextScan) => {
@@ -178,6 +230,7 @@ export function TagNameConflictCleanupPanel() {
         scannedAtUtc: nextScan.scannedAtUtc,
       });
       setChoices({});
+      setExternalReferenceChoices({});
       setPendingAction(null);
     },
   });
@@ -185,7 +238,7 @@ export function TagNameConflictCleanupPanel() {
   const totalClaims = useMemo(() => scan.data?.groups.reduce((sum, group) => sum + group.claims.length, 0) ?? 0, [scan.data]);
   const recommendedMergeBlocked = useMemo(() => scan.data?.groups.some((group) => {
     const plan = buildGroupPlan(group, group.recommendedSurvivorTagId);
-    return group.impacts.some((impact) => plan.mergeTagIds.has(impact.tagId) && impact.extensionMetadataCount > 0);
+    return group.impacts.some((impact) => plan.mergeTagIds.has(impact.tagId) && (impact.externalReferences ?? []).length > 0);
   }) ?? false, [scan.data]);
   const pendingPlan = pendingAction?.kind === "group" ? planFor(pendingAction.group) : null;
 
@@ -227,7 +280,7 @@ export function TagNameConflictCleanupPanel() {
               type="button"
               onClick={() => setPendingAction({ kind: "all", expectedRevision: scan.data.revision })}
               disabled={mutation.isPending || recommendedMergeBlocked}
-              title={recommendedMergeBlocked ? "At least one recommended merge has extension-owned references that Cove cannot transfer safely." : undefined}
+              title={recommendedMergeBlocked ? "At least one recommended merge requires per-table non-core database decisions." : undefined}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
             >
               <Tags className="h-4 w-4" /> Apply all recommended fixes
@@ -236,7 +289,7 @@ export function TagNameConflictCleanupPanel() {
         </div>
         {recommendedMergeBlocked ? (
           <p className="mt-3 text-sm text-amber-100/80">
-            Apply all is unavailable because at least one recommended source tag is referenced by extension-owned data. Alias-only conflicts can still be removed or renamed without merging.
+            Apply all is unavailable because at least one recommended source tag has non-core references that must be reviewed table by table. Resolve that group individually, rename the tag, or choose another survivor.
           </p>
         ) : null}
       </section>
@@ -253,6 +306,7 @@ export function TagNameConflictCleanupPanel() {
             onSelectSurvivor={(tagId) => {
               setSelectedSurvivors((current) => ({ ...current, [group.key]: tagId }));
               setChoices((current) => ({ ...current, [group.key]: {} }));
+              setExternalReferenceChoices((current) => ({ ...current, [group.key]: {} }));
             }}
             onChangeClaim={(claim, choice) => setChoices((current) => ({
               ...current,
@@ -263,6 +317,14 @@ export function TagNameConflictCleanupPanel() {
                 claim,
                 choice,
               ),
+            }))}
+            externalReferenceChoices={externalReferenceChoices[group.key] ?? {}}
+            onChangeExternalReference={(reference, action) => setExternalReferenceChoices((current) => ({
+              ...current,
+              [group.key]: {
+                ...(current[group.key] ?? {}),
+                [externalReferenceKey(reference)]: action,
+              },
             }))}
             onResolve={() => setPendingAction({ kind: "group", group })}
             disabled={mutation.isPending}
@@ -291,25 +353,29 @@ function ConflictGroupCard({
   group,
   selectedSurvivor,
   choices,
+  externalReferenceChoices,
   onSelectSurvivor,
   onChangeClaim,
+  onChangeExternalReference,
   onResolve,
   disabled,
 }: {
   group: TagNameConflictGroup;
   selectedSurvivor: number;
   choices: GroupChoices;
+  externalReferenceChoices: ExternalReferenceChoices;
   onSelectSurvivor: (tagId: number) => void;
   onChangeClaim: (claim: TagNameConflictClaim, choice: ClaimChoice) => void;
+  onChangeExternalReference: (reference: TagExternalReference, action: ExternalReferenceAction | "") => void;
   onResolve: () => void;
   disabled: boolean;
 }) {
   const owners = group.impacts;
-  const plan = buildGroupPlan(group, selectedSurvivor, choices);
-  const blockedReferenceCount = owners
+  const plan = buildGroupPlan(group, selectedSurvivor, choices, externalReferenceChoices);
+  const mergingExternalReferenceCount = owners
     .filter((impact) => plan.mergeTagIds.has(impact.tagId))
     .reduce((sum, impact) => sum + impact.extensionMetadataCount, 0);
-  const mergeBlocked = blockedReferenceCount > 0;
+  const externalImpacts = owners.filter((impact) => (impact.externalReferences ?? []).length > 0);
   const canSelectSurvivor = group.hasCrossTagClaims && !group.kinds.includes("blank-alias");
 
   return (
@@ -321,9 +387,13 @@ function ConflictGroupCard({
             {group.kinds.map((kind) => <span key={kind} className="rounded-full border border-border bg-card px-2 py-0.5 text-xs text-secondary">{KIND_LABELS[kind] ?? kind}</span>)}
           </div>
           <p className="mt-1 text-sm text-secondary">{group.hasCrossTagClaims ? `${owners.length} tags share this future namespace.` : "This group affects one tag and can be cleaned without merging."}</p>
-          {mergeBlocked ? (
+          {plan.hasRestrictedExternalReferences ? (
+            <p className="mt-2 max-w-2xl text-sm text-red-200">
+              A non-core table on a tag being merged is protected by row-level security or database permissions. Cove cannot verify or change those rows; use the owning extension or a database administrator, or keep that tag.
+            </p>
+          ) : plan.hasUnresolvedExternalReferences ? (
             <p className="mt-2 max-w-2xl text-sm text-amber-200">
-              The tags currently set to merge have {blockedReferenceCount.toLocaleString()} extension-owned reference{blockedReferenceCount === 1 ? "" : "s"}. Rename those tags, remove or rename their conflicting aliases, or choose a referenced tag as the survivor.
+              Choose whether to update or delete all {mergingExternalReferenceCount.toLocaleString()} non-core reference{mergingExternalReferenceCount === 1 ? "" : "s"} on the tags being merged.
             </p>
           ) : null}
           {plan.hasInvalidRename ? <p className="mt-2 text-sm text-red-300">Enter a non-blank replacement for every claim set to rename.</p> : null}
@@ -331,7 +401,7 @@ function ConflictGroupCard({
         <button
           type="button"
           onClick={onResolve}
-          disabled={disabled || mergeBlocked || plan.hasInvalidRename}
+          disabled={disabled || plan.hasRestrictedExternalReferences || plan.hasUnresolvedExternalReferences || plan.hasInvalidRename}
           className="shrink-0 rounded-lg border border-accent px-3 py-2 text-sm font-semibold text-accent hover:bg-accent/10 disabled:opacity-50"
         >
           Resolve group
@@ -430,6 +500,94 @@ function ConflictGroupCard({
           </div>
         </div>
       </div>
+      {externalImpacts.length > 0 ? (
+        <div className="border-t border-border p-4 sm:p-5">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Non-core database references</h4>
+          <p className="mt-1 max-w-4xl text-xs text-secondary">
+            These foreign keys belong to extension or otherwise non-core tables. Updating preserves the rows and changes their tag ID to the survivor. Deleting removes the matching rows and may activate extension-defined triggers or cascades.
+          </p>
+          <div className="mt-3 space-y-3">
+            {externalImpacts.map((impact) => (
+              <ExternalReferenceTable
+                key={impact.tagId}
+                impact={impact}
+                willMerge={plan.mergeTagIds.has(impact.tagId)}
+                choices={externalReferenceChoices}
+                onChange={onChangeExternalReference}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ExternalReferenceTable({
+  impact,
+  willMerge,
+  choices,
+  onChange,
+}: {
+  impact: TagNameConflictImpact;
+  willMerge: boolean;
+  choices: ExternalReferenceChoices;
+  onChange: (reference: TagExternalReference, action: ExternalReferenceAction | "") => void;
+}) {
+  const hasRestrictedLocation = (impact.externalReferences ?? []).some(
+    (reference) => reference.accessLimitation != null || reference.rowCount == null,
+  );
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <span className="text-sm font-medium text-foreground">{displayValue(impact.tagName)} <span className="font-normal text-muted">#{impact.tagId}</span></span>
+        <span className={`text-xs ${willMerge ? "text-amber-200" : "text-secondary"}`}>
+          {willMerge
+            ? hasRestrictedLocation ? "Owner repair required before merge" : "Review required before merge"
+            : "No repair needed while this tag remains"}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-[760px] w-full text-left text-sm">
+          <thead className="text-xs text-secondary">
+            <tr>
+              <th className="px-3 py-2 font-medium">Table</th>
+              <th className="px-3 py-2 font-medium">Column</th>
+              <th className="px-3 py-2 font-medium">Rows</th>
+              <th className="px-3 py-2 font-medium">Tag deletion policy</th>
+              <th className="px-3 py-2 font-medium">Database action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {(impact.externalReferences ?? []).map((reference) => (
+              <tr key={reference.referenceKey}>
+                <td className="px-3 py-2 font-mono text-xs text-foreground">{reference.schemaName}.{reference.tableName}</td>
+                <td className="px-3 py-2 font-mono text-xs text-foreground">{reference.columnName}</td>
+                <td className={`px-3 py-2 tabular-nums ${reference.rowCount == null ? "text-amber-200" : "text-foreground"}`}>
+                  {reference.rowCount == null ? "Unknown" : reference.rowCount.toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-secondary">{reference.deleteBehavior}</td>
+                <td className="px-3 py-2">
+                  {willMerge && reference.accessLimitation == null && reference.rowCount != null ? (
+                    <select
+                      value={choices[externalReferenceKey(reference)] ?? ""}
+                      onChange={(event) => onChange(reference, event.target.value as ExternalReferenceAction | "")}
+                      aria-label={`Database action for ${reference.schemaName}.${reference.tableName}.${reference.columnName} on tag ${impact.tagId}`}
+                      className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                    >
+                      <option value="">Choose action…</option>
+                      <option value="update-to-survivor">Update rows to survivor</option>
+                      <option value="delete-rows">Delete rows</option>
+                    </select>
+                  ) : willMerge ? (
+                    <span className="text-xs text-amber-200">Use extension or database administrator</span>
+                  ) : <span className="text-xs text-muted">Keep unchanged</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -452,7 +610,9 @@ function ImpactRow({ impact, recommended, selected, selectable, willMerge, radio
       <CountCell value={impact.childRelationshipCount} />
       <CountCell value={impact.ratingCount} />
       <CountCell value={impact.otherMetadataCount} />
-      <CountCell value={impact.extensionMetadataCount} />
+      {(impact.externalReferences ?? []).some((reference) => reference.rowCount == null)
+        ? <td className="px-3 py-2 text-amber-200">Unknown</td>
+        : <CountCell value={impact.extensionMetadataCount} />}
     </tr>
   );
 }
@@ -463,8 +623,11 @@ function describePlan(plan: GroupPlan | null) {
     plan.mergeTagIds.size > 0 ? `merge ${plan.mergeTagIds.size} tag${plan.mergeTagIds.size === 1 ? "" : "s"}` : null,
     plan.removedAliasCount > 0 ? `remove ${plan.removedAliasCount} alias${plan.removedAliasCount === 1 ? "" : "es"}` : null,
     plan.renamedClaimCount > 0 ? `rename ${plan.renamedClaimCount} claim${plan.renamedClaimCount === 1 ? "" : "s"}` : null,
+    plan.externalUpdatedRowCount > 0 ? `update ${plan.externalUpdatedRowCount} non-core row reference${plan.externalUpdatedRowCount === 1 ? "" : "s"} to the survivor` : null,
+    plan.externalDeletedRowCount > 0 ? `delete ${plan.externalDeletedRowCount} non-core row reference${plan.externalDeletedRowCount === 1 ? "" : "s"}` : null,
   ].filter(Boolean);
-  return `Cove will ${pieces.length > 0 ? pieces.join(", ") : "normalize the affected values"}. The operation is transactional and the scan refreshes afterward.`;
+  const deleteWarning = plan.externalDeletedRowCount > 0 ? " Deleting non-core rows may activate extension-defined triggers or cascades." : "";
+  return `Cove will ${pieces.length > 0 ? pieces.join(", ") : "normalize the affected values"}. The operation is transactional and the scan refreshes afterward.${deleteWarning}`;
 }
 
 function CountCell({ value }: { value: number }) {

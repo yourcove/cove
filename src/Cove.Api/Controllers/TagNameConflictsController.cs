@@ -38,6 +38,7 @@ public sealed class TagNameConflictsController(
                 request.ExpectedRevision,
                 request.SurvivorTagId,
                 request.Resolutions,
+                request.ExternalReferenceResolutions,
                 ct));
         }
         catch (ArgumentException exception)
@@ -52,11 +53,16 @@ public sealed class TagNameConflictsController(
                 message = exception.Message,
                 exception.ReferenceCount,
                 exception.AffectedTagCount,
+                exception.HasUninspectableReferences,
             });
         }
         catch (TagNameConflictException exception)
         {
             return Conflict(new { code = "TAG_NAME_RENAME_CONFLICT", message = exception.Message });
+        }
+        catch (TagExternalReferenceRepairException exception)
+        {
+            return Conflict(new { code = "TAG_EXTENSION_REFERENCE_REPAIR_FAILED", message = exception.Message });
         }
         catch (InvalidOperationException exception)
         {
@@ -84,6 +90,7 @@ public sealed class TagNameConflictsController(
                 message = exception.Message,
                 exception.ReferenceCount,
                 exception.AffectedTagCount,
+                exception.HasUninspectableReferences,
             });
         }
         catch (TagNameConflictException exception)

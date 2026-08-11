@@ -43,7 +43,18 @@ public sealed record TagNameImpactDto(
     int RatingCount,
     int OtherMetadataCount,
     int ExtensionMetadataCount,
+    IReadOnlyList<TagExternalReferenceDto> ExternalReferences,
     long ReferenceCount);
+
+public sealed record TagExternalReferenceDto(
+    int TagId,
+    string ReferenceKey,
+    string SchemaName,
+    string TableName,
+    string ColumnName,
+    string DeleteBehavior,
+    int? RowCount,
+    string? AccessLimitation = null);
 
 public sealed record TagNameClaimResolutionDto(
     int TagId,
@@ -51,10 +62,16 @@ public sealed record TagNameClaimResolutionDto(
     string Action,
     string? NewValue = null);
 
+public sealed record TagExternalReferenceResolutionDto(
+    int TagId,
+    string ReferenceKey,
+    string Action);
+
 public sealed record ResolveTagNameConflictDto(
     string GroupKey,
     string? ExpectedRevision = null,
     int? SurvivorTagId = null,
-    IReadOnlyList<TagNameClaimResolutionDto>? Resolutions = null);
+    IReadOnlyList<TagNameClaimResolutionDto>? Resolutions = null,
+    IReadOnlyList<TagExternalReferenceResolutionDto>? ExternalReferenceResolutions = null);
 
 public sealed record ResolveAllTagNameConflictsDto(string ExpectedRevision);

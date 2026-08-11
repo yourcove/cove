@@ -15,7 +15,8 @@ public sealed class TagNameConflictCleanupService(
     CoveContext db,
     TagNameConflictScanner scanner,
     TagMergeService mergeService,
-    BlobReferenceTransactionCoordinator? blobReferenceTransactions = null)
+    BlobReferenceTransactionCoordinator? blobReferenceTransactions = null,
+    ITagExternalReferenceInspector? externalReferenceInspector = null)
 {
     private const int ResolveAllSafetyLimit = 10_000;
     private sealed record PlannedAction(string Action, string? NewValue = null);
@@ -41,6 +42,21 @@ public sealed class TagNameConflictCleanupService(
         int? survivorTagId,
         IReadOnlyCollection<TagNameClaimResolutionDto>? resolutions,
         CancellationToken ct = default)
+        => await ResolveAsync(
+            groupKey,
+            expectedRevision,
+            survivorTagId,
+            resolutions,
+            null,
+            ct);
+
+    public async Task<TagNameConflictScanDto> ResolveAsync(
+        string groupKey,
+        string? expectedRevision,
+        int? survivorTagId,
+        IReadOnlyCollection<TagNameClaimResolutionDto>? resolutions,
+        IReadOnlyCollection<TagExternalReferenceResolutionDto>? externalReferenceResolutions,
+        CancellationToken ct = default)
     {
         var outcome = await ExecuteTransactionAsync(async () =>
         {
@@ -50,7 +66,12 @@ public sealed class TagNameConflictCleanupService(
             if (expectedRevision != null
                 && !string.Equals(group.Revision, expectedRevision, StringComparison.Ordinal))
                 throw new InvalidOperationException("The conflict group changed. Refresh the scan and review its claims before trying again.");
-            var merge = await ResolveGroupAsync(group, survivorTagId, resolutions, ct);
+            var merge = await ResolveGroupAsync(
+                group,
+                survivorTagId,
+                resolutions,
+                externalReferenceResolutions,
+                ct);
             return new ResolveOutcome(merge, await scanner.ScanAsync(ct));
         }, ct);
 
@@ -80,7 +101,7 @@ public sealed class TagNameConflictCleanupService(
                 if (group == null)
                     return new ResolveAllOutcome(attemptMerges, scan);
 
-                var merge = await ResolveGroupAsync(group, group.RecommendedSurvivorTagId, null, ct);
+                var merge = await ResolveGroupAsync(group, group.RecommendedSurvivorTagId, null, null, ct);
                 if (merge != null)
                     attemptMerges.Add(merge);
                 // Every group has been fully saved and validated at this point. Releasing its tracked
@@ -102,6 +123,7 @@ public sealed class TagNameConflictCleanupService(
         TagNameConflictGroupDto group,
         int? requestedSurvivorTagId,
         IReadOnlyCollection<TagNameClaimResolutionDto>? requestedResolutions,
+        IReadOnlyCollection<TagExternalReferenceResolutionDto>? requestedExternalReferenceResolutions,
         CancellationToken ct)
     {
         var ownerIds = group.Claims.Select(claim => claim.TagId).Distinct().Order().ToArray();
@@ -163,6 +185,11 @@ public sealed class TagNameConflictCleanupService(
             throw new ArgumentException("The selected survivor cannot be merged into itself.", nameof(requestedResolutions));
 
         ValidateCompletePlan(group, recommendation, actions, mergeTagIds);
+        var externalReferenceResolutions = ValidateExternalReferenceResolutions(
+            group,
+            recommendation.SurvivorTagId,
+            mergeTagIds,
+            requestedExternalReferenceResolutions);
 
         var survivingTagIds = ownerIds.Except(mergeTagIds).ToArray();
         var survivingTags = await db.Tags
@@ -203,6 +230,16 @@ public sealed class TagNameConflictCleanupService(
         // the survivor's alias rows while deduplicating them, so waiting until afterward would make
         // the scanned alias identifiers stale in otherwise valid mixed-action plans.
         await db.SaveChangesAsync(ct);
+
+        if (externalReferenceResolutions.Count > 0)
+        {
+            if (externalReferenceInspector == null)
+                throw new InvalidOperationException("Non-core tag-reference repair is unavailable.");
+            await externalReferenceInspector.ApplyResolutionsAsync(
+                recommendation.SurvivorTagId,
+                externalReferenceResolutions,
+                ct);
+        }
 
         TagMergeResult? merge = null;
         if (mergeTagIds.Length > 0)
@@ -280,6 +317,62 @@ public sealed class TagNameConflictCleanupService(
                 && action is not TagNameConflictActions.RemoveAlias and not TagNameConflictActions.Rename)
                 throw new ArgumentException("Every non-surviving alias must be merged, removed, or renamed.", nameof(actions));
         }
+    }
+
+    private static IReadOnlyList<TagExternalReferenceResolutionDto> ValidateExternalReferenceResolutions(
+        TagNameConflictGroupDto group,
+        int survivorTagId,
+        IReadOnlyCollection<int> mergeTagIds,
+        IReadOnlyCollection<TagExternalReferenceResolutionDto>? requestedResolutions)
+    {
+        // Resolve All deliberately supplies null and remains blocked by TagMergeService when a
+        // recommended source has non-core references. Only an explicitly reviewed group request may
+        // authorize generic database repair.
+        if (requestedResolutions == null)
+            return [];
+
+        var required = group.Impacts
+            .Where(impact => mergeTagIds.Contains(impact.TagId))
+            .SelectMany(impact => impact.ExternalReferences)
+            .OrderBy(reference => reference.TagId)
+            .ThenBy(reference => reference.ReferenceKey, StringComparer.Ordinal)
+            .ToArray();
+        var requested = requestedResolutions
+            .OrderBy(resolution => resolution.TagId)
+            .ThenBy(resolution => resolution.ReferenceKey, StringComparer.Ordinal)
+            .ToArray();
+
+        if (required.Any(reference => reference.AccessLimitation != null || reference.RowCount == null))
+            throw new TagExternalReferenceRepairException(
+                "A non-core table cannot be inspected or repaired safely because of row-level security or database permissions. Use the owning extension or a database administrator before merging this tag.");
+
+        if (requested.GroupBy(resolution => (resolution.TagId, resolution.ReferenceKey)).Any(grouping => grouping.Count() > 1))
+            throw new ArgumentException(
+                "A non-core reference location can have only one repair action per source tag.",
+                nameof(requestedResolutions));
+        if (requested.Any(resolution => resolution.TagId == survivorTagId
+            || !mergeTagIds.Contains(resolution.TagId)))
+            throw new ArgumentException(
+                "Non-core reference repairs can be selected only for tags being merged.",
+                nameof(requestedResolutions));
+        if (requested.Any(resolution => resolution.Action is not TagExternalReferenceActions.UpdateToSurvivor
+            and not TagExternalReferenceActions.DeleteRows))
+            throw new ArgumentException(
+                "The requested non-core reference action is not valid.",
+                nameof(requestedResolutions));
+
+        var requiredIdentities = required
+            .Select(reference => (reference.TagId, reference.ReferenceKey))
+            .ToHashSet();
+        var requestedIdentities = requested
+            .Select(resolution => (resolution.TagId, resolution.ReferenceKey))
+            .ToHashSet();
+        if (!requiredIdentities.SetEquals(requestedIdentities))
+            throw new ArgumentException(
+                "Choose an update or delete action for every non-core reference on each tag being merged, then try again.",
+                nameof(requestedResolutions));
+
+        return requested;
     }
 
     private async Task<TResult> ExecuteTransactionAsync<TResult>(Func<Task<TResult>> operation, CancellationToken ct)

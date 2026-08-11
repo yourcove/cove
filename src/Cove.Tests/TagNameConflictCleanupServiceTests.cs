@@ -9,6 +9,149 @@ namespace Cove.Tests;
 
 public sealed class TagNameConflictCleanupServiceTests
 {
+    [Theory]
+    [InlineData(TagExternalReferenceActions.UpdateToSurvivor)]
+    [InlineData(TagExternalReferenceActions.DeleteRows)]
+    public async Task ResolveAsync_AppliesReviewedNonCoreReferenceRepairBeforeMerging(string repairAction)
+    {
+        await using var db = CreateContext();
+        var survivor = new Tag { Name = "Alpha" };
+        var source = new Tag { Name = " alpha " };
+        db.Tags.AddRange(survivor, source);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var inspector = new MutableExternalReferenceInspector(source.Id, rowCount: 2);
+        var scanner = new TagNameConflictScanner(db, inspector);
+        var group = Assert.Single((await scanner.ScanAsync()).Groups);
+        var externalReference = Assert.Single(
+            Assert.Single(group.Impacts, impact => impact.TagId == source.Id).ExternalReferences);
+        var cleanup = new TagNameConflictCleanupService(
+            db,
+            scanner,
+            new TagMergeService(db, externalReferenceInspector: inspector),
+            externalReferenceInspector: inspector);
+
+        var refreshed = await cleanup.ResolveAsync(
+            group.Key,
+            group.Revision,
+            survivor.Id,
+            [new TagNameClaimResolutionDto(source.Id, null, TagNameConflictActions.MergeTag)],
+            [new TagExternalReferenceResolutionDto(source.Id, externalReference.ReferenceKey, repairAction)]);
+
+        Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.False(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        var applied = Assert.Single(inspector.AppliedResolutions);
+        Assert.Equal(survivor.Id, inspector.AppliedTargetTagId);
+        Assert.Equal(repairAction, applied.Action);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_RequiresAReviewedActionForEveryNonCoreReferenceOnAMergeSource()
+    {
+        await using var db = CreateContext();
+        var survivor = new Tag { Name = "Alpha" };
+        var source = new Tag { Name = " alpha " };
+        db.Tags.AddRange(survivor, source);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var inspector = new MutableExternalReferenceInspector(source.Id, rowCount: 2);
+        var scanner = new TagNameConflictScanner(db, inspector);
+        var group = Assert.Single((await scanner.ScanAsync()).Groups);
+        var cleanup = new TagNameConflictCleanupService(
+            db,
+            scanner,
+            new TagMergeService(db, externalReferenceInspector: inspector),
+            externalReferenceInspector: inspector);
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => cleanup.ResolveAsync(
+            group.Key,
+            group.Revision,
+            survivor.Id,
+            [new TagNameClaimResolutionDto(source.Id, null, TagNameConflictActions.MergeTag)],
+            [],
+            default));
+
+        Assert.Contains("every non-core reference", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        Assert.Empty(inspector.AppliedResolutions);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_BlocksRestrictedNonCoreReferencesWithoutOfferingGenericRepair()
+    {
+        await using var db = CreateContext();
+        var survivor = new Tag { Name = "Alpha" };
+        var source = new Tag { Name = " alpha " };
+        db.Tags.AddRange(survivor, source);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var inspector = new MutableExternalReferenceInspector(source.Id, rowCount: 1);
+        inspector.SetAccessLimitation(source.Id, TagExternalReferenceAccessLimitations.RowLevelSecurity);
+        var scanner = new TagNameConflictScanner(db, inspector);
+        var group = Assert.Single((await scanner.ScanAsync()).Groups);
+        var reference = Assert.Single(
+            Assert.Single(group.Impacts, impact => impact.TagId == source.Id).ExternalReferences);
+        Assert.Null(reference.RowCount);
+        var cleanup = new TagNameConflictCleanupService(
+            db,
+            scanner,
+            new TagMergeService(db, externalReferenceInspector: inspector),
+            externalReferenceInspector: inspector);
+
+        var exception = await Assert.ThrowsAsync<TagExternalReferenceRepairException>(() => cleanup.ResolveAsync(
+            group.Key,
+            group.Revision,
+            survivor.Id,
+            [new TagNameClaimResolutionDto(source.Id, null, TagNameConflictActions.MergeTag)],
+            [],
+            default));
+
+        Assert.Contains("cannot be inspected", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        Assert.Empty(inspector.AppliedResolutions);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_RejectsAStaleNonCoreReferenceInventory()
+    {
+        await using var db = CreateContext();
+        var survivor = new Tag { Name = "Alpha" };
+        var source = new Tag { Name = " alpha " };
+        db.Tags.AddRange(survivor, source);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var inspector = new MutableExternalReferenceInspector(source.Id, rowCount: 1);
+        var scanner = new TagNameConflictScanner(db, inspector);
+        var staleGroup = Assert.Single((await scanner.ScanAsync()).Groups);
+        var externalReference = Assert.Single(
+            Assert.Single(staleGroup.Impacts, impact => impact.TagId == source.Id).ExternalReferences);
+        inspector.SetRowCount(source.Id, 2);
+        var cleanup = new TagNameConflictCleanupService(
+            db,
+            scanner,
+            new TagMergeService(db, externalReferenceInspector: inspector),
+            externalReferenceInspector: inspector);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => cleanup.ResolveAsync(
+            staleGroup.Key,
+            staleGroup.Revision,
+            survivor.Id,
+            [new TagNameClaimResolutionDto(source.Id, null, TagNameConflictActions.MergeTag)],
+            [new TagExternalReferenceResolutionDto(
+                source.Id,
+                externalReference.ReferenceKey,
+                TagExternalReferenceActions.UpdateToSurvivor)],
+            default));
+
+        Assert.Contains("changed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+        Assert.Empty(inspector.AppliedResolutions);
+    }
+
     [Fact]
     public async Task ResolveAsync_CanMixMergeAndAliasRemovalWithinOneGroup()
     {
@@ -514,9 +657,77 @@ public sealed class TagNameConflictCleanupServiceTests
 
     private sealed class ThrowingImpactInspector : ITagExternalReferenceInspector
     {
-        public Task<IReadOnlyDictionary<int, int>> CountAsync(
+        public Task<IReadOnlyList<TagExternalReferenceDto>> InspectAsync(
             IReadOnlyCollection<int> tagIds,
             CancellationToken ct = default)
             => throw new InvalidOperationException("Expected refreshed impact scan failure.");
+
+        public Task ApplyResolutionsAsync(
+            int targetTagId,
+            IReadOnlyCollection<TagExternalReferenceResolutionDto> resolutions,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class MutableExternalReferenceInspector : ITagExternalReferenceInspector
+    {
+        private readonly Dictionary<int, TagExternalReferenceDto> references = [];
+
+        public MutableExternalReferenceInspector(int tagId, int rowCount)
+            => SetRowCount(tagId, rowCount);
+
+        public int? AppliedTargetTagId { get; private set; }
+        public List<TagExternalReferenceResolutionDto> AppliedResolutions { get; } = [];
+
+        public void SetRowCount(int tagId, int rowCount)
+        {
+            if (rowCount <= 0)
+            {
+                references.Remove(tagId);
+                return;
+            }
+
+            references[tagId] = new TagExternalReferenceDto(
+                tagId,
+                "fixture-reference",
+                "public",
+                "extension_fixture",
+                "tag_id",
+                "restrict",
+                rowCount);
+        }
+
+        public void SetAccessLimitation(int tagId, string accessLimitation)
+        {
+            references[tagId] = new TagExternalReferenceDto(
+                tagId,
+                "fixture-reference",
+                "public",
+                "extension_fixture",
+                "tag_id",
+                "cascade",
+                null,
+                accessLimitation);
+        }
+
+        public Task<IReadOnlyList<TagExternalReferenceDto>> InspectAsync(
+            IReadOnlyCollection<int> tagIds,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<TagExternalReferenceDto>>(references.Values
+                .Where(reference => tagIds.Contains(reference.TagId))
+                .OrderBy(reference => reference.TagId)
+                .ToArray());
+
+        public Task ApplyResolutionsAsync(
+            int targetTagId,
+            IReadOnlyCollection<TagExternalReferenceResolutionDto> resolutions,
+            CancellationToken ct = default)
+        {
+            AppliedTargetTagId = targetTagId;
+            AppliedResolutions.AddRange(resolutions);
+            foreach (var resolution in resolutions)
+                references.Remove(resolution.TagId);
+            return Task.CompletedTask;
+        }
     }
 }

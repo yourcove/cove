@@ -130,10 +130,12 @@ public sealed class TagMergeService(
         if (externalReferenceInspector == null || sourceIds.Length == 0)
             return;
 
-        var counts = await externalReferenceInspector.CountAsync(sourceIds, ct);
-        var affected = counts.Where(entry => entry.Value > 0).ToArray();
-        if (affected.Length > 0)
-            throw new TagMergeBlockedException(affected.Sum(entry => entry.Value), affected.Length);
+        var references = await externalReferenceInspector.InspectAsync(sourceIds, ct);
+        if (references.Count > 0)
+            throw new TagMergeBlockedException(
+                references.Sum(reference => reference.RowCount ?? 0),
+                references.Select(reference => reference.TagId).Distinct().Count(),
+                references.Any(reference => reference.AccessLimitation != null));
     }
 
     internal void PublishCompletedMerge(TagMergeResult result)

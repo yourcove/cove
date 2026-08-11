@@ -41,7 +41,8 @@ public static class TagNameRules
 
     public static string ConflictGroupRevision(
         IEnumerable<TagNameRevisionClaim> claims,
-        int recommendedSurvivorTagId)
+        int recommendedSurvivorTagId,
+        IEnumerable<TagExternalReferenceRevision>? externalReferences = null)
     {
         var ordered = claims
             .OrderBy(claim => claim.TagId)
@@ -49,10 +50,16 @@ public static class TagNameRules
             .ThenBy(claim => claim.AliasId)
             .ThenBy(claim => claim.OriginalValue, StringComparer.Ordinal)
             .ToArray();
+        var orderedExternalReferences = (externalReferences ?? [])
+            .OrderBy(reference => reference.TagId)
+            .ThenBy(reference => reference.ReferenceKey, StringComparer.Ordinal)
+            .ThenBy(reference => reference.RowCount)
+            .ToArray();
         var payload = JsonSerializer.SerializeToUtf8Bytes(new
         {
             Claims = ordered,
             RecommendedSurvivorTagId = recommendedSurvivorTagId,
+            ExternalReferences = orderedExternalReferences,
         });
         return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
     }
@@ -90,6 +97,12 @@ public sealed record TagNameRevisionClaim(
 
 public sealed record TagNameGroupRevision(string Key, string Revision);
 
+public sealed record TagExternalReferenceRevision(
+    int TagId,
+    string ReferenceKey,
+    int? RowCount,
+    string? AccessLimitation = null);
+
 public static class TagNameClaimTypes
 {
     public const string CanonicalName = "tag-name";
@@ -114,6 +127,18 @@ public static class TagNameConflictActions
     public const string MergeTag = "merge-tag";
     public const string RemoveAlias = "remove-alias";
     public const string Rename = "rename";
+}
+
+public static class TagExternalReferenceActions
+{
+    public const string UpdateToSurvivor = "update-to-survivor";
+    public const string DeleteRows = "delete-rows";
+}
+
+public static class TagExternalReferenceAccessLimitations
+{
+    public const string RowLevelSecurity = "row-level-security";
+    public const string DatabasePermission = "database-permission";
 }
 
 public readonly record struct TagNameClaimIdentity(int TagId, int? AliasId);

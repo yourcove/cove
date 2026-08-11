@@ -454,6 +454,23 @@ export interface TagNameClaimResolution {
   newValue?: string | null;
 }
 
+export interface TagExternalReferenceResolution {
+  tagId: number;
+  referenceKey: string;
+  action: "update-to-survivor" | "delete-rows";
+}
+
+export interface TagExternalReference {
+  tagId: number;
+  referenceKey: string;
+  schemaName: string;
+  tableName: string;
+  columnName: string;
+  deleteBehavior: string;
+  rowCount: number | null;
+  accessLimitation: "row-level-security" | "database-permission" | null;
+}
+
 export interface TagNameConflictImpact {
   tagId: number;
   tagName: string;
@@ -465,6 +482,7 @@ export interface TagNameConflictImpact {
   ratingCount: number;
   otherMetadataCount: number;
   extensionMetadataCount: number;
+  externalReferences: TagExternalReference[];
 }
 
 export interface Studio {

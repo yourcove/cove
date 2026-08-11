@@ -4,7 +4,7 @@ import type {
   Video, VideoCreate, VideoUpdate, VideoListEntry,
   Performer, PerformerCreate, PerformerUpdate,
   Tag, TagDetail, TagCreate, TagUpdate, TagSegmentWall,
-  TagNameConflictScan, TagNameConflictSummary, TagNameClaimResolution,
+  TagNameConflictScan, TagNameConflictSummary, TagNameClaimResolution, TagExternalReferenceResolution,
   TagApplication, TagApplicationCreate, TagGroup, TagGroupCreate, TagGroupUpdate,
   TagGraphNode, TagGraphResponse,
   Studio, StudioCreate, StudioUpdate,
@@ -790,10 +790,16 @@ export const tags = {
 export const tagNameConflicts = {
   scan: () => request<TagNameConflictScan>("/tag-name-conflicts", { timeoutMs: null }),
   summary: () => request<TagNameConflictSummary>("/tag-name-conflicts/summary", { timeoutMs: null }),
-  resolve: (groupKey: string, expectedRevision: string, survivorTagId?: number, resolutions?: TagNameClaimResolution[]) =>
+  resolve: (
+    groupKey: string,
+    expectedRevision: string,
+    survivorTagId?: number,
+    resolutions?: TagNameClaimResolution[],
+    externalReferenceResolutions?: TagExternalReferenceResolution[],
+  ) =>
     request<TagNameConflictScan>("/tag-name-conflicts/resolve", {
       method: "POST",
-      body: JSON.stringify({ groupKey, expectedRevision, survivorTagId, resolutions }),
+      body: JSON.stringify({ groupKey, expectedRevision, survivorTagId, resolutions, externalReferenceResolutions }),
       timeoutMs: null,
     }),
   resolveAll: (expectedRevision: string) => request<TagNameConflictScan>("/tag-name-conflicts/resolve-all", {

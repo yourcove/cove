@@ -52,12 +52,39 @@ public sealed class TagNameConflictScanner(
             .IgnoreQueryFilters()
             .AsNoTracking()
             .OrderBy(tag => tag.Id)
+            // Keep the compatibility scan usable before the 1.3 enforcement migration adds the
+            // persisted NamespaceKey column. Every projected field exists at the 1.2 checkpoint.
+            .Select(tag => new Tag
+            {
+                Id = tag.Id,
+                Name = tag.Name,
+                SortName = tag.SortName,
+                Description = tag.Description,
+                Color = tag.Color,
+                TagGroupId = tag.TagGroupId,
+                Favorite = tag.Favorite,
+                Organized = tag.Organized,
+                MinOccurrenceSec = tag.MinOccurrenceSec,
+                MinOccurrencePercent = tag.MinOccurrencePercent,
+                ShowAsSegment = tag.ShowAsSegment,
+                SegmentColorOverride = tag.SegmentColorOverride,
+                SegmentLaneOverride = tag.SegmentLaneOverride,
+                ImageBlobId = tag.ImageBlobId,
+                ImageOverrideBlobId = tag.ImageOverrideBlobId,
+                SearchText = tag.SearchText,
+            })
             .ToListAsync(ct);
         var tagNames = tags.ToDictionary(tag => tag.Id, tag => tag.Name);
         var aliases = await db.Set<TagAlias>()
             .IgnoreQueryFilters()
             .AsNoTracking()
             .OrderBy(alias => alias.Id)
+            .Select(alias => new TagAlias
+            {
+                Id = alias.Id,
+                TagId = alias.TagId,
+                Alias = alias.Alias,
+            })
             .ToListAsync(ct);
 
         var claims = new List<Claim>(tags.Count + aliases.Count);
@@ -170,6 +197,7 @@ public sealed class TagNameConflictScanner(
                     0,
                     0,
                     0,
+                    [],
                     0));
 
         var resultGroups = groups
@@ -199,10 +227,20 @@ public sealed class TagNameConflictScanner(
             claim.AliasId,
             claim.OriginalValue,
             claim.NormalizedValue));
+        var revisionExternalReferences = ownerIds
+            .SelectMany(tagId => impacts[tagId].ExternalReferences)
+            .Select(reference => new TagExternalReferenceRevision(
+                reference.TagId,
+                reference.ReferenceKey,
+                reference.RowCount,
+                reference.AccessLimitation));
 
         return new TagNameConflictGroupDto(
             group.Key,
-            TagNameRules.ConflictGroupRevision(revisionClaims, recommendation.SurvivorTagId),
+            TagNameRules.ConflictGroupRevision(
+                revisionClaims,
+                recommendation.SurvivorTagId,
+                revisionExternalReferences),
             group.NormalizedName,
             group.Kinds,
             recommendation.MergeTagIds.Count > 0,
@@ -234,6 +272,7 @@ public sealed class TagNameConflictScanner(
         var ratings = tagIds.ToDictionary(tagId => tagId, _ => 0);
         var otherMetadata = tagIds.ToDictionary(tagId => tagId, _ => 0);
         var extensionMetadata = tagIds.ToDictionary(tagId => tagId, _ => 0);
+        IReadOnlyList<TagExternalReferenceDto> externalReferences = [];
         if (tagIds.Length == 0)
             return new Dictionary<int, TagNameImpactDto>();
 
@@ -418,10 +457,11 @@ public sealed class TagNameConflictScanner(
 
         if (externalReferenceInspector != null)
         {
-            var counts = await externalReferenceInspector.CountAsync(tagIds, ct);
-            foreach (var (tagId, count) in counts)
-                if (extensionMetadata.ContainsKey(tagId))
-                    extensionMetadata[tagId] = count;
+            externalReferences = await externalReferenceInspector.InspectAsync(tagIds, ct);
+            foreach (var reference in externalReferences)
+                if (extensionMetadata.ContainsKey(reference.TagId))
+                    extensionMetadata[reference.TagId] = checked(
+                        extensionMetadata[reference.TagId] + (reference.RowCount ?? 0));
         }
 
         var referenceCounts = tagIds.ToDictionary(tagId => tagId, tagId =>
@@ -449,6 +489,7 @@ public sealed class TagNameConflictScanner(
                 ratings[tagId],
                 otherMetadata[tagId],
                 extensionMetadata[tagId],
+                externalReferences.Where(reference => reference.TagId == tagId).ToArray(),
                 referenceCounts[tagId]);
         });
     }

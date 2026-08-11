@@ -1,3 +1,4 @@
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
@@ -292,6 +293,12 @@ public sealed class TagNameConflictScannerTests
         Assert.Equal(1, impacted.RatingCount);
         Assert.Equal(13, impacted.OtherMetadataCount);
         Assert.Equal(4, impacted.ExtensionMetadataCount);
+        var externalReference = Assert.Single(impacted.ExternalReferences);
+        Assert.Equal("public", externalReference.SchemaName);
+        Assert.Equal("extension_fixture", externalReference.TableName);
+        Assert.Equal("tag_id", externalReference.ColumnName);
+        Assert.Equal("restrict", externalReference.DeleteBehavior);
+        Assert.Equal(4, externalReference.RowCount);
         Assert.Equal(22, impacted.ReferenceCount);
     }
 
@@ -309,17 +316,39 @@ public sealed class TagNameConflictScannerTests
     private sealed class StubExternalReferenceInspector(IReadOnlyDictionary<int, int> counts)
         : ITagExternalReferenceInspector
     {
-        public Task<IReadOnlyDictionary<int, int>> CountAsync(
+        public Task<IReadOnlyList<TagExternalReferenceDto>> InspectAsync(
             IReadOnlyCollection<int> tagIds,
             CancellationToken ct = default)
-            => Task.FromResult(counts);
+            => Task.FromResult<IReadOnlyList<TagExternalReferenceDto>>(counts
+                .Where(entry => entry.Value > 0 && tagIds.Contains(entry.Key))
+                .Select(entry => new TagExternalReferenceDto(
+                    entry.Key,
+                    $"fixture-{entry.Key}",
+                    "public",
+                    "extension_fixture",
+                    "tag_id",
+                    "restrict",
+                    entry.Value))
+                .ToArray());
+
+        public Task ApplyResolutionsAsync(
+            int targetTagId,
+            IReadOnlyCollection<TagExternalReferenceResolutionDto> resolutions,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class ThrowingExternalReferenceInspector : ITagExternalReferenceInspector
     {
-        public Task<IReadOnlyDictionary<int, int>> CountAsync(
+        public Task<IReadOnlyList<TagExternalReferenceDto>> InspectAsync(
             IReadOnlyCollection<int> tagIds,
             CancellationToken ct = default)
             => throw new InvalidOperationException("Summary scans must not load impact data.");
+
+        public Task ApplyResolutionsAsync(
+            int targetTagId,
+            IReadOnlyCollection<TagExternalReferenceResolutionDto> resolutions,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 }

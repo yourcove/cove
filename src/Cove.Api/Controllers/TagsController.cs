@@ -1046,6 +1046,7 @@ public class TagsController(
                 message = exception.Message,
                 exception.ReferenceCount,
                 exception.AffectedTagCount,
+                exception.HasUninspectableReferences,
             });
         }
 

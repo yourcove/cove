@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
@@ -28,6 +29,27 @@ public sealed class TagMergeServiceTests
         Assert.Equal(2, exception.ReferenceCount);
         Assert.Equal(1, exception.AffectedTagCount);
         Assert.True(await db.Tags.AnyAsync(tag => tag.Id == target.Id));
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
+    }
+
+    [Fact]
+    public async Task MergeAsync_FailsClosedWhenNonCoreReferencesCannotBeInspected()
+    {
+        await using var db = CreateContext();
+        var target = new Tag { Name = "Target" };
+        var source = new Tag { Name = "Source" };
+        db.Tags.AddRange(target, source);
+        await db.SaveChangesAsync();
+
+        var inspector = new StubExternalReferenceInspector(
+            new Dictionary<int, int> { [source.Id] = 1 },
+            restricted: true);
+
+        var exception = await Assert.ThrowsAsync<TagMergeBlockedException>(
+            () => new TagMergeService(db, externalReferenceInspector: inspector)
+                .MergeAsync(target.Id, [source.Id]));
+
+        Assert.True(exception.HasUninspectableReferences);
         Assert.True(await db.Tags.AnyAsync(tag => tag.Id == source.Id));
     }
 
@@ -755,12 +777,31 @@ public sealed class TagMergeServiceTests
         return context;
     }
 
-    private sealed class StubExternalReferenceInspector(IReadOnlyDictionary<int, int> counts)
+    private sealed class StubExternalReferenceInspector(
+        IReadOnlyDictionary<int, int> counts,
+        bool restricted = false)
         : ITagExternalReferenceInspector
     {
-        public Task<IReadOnlyDictionary<int, int>> CountAsync(
+        public Task<IReadOnlyList<TagExternalReferenceDto>> InspectAsync(
             IReadOnlyCollection<int> tagIds,
             CancellationToken ct = default)
-            => Task.FromResult(counts);
+            => Task.FromResult<IReadOnlyList<TagExternalReferenceDto>>(counts
+                .Where(entry => entry.Value > 0 && tagIds.Contains(entry.Key))
+                .Select(entry => new TagExternalReferenceDto(
+                    entry.Key,
+                    $"fixture-{entry.Key}",
+                    "public",
+                    "extension_fixture",
+                    "tag_id",
+                    "restrict",
+                    restricted ? null : entry.Value,
+                    restricted ? TagExternalReferenceAccessLimitations.RowLevelSecurity : null))
+                .ToArray());
+
+        public Task ApplyResolutionsAsync(
+            int targetTagId,
+            IReadOnlyCollection<TagExternalReferenceResolutionDto> resolutions,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 }
