@@ -289,7 +289,9 @@ public sealed class Phase12SchemaParityTests
                         .AddAsync(new Tag { Name = " concurrent TAG " })));
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<TagNameConflictException>(Assert.Single(errors, error => error != null));
-                Assert.Equal("The requested tag name or alias is already claimed by another tag.", conflict.Message);
+                Assert.Equal(
+                    "A tag with that name or alias already exists. Tag names and tag aliases must be unique.",
+                    conflict.Message);
             }
 
             var performerBarrier = new AsyncTwoPartyBarrier();
@@ -310,6 +312,9 @@ public sealed class Phase12SchemaParityTests
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<EntityNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(NameConflictEntityTypes.Performer, conflict.EntityType);
+                Assert.Equal(
+                    "A performer with that name and disambiguation already exists. Performer name and disambiguation combinations must be unique.",
+                    conflict.Message);
             }
 
             var studioBarrier = new AsyncTwoPartyBarrier();
@@ -330,6 +335,9 @@ public sealed class Phase12SchemaParityTests
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<EntityNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(NameConflictEntityTypes.Studio, conflict.EntityType);
+                Assert.Equal(
+                    "A studio with that name already exists. Studio names must be unique.",
+                    conflict.Message);
             }
 
             await using var verify = CreateContext(environment.Port, databaseName);

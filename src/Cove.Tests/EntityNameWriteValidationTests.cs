@@ -23,6 +23,9 @@ public sealed class EntityNameWriteValidationTests
         var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
 
         Assert.Equal(NameConflictEntityTypes.Performer, exception.EntityType);
+        Assert.Equal(
+            "A performer with name \"Alpha\" and disambiguation \"One\" already exists. Performer name and disambiguation combinations must be unique.",
+            exception.Message);
     }
 
     [Fact]
@@ -75,6 +78,24 @@ public sealed class EntityNameWriteValidationTests
 
         var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
         Assert.Equal(NameConflictEntityTypes.Studio, exception.EntityType);
+        Assert.Equal(
+            "A studio with name \"Studio\" already exists. Studio names must be unique.",
+            exception.Message);
+    }
+
+    [Fact]
+    public async Task PerformerWrites_IdentifyAnExistingIdentityWithoutDisambiguation()
+    {
+        await using var db = CreateContext();
+        db.Performers.Add(new Performer { Name = "Single Name" });
+        await db.SaveChangesAsync();
+
+        db.Performers.Add(new Performer { Name = " single NAME ", Disambiguation = " " });
+        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
+
+        Assert.Equal(
+            "A performer with name \"Single Name\" and no disambiguation already exists. Performer name and disambiguation combinations must be unique.",
+            exception.Message);
     }
 
     [Fact]

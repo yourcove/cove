@@ -47,6 +47,29 @@ public sealed class TagNameWriteValidationTests
 
         var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync());
         Assert.Equal("reserved", exception.ConflictingName);
+        Assert.Equal(
+            "A tag alias with name \"Reserved\" already exists. Tag names and tag aliases must be unique.",
+            exception.Message);
+    }
+
+    [Fact]
+    public async Task SaveChanges_IdentifiesCanonicalClaimWhenAddingAConflictingAlias()
+    {
+        await using var db = CreateContext();
+        db.Tags.Add(new Tag { Name = "Facial" });
+        await db.SaveChangesAsync();
+
+        db.Tags.Add(new Tag
+        {
+            Name = "Category: Shot Type",
+            Aliases = [new TagAlias { Alias = " facial " }],
+        });
+
+        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() => db.SaveChangesAsync());
+
+        Assert.Equal(
+            "A tag with name \"Facial\" already exists. Tag names and tag aliases must be unique.",
+            exception.Message);
     }
 
     [Fact]

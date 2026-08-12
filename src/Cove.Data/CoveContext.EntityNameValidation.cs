@@ -36,8 +36,12 @@ public partial class CoveContext
                 .Where(performer => !excludedIds.Contains(performer.Id))
                 .Select(performer => new { performer.Name, performer.Disambiguation })
                 .ToList()
-                .Select(performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation))
-                .ToHashSet(StringComparer.Ordinal);
+                .Select(performer => new EntityIdentityTarget(
+                    NameConflictEntityTypes.Performer,
+                    EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+                    performer.Name,
+                    performer.Disambiguation))
+                .ToArray();
             ThrowForPersistedIdentityConflicts(performers, existing);
         }
 
@@ -54,8 +58,12 @@ public partial class CoveContext
                 .Where(studio => !excludedIds.Contains(studio.Id))
                 .Select(studio => studio.Name)
                 .ToList()
-                .Select(EntityNameRules.StudioIdentityKey)
-                .ToHashSet(StringComparer.Ordinal);
+                .Select(name => new EntityIdentityTarget(
+                    NameConflictEntityTypes.Studio,
+                    EntityNameRules.StudioIdentityKey(name),
+                    name,
+                    null))
+                .ToArray();
             ThrowForPersistedIdentityConflicts(studios, existing);
         }
     }
@@ -80,8 +88,12 @@ public partial class CoveContext
                 .Select(performer => new { performer.Name, performer.Disambiguation })
                 .ToListAsync(cancellationToken);
             var existing = rows
-                .Select(performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation))
-                .ToHashSet(StringComparer.Ordinal);
+                .Select(performer => new EntityIdentityTarget(
+                    NameConflictEntityTypes.Performer,
+                    EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+                    performer.Name,
+                    performer.Disambiguation))
+                .ToArray();
             ThrowForPersistedIdentityConflicts(performers, existing);
         }
 
@@ -99,8 +111,12 @@ public partial class CoveContext
                 .Select(studio => studio.Name)
                 .ToListAsync(cancellationToken);
             var existing = rows
-                .Select(EntityNameRules.StudioIdentityKey)
-                .ToHashSet(StringComparer.Ordinal);
+                .Select(name => new EntityIdentityTarget(
+                    NameConflictEntityTypes.Studio,
+                    EntityNameRules.StudioIdentityKey(name),
+                    name,
+                    null))
+                .ToArray();
             ThrowForPersistedIdentityConflicts(studios, existing);
         }
     }
@@ -130,6 +146,8 @@ public partial class CoveContext
             candidates.Add(new EntityIdentityCandidate(
                 NameConflictEntityTypes.Performer,
                 identityKey,
+                normalizedName,
+                normalizedDisambiguation,
                 entry.Entity.Id > 0 ? entry.Entity.Id : null));
         }
 
@@ -155,6 +173,8 @@ public partial class CoveContext
             candidates.Add(new EntityIdentityCandidate(
                 NameConflictEntityTypes.Studio,
                 identityKey,
+                normalizedName,
+                null,
                 entry.Entity.Id > 0 ? entry.Entity.Id : null));
         }
 
@@ -167,21 +187,45 @@ public partial class CoveContext
             .GroupBy(candidate => candidate.IdentityKey, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicate != null)
-            throw new EntityNameConflictException(duplicate.First().EntityType);
+        {
+            var existing = duplicate.First();
+            throw EntityNameConflictException.ForExistingIdentity(
+                existing.EntityType,
+                existing.Name,
+                existing.Disambiguation);
+        }
     }
 
     private static void ThrowForPersistedIdentityConflicts(
         IReadOnlyCollection<EntityIdentityCandidate> candidates,
-        IReadOnlySet<string> existingKeys)
+        IReadOnlyCollection<EntityIdentityTarget> existingIdentities)
     {
-        var conflict = candidates.FirstOrDefault(candidate => existingKeys.Contains(candidate.IdentityKey));
-        if (conflict != null)
-            throw new EntityNameConflictException(conflict.EntityType);
+        var existingByKey = existingIdentities
+            .GroupBy(identity => identity.IdentityKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            if (existingByKey.TryGetValue(candidate.IdentityKey, out var existing))
+            {
+                throw EntityNameConflictException.ForExistingIdentity(
+                    existing.EntityType,
+                    existing.Name,
+                    existing.Disambiguation);
+            }
+        }
     }
+
+    private record EntityIdentityTarget(
+        string EntityType,
+        string IdentityKey,
+        string Name,
+        string? Disambiguation);
 
     private sealed record EntityIdentityCandidate(
         string EntityType,
         string IdentityKey,
+        string Name,
+        string? Disambiguation,
         int? EntityId);
 
     private sealed class EntityNameValidationScope(CoveContext context) : IDisposable

@@ -232,6 +232,7 @@ query Me {
     private Dictionary<string, int[]>? _performerIdentityIndex;
     private Dictionary<string, int[]>? _studioIdentityIndex;
     private Dictionary<string, int[]>? _tagNamespaceOwnerIndex;
+    private Dictionary<string, TagNamespaceClaim>? _tagNamespaceClaimIndex;
     private Dictionary<int, HashSet<string>>? _tagNamespaceKeysByOwner;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -657,6 +658,7 @@ query Me {
     public async Task<MetadataServerBatchTagResultDto> BatchTagTagsAsync(string endpoint, IEnumerable<int> tagIds, bool refreshAlreadyTagged, IEnumerable<string>? excludeFields, IJobProgress? progress, CancellationToken ct)
     {
         _tagNamespaceOwnerIndex = null;
+        _tagNamespaceClaimIndex = null;
         var tags = await _db.Tags
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
@@ -874,6 +876,7 @@ query Me {
         if (invalidateTagNamespace)
         {
             _tagNamespaceOwnerIndex = null;
+            _tagNamespaceClaimIndex = null;
             _tagNamespaceKeysByOwner = null;
         }
     }
@@ -2425,14 +2428,23 @@ query Me {
             var claims = namespaceRows.SelectMany(entity => entity.Aliases
                     .Select(TagNameRules.NormalizeAlias)
                     .Where(alias => alias != null)
-                    .Select(alias => (Key: TagNameRules.NamespaceKey(alias!), entity.Id))
-                    .Append((Key: TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(entity.Name)), entity.Id)))
+                    .Select(alias => new TagNamespaceClaim(
+                        TagNameRules.NamespaceKey(alias!), entity.Id, alias!, IsAlias: true))
+                    .Append(new TagNamespaceClaim(
+                        TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(entity.Name)),
+                        entity.Id,
+                        TagNameRules.NormalizeCanonicalName(entity.Name),
+                        IsAlias: false)))
                 .ToArray();
             _tagNamespaceOwnerIndex = claims.GroupBy(claim => claim.Key, StringComparer.Ordinal).ToDictionary(
                 group => group.Key,
-                group => group.Select(claim => claim.Id).Distinct().Order().ToArray(),
+                group => group.Select(claim => claim.OwnerId).Distinct().Order().ToArray(),
                 StringComparer.Ordinal);
-            _tagNamespaceKeysByOwner = claims.GroupBy(claim => claim.Id).ToDictionary(
+            _tagNamespaceClaimIndex = claims.GroupBy(claim => claim.Key, StringComparer.Ordinal).ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(claim => claim.IsAlias).ThenBy(claim => claim.OwnerId).First(),
+                StringComparer.Ordinal);
+            _tagNamespaceKeysByOwner = claims.GroupBy(claim => claim.OwnerId).ToDictionary(
                 group => group.Key,
                 group => group.Select(claim => claim.Key).ToHashSet(StringComparer.Ordinal));
         }
@@ -2441,19 +2453,51 @@ query Me {
             .Where(entry => entry.State != EntityState.Deleted)
             .Select(entry => entry.Entity)
             .ToArray();
-        bool IsClaimedByAnotherTag(string value)
+        TagNamespaceClaim? FindClaimByAnotherTag(string value)
         {
             var key = TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(value));
-            if (_tagNamespaceOwnerIndex.GetValueOrDefault(key, [])
-                .Any(ownerId => ownerId != tag.Id))
-                return true;
-
-            return trackedTags.Any(owner => !ReferenceEquals(owner, tag)
-                && (TagNameKey(owner.Name) == key
-                    || owner.Aliases.Any(alias => TagAliasKey(alias.Alias) == key)));
+            var trackedOwnerIds = trackedTags
+                .Where(owner => owner.Id > 0)
+                .Select(owner => owner.Id)
+                .ToHashSet();
+            var trackedOwnersWithLoadedAliases = trackedTags
+                .Where(owner => owner.Id > 0 && _db.Entry(owner).Collection(entity => entity.Aliases).IsLoaded)
+                .Select(owner => owner.Id)
+                .ToHashSet();
+            var trackedClaims = trackedTags
+                .Where(owner => !ReferenceEquals(owner, tag))
+                .SelectMany(owner => owner.Aliases
+                    .Where(alias => _db.Entry(alias).State != EntityState.Deleted
+                        && TagAliasKey(alias.Alias) == key)
+                    .Select(alias => new TagNamespaceClaim(key, owner.Id, alias.Alias, IsAlias: true))
+                    .Append(new TagNamespaceClaim(key, owner.Id, owner.Name, IsAlias: false))
+                    .Where(claim => claim.IsAlias || TagNameKey(claim.DisplayName) == key));
+            var persisted = _tagNamespaceClaimIndex?.GetValueOrDefault(key);
+            var trackedAliasChangedForKey = persisted != null
+                && _db.ChangeTracker.Entries<TagAlias>().Any(alias =>
+                    alias.Entity.TagId == persisted.OwnerId
+                    && alias.State is EntityState.Modified or EntityState.Deleted
+                    && TagAliasKey(alias.Property(item => item.Alias).OriginalValue) == key);
+            var persistedIsOverriddenByTrackedState = persisted != null
+                && trackedOwnerIds.Contains(persisted.OwnerId)
+                && (!persisted.IsAlias
+                    || trackedOwnersWithLoadedAliases.Contains(persisted.OwnerId)
+                    || trackedAliasChangedForKey);
+            var persistedClaim = persistedIsOverriddenByTrackedState || persisted?.OwnerId == tag.Id
+                ? null
+                : persisted;
+            return trackedClaims
+                .Append(persistedClaim)
+                .Where(claim => claim != null)
+                .Select(claim => claim!)
+                .OrderBy(claim => claim.IsAlias)
+                .ThenBy(claim => claim.OwnerId)
+                .FirstOrDefault();
         }
 
         var warnings = new List<string>();
+        var isNewTag = tag.Id <= 0
+            || _db.Entry(tag).State == EntityState.Added;
         var importedName = TagNameRules.NormalizeCanonicalName(tag.Name);
         string? acceptedRemoteName = null;
         if (importCanonicalName)
@@ -2465,10 +2509,14 @@ query Me {
             {
                 warnings.Add($"Kept the local tag name because changing it to '{proposedName}' would require removing an alias that was excluded from this refresh.");
             }
-            else if (IsClaimedByAnotherTag(proposedName))
+            else if (FindClaimByAnotherTag(proposedName) is { } existingClaim)
             {
-                if (tag.Id == 0)
-                    throw new TagNameConflictException(proposedName);
+                if (isNewTag)
+                {
+                    throw existingClaim.IsAlias
+                        ? TagNameConflictException.ForExistingAlias(existingClaim.DisplayName, proposedName)
+                        : TagNameConflictException.ForExistingTagName(existingClaim.DisplayName, proposedName);
+                }
                 warnings.Add($"Kept the local tag name because the remote name '{proposedName}' is already claimed by another tag.");
             }
             else
@@ -2486,7 +2534,7 @@ query Me {
         {
             if (TagAliasKey(alias) == TagNameKey(importedName))
                 continue;
-            if (IsClaimedByAnotherTag(alias))
+            if (FindClaimByAnotherTag(alias) != null)
             {
                 warnings.Add($"Skipped remote alias '{alias}' because it is already claimed by another tag.");
                 continue;
@@ -2557,27 +2605,46 @@ query Me {
                 _tagNamespaceOwnerIndex.Remove(key);
             else
                 _tagNamespaceOwnerIndex[key] = remaining;
+            if (_tagNamespaceClaimIndex?.GetValueOrDefault(key)?.OwnerId == tag.Id)
+                _tagNamespaceClaimIndex.Remove(key);
         }
 
         var claims = tag.Aliases
             .Select(alias => TagNameRules.NormalizeAlias(alias.Alias))
             .Where(alias => alias != null)
-            .Select(alias => TagNameRules.NamespaceKey(alias!))
-            .Append(TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)))
-            .Distinct(StringComparer.Ordinal);
+            .Select(alias => new TagNamespaceClaim(
+                TagNameRules.NamespaceKey(alias!), tag.Id, alias!, IsAlias: true))
+            .Append(new TagNamespaceClaim(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                tag.Id,
+                TagNameRules.NormalizeCanonicalName(tag.Name),
+                IsAlias: false))
+            .GroupBy(claim => claim.Key, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(claim => claim.IsAlias).First());
         var refreshedKeys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var key in claims)
+        foreach (var claim in claims)
         {
+            var key = claim.Key;
             refreshedKeys.Add(key);
             _tagNamespaceOwnerIndex[key] = _tagNamespaceOwnerIndex.GetValueOrDefault(key, [])
                 .Append(tag.Id)
                 .Distinct()
                 .Order()
                 .ToArray();
+            _tagNamespaceClaimIndex ??= new(StringComparer.Ordinal);
+            var currentClaim = _tagNamespaceClaimIndex.GetValueOrDefault(key);
+            if (currentClaim == null
+                || currentClaim.IsAlias && !claim.IsAlias
+                || currentClaim.IsAlias == claim.IsAlias && claim.OwnerId < currentClaim.OwnerId)
+            {
+                _tagNamespaceClaimIndex[key] = claim;
+            }
         }
         _tagNamespaceKeysByOwner ??= [];
         _tagNamespaceKeysByOwner[tag.Id] = refreshedKeys;
     }
+
+    private sealed record TagNamespaceClaim(string Key, int OwnerId, string DisplayName, bool IsAlias);
 
     private static void MergeAliases(Studio studio, IEnumerable<string> aliases)
     {

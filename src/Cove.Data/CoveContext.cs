@@ -621,8 +621,7 @@ public partial class CoveContext : DbContext
                 TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
                 tag.Name,
                 false,
-                tag.Id,
-                null))
+                tag.Id))
             .Concat(existingAliases
                 .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
                 .Where(row => row.Normalized != null)
@@ -630,8 +629,7 @@ public partial class CoveContext : DbContext
                     TagNameRules.NamespaceKey(row.Normalized!),
                     row.Alias.Alias,
                     true,
-                    row.Alias.TagId,
-                    null))));
+                    row.Alias.TagId))));
     }
 
     private async Task NormalizeAndValidateTagNamesAsync(CancellationToken cancellationToken)
@@ -658,8 +656,7 @@ public partial class CoveContext : DbContext
                 TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
                 tag.Name,
                 false,
-                tag.Id,
-                null))
+                tag.Id))
             .Concat(existingAliases
                 .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
                 .Where(row => row.Normalized != null)
@@ -667,8 +664,7 @@ public partial class CoveContext : DbContext
                     TagNameRules.NamespaceKey(row.Normalized!),
                     row.Alias.Alias,
                     true,
-                    row.Alias.TagId,
-                    null))));
+                    row.Alias.TagId))));
     }
 
     private List<TagNameCandidate> NormalizeChangedTagNames(bool normalizeValues)
@@ -692,7 +688,6 @@ public partial class CoveContext : DbContext
                 normalized,
                 false,
                 entry.Entity.Id > 0 ? entry.Entity.Id : null,
-                null,
                 null));
         }
 
@@ -728,7 +723,6 @@ public partial class CoveContext : DbContext
                 normalized,
                 true,
                 entry.Entity.TagId > 0 ? entry.Entity.TagId : owningTag?.Id > 0 ? owningTag.Id : null,
-                owningTag?.Name,
                 entry.Entity.Id > 0 ? entry.Entity.Id : null));
         }
 
@@ -743,7 +737,8 @@ public partial class CoveContext : DbContext
         if (duplicate == null)
             return;
 
-        ThrowTagNameConflict(duplicate.FirstOrDefault(candidate => candidate.IsAlias) ?? duplicate.First());
+        var ordered = duplicate.OrderBy(candidate => candidate.IsAlias).ToArray();
+        ThrowTagNameConflict(ordered[0], ordered[1].DisplayName);
     }
 
     private static void ThrowForPersistedConflicts(
@@ -755,15 +750,15 @@ public partial class CoveContext : DbContext
             .ToDictionary(group => group.Key, group => group.OrderBy(target => target.IsAlias).ThenBy(target => target.TagId).First(), StringComparer.Ordinal);
         foreach (var candidate in candidates)
         {
-            if (targets.ContainsKey(candidate.Key))
-                ThrowTagNameConflict(candidate);
+            if (targets.TryGetValue(candidate.Key, out var existing))
+                ThrowTagNameConflict(existing, candidate.DisplayName);
         }
     }
 
-    private static void ThrowTagNameConflict(TagNameConflictTarget conflict)
+    private static void ThrowTagNameConflict(TagNameConflictTarget conflict, string conflictingName)
         => throw (conflict.IsAlias
-            ? TagNameConflictException.ForAlias(conflict.DisplayName, conflict.OwningTagName)
-            : new TagNameConflictException(conflict.DisplayName));
+            ? TagNameConflictException.ForExistingAlias(conflict.DisplayName, conflictingName)
+            : TagNameConflictException.ForExistingTagName(conflict.DisplayName, conflictingName));
 
     private int[] CandidateAndDeletedTagIds(IReadOnlyCollection<TagNameCandidate> candidates)
         => candidates.Where(candidate => !candidate.IsAlias && candidate.TagId != null)
@@ -790,17 +785,15 @@ public partial class CoveContext : DbContext
         string Key,
         string DisplayName,
         bool IsAlias,
-        int? TagId,
-        string? OwningTagName);
+        int? TagId);
 
     private sealed record TagNameCandidate(
         string Key,
         string DisplayName,
         bool IsAlias,
         int? TagId,
-        string? OwningTagName,
         int? AliasId)
-        : TagNameConflictTarget(Key, DisplayName, IsAlias, TagId, OwningTagName);
+        : TagNameConflictTarget(Key, DisplayName, IsAlias, TagId);
 
     private sealed class TagNameValidationScope(CoveContext context) : IDisposable
     {
