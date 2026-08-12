@@ -9,6 +9,7 @@ import { InteractiveRatingField } from "../components/Rating";
 import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared";
 import { StringListEditor } from "../components/StringListEditor";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 import { SelectedTagChips, type SelectableTag } from "../components/TagSelector";
 import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
 
@@ -121,6 +122,10 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       onClose();
     },
   });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
@@ -227,7 +232,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const tagProvenanceById = buildTagProvenanceById(performer.tags, performer.fieldProvenance);
 
   return (
-    <EditModal title="Edit Performer" open={open} onClose={onClose}>
+    <EditModal title="Edit Performer" open={open} onClose={handleClose}>
       <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Name *" fieldProvenance={performer.fieldProvenance} fieldKey="name">
@@ -418,13 +423,13 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       </div>
 
       {mutation.error && (
-        <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 mb-4 text-sm">
-          {(mutation.error as Error).message}
+        <div role="alert" className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 mb-4 text-sm">
+          {getApiValidationFailureDetail(mutation.error)}
         </div>
       )}
 
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
         <SaveButton loading={mutation.isPending} onClick={handleSave} />
       </div>
     </EditModal>

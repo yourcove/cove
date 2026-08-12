@@ -286,7 +286,7 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
 /* ── Performer Create Modal ── */
 const SELECT_CLASS = "w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
 
-function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+export function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [disambiguation, setDisambiguation] = useState("");
@@ -322,6 +322,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
   };
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: PerformerCreate) => performers.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["performers"] });
@@ -331,6 +332,10 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
       if (created?.id) onCreated(created.id);
     },
   });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
 
   const save = () => {
     const trimmedName = name.trim();
@@ -355,7 +360,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
   };
 
   return (
-    <EditModal title="Create Performer" open={open} onClose={onClose}>
+    <EditModal title="Create Performer" open={open} onClose={handleClose}>
       <div className="space-y-4">
         <Field label="Name *">
           <TextInput value={name} onChange={setName} placeholder="Performer name" />
@@ -417,7 +422,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
         <Field label="Custom Fields">
           <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="performer" />
         </Field>
-        {mutation.error ? <div className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
+        {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
       </div>
       <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
