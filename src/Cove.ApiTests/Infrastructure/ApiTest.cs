@@ -5,17 +5,19 @@ namespace Cove.ApiTests.Infrastructure;
 public abstract class ApiTest : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
-    private CoveApiServer? _server;
+    private readonly CoveApiTestFixture _fixture;
     private ApiUser? _user;
 
-    protected ApiTest(ITestOutputHelper output)
+    protected ApiTest(
+        ITestOutputHelper output,
+        CoveApiTestFixture fixture)
     {
         _output = output;
+        _fixture = fixture;
     }
 
     protected Uri ApiUri
-        => _server?.BaseAddress
-            ?? throw new InvalidOperationException("The API test server has not been initialized.");
+        => _fixture.BaseAddress;
 
     protected ApiUser AsUser()
         => _user
@@ -25,8 +27,7 @@ public abstract class ApiTest : IAsyncLifetime
     {
         try
         {
-            _server = await CoveApiServer.StartAsync();
-            _user = await _server.CreateOwnerAsync();
+            _user = await _fixture.ResetAsync();
             _output.WriteLine($"Cove API listening at {ApiUri}");
             _output.WriteLine($"Pause at a breakpoint to call: curl {new Uri(ApiUri, "/health")}");
         }
@@ -37,15 +38,10 @@ public abstract class ApiTest : IAsyncLifetime
         }
     }
 
-    public async Task DisposeAsync()
+    public Task DisposeAsync()
     {
         _user?.Dispose();
         _user = null;
-
-        if (_server is not null)
-        {
-            await _server.DisposeAsync();
-            _server = null;
-        }
+        return Task.CompletedTask;
     }
 }

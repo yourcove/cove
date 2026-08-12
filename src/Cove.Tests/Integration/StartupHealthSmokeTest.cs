@@ -1,6 +1,4 @@
 using System.Net;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests.Integration;
 
@@ -13,7 +11,7 @@ public sealed class StartupHealthSmokeTests
         var configuredBaseAddress = factory.ClientOptions.BaseAddress;
         using var client = factory.CreateClient();
 
-        await WaitForStartupDatabaseAsync(factory);
+        await WaitForStartupAsync(client);
 
         var response = await client.GetAsync("/health");
 
@@ -28,36 +26,24 @@ public sealed class StartupHealthSmokeTests
         using var factory = new CoveWebApplicationFactory("IntegrationStartup");
         using var client = factory.CreateAuthenticatedClient();
 
-        await WaitForStartupDatabaseAsync(factory);
+        await WaitForStartupAsync(client);
 
         var response = await client.GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    private static async Task WaitForStartupDatabaseAsync(CoveWebApplicationFactory factory)
+    private static async Task WaitForStartupAsync(HttpClient client)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow.AddSeconds(60);
         Exception? lastError = null;
 
         while (DateTime.UtcNow < deadline)
         {
             try
             {
-                var isReady = await factory.WithDbContextAsync(async db =>
-                {
-                    try
-                    {
-                        await db.Users.AsNoTracking().AnyAsync();
-                        return true;
-                    }
-                    catch (SqliteException exception) when (exception.SqliteErrorCode == 1 && exception.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return false;
-                    }
-                });
-
-                if (isReady)
+                using var response = await client.GetAsync("/health/startup");
+                if (response.StatusCode == HttpStatusCode.OK)
                     return;
             }
             catch (Exception exception)
@@ -68,6 +54,6 @@ public sealed class StartupHealthSmokeTests
             await Task.Delay(100);
         }
 
-        throw new TimeoutException("Startup database schema was not ready in time.", lastError);
+        throw new TimeoutException("The API did not report startup readiness in time.", lastError);
     }
 }

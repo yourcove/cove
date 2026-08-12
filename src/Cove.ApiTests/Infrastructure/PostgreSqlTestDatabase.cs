@@ -56,45 +56,29 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
         return new PostgreSqlTestDatabase(databaseName, admin, databaseBuilder.ConnectionString);
     }
 
-    public async Task WaitForAuthBootstrapAsync(
-        TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
-        var deadline = DateTime.UtcNow.Add(timeout);
-        Exception? lastError = null;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DO $reset$
+            DECLARE
+                table_list text;
+            BEGIN
+                SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
+                INTO table_list
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename <> '__EFMigrationsHistory';
 
-        while (DateTime.UtcNow < deadline)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
-            {
-                await using var connection = new NpgsqlConnection(ConnectionString);
-                await connection.OpenAsync(cancellationToken);
-                await using var command = connection.CreateCommand();
-                command.CommandText = """
-                    SELECT COUNT(*) >= 5
-                       AND EXISTS (
-                           SELECT 1
-                           FROM roles r
-                           JOIN role_permissions rp ON rp."RoleId" = r."Id"
-                           WHERE r."Name" = 'Owner' AND rp."PermissionKey" = '*'
-                       )
-                    FROM roles
-                    """;
-
-                if (await command.ExecuteScalarAsync(cancellationToken) is true)
-                    return;
-            }
-            catch (Exception exception)
-            {
-                lastError = exception;
-            }
-
-            await Task.Delay(100, cancellationToken);
-        }
-
-        throw new TimeoutException("The Cove authentication bootstrap did not finish in time.", lastError);
+                IF table_list IS NOT NULL THEN
+                    EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
+                END IF;
+            END
+            $reset$;
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async ValueTask DisposeAsync()

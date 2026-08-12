@@ -1,5 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using Cove.Api.Services;
+using Cove.Data.Auth;
+using Cove.Data.Services;
+using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -27,6 +33,7 @@ internal sealed class CoveApiServer : IAsyncDisposable
     private readonly string _dataRoot;
     private readonly IReadOnlyDictionary<string, string?> _previousEnvironment;
     private bool _disposed;
+    private bool _hasTestState;
 
     private CoveApiServer(
         PostgreSqlTestDatabase database,
@@ -67,7 +74,6 @@ internal sealed class CoveApiServer : IAsyncDisposable
                 throw new InvalidOperationException($"The Cove API host did not bind to a random Kestrel port: {baseAddress}.");
 
             await WaitUntilReadyAsync(startupClient, cancellationToken);
-            await database.WaitForAuthBootstrapAsync(TimeSpan.FromSeconds(60), cancellationToken);
 
             return new CoveApiServer(
                 database,
@@ -135,6 +141,56 @@ internal sealed class CoveApiServer : IAsyncDisposable
         return new ApiUser(BaseAddress, login.Token);
     }
 
+    public async Task<ApiUser> ResetAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_hasTestState)
+        {
+            var owner = await CreateOwnerAsync(cancellationToken);
+            _hasTestState = true;
+            return owner;
+        }
+
+        await CancelAndDrainJobsAsync(cancellationToken);
+        await _factory.Services.GetRequiredService<AuditService>().FlushAsync(cancellationToken);
+        await _database.ResetAsync(cancellationToken);
+
+        _factory.Services.GetRequiredService<SegmentSpanCacheRegistry>().InvalidateAll();
+        if (_factory.Services.GetRequiredService<IMemoryCache>() is MemoryCache memoryCache)
+            memoryCache.Compact(1);
+        await _factory.Services
+            .GetRequiredService<IOutputCacheStore>()
+            .EvictByTagAsync("api-test-state", cancellationToken);
+
+        await _factory.Services
+            .GetRequiredService<BootstrapAuthService>()
+            .RefreshPermissionCatalogAsync(cancellationToken);
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider
+                .GetRequiredService<DynamicGroupResolver>()
+                .EnsureBuiltInGroupsAsync(cancellationToken);
+        }
+
+        return await CreateOwnerAsync(cancellationToken);
+    }
+
+    private async Task CancelAndDrainJobsAsync(CancellationToken cancellationToken)
+    {
+        var jobs = _factory.Services.GetRequiredService<JobService>();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            await jobs.CancelAllAndWaitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Active API jobs did not stop before the test database reset.");
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -187,7 +243,7 @@ internal sealed class CoveApiServer : IAsyncDisposable
 
             try
             {
-                using var response = await client.GetAsync("/api/auth/bootstrap-status", cancellationToken);
+                using var response = await client.GetAsync("/health/startup", cancellationToken);
                 lastResponse = $"{(int)response.StatusCode} {response.StatusCode}: {await response.Content.ReadAsStringAsync(cancellationToken)}";
                 if (response.StatusCode == HttpStatusCode.OK)
                     return;

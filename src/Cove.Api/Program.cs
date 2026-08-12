@@ -208,6 +208,7 @@ try
     var isIntegrationTest = builder.Environment.IsEnvironment("IntegrationTest");
     var isIntegrationStartupTest = builder.Environment.IsEnvironment("IntegrationStartup");
     var isTestHarness = isIntegrationTest || isIntegrationStartupTest;
+    var integrationStartupReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
     var runtimeLogLevelManager = new RuntimeLogLevelManager(
         ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")),
@@ -275,7 +276,7 @@ try
         connectionString = $"Host=127.0.0.1;Port={pgPort};Database={pgDb};Username=postgres;Trust Server Certificate=true;Minimum Pool Size=2;Maximum Pool Size=100;Timeout=15;Command Timeout=30";
     }
     coveCfgInstance.DatabaseConnectionString = connectionString;
-    builder.Services.AddCoveData(connectionString);
+    builder.Services.AddCoveData(connectionString, runBackgroundMaterializers: !isIntegrationStartupTest);
 
     // Event bus (singleton for cross-service communication)
     builder.Services.AddSingleton<IEventBus, EventBus>();
@@ -483,11 +484,16 @@ try
     builder.Services.AddOutputCache(options =>
     {
         options.AddBasePolicy(b => b.NoCache());
-        options.AddPolicy("ShortCache", b => b
-            .AddPolicy<Cove.Api.Middleware.AuthAwareOutputCachePolicy>()
-            .Expire(TimeSpan.FromSeconds(1))
-            .SetVaryByHeader("Authorization", "Cookie", "X-Share-Token", "X-Share-Password")
-            .SetLocking(false), true);
+        options.AddPolicy("ShortCache", b =>
+        {
+            b.AddPolicy<Cove.Api.Middleware.AuthAwareOutputCachePolicy>()
+                .Expire(TimeSpan.FromSeconds(1))
+                .SetVaryByHeader("Authorization", "Cookie", "X-Share-Token", "X-Share-Password")
+                .SetLocking(false);
+
+            if (isIntegrationStartupTest)
+                b.Tag("api-test-state");
+        }, true);
     });
 
     // In-memory cache for POST query results
@@ -511,7 +517,7 @@ try
             return System.Threading.RateLimiting.RateLimitPartition.GetSlidingWindowLimiter(key, _ =>
                 new System.Threading.RateLimiting.SlidingWindowRateLimiterOptions
                 {
-                    PermitLimit = 10,
+                    PermitLimit = isIntegrationStartupTest ? int.MaxValue : 10,
                     Window = TimeSpan.FromSeconds(15),
                     SegmentsPerWindow = 3,
                     QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst,
@@ -611,6 +617,13 @@ try
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     }).AllowAnonymous();
+
+    if (isIntegrationStartupTest)
+    {
+        app.MapGet("/health/startup", () => integrationStartupReady.Task.IsCompletedSuccessfully
+            ? Results.Ok(new { status = "ready" })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable)).AllowAnonymous();
+    }
 
     app.MapControllers();
     app.MapHub<JobHub>("/hubs/jobs");
@@ -836,12 +849,10 @@ try
         coveCfgInstance.Postgres.Managed,
         coveCfgInstance.Auth.Enabled,
         runtimeLogLevelManager.LevelSwitch.MinimumLevel);
+    app.Lifetime.ApplicationStopping.Register(() =>
+        extensionManager.ShutdownAllAsync().GetAwaiter().GetResult());
+    integrationStartupReady.TrySetResult();
     await app.WaitForShutdownAsync();
-
-    // WebApplicationFactory owns and disposes the IntegrationStartup service provider as it stops
-    // Kestrel. Production hosts still shut extensions down explicitly before their provider is gone.
-    if (!isTestHarness)
-        await extensionManager.ShutdownAllAsync();
 }
 catch (Exception ex)
 {

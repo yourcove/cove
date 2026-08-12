@@ -167,6 +167,29 @@ public class JobService : IJobService, IHostedService
         lock (_lock) { return [.. _history]; }
     }
 
+    public async Task CancelAllAndWaitAsync(CancellationToken cancellationToken = default)
+    {
+        while (true)
+        {
+            JobEntry[] active;
+            lock (_lock)
+                active = [.. _jobs.Values];
+
+            if (active.Length == 0)
+            {
+                lock (_lock)
+                    _history.Clear();
+                return;
+            }
+
+            foreach (var entry in active)
+                Cancel(entry.Id);
+
+            await Task.WhenAll(active.Select(entry => entry.Completion.Task))
+                .WaitAsync(cancellationToken);
+        }
+    }
+
     private async Task ProcessQueueAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -183,6 +206,10 @@ public class JobService : IJobService, IHostedService
                     if (candidate.Status == JobStatus.Pending)
                     {
                         entry = candidate;
+                        entry.Cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        entry.Status = JobStatus.Running;
+                        entry.StartedAt = DateTime.UtcNow;
+                        entry.Eta.Start(entry.StartedAt);
                         break;
                     }
                 }
@@ -191,10 +218,6 @@ public class JobService : IJobService, IHostedService
             if (entry == null)
                 continue;
 
-            entry.Cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            entry.Status = JobStatus.Running;
-            entry.StartedAt = DateTime.UtcNow;
-            entry.Eta.Start(entry.StartedAt);
             NotifyClients(entry);
 
             var progress = new JobProgress(entry, this);
@@ -204,7 +227,7 @@ public class JobService : IJobService, IHostedService
             {
                 _logger.LogInformation("Job {JobId} started: {Description}", entry.Id, entry.Description);
 
-                await entry.Work(progress, entry.Cts.Token);
+                await entry.Work(progress, entry.Cts!.Token);
 
                 FinalizeSuccessfulWork(entry);
 
@@ -374,6 +397,7 @@ public class JobService : IJobService, IHostedService
             if (_history.Count > MaxHistory)
                 _history.RemoveRange(MaxHistory, _history.Count - MaxHistory);
         }
+        entry.Completion.TrySetResult();
     }
 
     internal void UpdateProgress(JobEntry entry)
@@ -438,6 +462,7 @@ public class JobService : IJobService, IHostedService
         public string? Error { get; set; }
         public Func<IJobProgress, CancellationToken, Task> Work { get; set; } = null!;
         public CancellationTokenSource? Cts { get; set; }
+        public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Dictionary<string, JobUnitState> Units { get; } = new(StringComparer.Ordinal);
         internal JobEtaEstimator Eta { get; } = new();
         public int? UnitsTotal { get; set; }

@@ -14,10 +14,12 @@ namespace Cove.Data.Auth;
 /// </summary>
 public sealed class AuditService : BackgroundService, IAuditService
 {
-    private readonly Channel<AuditEvent> _channel = Channel.CreateBounded<AuditEvent>(new BoundedChannelOptions(8192)
+    private readonly Channel<QueueItem> _channel = Channel.CreateBounded<QueueItem>(new BoundedChannelOptions(8192)
     {
         SingleReader = true,
-        FullMode = BoundedChannelFullMode.DropOldest,
+        // Preserve FIFO barriers used by lifecycle callers. Ordinary audit writes remain non-blocking:
+        // TryWrite returns false when this bounded queue is full, while FlushAsync can wait for room.
+        FullMode = BoundedChannelFullMode.Wait,
     });
     private readonly IServiceProvider _services;
     private readonly ILogger<AuditService> _log;
@@ -55,7 +57,7 @@ public sealed class AuditService : BackgroundService, IAuditService
                 TargetId = targetId,
                 Detail = detail is null ? null : JsonSerializer.Serialize(detail),
             };
-            _channel.Writer.TryWrite(ev);
+            _channel.Writer.TryWrite(new AuditItem(ev));
         }
         catch (Exception ex)
         {
@@ -64,17 +66,33 @@ public sealed class AuditService : BackgroundService, IAuditService
         return Task.CompletedTask;
     }
 
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _channel.Writer.WriteAsync(new FlushItem(completion), cancellationToken);
+        await completion.Task.WaitAsync(cancellationToken);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var batch = new List<AuditEvent>(64);
         try
         {
-            await foreach (var ev in _channel.Reader.ReadAllAsync(stoppingToken))
+            await foreach (var item in _channel.Reader.ReadAllAsync(stoppingToken))
             {
-                batch.Add(ev);
+                if (item is FlushItem flush)
+                {
+                    flush.Completion.TrySetResult();
+                    continue;
+                }
+
+                batch.Add(((AuditItem)item).Event);
                 // drain quickly
-                while (batch.Count < 64 && _channel.Reader.TryRead(out var more))
-                    batch.Add(more);
+                while (batch.Count < 64 && _channel.Reader.TryPeek(out var next) && next is AuditItem)
+                {
+                    _channel.Reader.TryRead(out var more);
+                    batch.Add(((AuditItem)more!).Event);
+                }
                 try
                 {
                     using var scope = _services.CreateScope();
@@ -91,4 +109,8 @@ public sealed class AuditService : BackgroundService, IAuditService
         }
         catch (OperationCanceledException) { /* shutdown */ }
     }
+
+    private abstract record QueueItem;
+    private sealed record AuditItem(AuditEvent Event) : QueueItem;
+    private sealed record FlushItem(TaskCompletionSource Completion) : QueueItem;
 }

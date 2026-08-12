@@ -5,7 +5,10 @@ using Xunit.Abstractions;
 
 namespace Cove.ApiTests;
 
-public sealed class PerformerTagApiTests(ITestOutputHelper output) : ApiTest(output)
+[Collection(ApiTestCollection.Name)]
+public sealed class PerformerTagApiTests(
+    ITestOutputHelper output,
+    CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
     public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
@@ -22,6 +25,25 @@ public sealed class PerformerTagApiTests(ITestOutputHelper output) : ApiTest(out
                 .Build());
 
         await AsUser().LinkTagToPerformerAsync(tag, performer);
+
+        var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
+        performerAfter.ShouldHaveTag(tag);
+    }
+
+    [Fact]
+    public async Task GivenTag_WhenPerformerIsCreatedWithTag_ThenPerformerHasTag()
+    {
+        Assert.Empty(await AsUser().GetPerformersAsync());
+        var tag = await AsUser().CreateTagAsync(
+            new TagBuilder()
+                .WithName("Creation Tag")
+                .Build());
+
+        var performer = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName("Tagged From Creation")
+                .WithTag(tag)
+                .Build());
 
         var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
         performerAfter.ShouldHaveTag(tag);
