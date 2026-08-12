@@ -1,8 +1,10 @@
 # Fluent API tests
 
-These tests run the real Cove application on Kestrel and bind it to an operating-system-assigned loopback port. The serialized test collection shares that production-configured application host and its dedicated PostgreSQL database. The first test starts from the freshly migrated database; before each subsequent test, the harness drains queued audit writes, resets every public table with PostgreSQL `TRUNCATE ... RESTART IDENTITY CASCADE`, clears database-derived host caches, reruns Cove's real auth and built-in-group initialization, and creates a fresh owner through the public bootstrap endpoint. Tests send requests over HTTP with a real access token; the harness does not replace application services or use `ConfigureTestServices`.
+These tests launch the real Cove application as an operating-system process running Kestrel on an operating-system-assigned loopback port. Two parallel test lanes each own a process, isolated environment and data root, and dedicated PostgreSQL database. Tests within a lane are serialized and reuse its process: before every test, a test-environment-only lifecycle endpoint drains queued audit writes and jobs, resets every public table with PostgreSQL `TRUNCATE ... RESTART IDENTITY CASCADE`, clears database-derived host caches, reruns Cove's real auth and built-in-group initialization, and then the harness creates a fresh owner through the public bootstrap endpoint. Tests send requests over HTTP with a real access token; the application is not hosted in the test process and the harness does not replace application services.
 
-Put tests in `ApiTestCollection` and derive them from `ApiTest`. The collection fixture owns the server and database, while `ApiTest.InitializeAsync` resets application state before every test. `AsUser()` exposes the fluent authenticated API, and builders keep arrange code focused on values that matter to the test.
+Put each test class in `ApiTestLane1Collection` or `ApiTestLane2Collection` and derive it from `ApiTest`. Each lane fixture owns its server and database, while `ApiTest.InitializeAsync` resets application state before every test. Distribute classes roughly evenly between the lanes; classes in different lanes run concurrently. `AsUser()` exposes the fluent authenticated API, and builders keep arrange code focused on values that matter to the test.
+
+`ApiTestLaneHarnessTests` independently starts two isolated hosts and verifies that their process startup intervals overlap. It is kept outside the behavior lanes so focused execution of either behavior class does not depend on unrelated test discovery.
 
 ## Test conventions
 
@@ -20,7 +22,7 @@ GivenPrecondition_WhenAction_ThenOutcome
 
 Keep the test body visibly arranged as Given, When, and Then, separated by blank lines. Add comments only when the phases are not already obvious from the code.
 
-- Put API tests in `ApiTestCollection` and derive them from `ApiTest` so every test starts from clean PostgreSQL state while the expensive real Kestrel application host is shared.
+- Put API test classes in one of the two lane collections and derive them from `ApiTest` so every test starts from clean PostgreSQL state while expensive hosts are shared and independent classes can run concurrently.
 - Exercise behavior through the fluent `AsUser()` API. Do not seed application entities directly through Entity Framework when the public API can create the required state.
 - Do not mock, replace, or decorate application services. Do not use `ConfigureTestServices` in this project.
 - Assert externally observable API behavior. Direct database queries are reserved for test-host lifecycle checks that cannot be observed through the API.
@@ -28,7 +30,7 @@ Keep the test body visibly arranged as Given, When, and Then, separated by blank
 - Add focused builders, fluent operations, and assertion extensions when they make the scenario read more clearly; do not expose raw HTTP mechanics in individual tests.
 
 ```csharp
-[Collection(ApiTestCollection.Name)]
+[Collection(ApiTestLane1Collection.Name)]
 public sealed class PerformerTagApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

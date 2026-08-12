@@ -5,7 +5,7 @@ using Xunit.Abstractions;
 
 namespace Cove.ApiTests;
 
-[Collection(ApiTestCollection.Name)]
+[Collection(ApiTestLane1Collection.Name)]
 public sealed class PerformerTagApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

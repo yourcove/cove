@@ -56,38 +56,14 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
         return new PostgreSqlTestDatabase(databaseName, admin, databaseBuilder.ConnectionString);
     }
 
-    public async Task ResetAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            DO $reset$
-            DECLARE
-                table_list text;
-            BEGIN
-                SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
-                INTO table_list
-                FROM pg_tables
-                WHERE schemaname = 'public'
-                  AND tablename <> '__EFMigrationsHistory';
-
-                IF table_list IS NOT NULL THEN
-                    EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
-                END IF;
-            END
-            $reset$;
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
             return;
 
         _disposed = true;
-        NpgsqlConnection.ClearAllPools();
+        await using (var poolConnection = new NpgsqlConnection(ConnectionString))
+            NpgsqlConnection.ClearPool(poolConnection);
 
         await using var connection = new NpgsqlConnection(_adminConnectionString);
         await connection.OpenAsync();

@@ -623,6 +623,86 @@ try
         app.MapGet("/health/startup", () => integrationStartupReady.Task.IsCompletedSuccessfully
             ? Results.Ok(new { status = "ready" })
             : Results.StatusCode(StatusCodes.Status503ServiceUnavailable)).AllowAnonymous();
+
+        app.MapPost("/health/test-reset", async (
+            HttpContext httpContext,
+            JobService jobs,
+            Cove.Data.Auth.AuditService audit,
+            Cove.Data.Services.SegmentSpanCacheRegistry segmentCache,
+            Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache,
+            Microsoft.AspNetCore.OutputCaching.IOutputCacheStore outputCache,
+            Cove.Data.Auth.BootstrapAuthService auth,
+            IServiceScopeFactory scopeFactory,
+            CancellationToken cancellationToken) =>
+        {
+            var expectedToken = builder.Configuration["Cove:IntegrationTestResetToken"];
+            if (string.IsNullOrWhiteSpace(expectedToken)
+                || !httpContext.Request.Headers.TryGetValue("X-Cove-Test-Reset-Token", out var suppliedToken)
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(expectedToken),
+                    System.Text.Encoding.UTF8.GetBytes(suppliedToken.ToString())))
+            {
+                return Results.NotFound();
+            }
+
+            await jobs.CancelAllAndWaitAsync(cancellationToken);
+            await audit.FlushAsync(cancellationToken);
+
+            await using (var scope = scopeFactory.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                await db.Database.ExecuteSqlRawAsync("""
+                    DO $reset$
+                    DECLARE
+                        table_list text;
+                    BEGIN
+                        SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
+                        INTO table_list
+                        FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename <> '__EFMigrationsHistory';
+
+                        IF table_list IS NOT NULL THEN
+                            EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
+                        END IF;
+                    END
+                    $reset$;
+                    """, cancellationToken);
+            }
+
+            segmentCache.InvalidateAll();
+            if (memoryCache is Microsoft.Extensions.Caching.Memory.MemoryCache concreteMemoryCache)
+                concreteMemoryCache.Compact(1);
+            await outputCache.EvictByTagAsync("api-test-state", cancellationToken);
+            await auth.RefreshPermissionCatalogAsync(cancellationToken);
+
+            await using (var scope = scopeFactory.CreateAsyncScope())
+            {
+                await scope.ServiceProvider
+                    .GetRequiredService<DynamicGroupResolver>()
+                    .EnsureBuiltInGroupsAsync(cancellationToken);
+            }
+
+            return Results.NoContent();
+        }).AllowAnonymous();
+
+        app.MapPost("/health/test-shutdown", (
+            HttpContext httpContext,
+            IHostApplicationLifetime lifetime) =>
+        {
+            var expectedToken = builder.Configuration["Cove:IntegrationTestResetToken"];
+            if (string.IsNullOrWhiteSpace(expectedToken)
+                || !httpContext.Request.Headers.TryGetValue("X-Cove-Test-Reset-Token", out var suppliedToken)
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(expectedToken),
+                    System.Text.Encoding.UTF8.GetBytes(suppliedToken.ToString())))
+            {
+                return Results.NotFound();
+            }
+
+            lifetime.StopApplication();
+            return Results.Accepted();
+        }).AllowAnonymous();
     }
 
     app.MapControllers();

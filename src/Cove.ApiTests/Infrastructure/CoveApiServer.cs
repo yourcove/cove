@@ -1,98 +1,83 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
-using Cove.Api.Services;
-using Cove.Data.Auth;
-using Cove.Data.Services;
-using Microsoft.AspNetCore.OutputCaching;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.DependencyInjection;
+using System.Text.RegularExpressions;
 
 namespace Cove.ApiTests.Infrastructure;
 
-internal sealed class CoveApiServer : IAsyncDisposable
+internal sealed partial class CoveApiServer : IAsyncDisposable
 {
     private const string EnvironmentName = "IntegrationStartup";
-    private static readonly SemaphoreSlim ProcessEnvironmentLock = new(1, 1);
-    private static readonly string[] TestEnvironmentVariableNames =
-    [
-        "ASPNETCORE_ENVIRONMENT",
-        "COVE_HOME",
-        "COVE__Auth__Enabled",
-        "COVE__Auth__JwtSecret",
-        "COVE__BackupPath",
-        "COVE__CachePath",
-        "COVE__ExtensionPaths__0",
-        "COVE__GeneratedPath",
-        "COVE__Postgres__ConnectionString",
-        "COVE__Postgres__Managed",
-        "DOTNET_ENVIRONMENT",
-    ];
+    private const string ResetTokenHeader = "X-Cove-Test-Reset-Token";
 
     private readonly PostgreSqlTestDatabase _database;
-    private readonly CoveApiWebApplicationFactory _factory;
+    private readonly Process _process;
     private readonly string _dataRoot;
-    private readonly IReadOnlyDictionary<string, string?> _previousEnvironment;
+    private readonly string _resetToken;
+    private readonly ConcurrentQueue<string> _output;
     private bool _disposed;
-    private bool _hasTestState;
 
     private CoveApiServer(
         PostgreSqlTestDatabase database,
-        CoveApiWebApplicationFactory factory,
+        Process process,
         Uri baseAddress,
         string dataRoot,
-        IReadOnlyDictionary<string, string?> previousEnvironment)
+        string resetToken,
+        ConcurrentQueue<string> output)
     {
         _database = database;
-        _factory = factory;
+        _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
-        _previousEnvironment = previousEnvironment;
+        _resetToken = resetToken;
+        _output = output;
     }
 
     public Uri BaseAddress { get; }
+    internal long ProcessStartedTimestamp { get; private init; }
+    internal long ReadyTimestamp { get; private init; }
 
     public static async Task<CoveApiServer> StartAsync(CancellationToken cancellationToken = default)
     {
-        await ProcessEnvironmentLock.WaitAsync(cancellationToken);
-
         PostgreSqlTestDatabase? database = null;
-        CoveApiWebApplicationFactory? factory = null;
+        Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
-        var previousEnvironment = CaptureEnvironment();
+        var resetToken = Convert.ToHexString(Guid.NewGuid().ToByteArray());
+        var output = new ConcurrentQueue<string>();
 
         try
         {
             Directory.CreateDirectory(dataRoot);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
-            ApplyTestEnvironment(dataRoot, database.ConnectionString);
-            factory = new CoveApiWebApplicationFactory(database.ConnectionString, dataRoot);
-            using var startupClient = factory.CreateClient();
+            process = StartApiProcess(dataRoot, database.ConnectionString, resetToken, output);
+            var processStartedTimestamp = Stopwatch.GetTimestamp();
+            var baseAddress = await WaitForListeningAddressAsync(process, output, cancellationToken);
 
-            var baseAddress = startupClient.BaseAddress
-                ?? throw new InvalidOperationException("The Cove API host did not publish a listening address.");
-            if (baseAddress.Port is 0 or 80)
-                throw new InvalidOperationException($"The Cove API host did not bind to a random Kestrel port: {baseAddress}.");
+            using var startupClient = new HttpClient { BaseAddress = baseAddress };
+            await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            await WaitUntilReadyAsync(startupClient, cancellationToken);
-
-            return new CoveApiServer(
-                database,
-                factory,
-                baseAddress,
-                dataRoot,
-                previousEnvironment);
+            return new CoveApiServer(database, process, baseAddress, dataRoot, resetToken, output)
+            {
+                ProcessStartedTimestamp = processStartedTimestamp,
+                ReadyTimestamp = Stopwatch.GetTimestamp(),
+            };
         }
         catch (Exception startupError)
         {
             Exception? cleanupError = null;
             try
             {
-                if (factory is not null)
-                    await factory.DisposeAsync();
+                if (process is { HasExited: false })
+                    await KillAndWaitAsync(process);
             }
             catch (Exception exception)
             {
                 cleanupError = exception;
+            }
+            finally
+            {
+                process?.Dispose();
             }
 
             try
@@ -108,9 +93,7 @@ internal sealed class CoveApiServer : IAsyncDisposable
             }
             finally
             {
-                RestoreEnvironment(previousEnvironment);
                 TryDeleteDataRoot(dataRoot);
-                ProcessEnvironmentLock.Release();
             }
 
             if (cleanupError is not null)
@@ -119,7 +102,20 @@ internal sealed class CoveApiServer : IAsyncDisposable
         }
     }
 
-    public async Task<ApiUser> CreateOwnerAsync(CancellationToken cancellationToken = default)
+    public async Task<ApiUser> ResetAsync(CancellationToken cancellationToken = default)
+    {
+        using var client = CreateLifecycleClient();
+        using var response = await client.PostAsync("/health/test-reset", content: null, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+        return await CreateOwnerAsync(cancellationToken);
+    }
+
+    private async Task<ApiUser> CreateOwnerAsync(CancellationToken cancellationToken)
     {
         const string username = "api-test-owner";
         const string password = "api-test-password-4b93f6f2";
@@ -141,56 +137,6 @@ internal sealed class CoveApiServer : IAsyncDisposable
         return new ApiUser(BaseAddress, login.Token);
     }
 
-    public async Task<ApiUser> ResetAsync(CancellationToken cancellationToken = default)
-    {
-        if (!_hasTestState)
-        {
-            var owner = await CreateOwnerAsync(cancellationToken);
-            _hasTestState = true;
-            return owner;
-        }
-
-        await CancelAndDrainJobsAsync(cancellationToken);
-        await _factory.Services.GetRequiredService<AuditService>().FlushAsync(cancellationToken);
-        await _database.ResetAsync(cancellationToken);
-
-        _factory.Services.GetRequiredService<SegmentSpanCacheRegistry>().InvalidateAll();
-        if (_factory.Services.GetRequiredService<IMemoryCache>() is MemoryCache memoryCache)
-            memoryCache.Compact(1);
-        await _factory.Services
-            .GetRequiredService<IOutputCacheStore>()
-            .EvictByTagAsync("api-test-state", cancellationToken);
-
-        await _factory.Services
-            .GetRequiredService<BootstrapAuthService>()
-            .RefreshPermissionCatalogAsync(cancellationToken);
-
-        await using (var scope = _factory.Services.CreateAsyncScope())
-        {
-            await scope.ServiceProvider
-                .GetRequiredService<DynamicGroupResolver>()
-                .EnsureBuiltInGroupsAsync(cancellationToken);
-        }
-
-        return await CreateOwnerAsync(cancellationToken);
-    }
-
-    private async Task CancelAndDrainJobsAsync(CancellationToken cancellationToken)
-    {
-        var jobs = _factory.Services.GetRequiredService<JobService>();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
-
-        try
-        {
-            await jobs.CancelAllAndWaitAsync(timeout.Token);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new TimeoutException("Active API jobs did not stop before the test database reset.");
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -201,11 +147,35 @@ internal sealed class CoveApiServer : IAsyncDisposable
 
         try
         {
-            await _factory.DisposeAsync();
+            if (!_process.HasExited)
+            {
+                using var client = CreateLifecycleClient();
+                using var response = await client.PostAsync("/health/test-shutdown", content: null);
+                if (response.StatusCode is not HttpStatusCode.Accepted)
+                    throw new InvalidOperationException($"The API test host rejected graceful shutdown with {(int)response.StatusCode}.");
+
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                await _process.WaitForExitAsync(timeout.Token);
+            }
         }
         catch (Exception exception)
         {
             cleanupError = exception;
+            if (!_process.HasExited)
+            {
+                try
+                {
+                    await KillAndWaitAsync(_process);
+                }
+                catch (Exception killError)
+                {
+                    cleanupError = new AggregateException(cleanupError, killError);
+                }
+            }
+        }
+        finally
+        {
+            _process.Dispose();
         }
 
         try
@@ -220,72 +190,137 @@ internal sealed class CoveApiServer : IAsyncDisposable
         }
         finally
         {
-            RestoreEnvironment(_previousEnvironment);
             TryDeleteDataRoot(_dataRoot);
-            ProcessEnvironmentLock.Release();
         }
 
         if (cleanupError is not null)
             throw cleanupError;
     }
 
-    private static async Task WaitUntilReadyAsync(
-        HttpClient client,
+    private HttpClient CreateLifecycleClient()
+    {
+        var client = new HttpClient { BaseAddress = BaseAddress };
+        client.DefaultRequestHeaders.Add(ResetTokenHeader, _resetToken);
+        return client;
+    }
+
+    private static Process StartApiProcess(
+        string dataRoot,
+        string connectionString,
+        string resetToken,
+        ConcurrentQueue<string> output)
+    {
+        var assemblyPath = typeof(Program).Assembly.Location;
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            WorkingDirectory = Path.GetDirectoryName(assemblyPath)!,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add(assemblyPath);
+        startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = EnvironmentName;
+        startInfo.Environment["DOTNET_ENVIRONMENT"] = EnvironmentName;
+        startInfo.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
+        startInfo.Environment["Logging__LogLevel__Microsoft.Hosting.Lifetime"] = "Information";
+        startInfo.Environment["COVE_HOME"] = dataRoot;
+        startInfo.Environment["COVE__Auth__Enabled"] = "true";
+        startInfo.Environment["COVE__Auth__JwtSecret"] = "cove-fluent-api-tests-only-jwt-secret-4b93f6f2";
+        startInfo.Environment["COVE__BackupPath"] = Path.Combine(dataRoot, "backups");
+        startInfo.Environment["COVE__CachePath"] = Path.Combine(dataRoot, "cache");
+        startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
+        startInfo.Environment["COVE__GeneratedPath"] = Path.Combine(dataRoot, "generated");
+        startInfo.Environment["COVE__IntegrationTestResetToken"] = resetToken;
+        startInfo.Environment["COVE__Postgres__ConnectionString"] = connectionString;
+        startInfo.Environment["COVE__Postgres__Managed"] = "false";
+
+        var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("The Cove API test process could not be started.");
+        process.OutputDataReceived += (_, args) => CaptureOutput(output, args.Data);
+        process.ErrorDataReceived += (_, args) => CaptureOutput(output, args.Data);
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static async Task<Uri> WaitForListeningAddressAsync(
+        Process process,
+        ConcurrentQueue<string> output,
         CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow.AddSeconds(60);
-        string? lastResponse = null;
-        Exception? lastError = null;
-
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfExited(process, output);
+
+            foreach (var line in output)
+            {
+                var match = ListeningAddressRegex().Match(line);
+                if (match.Success && Uri.TryCreate(match.Groups[1].Value, UriKind.Absolute, out var address))
+                    return address;
+            }
+
+            await Task.Delay(50, cancellationToken);
+        }
+
+        throw new TimeoutException($"The Cove API process did not publish a listening address. Output:{Environment.NewLine}{FormatOutput(output)}");
+    }
+
+    private static async Task WaitUntilReadyAsync(
+        HttpClient client,
+        Process process,
+        ConcurrentQueue<string> output,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfExited(process, output);
 
             try
             {
                 using var response = await client.GetAsync("/health/startup", cancellationToken);
-                lastResponse = $"{(int)response.StatusCode} {response.StatusCode}: {await response.Content.ReadAsStringAsync(cancellationToken)}";
                 if (response.StatusCode == HttpStatusCode.OK)
                     return;
             }
-            catch (Exception exception)
+            catch (HttpRequestException)
             {
-                lastError = exception;
+                // Kestrel can publish its address just before it accepts the first request.
             }
 
             await Task.Delay(100, cancellationToken);
         }
 
-        throw new TimeoutException(
-            $"The Cove API did not become ready in time. Last response: {lastResponse ?? "none"}.",
-            lastError);
+        throw new TimeoutException($"The Cove API process did not become ready. Output:{Environment.NewLine}{FormatOutput(output)}");
     }
 
-    private static IReadOnlyDictionary<string, string?> CaptureEnvironment()
-        => TestEnvironmentVariableNames.ToDictionary(
-            name => name,
-            Environment.GetEnvironmentVariable,
-            StringComparer.Ordinal);
-
-    private static void ApplyTestEnvironment(string dataRoot, string connectionString)
+    private static void ThrowIfExited(Process process, ConcurrentQueue<string> output)
     {
-        Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", EnvironmentName);
-        Environment.SetEnvironmentVariable("COVE_HOME", dataRoot);
-        Environment.SetEnvironmentVariable("COVE__Auth__Enabled", "true");
-        Environment.SetEnvironmentVariable("COVE__Auth__JwtSecret", "cove-fluent-api-tests-only-jwt-secret-4b93f6f2");
-        Environment.SetEnvironmentVariable("COVE__BackupPath", Path.Combine(dataRoot, "backups"));
-        Environment.SetEnvironmentVariable("COVE__CachePath", Path.Combine(dataRoot, "cache"));
-        Environment.SetEnvironmentVariable("COVE__ExtensionPaths__0", Path.Combine(dataRoot, "plugins"));
-        Environment.SetEnvironmentVariable("COVE__GeneratedPath", Path.Combine(dataRoot, "generated"));
-        Environment.SetEnvironmentVariable("COVE__Postgres__ConnectionString", connectionString);
-        Environment.SetEnvironmentVariable("COVE__Postgres__Managed", "false");
-        Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", EnvironmentName);
+        if (process.HasExited)
+            throw new InvalidOperationException($"The Cove API process exited with code {process.ExitCode}. Output:{Environment.NewLine}{FormatOutput(output)}");
     }
 
-    private static void RestoreEnvironment(IReadOnlyDictionary<string, string?> previousEnvironment)
+    private static void CaptureOutput(ConcurrentQueue<string> output, string? line)
     {
-        foreach (var (name, value) in previousEnvironment)
-            Environment.SetEnvironmentVariable(name, value);
+        if (line is null)
+            return;
+        output.Enqueue(line);
+        while (output.Count > 500 && output.TryDequeue(out _))
+        {
+        }
+    }
+
+    private static string FormatOutput(ConcurrentQueue<string> output)
+        => string.Join(Environment.NewLine, output);
+
+    private static async Task KillAndWaitAsync(Process process)
+    {
+        process.Kill(entireProcessTree: true);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await process.WaitForExitAsync(timeout.Token);
     }
 
     private static void TryDeleteDataRoot(string dataRoot)
@@ -300,6 +335,9 @@ internal sealed class CoveApiServer : IAsyncDisposable
             // A failed temporary-directory cleanup should not hide a test or database failure.
         }
     }
+
+    [GeneratedRegex(@"Now listening on:\s+(http://\S+)", RegexOptions.CultureInvariant)]
+    private static partial Regex ListeningAddressRegex();
 
     private sealed record AuthenticationResponse(string Token);
 }
