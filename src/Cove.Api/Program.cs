@@ -838,8 +838,10 @@ try
         runtimeLogLevelManager.LevelSwitch.MinimumLevel);
     await app.WaitForShutdownAsync();
 
-    // Graceful shutdown for extensions
-    await extensionManager.ShutdownAllAsync();
+    // WebApplicationFactory owns and disposes the IntegrationStartup service provider as it stops
+    // Kestrel. Production hosts still shut extensions down explicitly before their provider is gone.
+    if (!isTestHarness)
+        await extensionManager.ShutdownAllAsync();
 }
 catch (Exception ex)
 {

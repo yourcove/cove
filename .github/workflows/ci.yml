@@ -31,6 +31,41 @@ jobs:
       - name: Test (Integration smoke)
         run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --filter "FullyQualifiedName~Cove.Tests.Integration"
 
+  api-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      COVE_API_TEST_PG_HOST: 127.0.0.1
+      COVE_API_TEST_PG_PORT: 5432
+      COVE_API_TEST_PG_USER: postgres
+      COVE_API_TEST_PG_PASSWORD: postgres
+      COVE_API_TEST_PG_ADMIN_DB: postgres
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore src/Cove.slnx
+
+      - name: Test (Fluent API)
+        run: dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal
+
   performance:
     runs-on: ubuntu-latest
     services:
