@@ -11,6 +11,7 @@ import type {
   NameConflictEntityType,
 } from "../../api/types";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { buildRouteUrl } from "../../router/location";
 import { getApiValidationFailureDetail } from "../../utils/requestFailure";
 import {
   entityNameConflictQueryKey,
@@ -302,14 +303,16 @@ function EntityConflictCard({
               const choice = selected ? defaultChoice(candidate.entityId, survivorId) : choices[candidate.entityId] ?? defaultChoice(candidate.entityId, survivorId);
               return (
                 <div key={candidate.entityId} className={`rounded-xl border p-3 text-sm ${selected ? "border-accent/50 bg-accent/5" : "border-border bg-card"}`}>
-                  <label className="flex cursor-pointer items-start gap-2">
-                    <input type="radio" name={`entity-survivor-${group.key}`} checked={selected} onChange={() => onSelectSurvivor(candidate.entityId)} className="mt-1 accent-accent" aria-label={`Keep ${candidate.name}`} />
+                  <div className="flex items-start gap-2">
+                    <label className="mt-1 cursor-pointer">
+                      <input type="radio" name={`entity-survivor-${group.key}`} checked={selected} onChange={() => onSelectSurvivor(candidate.entityId)} className="accent-accent" aria-label={`Keep ${candidate.name}`} />
+                    </label>
                     <span>
-                      <span className="font-medium text-foreground">{displayName(candidate.name, candidate.disambiguation)}</span>
+                      <EntityDetailLink entityType={group.entityType} entityId={candidate.entityId} name={candidate.name} disambiguation={candidate.disambiguation} className="font-medium text-foreground" />
                       <span className="ml-2 text-xs text-muted">#{candidate.entityId}</span>
                       {candidate.entityId === group.recommendedSurvivorEntityId ? <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-200">Recommended</span> : null}
                     </span>
-                  </label>
+                  </div>
                   {!selected ? (
                     <div className="mt-3 space-y-2 pl-6">
                       <select value={choice.action} onChange={(event) => onChangeChoice(candidate.entityId, { ...choice, action: event.target.value as EntityAction })} aria-label={`Action for ${candidate.name}`} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-foreground">
@@ -335,7 +338,7 @@ function EntityConflictCard({
           <div className="mt-2 overflow-x-auto rounded-xl border border-border">
             <table className="min-w-[900px] w-full text-left text-sm">
               <thead className="bg-card text-xs text-secondary"><tr><th className="px-3 py-2">Entity</th><th className="px-3 py-2">Action</th><th className="px-3 py-2">References</th><th className="px-3 py-2">Linked</th><th className="px-3 py-2">Groups</th><th className="px-3 py-2">Hierarchy</th><th className="px-3 py-2">Faces</th><th className="px-3 py-2">Ratings</th><th className="px-3 py-2">Other</th><th className="px-3 py-2">Extensions</th></tr></thead>
-              <tbody className="divide-y divide-border">{group.impacts.map((impact) => <ImpactRow key={impact.entityId} impact={impact} selected={impact.entityId === survivorId} willMerge={plan.mergeEntityIds.has(impact.entityId)} recommended={impact.entityId === group.recommendedSurvivorEntityId} />)}</tbody>
+              <tbody className="divide-y divide-border">{group.impacts.map((impact) => <ImpactRow key={impact.entityId} entityType={group.entityType} impact={impact} selected={impact.entityId === survivorId} willMerge={plan.mergeEntityIds.has(impact.entityId)} recommended={impact.entityId === group.recommendedSurvivorEntityId} />)}</tbody>
             </table>
           </div>
         </div>
@@ -345,17 +348,17 @@ function EntityConflictCard({
         <div className="border-t border-border p-4 sm:p-5">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Extension-owned database references</h4>
           <p className="mt-1 text-xs text-secondary">Updating changes the foreign key to the survivor. Deleting removes matching extension rows. Both run in the same transaction as the merge.</p>
-          <div className="mt-3 space-y-3">{externalImpacts.map((impact) => <ExternalReferenceTable key={impact.entityId} impact={impact} willMerge={plan.mergeEntityIds.has(impact.entityId)} choices={externalChoices} onChange={onChangeExternal} />)}</div>
+          <div className="mt-3 space-y-3">{externalImpacts.map((impact) => <ExternalReferenceTable key={impact.entityId} entityType={group.entityType} impact={impact} willMerge={plan.mergeEntityIds.has(impact.entityId)} choices={externalChoices} onChange={onChangeExternal} />)}</div>
         </div>
       ) : null}
     </section>
   );
 }
 
-function ExternalReferenceTable({ impact, willMerge, choices, onChange }: { impact: EntityNameImpact; willMerge: boolean; choices: ExternalChoices; onChange: (reference: EntityExternalReference, action: ExternalAction | "") => void }) {
+function ExternalReferenceTable({ entityType, impact, willMerge, choices, onChange }: { entityType: NameConflictEntityType; impact: EntityNameImpact; willMerge: boolean; choices: ExternalChoices; onChange: (reference: EntityExternalReference, action: ExternalAction | "") => void }) {
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2"><span className="text-sm font-medium text-foreground">{displayName(impact.name, impact.disambiguation)} <span className="font-normal text-muted">#{impact.entityId}</span></span><span className={`text-xs ${willMerge ? "text-amber-200" : "text-muted"}`}>{willMerge ? "Review required" : "Kept unchanged"}</span></div>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2"><EntityDetailLink entityType={entityType} entityId={impact.entityId} name={impact.name} disambiguation={impact.disambiguation} showId className="text-sm font-medium text-foreground" /><span className={`text-xs ${willMerge ? "text-amber-200" : "text-muted"}`}>{willMerge ? "Review required" : "Kept unchanged"}</span></div>
       <div className="overflow-x-auto"><table className="min-w-[760px] w-full text-left text-sm"><thead className="text-xs text-secondary"><tr><th className="px-3 py-2">Table</th><th className="px-3 py-2">Column</th><th className="px-3 py-2">Rows</th><th className="px-3 py-2">Deletion policy</th><th className="px-3 py-2">Database action</th></tr></thead><tbody className="divide-y divide-border">
         {(impact.externalReferences ?? []).map((reference) => <tr key={reference.referenceKey}><td className="px-3 py-2 font-mono text-xs">{reference.schemaName}.{reference.tableName}</td><td className="px-3 py-2 font-mono text-xs">{reference.columnName}</td><td className="px-3 py-2 tabular-nums">{reference.rowCount == null ? "Unknown" : reference.rowCount.toLocaleString()}</td><td className="px-3 py-2 text-secondary">{reference.deleteBehavior}</td><td className="px-3 py-2">
           {willMerge && reference.accessLimitation == null && reference.rowCount != null ? <select value={choices[externalReferenceKey(reference)] ?? ""} onChange={(event) => onChange(reference, event.target.value as ExternalAction | "")} aria-label={`Database action for ${reference.schemaName}.${reference.tableName}.${reference.columnName}`} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"><option value="">Choose action…</option><option value="update-to-survivor">Update rows to survivor</option><option value="delete-rows">Delete rows</option></select> : willMerge ? <span className="text-xs text-amber-200">Owner or DBA repair required</span> : <span className="text-xs text-muted">Keep unchanged</span>}
@@ -365,8 +368,8 @@ function ExternalReferenceTable({ impact, willMerge, choices, onChange }: { impa
   );
 }
 
-function ImpactRow({ impact, selected, willMerge, recommended }: { impact: EntityNameImpact; selected: boolean; willMerge: boolean; recommended: boolean }) {
-  return <tr className={selected ? "bg-accent/5" : ""}><td className="px-3 py-2 font-medium text-foreground">{displayName(impact.name, impact.disambiguation)} <span className="text-muted">#{impact.entityId}</span>{recommended ? <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-200">Recommended</span> : null}</td><td className={`px-3 py-2 ${willMerge ? "text-amber-200" : "text-secondary"}`}>{selected ? "Survivor" : willMerge ? "Merge" : "Rename"}</td><Count value={impact.referenceCount} /><Count value={impact.linkedEntityCount} /><Count value={impact.groupCount} /><Count value={impact.hierarchyCount} /><Count value={impact.faceCount} /><Count value={impact.ratingCount} /><Count value={impact.otherMetadataCount} />{impact.externalReferences.some((reference) => reference.rowCount == null) ? <td className="px-3 py-2 text-amber-200">Unknown</td> : <Count value={impact.extensionMetadataCount} />}</tr>;
+function ImpactRow({ entityType, impact, selected, willMerge, recommended }: { entityType: NameConflictEntityType; impact: EntityNameImpact; selected: boolean; willMerge: boolean; recommended: boolean }) {
+  return <tr className={selected ? "bg-accent/5" : ""}><td className="px-3 py-2 font-medium text-foreground"><EntityDetailLink entityType={entityType} entityId={impact.entityId} name={impact.name} disambiguation={impact.disambiguation} showId />{recommended ? <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-200">Recommended</span> : null}</td><td className={`px-3 py-2 ${willMerge ? "text-amber-200" : "text-secondary"}`}>{selected ? "Survivor" : willMerge ? "Merge" : "Rename"}</td><Count value={impact.referenceCount} /><Count value={impact.linkedEntityCount} /><Count value={impact.groupCount} /><Count value={impact.hierarchyCount} /><Count value={impact.faceCount} /><Count value={impact.ratingCount} /><Count value={impact.otherMetadataCount} />{impact.externalReferences.some((reference) => reference.rowCount == null) ? <td className="px-3 py-2 text-amber-200">Unknown</td> : <Count value={impact.extensionMetadataCount} />}</tr>;
 }
 
 function Count({ value }: { value: number }) {
@@ -390,6 +393,23 @@ function StatusBox({ tone, children }: { tone: "success" | "error"; children: Re
 
 function displayName(name: string, disambiguation?: string | null) {
   return disambiguation?.trim() ? `${displayValue(name)} (${disambiguation.trim()})` : displayValue(name);
+}
+
+function EntityDetailLink({ entityType, entityId, name, disambiguation, showId = false, className = "" }: { entityType: NameConflictEntityType; entityId: number; name: string; disambiguation?: string | null; showId?: boolean; className?: string }) {
+  const displayNameValue = displayName(name, disambiguation);
+  return (
+    <a
+      href={buildRouteUrl({ page: entityType, id: entityId })}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${entityType} ${displayNameValue} (#${entityId}) in new tab`}
+      title={`Open ${entityType} in new tab`}
+      className={`${className} hover:text-accent hover:underline`}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {displayNameValue}{showId ? <span className="font-normal text-muted"> #{entityId}</span> : null}
+    </a>
+  );
 }
 
 function displayValue(value: string) {

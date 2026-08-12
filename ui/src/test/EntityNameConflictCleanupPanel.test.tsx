@@ -58,11 +58,11 @@ vi.mock("../features/tag-name-conflicts/useTagNameConflicts", () => ({
   }),
 }));
 
-function renderPanel() {
+function renderPanel(entityType: "performer" | "studio" = "performer") {
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <EntityNameConflictCleanupPanel entityType="performer" />
+      <EntityNameConflictCleanupPanel entityType={entityType} />
     </QueryClientProvider>,
   );
   return queryClient;
@@ -75,6 +75,43 @@ describe("EntityNameConflictCleanupPanel", () => {
     mocks.scanError = null;
     conflictScan.groups[0].impacts[0].externalReferences = [];
     conflictScan.groups[0].impacts[0].extensionMetadataCount = 0;
+    conflictScan.entityType = "performer";
+    conflictScan.groups[0].entityType = "performer";
+  });
+
+  it("links performer candidates and impact rows to their detail pages", () => {
+    renderPanel();
+
+    const sourceLinks = screen.getAllByRole("link", { name: "Open performer Alex (Example) (#3) in new tab" });
+    const survivorLinks = screen.getAllByRole("link", { name: "Open performer alex (example) (#7) in new tab" });
+    expect(sourceLinks).toHaveLength(2);
+    expect(survivorLinks).toHaveLength(2);
+    for (const link of [...sourceLinks, ...survivorLinks]) {
+      expect(link).toHaveAttribute("href", link.getAttribute("aria-label")?.includes("#3") ? "/performer/3" : "/performer/7");
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noreferrer");
+    }
+  });
+
+  it("does not change the selected survivor when a candidate detail link is opened", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByRole("radio", { name: "Keep Alex" })).not.toBeChecked();
+    await user.click(screen.getAllByRole("link", { name: "Open performer Alex (Example) (#3) in new tab" })[0]);
+    expect(screen.getByRole("radio", { name: "Keep Alex" })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: "Keep alex" })).toBeChecked();
+  });
+
+
+  it("links studio candidates and impact rows to their detail pages", () => {
+    conflictScan.entityType = "studio";
+    conflictScan.groups[0].entityType = "studio";
+    renderPanel("studio");
+
+    expect(screen.getAllByRole("link", { name: "Open studio Alex (Example) (#3) in new tab" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Open studio alex (example) (#7) in new tab" })).toHaveLength(2);
+    expect(screen.getAllByRole("link")[0]).toHaveAttribute("href", "/studio/3");
   });
 
   it("allows a failed scan to be retried in place", async () => {
@@ -167,6 +204,7 @@ describe("EntityNameConflictCleanupPanel", () => {
     }];
     renderPanel();
 
+    expect(screen.getAllByRole("link", { name: "Open performer Alex (Example) (#3) in new tab" })).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Resolve group" })).toBeDisabled();
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Database action for public.extension_faces.performer_id" }),
