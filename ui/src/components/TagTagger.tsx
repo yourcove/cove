@@ -27,6 +27,7 @@ interface TagSearchState {
   error?: string;
   selectedIndex?: number;
   saved?: boolean;
+  warning?: string;
 }
 
 const CONCURRENCY_LIMIT = 5;
@@ -63,7 +64,7 @@ export function TagTagger({ tags: tagList, selectedIds, selecting = false, onSel
 
   const searchTag = useCallback(async (tag: Tag) => {
     const query = queryOverrides[tag.id] ?? cleanTaggerQueryString(tag.name, taggerConfig.blacklist);
-    updateSearchState(tag.id, { loading: true, error: undefined, results: undefined, saved: false });
+    updateSearchState(tag.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
     try {
       const endpoint = taggerConfig.selectedEndpoint || undefined;
       const results = await tags.searchMetadataServer(tag.id, query, endpoint);
@@ -177,7 +178,7 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
 
   const refreshFromRemote = useCallback(async (refreshEndpoint: string, remoteId: string) => {
     setRefreshBusyEndpoint(refreshEndpoint);
-    onUpdateState({ loading: true, error: undefined, results: undefined, saved: false });
+    onUpdateState({ loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
     try {
       const results = await tags.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
       onUpdateState({
@@ -200,7 +201,10 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
       const request: MetadataServerTagImportRequest = { endpoint: selectedResult.endpoint, tagId: selectedResult.id };
       return tags.importFromMetadataServer(tag.id, request);
     },
-    onSuccess: () => onUpdateState({ saved: true }),
+    onSuccess: (result) => onUpdateState({
+      saved: true,
+      warning: result.importWarnings && result.importWarnings.length > 0 ? result.importWarnings.join(" ") : undefined,
+    }),
   });
 
   const submitDraftMut = useMutation<{ draftId: string | null }, Error>({
@@ -268,6 +272,7 @@ function TagTaggerRow({ tag, state, query, onQueryChange, onSearch, onUpdateStat
           {submitDraftMut.isSuccess && <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Tag draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>}
 
           {state?.error && <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{state.error}</p>}
+          {state?.warning && <p className="text-xs text-amber-300 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />Saved with warnings: {state.warning}</p>}
           {state?.results && state.results.length === 0 && <p className="text-xs text-muted">No matches found.</p>}
           {state?.results && state.results.length > 0 && (
             <div className="space-y-1">

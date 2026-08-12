@@ -522,14 +522,21 @@ public class TagsController(
 
         await db.Entry(tag).Collection(t => t.RemoteIds).LoadAsync(ct);
 
-        var imported = await metadataServerService.MergeTagAsync(tag, dto.Endpoint, dto.TagId, ct);
-        if (!imported)
+        var imported = await metadataServerService.MergeTagWithWarningsAsync(tag, dto.Endpoint, dto.TagId, ct);
+        if (!imported.Imported)
             return NotFound();
 
-        await tagRepo.UpdateAsync(tag, ct);
+        try
+        {
+            await tagRepo.UpdateAsync(tag, ct);
+        }
+        catch (TagNameConflictException exception)
+        {
+            return Conflict(new { code = "TAG_NAME_CONFLICT", message = exception.Message, exception.ConflictingName });
+        }
         eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", tag.Id));
         var updated = await tagRepo.GetByIdWithRelationsAsync(id, ct);
-        return Ok(await MapToDetailDtoAsync(updated!, ct));
+        return Ok((await MapToDetailDtoAsync(updated!, ct)) with { ImportWarnings = imported.Warnings });
     }
 
     [HttpPost("{id:int}/metadata-server/submit-draft")]

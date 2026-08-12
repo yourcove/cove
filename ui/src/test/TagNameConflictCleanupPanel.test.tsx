@@ -84,8 +84,9 @@ describe("TagNameConflictCleanupPanel", () => {
     expect(screen.getByText("Tag name and alias")).toBeInTheDocument();
     expect(screen.getByText("Tag name")).toBeInTheDocument();
     expect(screen.getByText("Alias")).toBeInTheDocument();
-    expect(screen.getByText(/most references/i)).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "References" })).toBeInTheDocument();
+    expect(screen.getByText(/only canonical-name owner/i)).toBeInTheDocument();
+    expect(screen.getByText(/recommendation score is 11 transferable references/i)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Transferable references" })).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("6")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Keep tag Shared" })).toBeChecked();
@@ -330,5 +331,40 @@ describe("TagNameConflictCleanupPanel", () => {
     await user.click(screen.getByRole("button", { name: "Apply all" }));
 
     await waitFor(() => expect(mocks.resolveAll).toHaveBeenCalledWith("scan-revision-fixture"));
+  });
+
+  it("does not let Apply all discard a manually selected survivor", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagNameConflictCleanupPanel />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Keep tag Other" }));
+
+    expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeDisabled();
+    expect(screen.getByText(/Apply all uses Cove's recommendations, not choices edited/i)).toBeInTheDocument();
+    expect(mocks.resolveAll).not.toHaveBeenCalled();
+  });
+
+  it("clears stale per-claim choices before manually refreshing the scan", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagNameConflictCleanupPanel />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Keep tag Other" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Resolution for tag-name Shared on tag 4" }), "rename");
+    expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Refresh scan" }));
+
+    expect(mocks.refetch).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeEnabled();
   });
 });

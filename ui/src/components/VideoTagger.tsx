@@ -88,6 +88,7 @@ interface VideoSearchState {
   loading: boolean;
   results?: UnifiedVideoMatch[];
   error?: string;
+  warning?: string;
   selectedIndex?: number;
   saved?: boolean;
   excludedPerformers?: Set<string>;
@@ -622,7 +623,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     async (video: Video, bulkStrategy?: VideoMetadataSearchStrategy) => {
       const source = selectedSource;
       const query = getSourceQuery(video, source);
-      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
       try {
         let results: UnifiedVideoMatch[] = [];
         if (source?.kind === "scraper") {
@@ -673,7 +674,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
   // Fingerprint-only search
   const searchVideoFingerprints = useCallback(
     async (video: Video) => {
-      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
       try {
         if (selectedSource?.kind !== "metadata-server") throw new Error("Fingerprint search is only available for metadata-server sources.");
         const results = (await videos.searchMetadataServer(video.id, undefined, selectedSource.endpoint || undefined, "fingerprint")).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
@@ -695,7 +696,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
   // Refresh/rescrape directly from an existing remote id (no name search needed).
   const refreshVideoFromRemote = useCallback(
     async (video: Video, endpoint: string, remoteId: string) => {
-      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
       try {
         const results = (await videos.findMetadataServerByIds({ endpoint, ids: [remoteId] })).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
         updateSearchState(video.id, {
@@ -1135,8 +1136,12 @@ function TaggerVideoRow({
       };
       return videos.importFromMetadataServer(video.id, importReq);
     },
-    onSuccess: async () => {
-      onUpdateState({ saved: true });
+    onSuccess: async (result) => {
+      const importWarnings = "importWarnings" in result ? result.importWarnings : undefined;
+      onUpdateState({
+        saved: true,
+        warning: importWarnings && importWarnings.length > 0 ? importWarnings.join(" ") : undefined,
+      });
       await invalidateVideoMetadataQueries(queryClient, video.id);
     },
   });
@@ -1421,6 +1426,12 @@ function TaggerVideoRow({
             <div className="flex items-center gap-1 mt-2 text-xs text-green-400">
               <Check className="w-3.5 h-3.5" />
               Saved successfully
+            </div>
+          )}
+          {state?.warning && (
+            <div className="mt-2 flex items-start gap-1 text-xs text-amber-300">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Saved with warnings: {state.warning}</span>
             </div>
           )}
         </div>

@@ -231,6 +231,11 @@ export function TagNameConflictCleanupPanel() {
   });
 
   const totalClaims = useMemo(() => scan.data?.groups.reduce((sum, group) => sum + group.claims.length, 0) ?? 0, [scan.data]);
+  const hasManualOverrides = useMemo(() => scan.data?.groups.some((group) =>
+    (selectedSurvivors[group.key] != null && selectedSurvivors[group.key] !== group.recommendedSurvivorTagId)
+    || Object.keys(choices[group.key] ?? {}).length > 0
+    || Object.keys(externalReferenceChoices[group.key] ?? {}).length > 0
+  ) ?? false, [choices, externalReferenceChoices, scan.data, selectedSurvivors]);
   const recommendedMergeBlocked = useMemo(() => scan.data?.groups.some((group) => {
     const plan = buildGroupPlan(group, group.recommendedSurvivorTagId);
     return group.impacts.some((impact) => plan.mergeTagIds.has(impact.tagId) && (impact.externalReferences ?? []).length > 0);
@@ -265,7 +270,12 @@ export function TagNameConflictCleanupPanel() {
           <div className="flex shrink-0 flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => scan.refetch()}
+              onClick={() => {
+                setSelectedSurvivors({});
+                setChoices({});
+                setExternalReferenceChoices({});
+                void scan.refetch();
+              }}
               disabled={scan.isFetching || mutation.isPending}
               className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:border-accent hover:text-foreground disabled:opacity-50"
             >
@@ -274,8 +284,12 @@ export function TagNameConflictCleanupPanel() {
             <button
               type="button"
               onClick={() => setPendingAction({ kind: "all", expectedRevision: scan.data.revision })}
-              disabled={mutation.isPending || recommendedMergeBlocked}
-              title={recommendedMergeBlocked ? "At least one recommended merge requires per-table non-core database decisions." : undefined}
+              disabled={mutation.isPending || recommendedMergeBlocked || hasManualOverrides}
+              title={recommendedMergeBlocked
+                ? "At least one recommended merge requires per-table non-core database decisions."
+                : hasManualOverrides
+                  ? "Apply all uses Cove's recommendations only. Resolve edited groups individually first."
+                  : "Apply Cove's original recommendation for every unresolved group."}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
             >
               <Tags className="h-4 w-4" /> Apply all recommended fixes
@@ -285,6 +299,10 @@ export function TagNameConflictCleanupPanel() {
         {recommendedMergeBlocked ? (
           <p className="mt-3 text-sm text-amber-100/80">
             Apply all is unavailable because at least one recommended source tag has non-core references that must be reviewed table by table. Resolve that group individually, rename the tag, or choose another survivor.
+          </p>
+        ) : hasManualOverrides ? (
+          <p className="mt-3 text-sm text-amber-100/80">
+            Apply all uses Cove&apos;s recommendations, not choices edited in the cards below. Resolve edited groups individually before applying the remaining recommendations.
           </p>
         ) : null}
       </section>
@@ -331,7 +349,7 @@ export function TagNameConflictCleanupPanel() {
         open={pendingAction != null}
         title={pendingAction?.kind === "all" ? "Apply all recommended tag fixes?" : "Resolve this tag-name conflict?"}
         message={pendingAction?.kind === "all"
-          ? "Cove will remove redundant or conflicting aliases and merge canonical-name conflicts into their recommended survivors. All operations run transactionally and the scan refreshes afterward."
+          ? "No manual overrides are selected. Cove will remove redundant or conflicting aliases and merge canonical-name conflicts into Cove's recommended survivors. All operations run transactionally and the scan refreshes afterward."
           : describePlan(pendingPlan)}
         confirmLabel={pendingAction?.kind === "all" ? "Apply all" : "Resolve group"}
         destructive={pendingAction?.kind === "all" || Boolean(pendingPlan && (pendingPlan.mergeTagIds.size > 0 || pendingPlan.removedAliasCount > 0))}
@@ -460,7 +478,7 @@ function ConflictGroupCard({
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Impact before changes</h4>
           {canSelectSurvivor ? (
             <p className="mt-1 text-xs text-secondary">
-              Cove recommends the canonical-name owner with the most references when one exists, so an alias alone does not force a whole-tag merge. Alias-only groups use the most-referenced owner. Ties use the lowest tag ID, and you can choose another survivor.
+              {describeRecommendation(group)}
             </p>
           ) : null}
           <div className="mt-2 overflow-x-auto rounded-xl border border-border">
@@ -470,7 +488,7 @@ function ConflictGroupCard({
                   <th className="px-3 py-2 font-medium">Survivor</th>
                   <th className="px-3 py-2 font-medium">Tag</th>
                   <th className="px-3 py-2 font-medium">Action</th>
-                  <th className="px-3 py-2 font-medium">References</th>
+                  <th className="px-3 py-2 font-medium">Transferable references</th>
                   <th className="px-3 py-2 font-medium">Entities</th>
                   <th className="px-3 py-2 font-medium">Segments</th>
                   <th className="px-3 py-2 font-medium">Parents</th>
@@ -613,6 +631,30 @@ function ImpactRow({ impact, recommended, selected, selectable, willMerge, radio
         : <CountCell value={impact.extensionMetadataCount} />}
     </tr>
   );
+}
+
+function describeRecommendation(group: TagNameConflictGroup) {
+  const canonicalOwnerIds = new Set(group.claims
+    .filter((claim) => claim.claimType === "tag-name")
+    .map((claim) => claim.tagId));
+  const eligible = canonicalOwnerIds.size > 0
+    ? group.impacts.filter((impact) => canonicalOwnerIds.has(impact.tagId))
+    : group.impacts;
+  const recommended = group.impacts.find((impact) => impact.tagId === group.recommendedSurvivorTagId);
+  if (!recommended) return "Cove recommends a survivor from the current conflict claims. You can choose another survivor.";
+
+  const tied = eligible.filter((impact) => impact.referenceCount === recommended.referenceCount).length > 1;
+  const score = `${recommended.referenceCount.toLocaleString()} transferable reference${recommended.referenceCount === 1 ? "" : "s"}`;
+  if (canonicalOwnerIds.size > 0) {
+    const eligibility = canonicalOwnerIds.size === 1
+      ? "It is the only canonical-name owner; alias-only owners are not candidates because removing an alias avoids an unnecessary whole-tag merge."
+      : `It has the most references among the ${canonicalOwnerIds.size} canonical-name owners.`;
+    const tie = tied ? " The reference count is tied, so the lowest tag ID wins." : "";
+    return `Cove recommends Tag #${recommended.tagId} (${displayValue(recommended.tagName)}): ${eligibility} Its recommendation score is ${score}.${tie} You can choose another survivor.`;
+  }
+
+  const tie = tied ? " The reference count is tied, so the lowest tag ID wins." : "";
+  return `Cove recommends Tag #${recommended.tagId} (${displayValue(recommended.tagName)}) because it has the most references among the alias owners, with ${score}.${tie} You can choose another survivor.`;
 }
 
 function describePlan(plan: GroupPlan | null) {

@@ -545,12 +545,14 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     {
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         if (video == null) return NotFound();
+        IReadOnlyList<string> importWarnings;
 
         try
         {
-            var imported = await metadataServerService.MergeVideoAsync(video, dto.Endpoint, dto.VideoId, dto, ct);
-            if (!imported) return NotFound();
+            var imported = await metadataServerService.MergeVideoWithWarningsAsync(video, dto.Endpoint, dto.VideoId, dto, ct);
+            if (!imported.Imported) return NotFound();
             await db.SaveChangesAsync(ct);
+            importWarnings = imported.Warnings;
         }
         catch (EntityNameConflictException exception)
         {
@@ -558,7 +560,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
         PublishVideoEvent(EventType.VideoUpdated, id);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
-        return Ok(await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct));
+        return Ok((await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct)) with { ImportWarnings = importWarnings });
     }
 
     [HttpPost("{id:int}/metadata-server/submit-fingerprints")]

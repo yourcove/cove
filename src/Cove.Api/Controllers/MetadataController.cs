@@ -625,21 +625,14 @@ public class MetadataController(
             var scraperSvc = scope.ServiceProvider.GetService<ScraperService>();
             var scrapeAttemptSvc = scope.ServiceProvider.GetService<ScrapeAttemptService>();
 
-            var videos = opts?.VideoIds?.Count > 0
+            var videoIds = opts?.VideoIds?.Count > 0
                 ? await dbCtx.Videos
-                    .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-                    .Include(s => s.VideoTags)
-                    .Include(s => s.VideoPerformers)
-                    .Include(s => s.RemoteIds)
-                    .Include(s => s.Urls)
-                    .Where(s => opts.VideoIds.Contains(s.Id)).AsSplitQuery().ToListAsync(ct)
+                    .Where(video => opts.VideoIds.Contains(video.Id))
+                    .Select(video => video.Id)
+                    .ToListAsync(ct)
                 : await dbCtx.Videos
-                    .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-                    .Include(s => s.VideoTags)
-                    .Include(s => s.VideoPerformers)
-                    .Include(s => s.RemoteIds)
-                    .Include(s => s.Urls)
-                    .AsSplitQuery().ToListAsync(ct);
+                    .Select(video => video.Id)
+                    .ToListAsync(ct);
 
             var identifyDefaults = config.Scraping.IdentifyDefaults;
             var sourceEndpoints = ResolveIdentifyMetadataServerEndpoints(opts?.Sources, config.Scraping.MetadataServers);
@@ -667,14 +660,24 @@ public class MetadataController(
                 SkipSingleNamePerformers = opts?.SkipSingleNamePerformers ?? true,
             };
 
-            var total = videos.Count;
+            var total = videoIds.Count;
             var identifiedCount = 0;
+            var warningCount = 0;
             for (var i = 0; i < total; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 progress.Report((double)(i + 1) / total, $"Identifying video {i + 1}/{total}");
 
-                var video = videos[i];
+                dbCtx.ChangeTracker.Clear();
+                metadataServerSvc?.ResetTrackedIdentityState();
+                var video = await dbCtx.Videos
+                    .Include(entity => entity.Files).ThenInclude(file => file.Fingerprints)
+                    .Include(entity => entity.VideoTags)
+                    .Include(entity => entity.VideoPerformers)
+                    .Include(entity => entity.RemoteIds)
+                    .Include(entity => entity.Urls)
+                    .AsSplitQuery()
+                    .SingleAsync(entity => entity.Id == videoIds[i], ct);
                 var fingerprints = video.Files.SelectMany(f => f.Fingerprints).ToList();
                 var identified = false;
 
@@ -781,10 +784,18 @@ public class MetadataController(
                                 rankedMatches.Count,
                                 matches.Count);
 
-                            var imported = await metadataServerSvc.MergeVideoAsync(video, best.Endpoint, best.Id, importConfig, ct);
-                            if (imported)
+                            var imported = await metadataServerSvc.MergeVideoWithWarningsAsync(video, best.Endpoint, best.Id, importConfig, ct);
+                            if (imported.Imported)
                             {
                                 await dbCtx.SaveChangesAsync(ct);
+                                if (imported.Warnings.Count > 0)
+                                {
+                                    warningCount++;
+                                    logger.LogWarning(
+                                        "MetadataServer identify partially updated video {VideoId}: {Warnings}",
+                                        video.Id,
+                                        string.Join(" ", imported.Warnings));
+                                }
                                 eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));
                                 identified = true;
                             }
@@ -793,6 +804,16 @@ public class MetadataController(
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "MetadataServer identify failed for video {VideoId}", video.Id);
+                        dbCtx.ChangeTracker.Clear();
+                        metadataServerSvc.ResetTrackedIdentityState();
+                        video = await dbCtx.Videos
+                            .Include(entity => entity.Files).ThenInclude(file => file.Fingerprints)
+                            .Include(entity => entity.VideoTags)
+                            .Include(entity => entity.VideoPerformers)
+                            .Include(entity => entity.RemoteIds)
+                            .Include(entity => entity.Urls)
+                            .AsSplitQuery()
+                            .SingleAsync(entity => entity.Id == video.Id, ct);
                     }
                 }
 
@@ -816,14 +837,21 @@ public class MetadataController(
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Scraper identify failed for video {VideoId}", video.Id);
+                        dbCtx.ChangeTracker.Clear();
+                        metadataServerSvc?.ResetTrackedIdentityState();
                     }
                 }
 
                 if (identified)
+                {
+                    await dbCtx.SaveChangesAsync(ct);
                     identifiedCount++;
+                }
             }
 
             await dbCtx.SaveChangesAsync(ct);
+            if (warningCount > 0)
+                progress.Report(1d, $"Identified {identifiedCount} videos; {warningCount} saved with skipped conflicting tag names or aliases. See server logs for details.");
             logger.LogInformation(
                 "Identify completed: {Identified} identified, {Unmatched} unmatched of {Total} videos",
                 identifiedCount,

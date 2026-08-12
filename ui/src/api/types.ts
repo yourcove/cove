@@ -24,6 +24,7 @@ export interface Video {
   updatedAt: string;
   contextTagApplications?: TagApplication[];
   fieldProvenance?: FieldProvenance[];
+  importWarnings?: string[];
   parentVideoId?: number | null;
   parentVideoTitle?: string | null;
   clipStartSec?: number | null;
@@ -352,6 +353,7 @@ export interface TagDetail extends Tag {
   createdAt: string;
   updatedAt: string;
   fieldProvenance?: FieldProvenance[];
+  importWarnings?: string[];
 }
 
 export interface TagGraphNode {

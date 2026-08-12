@@ -20,8 +20,10 @@ public partial class CoveContext : DbContext
     private static IReadOnlyList<IDataExtension> _dataExtensions = [];
     private static int _modelGeneration;
     private const int DerivedArrayAdvisoryLockNamespace = 0x434F5600;
+    private const int TagNamespaceAdvisoryLockKey = 0x434F564E;
     private static readonly SemaphoreSlim[] DerivedArrayWriteStripes =
         Enumerable.Range(0, 257).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+    private static readonly SemaphoreSlim TagNamespaceWriteLock = new(1, 1);
     private bool _persistingDerivedCounts;
     private int _tagNameValidationSuppressionDepth;
     private int _authorizationFilterSuppressionDepth;
@@ -463,39 +465,47 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return base.SaveChanges();
 
-        NormalizeAndValidateTagNames();
-        NormalizeAndValidateEntityNames();
-        ProtectDenormalizedIdArraysFromDirectWrites();
-        var arrayTargets = CollectDerivedArrayTargets();
-        var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
-            ? []
-            : AcquireLocalDerivedArrayWriteLocks(arrayTargets);
-        var databaseLock = default(DatabaseDerivedArrayWriteLock);
+        var tagNamespaceLock = AcquireTagNamespaceWriteLock();
         try
         {
-            databaseLock = AcquireDatabaseDerivedArrayWriteLocks(arrayTargets);
-            UpdateTimestamps();
-            ComputeFilePaths();
-            MaintainDenormalizedIdArrays(arrayTargets);
-            CleanupEngagementRowsForDeletedEntities();
-            var derivedCountTargets = CollectDerivedCountTargets();
-            var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-            var result = base.SaveChanges();
-            AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
-            MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
-            PersistDerivedCounts(derivedCountTargets);
-            return result;
-        }
-        finally
-        {
+            NormalizeAndValidateTagNames();
+            NormalizeAndValidateEntityNames();
+            ProtectDenormalizedIdArraysFromDirectWrites();
+            var arrayTargets = CollectDerivedArrayTargets();
+            var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
+                ? []
+                : AcquireLocalDerivedArrayWriteLocks(arrayTargets);
+            var databaseLock = default(DatabaseDerivedArrayWriteLock);
             try
             {
-                ReleaseDatabaseDerivedArrayWriteLocks(databaseLock);
+                databaseLock = AcquireDatabaseDerivedArrayWriteLocks(arrayTargets);
+                UpdateTimestamps();
+                ComputeFilePaths();
+                MaintainDenormalizedIdArrays(arrayTargets);
+                CleanupEngagementRowsForDeletedEntities();
+                var derivedCountTargets = CollectDerivedCountTargets();
+                var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+                var result = base.SaveChanges();
+                AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
+                MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
+                PersistDerivedCounts(derivedCountTargets);
+                return result;
             }
             finally
             {
-                ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                try
+                {
+                    ReleaseDatabaseDerivedArrayWriteLocks(databaseLock);
+                }
+                finally
+                {
+                    ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                }
             }
+        }
+        finally
+        {
+            ReleaseTagNamespaceWriteLock(tagNamespaceLock);
         }
     }
 
@@ -504,35 +514,43 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return await base.SaveChangesAsync(cancellationToken);
 
-        await NormalizeAndValidateTagNamesAsync(cancellationToken);
-        await NormalizeAndValidateEntityNamesAsync(cancellationToken);
-        ProtectDenormalizedIdArraysFromDirectWrites();
-        var arrayTargets = CollectDerivedArrayTargets();
-        var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
-            ? []
-            : await AcquireLocalDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
-        var databaseLock = default(DatabaseDerivedArrayWriteLock);
+        var tagNamespaceLock = await AcquireTagNamespaceWriteLockAsync(cancellationToken);
         try
         {
-            databaseLock = await AcquireDatabaseDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
-            UpdateTimestamps();
-            ComputeFilePaths();
-            MaintainDenormalizedIdArrays(arrayTargets);
-            await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
-            var derivedCountTargets = CollectDerivedCountTargets();
-            var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-            return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
-        }
-        finally
-        {
+            await NormalizeAndValidateTagNamesAsync(cancellationToken);
+            await NormalizeAndValidateEntityNamesAsync(cancellationToken);
+            ProtectDenormalizedIdArraysFromDirectWrites();
+            var arrayTargets = CollectDerivedArrayTargets();
+            var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
+                ? []
+                : await AcquireLocalDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+            var databaseLock = default(DatabaseDerivedArrayWriteLock);
             try
             {
-                await ReleaseDatabaseDerivedArrayWriteLocksAsync(databaseLock);
+                databaseLock = await AcquireDatabaseDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+                UpdateTimestamps();
+                ComputeFilePaths();
+                MaintainDenormalizedIdArrays(arrayTargets);
+                await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
+                var derivedCountTargets = CollectDerivedCountTargets();
+                var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+                return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
             }
             finally
             {
-                ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                try
+                {
+                    await ReleaseDatabaseDerivedArrayWriteLocksAsync(databaseLock);
+                }
+                finally
+                {
+                    ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                }
             }
+        }
+        finally
+        {
+            await ReleaseTagNamespaceWriteLockAsync(tagNamespaceLock);
         }
     }
 
@@ -819,6 +837,112 @@ public partial class CoveContext : DbContext
             DerivedArrayWriteStripes[indexes[index]].Release();
     }
 
+    private bool HasPendingTagNamespaceWrite() =>
+        ChangeTracker.Entries<Tag>().Any(entry => entry.State is EntityState.Added or EntityState.Deleted
+            || entry.State == EntityState.Modified && entry.Property(tag => tag.Name).IsModified)
+        || ChangeTracker.Entries<TagAlias>().Any(entry => entry.State is EntityState.Added or EntityState.Deleted
+            || entry.State == EntityState.Modified && entry.Property(alias => alias.Alias).IsModified);
+
+    private TagNamespaceLock AcquireTagNamespaceWriteLock()
+    {
+        if (!HasPendingTagNamespaceWrite())
+            return default;
+
+        if (!UsesDatabaseDerivedArrayWriteLocks())
+        {
+            TagNamespaceWriteLock.Wait();
+            return new TagNamespaceLock(Acquired: true, Local: true, TransactionScoped: false, OpenedConnection: false);
+        }
+
+        var openedConnection = Database.GetDbConnection().State != ConnectionState.Open;
+        if (openedConnection)
+            Database.OpenConnection();
+        var transactionScoped = Database.CurrentTransaction != null;
+        try
+        {
+            if (transactionScoped)
+                Database.ExecuteSqlInterpolated($"SELECT pg_advisory_xact_lock({TagNamespaceAdvisoryLockKey})");
+            else
+                Database.ExecuteSqlInterpolated($"SELECT pg_advisory_lock({TagNamespaceAdvisoryLockKey})");
+            return new TagNamespaceLock(Acquired: true, Local: false, transactionScoped, openedConnection);
+        }
+        catch
+        {
+            if (openedConnection)
+                Database.CloseConnection();
+            throw;
+        }
+    }
+
+    private async Task<TagNamespaceLock> AcquireTagNamespaceWriteLockAsync(CancellationToken cancellationToken)
+    {
+        if (!HasPendingTagNamespaceWrite())
+            return default;
+
+        if (!UsesDatabaseDerivedArrayWriteLocks())
+        {
+            await TagNamespaceWriteLock.WaitAsync(cancellationToken);
+            return new TagNamespaceLock(Acquired: true, Local: true, TransactionScoped: false, OpenedConnection: false);
+        }
+
+        var openedConnection = Database.GetDbConnection().State != ConnectionState.Open;
+        if (openedConnection)
+            await Database.OpenConnectionAsync(cancellationToken);
+        var transactionScoped = Database.CurrentTransaction != null;
+        try
+        {
+            if (transactionScoped)
+                await Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({TagNamespaceAdvisoryLockKey})",
+                    cancellationToken);
+            else
+                await Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_lock({TagNamespaceAdvisoryLockKey})",
+                    cancellationToken);
+            return new TagNamespaceLock(Acquired: true, Local: false, transactionScoped, openedConnection);
+        }
+        catch
+        {
+            if (openedConnection)
+                await Database.CloseConnectionAsync();
+            throw;
+        }
+    }
+
+    private void ReleaseTagNamespaceWriteLock(TagNamespaceLock tagNamespaceLock)
+    {
+        try
+        {
+            if (!tagNamespaceLock.Local && !tagNamespaceLock.TransactionScoped && tagNamespaceLock.Acquired)
+                Database.ExecuteSqlInterpolated($"SELECT pg_advisory_unlock({TagNamespaceAdvisoryLockKey})");
+        }
+        finally
+        {
+            if (tagNamespaceLock.OpenedConnection)
+                Database.CloseConnection();
+            if (tagNamespaceLock.Local)
+                TagNamespaceWriteLock.Release();
+        }
+    }
+
+    private async Task ReleaseTagNamespaceWriteLockAsync(TagNamespaceLock tagNamespaceLock)
+    {
+        try
+        {
+            if (!tagNamespaceLock.Local && !tagNamespaceLock.TransactionScoped && tagNamespaceLock.Acquired)
+                await Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_unlock({TagNamespaceAdvisoryLockKey})",
+                    CancellationToken.None);
+        }
+        finally
+        {
+            if (tagNamespaceLock.OpenedConnection)
+                await Database.CloseConnectionAsync();
+            if (tagNamespaceLock.Local)
+                TagNamespaceWriteLock.Release();
+        }
+    }
+
     private static int[] GetDerivedArrayWriteStripeIndexes(DerivedArrayTargets targets) =>
         targets.GetLockKeys()
             .Select(key => (int)((uint)HashCode.Combine(key.Namespace, key.ParentId) % DerivedArrayWriteStripes.Length))
@@ -977,6 +1101,12 @@ public partial class CoveContext : DbContext
 
     private readonly record struct DatabaseDerivedArrayWriteLock(
         DerivedArrayLockKey[] Keys,
+        bool TransactionScoped,
+        bool OpenedConnection);
+
+    private readonly record struct TagNamespaceLock(
+        bool Acquired,
+        bool Local,
         bool TransactionScoped,
         bool OpenedConnection);
 
