@@ -7,9 +7,7 @@ namespace Cove.Data.Services;
 
 /// <summary>
 /// Transactional compatibility cleanup for the future shared tag namespace. Every operation starts
-/// from a fresh scan, so stale browser state cannot merge a group whose membership has changed. The
-/// bulk operation owns the supplied scoped context and clears its tracker between groups; callers
-/// must not share that context with unrelated pending changes.
+/// from a fresh scan, so stale browser state cannot merge a group whose membership has changed.
 /// </summary>
 public sealed class TagNameConflictCleanupService(
     CoveContext db,
@@ -18,10 +16,8 @@ public sealed class TagNameConflictCleanupService(
     BlobReferenceTransactionCoordinator? blobReferenceTransactions = null,
     ITagExternalReferenceInspector? externalReferenceInspector = null)
 {
-    private const int ResolveAllSafetyLimit = 10_000;
     private sealed record PlannedAction(string Action, string? NewValue = null);
     private sealed record ResolveOutcome(TagMergeResult? Merge, TagNameConflictScanDto Scan);
-    private sealed record ResolveAllOutcome(IReadOnlyList<TagMergeResult> Merges, TagNameConflictScanDto Scan);
 
     public async Task<TagNameConflictScanDto> ResolveAsync(
         string groupKey,
@@ -77,45 +73,6 @@ public sealed class TagNameConflictCleanupService(
 
         if (outcome.Merge != null)
             mergeService.PublishCompletedMerge(outcome.Merge);
-        return outcome.Scan;
-    }
-
-    public async Task<TagNameConflictScanDto> ResolveAllRecommendedAsync(CancellationToken ct = default)
-        => await ResolveAllRecommendedAsync(null, ct);
-
-    public async Task<TagNameConflictScanDto> ResolveAllRecommendedAsync(
-        string? expectedRevision,
-        CancellationToken ct = default)
-    {
-        var outcome = await ExecuteTransactionAsync(async () =>
-        {
-            var attemptMerges = new List<TagMergeResult>();
-            var scan = await scanner.ScanAsync(ct);
-            if (expectedRevision != null
-                && !string.Equals(scan.Revision, expectedRevision, StringComparison.Ordinal))
-                throw new InvalidOperationException("The conflict scan changed. Refresh it and review all recommended actions before trying again.");
-
-            for (var operation = 0; operation < ResolveAllSafetyLimit; operation++)
-            {
-                var group = scan.Groups.FirstOrDefault();
-                if (group == null)
-                    return new ResolveAllOutcome(attemptMerges, scan);
-
-                var merge = await ResolveGroupAsync(group, group.RecommendedSurvivorTagId, null, null, ct);
-                if (merge != null)
-                    attemptMerges.Add(merge);
-                // Every group has been fully saved and validated at this point. Releasing its tracked
-                // merge graph keeps later SaveChanges calls from repeatedly walking every JSON row
-                // inspected by a previous merge while the outer serializable transaction stays open.
-                db.ChangeTracker.Clear();
-                scan = await scanner.ScanAsync(ct);
-            }
-
-            throw new InvalidOperationException("Conflict cleanup did not converge before the safety limit.");
-        }, ct);
-
-        foreach (var merge in outcome.Merges)
-            mergeService.PublishCompletedMerge(merge);
         return outcome.Scan;
     }
 
@@ -325,9 +282,8 @@ public sealed class TagNameConflictCleanupService(
         IReadOnlyCollection<int> mergeTagIds,
         IReadOnlyCollection<TagExternalReferenceResolutionDto>? requestedResolutions)
     {
-        // Resolve All deliberately supplies null and remains blocked by TagMergeService when a
-        // recommended source has non-core references. Only an explicitly reviewed group request may
-        // authorize generic database repair.
+        // Older callers may omit the optional repair list. Only an explicitly reviewed group request
+        // may authorize generic database repair.
         if (requestedResolutions == null)
             return [];
 

@@ -64,34 +64,4 @@ public sealed class EntityNameConflictsController(
         }
     }
 
-    [HttpPost("resolve-all")]
-    public async Task<ActionResult<EntityNameConflictScanDto>> ResolveAll(
-        [FromBody] ResolveAllEntityNameConflictsDto request,
-        CancellationToken ct)
-    {
-        try
-        {
-            return Ok(await cleanupService.ResolveAllRecommendedAsync(request.EntityType, request.ExpectedRevision, ct));
-        }
-        catch (ArgumentException exception)
-        {
-            return BadRequest(new { message = exception.Message });
-        }
-        catch (EntityMergeBlockedException exception)
-        {
-            return Conflict(new
-            {
-                code = "ENTITY_MERGE_EXTENSION_REFERENCES",
-                message = exception.Message,
-                exception.EntityType,
-                exception.ReferenceCount,
-                exception.AffectedEntityCount,
-                exception.HasUninspectableReferences,
-            });
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Conflict(new { code = "ENTITY_NAME_CONFLICT_CHANGED", message = exception.Message });
-        }
-    }
 }

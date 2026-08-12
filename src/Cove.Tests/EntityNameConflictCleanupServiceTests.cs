@@ -87,29 +87,6 @@ public sealed class EntityNameConflictCleanupServiceTests
     }
 
     [Fact]
-    public async Task ResolveAllRecommendedAsync_CleansEveryGroup()
-    {
-        await using var db = CreateContext();
-        db.Performers.AddRange(
-            new Performer { Name = "Alpha" },
-            new Performer { Name = "alpha" },
-            new Performer { Name = "Beta", Disambiguation = "One" },
-            new Performer { Name = " beta ", Disambiguation = "one" });
-        using (db.SuppressEntityNameValidation())
-            await db.SaveChangesAsync();
-        var scanner = new EntityNameConflictScanner(db);
-        var initial = await scanner.ScanAsync(NameConflictEntityTypes.Performer);
-        var cleanup = CreateCleanup(db, scanner);
-
-        var refreshed = await cleanup.ResolveAllRecommendedAsync(
-            NameConflictEntityTypes.Performer,
-            initial.Revision);
-
-        Assert.Equal(0, refreshed.UnresolvedGroupCount);
-        Assert.Equal(2, await db.Performers.CountAsync());
-    }
-
-    [Fact]
     public async Task ResolveAsync_RequiresExplicitActionForEveryExtensionReference()
     {
         await using var db = CreateContext();

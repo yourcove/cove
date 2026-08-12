@@ -7,7 +7,6 @@ import { TagNameConflictCleanupPanel } from "../features/tag-name-conflicts/TagN
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
-  resolveAll: vi.fn(),
   refetch: vi.fn(),
 }));
 
@@ -43,7 +42,6 @@ vi.mock("../api/client", async (importOriginal) => {
     tagNameConflicts: {
       ...actual.tagNameConflicts,
       resolve: mocks.resolve,
-      resolveAll: mocks.resolveAll,
     },
   };
 });
@@ -68,7 +66,6 @@ describe("TagNameConflictCleanupPanel", () => {
       revision: "empty-scan-revision",
       groups: [],
     });
-    mocks.resolveAll.mockReset();
     mocks.refetch.mockReset();
   });
 
@@ -221,7 +218,6 @@ describe("TagNameConflictCleanupPanel", () => {
       );
 
       expect(screen.getByRole("button", { name: "Resolve group" })).toBeEnabled();
-      expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeEnabled();
 
       await user.selectOptions(
         screen.getByRole("combobox", { name: "Resolution for alias shared on tag 9" }),
@@ -312,43 +308,6 @@ describe("TagNameConflictCleanupPanel", () => {
     ], []));
   });
 
-  it("submits the confirmed scan revision when applying all recommended fixes", async () => {
-    const user = userEvent.setup();
-    mocks.resolveAll.mockResolvedValue({
-      unresolvedGroupCount: 0,
-      scannedAtUtc: "2026-08-10T00:01:00Z",
-      revision: "empty-scan-revision",
-      groups: [],
-    });
-    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <TagNameConflictCleanupPanel />
-      </QueryClientProvider>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Apply all recommended fixes" }));
-    await user.click(screen.getByRole("button", { name: "Apply all" }));
-
-    await waitFor(() => expect(mocks.resolveAll).toHaveBeenCalledWith("scan-revision-fixture"));
-  });
-
-  it("does not let Apply all discard a manually selected survivor", async () => {
-    const user = userEvent.setup();
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <TagNameConflictCleanupPanel />
-      </QueryClientProvider>,
-    );
-
-    await user.click(screen.getByRole("radio", { name: "Keep tag Other" }));
-
-    expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeDisabled();
-    expect(screen.getByText(/Apply all uses Cove's recommendations, not choices edited/i)).toBeInTheDocument();
-    expect(mocks.resolveAll).not.toHaveBeenCalled();
-  });
-
   it("clears stale per-claim choices before manually refreshing the scan", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient();
@@ -360,11 +319,9 @@ describe("TagNameConflictCleanupPanel", () => {
 
     await user.click(screen.getByRole("radio", { name: "Keep tag Other" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Resolution for tag-name Shared on tag 4" }), "rename");
-    expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeDisabled();
-
     await user.click(screen.getByRole("button", { name: "Refresh scan" }));
 
     expect(mocks.refetch).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Apply all recommended fixes" })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: "Keep tag Shared" })).toBeChecked();
   });
 });

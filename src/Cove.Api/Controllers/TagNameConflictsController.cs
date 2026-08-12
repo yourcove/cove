@@ -70,36 +70,4 @@ public sealed class TagNameConflictsController(
         }
     }
 
-    [HttpPost("resolve-all")]
-    public async Task<ActionResult<TagNameConflictScanDto>> ResolveAll(
-        [FromBody] ResolveAllTagNameConflictsDto request,
-        CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(request.ExpectedRevision))
-            return BadRequest(new { message = "The scanned conflict-list revision is required." });
-
-        try
-        {
-            return Ok(await cleanupService.ResolveAllRecommendedAsync(request.ExpectedRevision, ct));
-        }
-        catch (TagMergeBlockedException exception)
-        {
-            return Conflict(new
-            {
-                code = "TAG_MERGE_EXTENSION_REFERENCES",
-                message = exception.Message,
-                exception.ReferenceCount,
-                exception.AffectedTagCount,
-                exception.HasUninspectableReferences,
-            });
-        }
-        catch (TagNameConflictException exception)
-        {
-            return Conflict(new { code = "TAG_NAME_RENAME_CONFLICT", message = exception.Message });
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Conflict(new { code = "TAG_NAME_CONFLICT_CHANGED", message = exception.Message });
-        }
-    }
 }

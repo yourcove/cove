@@ -73,5 +73,3 @@ public sealed record ResolveTagNameConflictDto(
     int? SurvivorTagId = null,
     IReadOnlyList<TagNameClaimResolutionDto>? Resolutions = null,
     IReadOnlyList<TagExternalReferenceResolutionDto>? ExternalReferenceResolutions = null);
-
-public sealed record ResolveAllTagNameConflictsDto(string ExpectedRevision);

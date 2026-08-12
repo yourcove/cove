@@ -64,7 +64,7 @@ describe("API client timeout policies", () => {
     vi.useFakeTimers();
     const fetchRequest = pendingJsonResponse();
 
-    const request = tagNameConflicts.resolveAll("reviewed-scan-revision");
+    const request = tagNameConflicts.resolve("group", "reviewed-group-revision", 1, [], []);
     await vi.advanceTimersByTimeAsync(60 * 60_000);
 
     expect(fetchRequest.signal?.aborted).toBe(false);
@@ -76,11 +76,12 @@ describe("API client timeout policies", () => {
     vi.useFakeTimers();
     const fetchRequest = pendingJsonResponse();
 
-    const request = entityNameConflicts.resolveAll("performer", "reviewed-scan-revision");
+    const request = entityNameConflicts.resolve("performer", "group", "reviewed-group-revision", 1, [], []);
     await vi.advanceTimersByTimeAsync(60 * 60_000);
 
     expect(fetchRequest.signal?.aborted).toBe(false);
     fetchRequest.finish();
     await request;
   });
+
 });

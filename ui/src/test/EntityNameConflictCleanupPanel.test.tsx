@@ -7,7 +7,6 @@ import { EntityNameConflictCleanupPanel } from "../features/tag-name-conflicts/E
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
-  resolveAll: vi.fn(),
   refetch: vi.fn(),
   scanError: null as Error | null,
 }));
@@ -43,7 +42,6 @@ vi.mock("../api/client", async (importOriginal) => {
     entityNameConflicts: {
       ...actual.entityNameConflicts,
       resolve: mocks.resolve,
-      resolveAll: mocks.resolveAll,
     },
   };
 });
@@ -73,7 +71,6 @@ function renderPanel() {
 describe("EntityNameConflictCleanupPanel", () => {
   beforeEach(() => {
     mocks.resolve.mockReset().mockResolvedValue({ ...conflictScan, unresolvedGroupCount: 0, revision: "empty", groups: [] });
-    mocks.resolveAll.mockReset().mockResolvedValue({ ...conflictScan, unresolvedGroupCount: 0, revision: "empty", groups: [] });
     mocks.refetch.mockReset();
     mocks.scanError = null;
     conflictScan.groups[0].impacts[0].externalReferences = [];
@@ -141,6 +138,20 @@ describe("EntityNameConflictCleanupPanel", () => {
     ));
   });
 
+  it("clears stale performer choices before manually refreshing the scan", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole("radio", { name: "Keep Alex" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Action for alex" }), "rename");
+    await user.type(screen.getByRole("textbox", { name: "New name for alex" }), "Alternate identity");
+    await user.click(screen.getByRole("button", { name: "Refresh scan" }));
+
+    expect(mocks.refetch).toHaveBeenCalledOnce();
+    expect(screen.getByRole("radio", { name: "Keep alex" })).toBeChecked();
+    expect(screen.queryByRole("textbox", { name: "New name for alex" })).not.toBeInTheDocument();
+  });
+
   it("requires an explicit update-or-delete choice for extension references", async () => {
     const user = userEvent.setup();
     conflictScan.groups[0].impacts[0].extensionMetadataCount = 2;
@@ -156,7 +167,6 @@ describe("EntityNameConflictCleanupPanel", () => {
     }];
     renderPanel();
 
-    expect(screen.getByRole("button", { name: "Apply all recommended merges" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Resolve group" })).toBeDisabled();
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Database action for public.extension_faces.performer_id" }),

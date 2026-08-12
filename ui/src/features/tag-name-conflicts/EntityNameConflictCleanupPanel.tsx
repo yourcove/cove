@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Building2, CheckCircle2, Loader2, RefreshCw, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { entityNameConflicts } from "../../api/client";
 import type {
   EntityExternalReference,
@@ -23,7 +23,7 @@ type ExternalAction = EntityExternalReferenceResolution["action"];
 type EntityChoice = { action: EntityAction; newName: string; newDisambiguation: string };
 type GroupChoices = Record<number, EntityChoice>;
 type ExternalChoices = Record<string, ExternalAction | "">;
-type PendingAction = { kind: "group"; group: EntityNameConflictGroup } | { kind: "all"; expectedRevision: string } | null;
+type PendingAction = { kind: "group"; group: EntityNameConflictGroup } | null;
 
 interface GroupPlan {
   resolutions: EntityNameConflictResolution[];
@@ -133,9 +133,15 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
     externalChoices[group.key] ?? {},
   );
 
+  const refreshScan = () => {
+    setSelectedSurvivors({});
+    setChoices({});
+    setExternalChoices({});
+    return scan.refetch();
+  };
+
   const mutation = useMutation({
     mutationFn: (action: Exclude<PendingAction, null>) => {
-      if (action.kind === "all") return entityNameConflicts.resolveAll(entityType, action.expectedRevision);
       const survivorId = selectedSurvivors[action.group.key] ?? action.group.recommendedSurvivorEntityId;
       const plan = planFor(action.group);
       return entityNameConflicts.resolve(
@@ -156,15 +162,9 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
     },
   });
 
-  const recommendedMergeBlocked = useMemo(() => scan.data?.groups.some((group) =>
-    group.impacts.some((impact) =>
-      group.recommendedMergeEntityIds.includes(impact.entityId)
-      && (impact.externalReferences ?? []).length > 0)) ?? false, [scan.data]);
-  const pendingPlan = pendingAction?.kind === "group" ? planFor(pendingAction.group) : null;
+  const pendingPlan = pendingAction ? planFor(pendingAction.group) : null;
   const singular = entityType === "performer" ? "performer" : "studio";
   const plural = entityType === "performer" ? "performers" : "studios";
-  const Icon = entityType === "performer" ? Users : Building2;
-
   if (scan.isLoading)
     return <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" aria-label={`Scanning ${plural}`} /></div>;
   if (scan.error)
@@ -198,21 +198,11 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <button type="button" onClick={() => scan.refetch()} disabled={scan.isFetching || mutation.isPending} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:border-accent hover:text-foreground disabled:opacity-50">
+            <button type="button" onClick={refreshScan} disabled={scan.isFetching || mutation.isPending} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:border-accent hover:text-foreground disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${scan.isFetching ? "animate-spin" : ""}`} /> Refresh scan
-            </button>
-            <button
-              type="button"
-              onClick={() => setPendingAction({ kind: "all", expectedRevision: scan.data.revision })}
-              disabled={mutation.isPending || recommendedMergeBlocked}
-              title={recommendedMergeBlocked ? "At least one recommended merge requires per-table extension-data decisions." : undefined}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              <Icon className="h-4 w-4" /> Apply all recommended merges
             </button>
           </div>
         </div>
-        {recommendedMergeBlocked ? <p className="mt-3 text-sm text-amber-100/80">Apply all is unavailable because extension-owned references require an update-or-delete decision. Resolve those groups individually or rename the source.</p> : null}
       </section>
 
       {mutation.error ? <StatusBox tone="error">{getApiValidationFailureDetail(mutation.error)}</StatusBox> : null}
@@ -248,12 +238,10 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
 
       <ConfirmDialog
         open={pendingAction != null}
-        title={pendingAction?.kind === "all" ? `Apply all recommended ${singular} merges?` : `Resolve this ${singular} conflict?`}
-        message={pendingAction?.kind === "all"
-          ? `Cove will merge every conflicting ${singular} into its most-referenced recommended survivor. The operation is transactional and the scan refreshes afterward.`
-          : describePlan(pendingPlan, singular)}
-        confirmLabel={pendingAction?.kind === "all" ? "Apply all" : "Resolve group"}
-        destructive={pendingAction?.kind === "all" || Boolean(pendingPlan && pendingPlan.mergeEntityIds.size > 0)}
+        title={`Resolve this ${singular} conflict?`}
+        message={describePlan(pendingPlan, singular)}
+        confirmLabel="Resolve group"
+        destructive={Boolean(pendingPlan && pendingPlan.mergeEntityIds.size > 0)}
         isPending={mutation.isPending}
         errorMessage={mutation.error ? getApiValidationFailureDetail(mutation.error) : null}
         onCancel={() => { if (!mutation.isPending) setPendingAction(null); }}

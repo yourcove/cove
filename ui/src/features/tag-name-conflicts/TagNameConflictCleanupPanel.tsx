@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Tags } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { tagNameConflicts } from "../../api/client";
 import type {
   TagExternalReference,
@@ -35,7 +35,7 @@ type ExternalReferenceAction = TagExternalReferenceResolution["action"];
 type ClaimChoice = { action: ResolutionAction; newValue: string };
 type GroupChoices = Record<string, ClaimChoice>;
 type ExternalReferenceChoices = Record<string, ExternalReferenceAction | "">;
-type PendingAction = { kind: "group"; group: TagNameConflictGroup } | { kind: "all"; expectedRevision: string } | null;
+type PendingAction = { kind: "group"; group: TagNameConflictGroup } | null;
 
 type GroupPlan = {
   survivingClaimKey: string | null;
@@ -211,7 +211,6 @@ export function TagNameConflictCleanupPanel() {
 
   const mutation = useMutation({
     mutationFn: (action: Exclude<PendingAction, null>) => {
-      if (action.kind === "all") return tagNameConflicts.resolveAll(action.expectedRevision);
       const survivorTagId = selectedSurvivors[action.group.key] ?? action.group.recommendedSurvivorTagId;
       return tagNameConflicts.resolve(
         action.group.key,
@@ -231,16 +230,7 @@ export function TagNameConflictCleanupPanel() {
   });
 
   const totalClaims = useMemo(() => scan.data?.groups.reduce((sum, group) => sum + group.claims.length, 0) ?? 0, [scan.data]);
-  const hasManualOverrides = useMemo(() => scan.data?.groups.some((group) =>
-    (selectedSurvivors[group.key] != null && selectedSurvivors[group.key] !== group.recommendedSurvivorTagId)
-    || Object.keys(choices[group.key] ?? {}).length > 0
-    || Object.keys(externalReferenceChoices[group.key] ?? {}).length > 0
-  ) ?? false, [choices, externalReferenceChoices, scan.data, selectedSurvivors]);
-  const recommendedMergeBlocked = useMemo(() => scan.data?.groups.some((group) => {
-    const plan = buildGroupPlan(group, group.recommendedSurvivorTagId);
-    return group.impacts.some((impact) => plan.mergeTagIds.has(impact.tagId) && (impact.externalReferences ?? []).length > 0);
-  }) ?? false, [scan.data]);
-  const pendingPlan = pendingAction?.kind === "group" ? planFor(pendingAction.group) : null;
+  const pendingPlan = pendingAction ? planFor(pendingAction.group) : null;
 
   if (scan.isLoading)
     return <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" aria-label="Scanning tag names" /></div>;
@@ -281,30 +271,8 @@ export function TagNameConflictCleanupPanel() {
             >
               <RefreshCw className={`h-4 w-4 ${scan.isFetching ? "animate-spin" : ""}`} /> Refresh scan
             </button>
-            <button
-              type="button"
-              onClick={() => setPendingAction({ kind: "all", expectedRevision: scan.data.revision })}
-              disabled={mutation.isPending || recommendedMergeBlocked || hasManualOverrides}
-              title={recommendedMergeBlocked
-                ? "At least one recommended merge requires per-table non-core database decisions."
-                : hasManualOverrides
-                  ? "Apply all uses Cove's recommendations only. Resolve edited groups individually first."
-                  : "Apply Cove's original recommendation for every unresolved group."}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              <Tags className="h-4 w-4" /> Apply all recommended fixes
-            </button>
           </div>
         </div>
-        {recommendedMergeBlocked ? (
-          <p className="mt-3 text-sm text-amber-100/80">
-            Apply all is unavailable because at least one recommended source tag has non-core references that must be reviewed table by table. Resolve that group individually, rename the tag, or choose another survivor.
-          </p>
-        ) : hasManualOverrides ? (
-          <p className="mt-3 text-sm text-amber-100/80">
-            Apply all uses Cove&apos;s recommendations, not choices edited in the cards below. Resolve edited groups individually before applying the remaining recommendations.
-          </p>
-        ) : null}
       </section>
 
       {mutation.error ? <StatusBox tone="error">{getApiValidationFailureDetail(mutation.error)}</StatusBox> : null}
@@ -347,12 +315,10 @@ export function TagNameConflictCleanupPanel() {
 
       <ConfirmDialog
         open={pendingAction != null}
-        title={pendingAction?.kind === "all" ? "Apply all recommended tag fixes?" : "Resolve this tag-name conflict?"}
-        message={pendingAction?.kind === "all"
-          ? "No manual overrides are selected. Cove will remove redundant or conflicting aliases and merge canonical-name conflicts into Cove's recommended survivors. All operations run transactionally and the scan refreshes afterward."
-          : describePlan(pendingPlan)}
-        confirmLabel={pendingAction?.kind === "all" ? "Apply all" : "Resolve group"}
-        destructive={pendingAction?.kind === "all" || Boolean(pendingPlan && (pendingPlan.mergeTagIds.size > 0 || pendingPlan.removedAliasCount > 0))}
+        title="Resolve this tag-name conflict?"
+        message={describePlan(pendingPlan)}
+        confirmLabel="Resolve group"
+        destructive={Boolean(pendingPlan && (pendingPlan.mergeTagIds.size > 0 || pendingPlan.removedAliasCount > 0))}
         isPending={mutation.isPending}
         errorMessage={mutation.error ? getApiValidationFailureDetail(mutation.error) : null}
         onCancel={() => { if (!mutation.isPending) setPendingAction(null); }}

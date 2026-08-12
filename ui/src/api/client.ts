@@ -803,11 +803,6 @@ export const tagNameConflicts = {
       body: JSON.stringify({ groupKey, expectedRevision, survivorTagId, resolutions, externalReferenceResolutions }),
       timeoutMs: null,
     }),
-  resolveAll: (expectedRevision: string) => request<TagNameConflictScan>("/tag-name-conflicts/resolve-all", {
-    method: "POST",
-    body: JSON.stringify({ expectedRevision }),
-    timeoutMs: null,
-  }),
 };
 
 export const entityNameConflicts = {
@@ -823,11 +818,6 @@ export const entityNameConflicts = {
   ) => request<EntityNameConflictScan>("/entity-name-conflicts/resolve", {
     method: "POST",
     body: JSON.stringify({ entityType, groupKey, expectedRevision, survivorEntityId, resolutions, externalReferenceResolutions }),
-    timeoutMs: null,
-  }),
-  resolveAll: (entityType: NameConflictEntityType, expectedRevision: string) => request<EntityNameConflictScan>("/entity-name-conflicts/resolve-all", {
-    method: "POST",
-    body: JSON.stringify({ entityType, expectedRevision }),
     timeoutMs: null,
   }),
 };
