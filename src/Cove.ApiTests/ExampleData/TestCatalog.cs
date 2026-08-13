@@ -13,8 +13,21 @@ public sealed record CatalogMovie(
     IReadOnlyList<CatalogPerformer> Cast,
     IReadOnlyList<CatalogTag> Tags);
 
+public sealed record CatalogMetadataService(string Name, string ApiUrl);
+
 public static class TestCatalog
 {
+    public static class MetadataServices
+    {
+        public static CatalogMetadataService PulpMovieDb { get; } = new(
+            "Pulp Movie DB",
+            "https://api.pulpmoviedb.example/graphql");
+
+        public static CatalogMetadataService TheBacklotIndex { get; } = new(
+            "The Backlot Index",
+            "https://api.thebacklotindex.example/graphql");
+    }
+
     public static CatalogStudio Studio { get; } = new(
         "Barely Dressed Pictures",
         "barely-dressed-pictures",

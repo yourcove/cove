@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using Cove.ApiTests.ExampleData;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using Cove.Core.Auth;
@@ -327,7 +328,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__Postgres__Managed"] = "false";
         startInfo.Environment["COVE__Scraping__MetadataServers__0__ApiKey"] = MetadataServiceSimulator.ApiKey;
         startInfo.Environment["COVE__Scraping__MetadataServers__0__Endpoint"] = metadataServiceEndpoint.AbsoluteUri;
-        startInfo.Environment["COVE__Scraping__MetadataServers__0__Name"] = "API test metadata service";
+        startInfo.Environment["COVE__Scraping__MetadataServers__0__Name"] = TestCatalog.MetadataServices.PulpMovieDb.Name;
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The Cove API test process could not be started.");

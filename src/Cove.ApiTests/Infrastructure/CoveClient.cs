@@ -665,6 +665,31 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<IReadOnlyList<MetadataServerPerformerMatchDto>> SearchPerformerMetadataServiceAsync(
+        PerformerDto performer,
+        string name,
+        MetadataServicePerformerHandle metadataPerformer,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerPerformerMatchDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/performers/{performer.Id}/metadata-server/search?term={Uri.EscapeDataString(name)}&endpoint={Uri.EscapeDataString(metadataPerformer.Endpoint.AbsoluteUri)}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<PerformerDto> ImportPerformerFromMetadataServiceAsync(
+        PerformerDto performer,
+        MetadataServerPerformerMatchDto match,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performer.Id}/metadata-server/import",
+            new MetadataServerPerformerImportRequestDto
+            {
+                Endpoint = match.Endpoint,
+                PerformerId = match.Id,
+            },
+            cancellationToken);
+
     public async Task<IReadOnlyList<PerformerDto>> GetPerformersAsync(
         CancellationToken cancellationToken = default)
     {
