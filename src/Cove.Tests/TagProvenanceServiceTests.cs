@@ -18,7 +18,7 @@ namespace Cove.Tests;
 public sealed class TagProvenanceServiceTests
 {
     [Fact]
-    public async Task SyncTagSetAsync_AddsUserRowsForNewTagsAndDeletesOnlyMatchingSourceProvenance()
+    public async Task SyncTagSetAsync_UserRemovalDeletesEditableSourcesAndPreservesExtensions()
     {
         await using var context = CreateContext();
         var logger = new RecordingLogger<TagProvenanceService>();
@@ -53,6 +53,14 @@ public sealed class TagProvenanceServiceTests
             {
                 HostType = AffinityHostType.Video,
                 HostId = video.Id,
+                TagId = manualTag.Id,
+                SourceKey = "metadata:https://metadata.example/graphql",
+                SourceRunId = "https://metadata.example/graphql",
+            },
+            new TagApplication
+            {
+                HostType = AffinityHostType.Video,
+                HostId = video.Id,
                 TagId = keptTag.Id,
                 SourceKey = "ext:ai.tagging",
                 SourceRunId = "run-2",
@@ -67,7 +75,8 @@ public sealed class TagProvenanceServiceTests
             AffinityHostType.Video,
             video.Id,
             [manualTag.Id, keptTag.Id],
-            [keptTag.Id, addedTag.Id]);
+            [keptTag.Id, addedTag.Id],
+            sourceKey: "User");
         await context.SaveChangesAsync();
 
         var applications = await context.TagApplications
@@ -78,6 +87,7 @@ public sealed class TagProvenanceServiceTests
 
         Assert.Contains(applications, application => application.TagId == manualTag.Id && application.SourceKey == "ext:ai.tagging");
         Assert.DoesNotContain(applications, application => application.TagId == manualTag.Id && application.SourceKey == "user");
+        Assert.DoesNotContain(applications, application => application.TagId == manualTag.Id && application.SourceKey.StartsWith("metadata:", StringComparison.Ordinal));
         Assert.Contains(applications, application => application.TagId == keptTag.Id && application.SourceKey == "ext:ai.tagging");
         Assert.Contains(applications, application => application.TagId == addedTag.Id && application.SourceKey == "user");
         Assert.DoesNotContain(applications, application => application.TagId == keptTag.Id && application.SourceKey == "user");

@@ -4,7 +4,7 @@ These tests launch the real Cove application as an operating-system process runn
 
 Put each test class in `ApiTestLane1Collection` or `ApiTestLane2Collection` and derive it from `ApiTest`. Each lane fixture owns its server and database, while `ApiTest.InitializeAsync` resets application state before every test. Distribute classes roughly evenly between the lanes; classes in different lanes run concurrently. `AsUser()` exposes the fluent authenticated API, and builders keep arrange code focused on values that matter to the test.
 
-`ApiTestLaneHarnessTests` independently starts two isolated hosts and verifies that their process startup intervals overlap. It is kept outside the behavior lanes so focused execution of either behavior class does not depend on unrelated test discovery.
+`ApiTestLaneHarnessTests` independently starts two isolated hosts and verifies that their process startup intervals overlap. It is kept outside the behavior lanes so focused execution of either behavior class does not depend on unrelated test discovery. Each lane also owns a loopback metadata-service simulator; use `AsMetadataService().CreateScene(new MetadataServiceSceneBuilder()...Build())` to arrange remote records that Cove can import through its real configured metadata-server client.
 
 ## Test conventions
 

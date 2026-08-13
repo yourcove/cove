@@ -8,6 +8,10 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
         => _server?.BaseAddress
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized.");
 
+    internal MetadataServiceSimulator MetadataService
+        => (_server
+            ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
+            .MetadataService;
     public async Task InitializeAsync()
         => _server = await CoveApiServer.StartAsync();
 

@@ -25,10 +25,88 @@ public sealed class ApiUser : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<PerformerDto>(HttpMethod.Post, "/api/performers", performer, cancellationToken);
 
+    public Task<VideoDto> CreateVideoAsync(
+        string title,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Post,
+            "/api/videos",
+            new VideoCreateDto(
+                Title: title,
+                Code: null,
+                Details: null,
+                Director: null,
+                Date: null,
+                Rating: null,
+                Organized: false,
+                StudioId: null,
+                Captions: null,
+                Urls: [],
+                TagIds: [],
+                PerformerIds: [],
+                GalleryIds: [],
+                Groups: []),
+            cancellationToken);
+
+    public Task<VideoDto> GetVideoByIdAsync(
+        int videoId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Get,
+            $"/api/videos/{videoId}?apiTestNonce={Guid.NewGuid():N}",
+            payload: null,
+            cancellationToken);
+
+    public Task<VideoDto> ImportVideoFromMetadataServiceAsync(
+        VideoDto video,
+        MetadataServiceSceneHandle metadataScene,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/metadata-server/import",
+            new MetadataServerVideoImportRequestDto
+            {
+                Endpoint = metadataScene.Endpoint.AbsoluteUri,
+                VideoId = metadataScene.Id,
+            },
+            cancellationToken);
+
+    public Task<VideoDto> RemoveTagFromVideoAsync(
+        VideoDto video,
+        TagDto tag,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Put,
+            $"/api/videos/{video.Id}",
+            new
+            {
+                tagIds = video.Tags
+                    .Where(candidate => candidate.CanRemove && candidate.Id != tag.Id)
+                    .Select(candidate => candidate.Id)
+                    .ToArray(),
+            },
+            cancellationToken);
+
     public Task<TagDetailDto> CreateTagAsync(
         TagCreateDto tag,
         CancellationToken cancellationToken = default)
         => SendAsync<TagDetailDto>(HttpMethod.Post, "/api/tags", tag, cancellationToken);
+
+    public async Task<bool> TagExistsAsync(
+        int tagId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/tags/{tagId}?apiTestNonce={Guid.NewGuid():N}";
+        using var response = await _client.GetAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.OK)
+            return true;
+        if (response.StatusCode is System.Net.HttpStatusCode.NotFound)
+            return false;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"GET {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
 
     public Task<PerformerDto> GetPerformerByIdAsync(
         int performerId,

@@ -12,6 +12,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private const string ResetTokenHeader = "X-Cove-Test-Reset-Token";
 
     private readonly PostgreSqlTestDatabase _database;
+    private readonly MetadataServiceSimulator _metadataService;
     private readonly Process _process;
     private readonly string _dataRoot;
     private readonly string _resetToken;
@@ -20,6 +21,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
 
     private CoveApiServer(
         PostgreSqlTestDatabase database,
+        MetadataServiceSimulator metadataService,
         Process process,
         Uri baseAddress,
         string dataRoot,
@@ -27,6 +29,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         ConcurrentQueue<string> output)
     {
         _database = database;
+        _metadataService = metadataService;
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
@@ -35,12 +38,14 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     }
 
     public Uri BaseAddress { get; }
+    public MetadataServiceSimulator MetadataService => _metadataService;
     internal long ProcessStartedTimestamp { get; private init; }
     internal long ReadyTimestamp { get; private init; }
 
     public static async Task<CoveApiServer> StartAsync(CancellationToken cancellationToken = default)
     {
         PostgreSqlTestDatabase? database = null;
+        MetadataServiceSimulator? metadataService = null;
         Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
         var resetToken = Convert.ToHexString(Guid.NewGuid().ToByteArray());
@@ -49,15 +54,21 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         try
         {
             Directory.CreateDirectory(dataRoot);
+            metadataService = await MetadataServiceSimulator.StartAsync(cancellationToken);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
-            process = StartApiProcess(dataRoot, database.ConnectionString, resetToken, output);
+            process = StartApiProcess(
+                dataRoot,
+                database.ConnectionString,
+                metadataService.Endpoint,
+                resetToken,
+                output);
             var processStartedTimestamp = Stopwatch.GetTimestamp();
             var baseAddress = await WaitForListeningAddressAsync(process, output, cancellationToken);
 
             using var startupClient = new HttpClient { BaseAddress = baseAddress };
             await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            return new CoveApiServer(database, process, baseAddress, dataRoot, resetToken, output)
+            return new CoveApiServer(database, metadataService, process, baseAddress, dataRoot, resetToken, output)
             {
                 ProcessStartedTimestamp = processStartedTimestamp,
                 ReadyTimestamp = Stopwatch.GetTimestamp(),
@@ -91,6 +102,18 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                     ? exception
                     : new AggregateException(cleanupError, exception);
             }
+
+            try
+            {
+                if (metadataService is not null)
+                    await metadataService.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                cleanupError = cleanupError is null
+                    ? exception
+                    : new AggregateException(cleanupError, exception);
+            }
             finally
             {
                 TryDeleteDataRoot(dataRoot);
@@ -104,6 +127,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
 
     public async Task<ApiUser> ResetAsync(CancellationToken cancellationToken = default)
     {
+        _metadataService.Reset();
         using var client = CreateLifecycleClient();
         using var response = await client.PostAsync("/health/test-reset", content: null, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -188,6 +212,17 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 ? exception
                 : new AggregateException(cleanupError, exception);
         }
+
+        try
+        {
+            await _metadataService.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            cleanupError = cleanupError is null
+                ? exception
+                : new AggregateException(cleanupError, exception);
+        }
         finally
         {
             TryDeleteDataRoot(_dataRoot);
@@ -207,6 +242,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private static Process StartApiProcess(
         string dataRoot,
         string connectionString,
+        Uri metadataServiceEndpoint,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -234,6 +270,9 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__IntegrationTestResetToken"] = resetToken;
         startInfo.Environment["COVE__Postgres__ConnectionString"] = connectionString;
         startInfo.Environment["COVE__Postgres__Managed"] = "false";
+        startInfo.Environment["COVE__Scraping__MetadataServers__0__ApiKey"] = MetadataServiceSimulator.ApiKey;
+        startInfo.Environment["COVE__Scraping__MetadataServers__0__Endpoint"] = metadataServiceEndpoint.AbsoluteUri;
+        startInfo.Environment["COVE__Scraping__MetadataServers__0__Name"] = "API test metadata service";
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The Cove API test process could not be started.");

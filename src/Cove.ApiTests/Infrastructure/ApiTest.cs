@@ -23,6 +23,9 @@ public abstract class ApiTest : IAsyncLifetime
         => _user
             ?? throw new InvalidOperationException("The API test user has not been initialized.");
 
+    protected MetadataServiceSimulator AsMetadataService()
+        => _fixture.MetadataService;
+
     public async Task InitializeAsync()
     {
         try
