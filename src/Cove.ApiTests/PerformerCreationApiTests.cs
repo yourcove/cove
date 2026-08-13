@@ -20,11 +20,9 @@ public sealed class PerformerCreationApiTests(
             new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .Build());
-        var member = AsUser(ApiTestUsers.Member);
 
-        var performers = await member.GetPerformersAsync();
+        var performers = await AsUser(ApiTestUsers.Eva).GetPerformersAsync();
 
-        member.Username.Should().Be(ApiTestUsers.Member);
         performers.Should().ContainSingle(candidate => candidate.Id == performer.Id);
     }
 

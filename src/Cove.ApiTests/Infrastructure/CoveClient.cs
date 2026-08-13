@@ -64,6 +64,58 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<EntityEngagementDto> SetPerformerRatingAsync(
+        PerformerDto performer,
+        int rating,
+        string aspect = "overall",
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/{AffinityHostType.Performer}/{performer.Id}/rating",
+            new VideoRatingDto(rating, aspect),
+            cancellationToken);
+
+    public Task<EntityRatingsDto> GetPerformerRatingsAsync(
+        PerformerDto performer,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityRatingsDto>(
+            HttpMethod.Get,
+            $"/api/engagement/{AffinityHostType.Performer}/{performer.Id}/ratings",
+            payload: null,
+            cancellationToken);
+
+    public Task<EntityEngagementDto> SetPerformerFavoriteAsync(
+        PerformerDto performer,
+        bool isFavorite,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/{AffinityHostType.Performer}/{performer.Id}/favorite",
+            new EntityFavoriteDto(isFavorite),
+            cancellationToken);
+
+    public Task<BookmarkStateDto> SetPerformerBookmarkAsync(
+        PerformerDto performer,
+        bool isSaved,
+        CancellationToken cancellationToken = default)
+        => SendAsync<BookmarkStateDto>(
+            HttpMethod.Post,
+            "/api/me/bookmarks",
+            new BookmarkToggleDto(AffinityHostType.Performer, performer.Id, isSaved),
+            cancellationToken);
+
+    public async Task<BookmarkStateDto> GetPerformerBookmarkAsync(
+        PerformerDto performer,
+        CancellationToken cancellationToken = default)
+    {
+        var states = await SendAsync<IReadOnlyList<BookmarkStateDto>>(
+            HttpMethod.Post,
+            "/api/me/bookmarks/batch",
+            new BookmarkBatchRequestDto(AffinityHostType.Performer, [performer.Id]),
+            cancellationToken);
+        return states.Single();
+    }
+
     public Task<StudioDto> CreateStudioAsync(
         string name,
         CancellationToken cancellationToken = default)

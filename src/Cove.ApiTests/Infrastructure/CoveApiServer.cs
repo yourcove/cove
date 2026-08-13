@@ -151,13 +151,20 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         {
             var owner = await CreateOwnerAsync(cancellationToken);
             users.Add(owner.Username, owner);
-            await owner.CreateUserAsync(new CreateUserRequest(
-                ApiTestUsers.Member,
-                ApiTestUsers.Password,
-                DisplayName: "API Test Member",
-                Roles: [BuiltinRoles.Member]), cancellationToken);
-            var member = await LoginAsync(ApiTestUsers.Member, ApiTestUsers.Password, cancellationToken);
-            users.Add(member.Username, member);
+            foreach (var (username, displayName) in new[]
+            {
+                (ApiTestUsers.Eva, "Eva"),
+                (ApiTestUsers.Anthony, "Anthony"),
+            })
+            {
+                await owner.CreateUserAsync(new CreateUserRequest(
+                    username,
+                    ApiTestUsers.Password,
+                    DisplayName: displayName,
+                    Roles: [BuiltinRoles.Member]), cancellationToken);
+                var member = await LoginAsync(username, ApiTestUsers.Password, cancellationToken);
+                users.Add(member.Username, member);
+            }
             return users;
         }
         catch
