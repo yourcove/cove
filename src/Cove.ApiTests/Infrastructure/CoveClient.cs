@@ -1,24 +1,33 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Infrastructure;
 
-public sealed class ApiUser : IDisposable
+public sealed class CoveClient : IDisposable
 {
     private readonly HttpClient _client;
 
-    internal ApiUser(Uri baseAddress, string accessToken)
+    internal CoveClient(string username, Uri baseAddress, string accessToken)
     {
+        Username = username;
         BaseAddress = baseAddress;
         AccessToken = accessToken;
         _client = new HttpClient { BaseAddress = baseAddress };
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
     }
 
+    public string Username { get; }
+
     public Uri BaseAddress { get; }
 
     public string AccessToken { get; }
+
+    public Task<UserDto> CreateUserAsync(
+        CreateUserRequest user,
+        CancellationToken cancellationToken = default)
+        => SendAsync<UserDto>(HttpMethod.Post, "/api/users", user, cancellationToken);
 
     public Task<PerformerDto> CreatePerformerAsync(
         PerformerCreateDto performer,
@@ -91,6 +100,20 @@ public sealed class ApiUser : IDisposable
         TagCreateDto tag,
         CancellationToken cancellationToken = default)
         => SendAsync<TagDetailDto>(HttpMethod.Post, "/api/tags", tag, cancellationToken);
+
+    public Task<TagDetailDto> CreateTagAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+        => CreateTagAsync(
+            new TagCreateDto(
+                Name: name,
+                SortName: null,
+                Description: null,
+                Favorite: false,
+                Aliases: [],
+                ParentIds: [],
+                ChildIds: []),
+            cancellationToken);
 
     public async Task<bool> TagExistsAsync(
         int tagId,

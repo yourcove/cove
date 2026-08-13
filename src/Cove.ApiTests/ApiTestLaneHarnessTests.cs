@@ -23,11 +23,13 @@ public sealed class ApiTestLaneHarnessTests
         try
         {
             var servers = await Task.WhenAll(starts);
-            Assert.True(
-                servers[0].ProcessStartedTimestamp < servers[1].ReadyTimestamp
-                    && servers[1].ProcessStartedTimestamp < servers[0].ReadyTimestamp,
-                "Expected the two isolated API host processes to start concurrently.");
-            Assert.NotEqual(servers[0].BaseAddress, servers[1].BaseAddress);
+            servers[0].ProcessStartedTimestamp.Should().BeLessThan(
+                servers[1].ReadyTimestamp,
+                "the first API host process should start before the second host becomes ready");
+            servers[1].ProcessStartedTimestamp.Should().BeLessThan(
+                servers[0].ReadyTimestamp,
+                "the second API host process should start before the first host becomes ready");
+            servers[0].BaseAddress.Should().NotBe(servers[1].BaseAddress);
         }
         finally
         {

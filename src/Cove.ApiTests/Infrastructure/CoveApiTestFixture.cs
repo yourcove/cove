@@ -15,7 +15,8 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
     public async Task InitializeAsync()
         => _server = await CoveApiServer.StartAsync();
 
-    internal Task<ApiUser> ResetAsync(CancellationToken cancellationToken = default)
+    internal Task<IReadOnlyDictionary<string, CoveClient>> ResetAsync(
+        CancellationToken cancellationToken = default)
         => (_server
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
             .ResetAsync(cancellationToken);
