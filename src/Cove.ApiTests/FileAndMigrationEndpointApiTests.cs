@@ -1,5 +1,6 @@
 using Cove.Api.Controllers;
 using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
@@ -18,7 +19,7 @@ public sealed class FileAndMigrationEndpointApiTests(
     {
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
-                .WithName("API test image performer")
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .Build());
         var image = Convert.FromBase64String(OnePixelPng);
 

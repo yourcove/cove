@@ -50,6 +50,24 @@ public sealed class CoveClient : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<PerformerDto>(HttpMethod.Post, "/api/performers", performer, cancellationToken);
 
+    public Task<StudioDto> CreateStudioAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(
+            HttpMethod.Post,
+            "/api/studios",
+            new StudioCreateDto(
+                Name: name,
+                ParentId: null,
+                Rating: null,
+                Favorite: false,
+                Details: null,
+                Organized: false,
+                Urls: [],
+                Aliases: [],
+                TagIds: []),
+            cancellationToken);
+
     public Task<ImageDto> CreateImageAsync(
         string title,
         CancellationToken cancellationToken = default)
@@ -93,9 +111,7 @@ public sealed class CoveClient : IDisposable
     public Task<VideoDto> CreateVideoAsync(
         string title,
         CancellationToken cancellationToken = default)
-        => SendAsync<VideoDto>(
-            HttpMethod.Post,
-            "/api/videos",
+        => CreateVideoAsync(
             new VideoCreateDto(
                 Title: title,
                 Code: null,
@@ -112,6 +128,11 @@ public sealed class CoveClient : IDisposable
                 GalleryIds: [],
                 Groups: []),
             cancellationToken);
+
+    public Task<VideoDto> CreateVideoAsync(
+        VideoCreateDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(HttpMethod.Post, "/api/videos", video, cancellationToken);
 
     public Task<VideoDto> GetVideoByIdAsync(
         int videoId,

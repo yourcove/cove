@@ -1,4 +1,5 @@
 using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
@@ -17,7 +18,7 @@ public sealed class MetadataServiceTaggingApiTests(
                 .WithTitle("Metadata scene")
                 .WithTag("Metadata tag")
                 .Build());
-        var video = await AsUser().CreateVideoAsync("Local video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
         var taggedVideo = await AsUser().ImportVideoFromMetadataServiceAsync(video, metadataScene);
         taggedVideo.Tags.Should().ContainSingle();
         var scrapedTag = taggedVideo.Tags.Single();

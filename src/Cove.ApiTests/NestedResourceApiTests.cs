@@ -1,4 +1,5 @@
 using Cove.Api.Controllers;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Entities;
 using Xunit.Abstractions;
@@ -15,7 +16,7 @@ public sealed class NestedResourceApiTests(
     public async Task GivenGroupAndVideo_WhenVideoIsAdded_ThenGroupContainsVideoItem()
     {
         var group = await AsUser().CreateGroupAsync("API test group");
-        var video = await AsUser().CreateVideoAsync("API test group video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.MuchAdoAboutNothinOn.Title);
 
         var createdItem = await AsUser().AddVideoToGroupAsync(video, group);
 
@@ -45,7 +46,7 @@ public sealed class NestedResourceApiTests(
     [CoversEndpoints(typeof(VideoDetectionsController))]
     public async Task GivenVideo_WhenDetectionIsCreated_ThenVideoContainsDetection()
     {
-        var video = await AsUser().CreateVideoAsync("API test detection video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheGoodTheBadAndTheShirtless.Title);
 
         var createdDetection = await AsUser().CreateVideoDetectionAsync(video, "subject");
 
@@ -60,7 +61,7 @@ public sealed class NestedResourceApiTests(
     [CoversEndpoints(typeof(VideoSegmentsController))]
     public async Task GivenVideo_WhenSegmentIsCreated_ThenVideoContainsSegment()
     {
-        var video = await AsUser().CreateVideoAsync("API test segment video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheFastAndTheFlirtatious.Title);
 
         var createdSegment = await AsUser().CreateVideoSegmentAsync(video, "Opening");
 

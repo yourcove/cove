@@ -1,4 +1,5 @@
 using Cove.Api.Controllers;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
@@ -13,7 +14,7 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(EntityEngagementController))]
     public async Task GivenVideo_WhenFavoriteIsSet_ThenEngagementIsFavorite()
     {
-        var video = await AsUser().CreateVideoAsync("API test favorite video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheFastAndTheFlirtatious.Title);
 
         var updated = await AsUser().SetVideoFavoriteAsync(video, isFavorite: true);
 
@@ -26,7 +27,7 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(PlaybackController))]
     public async Task GivenVideo_WhenPlaybackIsRecorded_ThenHistoryContainsSession()
     {
-        var video = await AsUser().CreateVideoAsync("API test playback video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
         var sessionId = Guid.NewGuid();
 
         await AsUser().RecordVideoPlaybackAsync(video, sessionId);
@@ -41,7 +42,7 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(ScrapeAttemptsController))]
     public async Task GivenVideoWithoutScrapes_WhenScrapeAttemptsAreRead_ThenAttemptListIsEmpty()
     {
-        var video = await AsUser().CreateVideoAsync("API test unscraped video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.HotSinglesInYourDatabase.Title);
 
         var attempts = await AsUser().GetVideoScrapeAttemptsAsync(video);
 
@@ -52,7 +53,7 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(StreamController))]
     public async Task GivenVideoWithoutPreview_WhenPreviewStatusIsRead_ThenPreviewIsUnavailable()
     {
-        var video = await AsUser().CreateVideoAsync("API test preview status video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.NoShirtNoShoesNoAlibi.Title);
 
         var available = await AsUser().GetVideoPreviewAvailabilityAsync(video);
 

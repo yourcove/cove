@@ -1,4 +1,5 @@
 using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
@@ -14,7 +15,7 @@ public sealed class PerformerCreationApiTests(
     {
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
-                .WithName("Member-visible performer")
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .Build());
         var member = AsUser(ApiTestUsers.Member);
 
@@ -29,7 +30,7 @@ public sealed class PerformerCreationApiTests(
     {
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
-                .WithName("Lane Two Performer")
+                .WithName(TestCatalog.Performers.VelvetThunder.Name)
                 .Build());
 
         var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
