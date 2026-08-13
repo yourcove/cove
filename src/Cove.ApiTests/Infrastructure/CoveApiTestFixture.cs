@@ -13,6 +13,11 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
             .MetadataService;
 
+    internal DownloadSourceSimulator DownloadSource
+        => (_server
+            ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
+            .DownloadSource;
+
     internal ApiTestFileSystem FileSystem
         => (_server
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
