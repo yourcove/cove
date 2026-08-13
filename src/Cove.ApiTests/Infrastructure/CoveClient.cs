@@ -50,6 +50,20 @@ public sealed class CoveClient : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<PerformerDto>(HttpMethod.Post, "/api/performers", performer, cancellationToken);
 
+    public Task<CustomFieldDefinitionDto> CreateCustomFieldDefinitionAsync(
+        CustomFieldDefinitionCreateDto definition,
+        CancellationToken cancellationToken = default)
+        => SendAsync<CustomFieldDefinitionDto>(HttpMethod.Post, "/api/custom-fields", definition, cancellationToken);
+
+    public Task<EntityEngagementDto> GetPerformerEngagementAsync(
+        PerformerDto performer,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Get,
+            $"/api/engagement/{AffinityHostType.Performer}/{performer.Id}",
+            payload: null,
+            cancellationToken);
+
     public Task<StudioDto> CreateStudioAsync(
         string name,
         CancellationToken cancellationToken = default)
