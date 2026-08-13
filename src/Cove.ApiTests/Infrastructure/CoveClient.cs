@@ -317,6 +317,26 @@ public sealed class CoveClient : IDisposable
             new EntityFavoriteDto(isFavorite),
             cancellationToken);
 
+    public Task<EntityEngagementDto> SetVideoRatingAsync(
+        VideoDto video,
+        int rating,
+        string aspect = "overall",
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/{AffinityHostType.Video}/{video.Id}/rating",
+            new VideoRatingDto(rating, aspect),
+            cancellationToken);
+
+    public Task<EntityRatingsDto> GetVideoRatingsAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityRatingsDto>(
+            HttpMethod.Get,
+            $"/api/engagement/{AffinityHostType.Video}/{video.Id}/ratings",
+            payload: null,
+            cancellationToken);
+
     public Task<EntityEngagementDto> GetVideoEngagementAsync(
         VideoDto video,
         CancellationToken cancellationToken = default)

@@ -71,6 +71,64 @@ public sealed class InteractionEndpointApiTests(
     }
 
     [Fact]
+    public async Task GivenCanonicalMovie_WhenMembersRateVideo_ThenEachMemberHasOwnRatings()
+    {
+        // Arrange
+        var movie = TestCatalog.Movies.TheFastAndTheFlirtatious;
+        var performers = await Task.WhenAll(movie.Cast.Select(performer =>
+            AsUser().CreatePerformerAsync(
+                new PerformerBuilder()
+                    .WithName(performer.Name)
+                    .WithDetails(performer.Description)
+                    .Build())));
+        var tags = await Task.WhenAll(movie.Tags.Select(tag =>
+            AsUser().CreateTagAsync(
+                new TagBuilder()
+                    .WithName(tag.Name)
+                    .WithDescription(tag.Description)
+                    .Build())));
+        var created = await AsUser().CreateVideoAsync(
+            new VideoBuilder()
+                .WithTitle(movie.Title)
+                .WithPerformers(performers)
+                .WithTags(tags)
+                .Build());
+
+        // Act
+        await AsUser(ApiTestUsers.Eva).SetVideoRatingAsync(created, 91);
+        await AsUser(ApiTestUsers.Eva).SetVideoRatingAsync(created, 82, "audio");
+        await AsUser(ApiTestUsers.Eva).SetVideoRatingAsync(created, 73, "video_quality");
+        await AsUser(ApiTestUsers.Eva).SetVideoRatingAsync(created, 64, "content");
+        await AsUser(ApiTestUsers.Eva).SetVideoRatingAsync(created, 55, "performers");
+        await AsUser(ApiTestUsers.Anthony).SetVideoRatingAsync(created, 46);
+        await AsUser(ApiTestUsers.Anthony).SetVideoRatingAsync(created, 37, "audio");
+        await AsUser(ApiTestUsers.Anthony).SetVideoRatingAsync(created, 28, "video_quality");
+        await AsUser(ApiTestUsers.Anthony).SetVideoRatingAsync(created, 19, "content");
+        await AsUser(ApiTestUsers.Anthony).SetVideoRatingAsync(created, 10, "performers");
+
+        // Assert
+        var video = await AsUser().GetVideoByIdAsync(created.Id);
+        video.Performers.Select(performer => performer.Name).Should().BeEquivalentTo(movie.Cast.Select(performer => performer.Name));
+        video.Tags.Select(tag => tag.Name).Should().BeEquivalentTo(movie.Tags.Select(tag => tag.Name));
+        (await AsUser(ApiTestUsers.Eva).GetVideoRatingsAsync(video)).Ratings.Should().BeEquivalentTo(new Dictionary<string, int>
+        {
+            ["overall"] = 91,
+            ["audio"] = 82,
+            ["video_quality"] = 73,
+            ["content"] = 64,
+            ["performers"] = 55,
+        });
+        (await AsUser(ApiTestUsers.Anthony).GetVideoRatingsAsync(video)).Ratings.Should().BeEquivalentTo(new Dictionary<string, int>
+        {
+            ["overall"] = 46,
+            ["audio"] = 37,
+            ["video_quality"] = 28,
+            ["content"] = 19,
+            ["performers"] = 10,
+        });
+    }
+
+    [Fact]
     [CoversEndpoints(typeof(PlaybackController))]
     public async Task GivenVideo_WhenPlaybackIsRecorded_ThenHistoryContainsSession()
     {
