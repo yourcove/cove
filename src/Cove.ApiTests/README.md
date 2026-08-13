@@ -61,6 +61,15 @@ Run the suite with:
 dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
 ```
 
+Collect production-assembly coverage while the API tests exercise the real API processes with:
+
+```sh
+dotnet tool restore
+dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage.config --output artifacts/coverage/api-tests.cobertura.xml --output-format cobertura dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal
+```
+
+The report merges production-assembly execution across the API test process tree and excludes the API test harness assembly. Run `dotnet restore src/Cove.slnx` first when dependencies have not been restored.
+
 The PostgreSQL account must be able to create and drop databases and install the `vector` extension. Set `COVE_API_TEST_PG_ADMIN_CONNECTION_STRING` to an administrative database connection string, or configure `COVE_API_TEST_PG_HOST`, `COVE_API_TEST_PG_PORT`, `COVE_API_TEST_PG_USER`, `COVE_API_TEST_PG_PASSWORD`, and `COVE_API_TEST_PG_ADMIN_DB`. Host, port, and password fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password.
 
 The test output includes the random base URI. Because this is a real listener, pause at a breakpoint while the test is running and call its health endpoint with `curl`. `ApiUri`, `AsUser().AccessToken`, and `AsUser().CreateHttpClient()` are available to inspect or use for authenticated debugging.
