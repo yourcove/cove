@@ -119,9 +119,7 @@ public sealed class CoveClient : IDisposable
     public Task<StudioDto> CreateStudioAsync(
         string name,
         CancellationToken cancellationToken = default)
-        => SendAsync<StudioDto>(
-            HttpMethod.Post,
-            "/api/studios",
+        => CreateStudioAsync(
             new StudioCreateDto(
                 Name: name,
                 ParentId: null,
@@ -134,12 +132,35 @@ public sealed class CoveClient : IDisposable
                 TagIds: []),
             cancellationToken);
 
+    public Task<StudioDto> CreateStudioAsync(
+        StudioCreateDto studio,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(HttpMethod.Post, "/api/studios", studio, cancellationToken);
+
+    public Task<StudioDto> GetStudioByIdAsync(
+        int studioId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/studios/{studioId}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<StudioDto>> GetStudiosAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<StudioDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/studios?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
     public Task<ImageDto> CreateImageAsync(
         string title,
         CancellationToken cancellationToken = default)
-        => SendAsync<ImageDto>(
-            HttpMethod.Post,
-            "/api/images",
+        => CreateImageAsync(
             new ImageCreateDto(
                 Title: title,
                 Code: null,
@@ -155,6 +176,56 @@ public sealed class CoveClient : IDisposable
                 GalleryIds: [],
                 GroupIds: []),
             cancellationToken);
+
+    public Task<ImageDto> CreateImageAsync(
+        ImageCreateDto image,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageDto>(HttpMethod.Post, "/api/images", image, cancellationToken);
+
+    public Task<ImageDto> GetImageByIdAsync(
+        int imageId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/images/{imageId}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<ImageDto>> GetImagesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<ImageDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/images?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
+    public Task<GalleryDto> CreateGalleryAsync(
+        GalleryCreateDto gallery,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GalleryDto>(HttpMethod.Post, "/api/galleries", gallery, cancellationToken);
+
+    public Task<GalleryDto> GetGalleryByIdAsync(
+        int galleryId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GalleryDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/galleries/{galleryId}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<GalleryDto>> GetGalleriesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<GalleryDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/galleries?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
 
     public Task<GroupDto> CreateGroupAsync(
         string name,
@@ -208,6 +279,17 @@ public sealed class CoveClient : IDisposable
             $"/api/videos/{videoId}?apiTestNonce={Guid.NewGuid():N}",
             payload: null,
             cancellationToken);
+
+    public async Task<IReadOnlyList<VideoDto>> GetVideosAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<VideoDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/videos?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
 
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,
@@ -482,6 +564,11 @@ public sealed class CoveClient : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<TagDetailDto>(HttpMethod.Post, "/api/tags", tag, cancellationToken);
 
+    public Task<TagGroupDto> CreateTagGroupAsync(
+        TagGroupCreateDto tagGroup,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagGroupDto>(HttpMethod.Post, "/api/taggroups", tagGroup, cancellationToken);
+
     public Task<TagDetailDto> CreateTagAsync(
         string name,
         CancellationToken cancellationToken = default)
@@ -494,6 +581,36 @@ public sealed class CoveClient : IDisposable
                 Aliases: [],
                 ParentIds: [],
                 ChildIds: []),
+            cancellationToken);
+
+    public Task<TagDetailDto> GetTagByIdAsync(
+        int tagId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagDetailDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/tags/{tagId}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<TagListDto>> GetTagsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<TagListDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/tags?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
+    public Task<EntityEngagementDto> GetEntityEngagementAsync(
+        AffinityHostType hostType,
+        int hostId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/engagement/{hostType}/{hostId}"),
+            payload: null,
             cancellationToken);
 
     public async Task<bool> TagExistsAsync(
