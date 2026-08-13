@@ -1,7 +1,10 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -29,10 +32,63 @@ public sealed class CoveClient : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<UserDto>(HttpMethod.Post, "/api/users", user, cancellationToken);
 
+    public Task<JsonElement> ReadEndpointAsync(
+        ReadEndpoint endpoint,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = ReadEndpointCatalog.Get(endpoint);
+
+        return SendAsync<JsonElement>(
+            HttpMethod.Get,
+            WithCacheNonce(definition.RequestUri),
+            payload: null,
+            cancellationToken);
+    }
+
     public Task<PerformerDto> CreatePerformerAsync(
         PerformerCreateDto performer,
         CancellationToken cancellationToken = default)
         => SendAsync<PerformerDto>(HttpMethod.Post, "/api/performers", performer, cancellationToken);
+
+    public Task<ImageDto> CreateImageAsync(
+        string title,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageDto>(
+            HttpMethod.Post,
+            "/api/images",
+            new ImageCreateDto(
+                Title: title,
+                Code: null,
+                Details: null,
+                Photographer: null,
+                Rating: null,
+                Organized: false,
+                StudioId: null,
+                Date: null,
+                Urls: [],
+                TagIds: [],
+                PerformerIds: [],
+                GalleryIds: [],
+                GroupIds: []),
+            cancellationToken);
+
+    public Task<GroupDto> CreateGroupAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupDto>(
+            HttpMethod.Post,
+            "/api/groups",
+            new GroupCreateDto(
+                Name: name,
+                Aliases: null,
+                Date: null,
+                Rating: null,
+                StudioId: null,
+                Director: null,
+                Description: null,
+                Urls: [],
+                TagIds: []),
+            cancellationToken);
 
     public Task<VideoDto> CreateVideoAsync(
         string title,
@@ -65,6 +121,224 @@ public sealed class CoveClient : IDisposable
             $"/api/videos/{videoId}?apiTestNonce={Guid.NewGuid():N}",
             payload: null,
             cancellationToken);
+
+    public Task<GroupItemDto> AddVideoToGroupAsync(
+        VideoDto video,
+        GroupDto group,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupItemDto>(
+            HttpMethod.Post,
+            $"/api/groups/{group.Id}/items",
+            new GroupItemCreateDto(
+                OrderIndex: 0,
+                Kind: GroupItemKind.Video,
+                VideoId: video.Id,
+                HostType: "video",
+                HostId: video.Id,
+                StartSec: null,
+                EndSec: null,
+                Title: null,
+                Notes: null,
+                SourceSpanKey: null,
+                SourceProfileId: null),
+            cancellationToken);
+
+    public Task<IReadOnlyList<GroupItemDto>> GetGroupItemsAsync(
+        GroupDto group,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<GroupItemDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/groups/{group.Id}/items"),
+            payload: null,
+            cancellationToken);
+
+    public Task<DetectionDto> CreateImageDetectionAsync(
+        ImageDto image,
+        string classification,
+        CancellationToken cancellationToken = default)
+        => CreateDetectionAsync(
+            $"/api/images/{image.Id}/detections",
+            classification,
+            observedAtSec: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<DetectionDto>> GetImageDetectionsAsync(
+        ImageDto image,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DetectionDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/images/{image.Id}/detections"),
+            payload: null,
+            cancellationToken);
+
+    public Task<DetectionDto> CreateVideoDetectionAsync(
+        VideoDto video,
+        string classification,
+        CancellationToken cancellationToken = default)
+        => CreateDetectionAsync(
+            $"/api/videos/{video.Id}/detections",
+            classification,
+            observedAtSec: 2,
+            cancellationToken);
+
+    public Task<IReadOnlyList<DetectionDto>> GetVideoDetectionsAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DetectionDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/detections"),
+            payload: null,
+            cancellationToken);
+
+    public Task<SegmentDto> CreateVideoSegmentAsync(
+        VideoDto video,
+        string title,
+        CancellationToken cancellationToken = default)
+        => SendAsync<SegmentDto>(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/segments",
+            new SegmentCreateDto(
+                StartSec: 2,
+                EndSec: 5,
+                TagId: null,
+                Kind: "chapter",
+                RefId: null,
+                Payload: null,
+                SourceKey: "api-test",
+                SourceRunId: null,
+                Confidence: null,
+                Title: title,
+                ColorHint: null),
+            cancellationToken);
+
+    public Task<IReadOnlyList<SegmentDto>> GetVideoSegmentsAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<SegmentDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/segments"),
+            payload: null,
+            cancellationToken);
+
+    public Task<EntityEngagementDto> SetVideoFavoriteAsync(
+        VideoDto video,
+        bool isFavorite,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/video/{video.Id}/favorite",
+            new EntityFavoriteDto(isFavorite),
+            cancellationToken);
+
+    public Task<EntityEngagementDto> GetVideoEngagementAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/engagement/video/{video.Id}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task UploadPerformerImageAsync(
+        PerformerDto performer,
+        byte[] image,
+        CancellationToken cancellationToken = default)
+    {
+        using var content = new MultipartFormDataContent();
+        using var imageContent = new ByteArrayContent(image);
+        imageContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        content.Add(imageContent, "file", "performer.png");
+
+        var requestUri = $"/api/performers/{performer.Id}/image";
+        using var response = await _client.PostAsync(requestUri, content, cancellationToken);
+        _ = await ApiResponse.ReadAsync<JsonElement>(
+            response,
+            $"POST {requestUri}",
+            cancellationToken);
+    }
+
+    public async Task<ApiBinaryContent> GetPerformerImageAsync(
+        PerformerDto performer,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = WithCacheNonce($"/api/performers/{performer.Id}/image");
+        using var response = await _client.GetAsync(requestUri, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"GET {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return new ApiBinaryContent(
+            await response.Content.ReadAsByteArrayAsync(cancellationToken),
+            response.Content.Headers.ContentType?.MediaType);
+    }
+
+    public Task<IReadOnlyList<DirectoryEntryDto>> BrowseDirectoryAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DirectoryEntryDto>>(
+            HttpMethod.Get,
+            $"/api/files/browse?path={Uri.EscapeDataString(path)}&apiTestNonce={Guid.NewGuid():N}",
+            payload: null,
+            cancellationToken);
+
+    public Task RecordVideoPlaybackAsync(
+        VideoDto video,
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Post,
+            "/api/playback/intervals",
+            new PlaybackIntervalsRequestDto(
+                HostType: "video",
+                HostId: video.Id,
+                SessionId: sessionId,
+                MediaDurationSec: 20,
+                CurrentPositionSec: 8,
+                State: "paused",
+                Intervals: [new PlaybackIntervalInputDto(2, 8)]),
+            cancellationToken);
+
+    public Task<VideoHistoryDto> GetVideoHistoryAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoHistoryDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/history"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<ScrapeAttemptDto>> GetVideoScrapeAttemptsAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<ScrapeAttemptDto>>(
+            HttpMethod.Get,
+            $"/api/scrape-attempts?entityType=video&entityId={video.Id}&apiTestNonce={Guid.NewGuid():N}",
+            payload: null,
+            cancellationToken);
+
+    public Task<StashPreviewResult> PreviewStashMigrationAsync(
+        string databasePath,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StashPreviewResult>(
+            HttpMethod.Post,
+            "/api/stash-migration/preview",
+            new { stashDbPath = databasePath },
+            cancellationToken);
+
+    public async Task<bool> GetVideoPreviewAvailabilityAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/stream/video/{video.Id}/preview/status"),
+            payload: null,
+            cancellationToken);
+        return response.GetProperty("available").GetBoolean();
+    }
 
     public Task<VideoDto> ImportVideoFromMetadataServiceAsync(
         VideoDto video,
@@ -179,6 +453,54 @@ public sealed class CoveClient : IDisposable
 
     public void Dispose() => _client.Dispose();
 
+    private Task<DetectionDto> CreateDetectionAsync(
+        string requestUri,
+        string classification,
+        double? observedAtSec,
+        CancellationToken cancellationToken)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Post,
+            requestUri,
+            new DetectionCreateDto(
+                ObservedAtSec: observedAtSec,
+                FrameWidth: 100,
+                FrameHeight: 100,
+                Class: classification,
+                Score: 0.95f,
+                X: 0.1f,
+                Y: 0.2f,
+                W: 0.3f,
+                H: 0.4f,
+                Extra: null,
+                RefKind: null,
+                RefId: null,
+                GroupKey: null,
+                SourceKey: "api-test",
+                SourceRunId: null),
+            cancellationToken);
+
+    private async Task SendForNoContentAsync(
+        HttpMethod method,
+        string requestUri,
+        object payload,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, requestUri)
+        {
+            Content = JsonContent.Create(payload, options: ApiJson.Options),
+        };
+        using var response = await _client.SendAsync(request, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"{method} {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
+    private static string WithCacheNonce(string requestUri)
+        => $"{requestUri}{(requestUri.Contains('?') ? '&' : '?')}apiTestNonce={Guid.NewGuid():N}";
+
     private async Task<T> SendAsync<T>(
         HttpMethod method,
         string requestUri,
@@ -196,3 +518,5 @@ public sealed class CoveClient : IDisposable
             cancellationToken);
     }
 }
+
+public sealed record ApiBinaryContent(byte[] Content, string? MediaType);

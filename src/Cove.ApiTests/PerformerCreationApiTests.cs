@@ -10,21 +10,23 @@ public sealed class PerformerCreationApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
-    public async Task GivenNamedMember_WhenPerformersAreRead_ThenMemberUsesItsOwnClient()
+    public async Task GivenPerformer_WhenMemberReadsPerformers_ThenPerformerIsReturned()
     {
+        var performer = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName("Member-visible performer")
+                .Build());
         var member = AsUser(ApiTestUsers.Member);
 
         var performers = await member.GetPerformersAsync();
 
         member.Username.Should().Be(ApiTestUsers.Member);
-        performers.Should().BeEmpty();
+        performers.Should().ContainSingle(candidate => candidate.Id == performer.Id);
     }
 
     [Fact]
     public async Task GivenPerformerDetails_WhenPerformerIsCreated_ThenPerformerCanBeRetrieved()
     {
-        (await AsUser().GetPerformersAsync()).Should().BeEmpty();
-
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
                 .WithName("Lane Two Performer")

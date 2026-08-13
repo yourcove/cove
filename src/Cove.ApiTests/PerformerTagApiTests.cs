@@ -13,8 +13,6 @@ public sealed class PerformerTagApiTests(
     [Fact]
     public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
     {
-        (await AsUser().GetPerformersAsync()).Should().BeEmpty();
-
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
                 .WithName("Example Performer")
@@ -33,7 +31,6 @@ public sealed class PerformerTagApiTests(
     [Fact]
     public async Task GivenTag_WhenPerformerIsCreatedWithTag_ThenPerformerHasTag()
     {
-        (await AsUser().GetPerformersAsync()).Should().BeEmpty();
         var tag = await AsUser().CreateTagAsync("Creation Tag");
 
         var performer = await AsUser().CreatePerformerAsync(

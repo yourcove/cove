@@ -27,6 +27,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         Process process,
         Uri baseAddress,
         string dataRoot,
+        string libraryPath,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -35,12 +36,14 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
+        FileSystem = new ApiTestFileSystem(libraryPath);
         _resetToken = resetToken;
         _output = output;
     }
 
     public Uri BaseAddress { get; }
     public MetadataServiceSimulator MetadataService => _metadataService;
+    public ApiTestFileSystem FileSystem { get; }
     internal long ProcessStartedTimestamp { get; private init; }
     internal long ReadyTimestamp { get; private init; }
 
@@ -50,18 +53,21 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         MetadataServiceSimulator? metadataService = null;
         Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
+        var libraryPath = Path.Combine(dataRoot, "library");
         var resetToken = Convert.ToHexString(Guid.NewGuid().ToByteArray());
         var output = new ConcurrentQueue<string>();
 
         try
         {
             Directory.CreateDirectory(dataRoot);
+            Directory.CreateDirectory(libraryPath);
             metadataService = await MetadataServiceSimulator.StartAsync(cancellationToken);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
             process = StartApiProcess(
                 dataRoot,
                 database.ConnectionString,
                 metadataService.Endpoint,
+                libraryPath,
                 resetToken,
                 output);
             var processStartedTimestamp = Stopwatch.GetTimestamp();
@@ -70,7 +76,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             using var startupClient = new HttpClient { BaseAddress = baseAddress };
             await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            return new CoveApiServer(database, metadataService, process, baseAddress, dataRoot, resetToken, output)
+            return new CoveApiServer(database, metadataService, process, baseAddress, dataRoot, libraryPath, resetToken, output)
             {
                 ProcessStartedTimestamp = processStartedTimestamp,
                 ReadyTimestamp = Stopwatch.GetTimestamp(),
@@ -139,6 +145,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             throw new InvalidOperationException(
                 $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
         }
+        FileSystem.Reset();
         var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
         try
         {
@@ -282,6 +289,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         string dataRoot,
         string connectionString,
         Uri metadataServiceEndpoint,
+        string libraryPath,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -304,6 +312,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__Auth__JwtSecret"] = "cove-fluent-api-tests-only-jwt-secret-4b93f6f2";
         startInfo.Environment["COVE__BackupPath"] = Path.Combine(dataRoot, "backups");
         startInfo.Environment["COVE__CachePath"] = Path.Combine(dataRoot, "cache");
+        startInfo.Environment["COVE__CovePaths__0__Path"] = libraryPath;
         startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
         startInfo.Environment["COVE__GeneratedPath"] = Path.Combine(dataRoot, "generated");
         startInfo.Environment["COVE__IntegrationTestResetToken"] = resetToken;
