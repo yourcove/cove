@@ -216,6 +216,15 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<int> GetGalleryLikeCountAsync(
+        GalleryDto gallery,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/galleries/{gallery.Id}/like-count"),
+            payload: null,
+            cancellationToken);
+
     public async Task<IReadOnlyList<GalleryDto>> GetGalleriesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -397,6 +406,24 @@ public sealed class CoveClient : IDisposable
             HttpMethod.Put,
             $"/api/engagement/video/{video.Id}/favorite",
             new EntityFavoriteDto(isFavorite),
+            cancellationToken);
+
+    public Task<int> IncrementVideoLikeAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/like",
+            payload: null,
+            cancellationToken);
+
+    public Task<int> IncrementImageLikeAsync(
+        ImageDto image,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(
+            HttpMethod.Post,
+            $"/api/images/{image.Id}/like",
+            payload: null,
             cancellationToken);
 
     public Task<EntityEngagementDto> SetVideoRatingAsync(

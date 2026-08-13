@@ -1,0 +1,77 @@
+using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
+using Cove.ApiTests.Infrastructure;
+using Xunit.Abstractions;
+
+namespace Cove.ApiTests;
+
+[Collection(ApiTestLane1Collection.Name)]
+public sealed class RelationshipLikeRollupApiTests(
+    ITestOutputHelper output,
+    CoveApiTestFixture fixture) : ApiTest(output, fixture)
+{
+    [Fact]
+    public async Task GivenVideoWithPerformers_WhenMembersLikeVideo_ThenEachPerformerShowsMemberVideoLikes()
+    {
+        var movie = TestCatalog.Movies.RaidersOfTheLostCorset;
+        var performers = await Task.WhenAll(movie.Cast.Select(performer =>
+            AsUser().CreatePerformerAsync(
+                new PerformerBuilder()
+                    .WithName(performer.Name)
+                    .Build())));
+        var unrelatedPerformer = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.VelvetThunder.Name)
+                .Build());
+        var video = await AsUser().CreateVideoAsync(
+            new VideoBuilder()
+                .WithTitle(movie.Title)
+                .WithPerformers(performers)
+                .Build());
+
+        await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
+        await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
+        await AsUser(ApiTestUsers.Anthony).IncrementVideoLikeAsync(video);
+
+        foreach (var performer in performers)
+        {
+            (await AsUser(ApiTestUsers.Eva).GetPerformerByIdAsync(performer.Id)).LikeCount.Should().Be(2);
+            (await AsUser(ApiTestUsers.Anthony).GetPerformerByIdAsync(performer.Id)).LikeCount.Should().Be(1);
+            (await AsUser().GetPerformerByIdAsync(performer.Id)).LikeCount.Should().Be(0);
+        }
+        (await AsUser(ApiTestUsers.Eva).GetPerformerByIdAsync(unrelatedPerformer.Id)).LikeCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GivenGalleryWithMedia_WhenMembersLikeMedia_ThenGalleryShowsMemberMediaLikes()
+    {
+        var gallery = await AsUser().CreateGalleryAsync(
+            new GalleryBuilder()
+                .WithTitle("Wardrobe Vault Stills")
+                .Build());
+        var unrelatedGallery = await AsUser().CreateGalleryAsync(
+            new GalleryBuilder()
+                .WithTitle("Unrelated Production Stills")
+                .Build());
+        var video = await AsUser().CreateVideoAsync(
+            new VideoBuilder()
+                .WithTitle(TestCatalog.Movies.RaidersOfTheLostCorset.Title)
+                .WithGallery(gallery)
+                .Build());
+        var image = await AsUser().CreateImageAsync(
+            new ImageBuilder()
+                .WithTitle("Golden Corset Discovery")
+                .WithGallery(gallery)
+                .Build());
+
+        await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
+        await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
+        await AsUser(ApiTestUsers.Eva).IncrementImageLikeAsync(image);
+        await AsUser(ApiTestUsers.Anthony).IncrementImageLikeAsync(image);
+
+        (await AsUser(ApiTestUsers.Eva).GetGalleryLikeCountAsync(gallery)).Should().Be(3);
+        (await AsUser(ApiTestUsers.Anthony).GetGalleryLikeCountAsync(gallery)).Should().Be(1);
+        (await AsUser().GetGalleryLikeCountAsync(gallery)).Should().Be(0);
+        (await AsUser(ApiTestUsers.Eva).GetGalleryLikeCountAsync(unrelatedGallery)).Should().Be(0);
+    }
+}
