@@ -3,6 +3,7 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities;
@@ -22,12 +23,47 @@ public sealed class TagCreationApiTests(
         tags.Should().ContainSingle(candidate => candidate.Id == tag.Id);
     }
 
-    [Fact]
-    public async Task GivenTag_WhenTagWithDuplicateNameIsCreated_ThenConflictIsReturned()
+    [Theory]
+    [InlineData("Dramatic Standoff")]
+    [InlineData("dramatic standoff")]
+    [InlineData(" Dramatic Standoff")]
+    [InlineData("Dramatic Standoff ")]
+    [InlineData(" DRAMATIC STANDOFF ")]
+    public async Task GivenTag_WhenTagWithEquivalentNameIsCreated_ThenConflictIsReturned(string duplicateName)
     {
         await AsUser().CreateTagAsync(TestCatalog.Tags.DramaticStandoff.Name);
 
-        var action = () => AsUser().CreateTagAsync(TestCatalog.Tags.DramaticStandoff.Name.ToUpperInvariant());
+        var action = () => AsUser().CreateTagAsync(duplicateName);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenTagAlias_WhenTagWithEquivalentNameIsCreated_ThenConflictIsReturned()
+    {
+        await AsUser().CreateTagAsync(
+            new TagBuilder()
+                .WithName(TestCatalog.Tags.CowboyBoots.Name)
+                .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name)
+                .Build());
+
+        var action = () => AsUser().CreateTagAsync($" {TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant()} ");
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenTag_WhenAnotherTagUsesEquivalentAlias_ThenConflictIsReturned()
+    {
+        await AsUser().CreateTagAsync(TestCatalog.Tags.QuestionableAlibi.Name);
+        var request = new TagBuilder()
+            .WithName(TestCatalog.Tags.CowboyBoots.Name)
+            .WithAlias($" {TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant()} ")
+            .Build();
+
+        var action = () => AsUser().CreateTagAsync(request);
 
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 409 (Conflict)*");
@@ -47,6 +83,63 @@ public sealed class TagCreationApiTests(
             .Build();
 
         var action = () => AsUser().CreateTagAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenTag_WhenItsNameAndAliasAreEquivalent_ThenConflictIsReturned()
+    {
+        var request = new TagBuilder()
+            .WithName(TestCatalog.Tags.CowboyBoots.Name)
+            .WithAlias($" {TestCatalog.Tags.CowboyBoots.Name.ToUpperInvariant()} ")
+            .Build();
+
+        var action = () => AsUser().CreateTagAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenTag_WhenItsAliasesAreEquivalent_ThenConflictIsReturned()
+    {
+        var request = new TagBuilder()
+            .WithName(TestCatalog.Tags.CowboyBoots.Name)
+            .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name)
+            .WithAlias($" {TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant()} ")
+            .Build();
+
+        var action = () => AsUser().CreateTagAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenPaddedNameAndAliases_WhenTagIsCreated_ThenValuesAreNormalized()
+    {
+        var request = new TagBuilder()
+            .WithName($" {TestCatalog.Tags.CowboyBoots.Name} ")
+            .WithAlias($" {TestCatalog.Tags.QuestionableAlibi.Name} ")
+            .WithAlias(" \t ")
+            .Build();
+
+        var tag = await AsUser().CreateTagAsync(request);
+
+        tag.Name.Should().Be(TestCatalog.Tags.CowboyBoots.Name);
+        tag.Aliases.Should().Equal(TestCatalog.Tags.QuestionableAlibi.Name);
+    }
+
+    [Fact]
+    public async Task GivenBlankTagName_WhenCreated_ThenEmptySentinelClaimsNamespace()
+    {
+        var tag = await AsUser().CreateTagAsync(" \t ");
+
+        tag.Name.Should().Be(TagNameRules.EmptyCanonicalName);
+
+        var action = () => AsUser().CreateTagAsync($" {TagNameRules.EmptyCanonicalName.ToUpperInvariant()} ");
 
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 409 (Conflict)*");
