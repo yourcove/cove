@@ -98,6 +98,15 @@ public sealed class CoveClient : IDisposable
             ?? throw new InvalidOperationException("The downloader response did not contain a job id.");
     }
 
+    public Task<DownloaderBatchStartResponse> StartDownloaderBatchAsync(
+        DownloaderBatchStartRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DownloaderBatchStartResponse>(
+            HttpMethod.Post,
+            "/api/system/downloaders/download-batch",
+            request,
+            cancellationToken);
+
     public Task<JobInfo> GetJobAsync(
         string jobId,
         CancellationToken cancellationToken = default)
@@ -912,5 +921,10 @@ public sealed class CoveClient : IDisposable
             cancellationToken);
     }
 }
+
+public sealed record DownloaderBatchStartResponse(
+    string? JobId,
+    int QueuedCount,
+    IReadOnlyList<DownloaderBatchStartIssueDto> Issues);
 
 public sealed record ApiBinaryContent(byte[] Content, string? MediaType);

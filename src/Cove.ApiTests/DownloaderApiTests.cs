@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Cove.ApiTests.Infrastructure;
+using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Xunit.Abstractions;
 
@@ -70,4 +71,104 @@ public sealed class DownloaderApiTests(
         source.RequestCount.Should().Be(1);
         (await AsUser().GetTextsAsync()).Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task GivenTwoRemoteTextFiles_WhenBatchDownloadCompletes_ThenBothTextsAreImported()
+    {
+        var firstSource = AsDownloadSource().CreateTextFile("batch-first.txt", "First batch document");
+        var secondSource = AsDownloadSource().CreateTextFile("batch-second.txt", "Second batch document");
+
+        var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
+        {
+            Items =
+            [
+                CreateTextBatchItem(firstSource),
+                CreateTextBatchItem(secondSource),
+            ],
+        });
+
+        batch.QueuedCount.Should().Be(2);
+        batch.Issues.Should().BeEmpty();
+        batch.JobId.Should().NotBeNullOrWhiteSpace();
+        var job = await AsUser().WaitForTerminalJobAsync(batch.JobId!);
+
+        job.Status.Should().Be(JobStatus.Completed);
+        job.SubTask.Should().Contain("Downloaded 2 of 2 items");
+        firstSource.RequestCount.Should().Be(1);
+        secondSource.RequestCount.Should().Be(1);
+        var texts = await AsUser().GetTextsAsync();
+        texts.Should().HaveCount(2);
+        texts.SelectMany(text => text.Urls).Should().Contain(firstSource.Uri.AbsoluteUri);
+        texts.SelectMany(text => text.Urls).Should().Contain(secondSource.Uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task GivenRepeatedRemoteTextUrl_WhenBatchIsPreflighted_ThenOnlyOneItemIsQueued()
+    {
+        var source = AsDownloadSource().CreateTextFile("batch-repeated.txt", "Repeated batch document");
+        var trackingVariant = new Uri($"{source.Uri.AbsoluteUri}?utm_source=api-test#duplicate");
+
+        var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
+        {
+            Items =
+            [
+                CreateTextBatchItem(source),
+                CreateTextBatchItem(source, trackingVariant),
+            ],
+        });
+
+        batch.QueuedCount.Should().Be(1);
+        batch.Issues.Should().ContainSingle(issue =>
+            issue.Kind == "skipped"
+            && issue.Reason.Contains("already queued", StringComparison.OrdinalIgnoreCase));
+        batch.JobId.Should().NotBeNullOrWhiteSpace();
+        var job = await AsUser().WaitForTerminalJobAsync(batch.JobId!);
+
+        job.Status.Should().Be(JobStatus.Completed);
+        source.RequestCount.Should().Be(1);
+        (await AsUser().GetTextsAsync()).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task GivenPreviouslyDownloadedText_WhenBatchIsPreflighted_ThenOnlyNewTextIsImported()
+    {
+        var existingSource = AsDownloadSource().CreateTextFile("batch-existing.txt", "Existing batch document");
+        var newSource = AsDownloadSource().CreateTextFile("batch-new.txt", "New batch document");
+        var initialJobId = await AsUser().StartTextDownloadAsync(DirectTextDownloaderId, existingSource.Uri);
+        (await AsUser().WaitForTerminalJobAsync(initialJobId)).Status.Should().Be(JobStatus.Completed);
+
+        var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
+        {
+            Items =
+            [
+                CreateTextBatchItem(existingSource),
+                CreateTextBatchItem(newSource),
+            ],
+        });
+
+        batch.QueuedCount.Should().Be(1);
+        batch.Issues.Should().ContainSingle(issue =>
+            issue.Kind == "skipped"
+            && issue.Reason.Contains("already downloaded", StringComparison.OrdinalIgnoreCase));
+        batch.JobId.Should().NotBeNullOrWhiteSpace();
+        var job = await AsUser().WaitForTerminalJobAsync(batch.JobId!);
+
+        job.Status.Should().Be(JobStatus.Completed);
+        existingSource.RequestCount.Should().Be(1);
+        newSource.RequestCount.Should().Be(1);
+        var texts = await AsUser().GetTextsAsync();
+        texts.Should().HaveCount(2);
+        texts.SelectMany(text => text.Urls).Should().Contain(existingSource.Uri.AbsoluteUri);
+        texts.SelectMany(text => text.Urls).Should().Contain(newSource.Uri.AbsoluteUri);
+    }
+
+    private static DownloaderBatchItemDto CreateTextBatchItem(
+        DownloadSourceHandle source,
+        Uri? uri = null)
+        => new()
+        {
+            Url = (uri ?? source.Uri).AbsoluteUri,
+            Entity = "Text",
+            Label = source.FileName,
+        };
 }
