@@ -284,6 +284,30 @@ public sealed class CoveClient : IDisposable
         return result.Items;
     }
 
+    public Task<StudioDto> UpdateStudioAsync(
+        int studioId,
+        object update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(
+            HttpMethod.Put,
+            $"/api/studios/{studioId}",
+            update,
+            cancellationToken);
+
+    public async Task DeleteStudioAsync(
+        int studioId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/studios/{studioId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
     public Task<ImageDto> CreateImageAsync(
         string title,
         CancellationToken cancellationToken = default)
