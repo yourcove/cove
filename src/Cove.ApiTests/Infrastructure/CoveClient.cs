@@ -416,12 +416,39 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<VideoDto> UpdateVideoAsync(
+        int videoId,
+        object update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Put,
+            $"/api/videos/{videoId}",
+            update,
+            cancellationToken);
+
+    public Task<BulkUpdateResult> BulkUpdateVideosAsync(
+        BulkVideoUpdateDto update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<BulkUpdateResult>(HttpMethod.Post, "/api/videos/bulk", update, cancellationToken);
+
     public async Task<IReadOnlyList<VideoDto>> GetVideosAsync(
         CancellationToken cancellationToken = default)
     {
         var result = await SendAsync<PaginatedResponse<VideoDto>>(
             HttpMethod.Get,
             WithCacheNonce("/api/videos?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
+    public async Task<IReadOnlyList<VideoDto>> GetVideosByPerformerAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<VideoDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos?performerIds={performerId}&perPage=250"),
             payload: null,
             cancellationToken);
         return result.Items;
