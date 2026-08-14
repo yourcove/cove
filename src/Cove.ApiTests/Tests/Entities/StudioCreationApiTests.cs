@@ -23,13 +23,18 @@ public sealed class StudioCreationApiTests(
         studios.Should().ContainSingle(candidate => candidate.Id == studio.Id);
     }
 
-    [Fact]
-    public async Task GivenStudio_WhenStudioWithDuplicateNameIsCreated_ThenCreationIsRejected()
+    [Theory]
+    [InlineData("Barely Dressed Pictures")]
+    [InlineData("barely dressed pictures")]
+    [InlineData(" Barely Dressed Pictures")]
+    [InlineData("Barely Dressed Pictures ")]
+    [InlineData(" BARELY DRESSED PICTURES ")]
+    public async Task GivenStudio_WhenStudioWithEquivalentNameIsCreated_ThenCreationIsRejected(string duplicateName)
     {
         await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => AsUser().CreateStudioAsync(TestCatalog.Studio.Name));
+            () => AsUser().CreateStudioAsync(duplicateName));
 
         exception.Message.Should().Contain("409 (Conflict)");
         exception.Message.Should().Contain("\"code\":\"STUDIO_NAME_CONFLICT\"");
