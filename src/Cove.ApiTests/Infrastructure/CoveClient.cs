@@ -787,6 +787,16 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<TagDetailDto> UpdateTagAsync(
+        int tagId,
+        TagUpdateDto tag,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagDetailDto>(
+            HttpMethod.Put,
+            $"/api/tags/{tagId}",
+            tag,
+            cancellationToken);
+
     public async Task<IReadOnlyList<TagListDto>> GetTagsAsync(
         CancellationToken cancellationToken = default)
     {

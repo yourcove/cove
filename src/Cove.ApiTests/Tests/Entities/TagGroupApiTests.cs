@@ -262,6 +262,37 @@ public sealed class TagGroupApiTests(
     }
 
     [Fact]
+    public async Task GivenTagInTagGroup_WhenAssignedToAnotherTagGroup_ThenTagBelongsOnlyToNewGroup()
+    {
+        // Arrange
+        var originalGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Original Group"));
+        var newGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("New Group"));
+        var tag = await AsUser().CreateTagAsync(
+            new TagBuilder().WithName("Reassigned Tag").WithTagGroup(originalGroup).Build());
+        var update = new TagUpdateDto(
+            Name: null,
+            SortName: null,
+            Description: null,
+            Favorite: null,
+            Aliases: null,
+            ParentIds: null,
+            ChildIds: null,
+            CustomFields: null,
+            TagGroupId: newGroup.Id);
+
+        // Act
+        var updated = await AsUser().UpdateTagAsync(tag.Id, update);
+        var originalGroupAfter = await AsUser().GetTagGroupByIdAsync(originalGroup.Id);
+        var newGroupAfter = await AsUser().GetTagGroupByIdAsync(newGroup.Id);
+
+        // Assert
+        updated.TagGroupId.Should().Be(newGroup.Id);
+        updated.TagGroupName.Should().Be(newGroup.Name);
+        originalGroupAfter.TagCount.Should().Be(0);
+        newGroupAfter.TagCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task GivenTagGroupWithTag_WhenDeleted_ThenTagIsPreservedWithoutTagGroup()
     {
         // Arrange
