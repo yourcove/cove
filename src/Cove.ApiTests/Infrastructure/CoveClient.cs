@@ -723,6 +723,47 @@ public sealed class CoveClient : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<TagGroupDto>(HttpMethod.Post, "/api/taggroups", tagGroup, cancellationToken);
 
+    public Task<IReadOnlyList<TagGroupDto>> GetTagGroupsAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<TagGroupDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/taggroups"),
+            payload: null,
+            cancellationToken);
+
+    public Task<TagGroupDto> GetTagGroupByIdAsync(
+        int tagGroupId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagGroupDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/taggroups/{tagGroupId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<TagGroupDto> UpdateTagGroupAsync(
+        int tagGroupId,
+        TagGroupUpdateDto tagGroup,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagGroupDto>(
+            HttpMethod.Put,
+            $"/api/taggroups/{tagGroupId}",
+            tagGroup,
+            cancellationToken);
+
+    public async Task DeleteTagGroupAsync(
+        int tagGroupId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/taggroups/{tagGroupId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
     public Task<TagDetailDto> CreateTagAsync(
         string name,
         CancellationToken cancellationToken = default)
