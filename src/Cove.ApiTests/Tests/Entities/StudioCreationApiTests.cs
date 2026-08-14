@@ -71,16 +71,12 @@ public sealed class StudioCreationApiTests(
 
         var studioAfter = await AsUser().GetStudioByIdAsync(studio.Id);
         var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id);
-        studioAfter.Name.Should().Be(request.Name);
-        studioAfter.ParentId.Should().Be(parent.Id);
+        studioAfter.Should().BeEquivalentTo(request, options => options
+            .Excluding(dto => dto.Rating)
+            .Excluding(dto => dto.TagIds)
+            .Excluding(dto => dto.CustomFields));
         studioAfter.ParentName.Should().Be(parent.Name);
-        studioAfter.Favorite.Should().BeTrue();
-        studioAfter.Details.Should().Be(request.Details);
-        studioAfter.Organized.Should().BeTrue();
-        studioAfter.Urls.Should().Equal(request.Urls!);
-        studioAfter.Aliases.Should().Equal(request.Aliases!);
         studioAfter.Tags.Should().ContainSingle(candidate => candidate.Id == tag.Id);
-        studioAfter.RemoteIds.Should().Equal(request.RemoteIds!);
         studioAfter.CustomFields.Should().ContainKey(customFieldKey)
             .WhoseValue.Should().BeOfType<JsonElement>()
             .Which.GetString().Should().Be("Camp adventure");
