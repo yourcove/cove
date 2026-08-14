@@ -14,14 +14,17 @@ public sealed class PerformerTagApiTests(
     [Fact]
     public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
     {
+        // Arrange
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .Build());
         var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name);
 
+        // Act
         await AsUser().LinkTagToPerformerAsync(tag, performer);
 
+        // Assert
         var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
         performerAfter.ShouldHaveTag(tag);
     }
@@ -29,14 +32,17 @@ public sealed class PerformerTagApiTests(
     [Fact]
     public async Task GivenTag_WhenPerformerIsCreatedWithTag_ThenPerformerHasTag()
     {
+        // Arrange
         var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.AccidentalDoubleEntendre.Name);
 
+        // Act
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
                 .WithName(TestCatalog.Performers.BeaHaven.Name)
                 .WithTag(tag)
                 .Build());
 
+        // Assert
         var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
         performerAfter.ShouldHaveTag(tag);
     }

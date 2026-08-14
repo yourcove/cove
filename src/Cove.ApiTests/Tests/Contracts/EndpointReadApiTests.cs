@@ -25,10 +25,13 @@ public sealed class EndpointReadApiTests(
     public async Task GivenFreshLibrary_WhenEndpointIsRead_ThenResponseHasExpectedShape(
         ReadEndpoint endpoint)
     {
+        // Arrange
         var expectedShape = ReadEndpointCatalog.Get(endpoint).ExpectedShape;
 
+        // Act
         var response = await AsUser().ReadEndpointAsync(endpoint);
 
+        // Assert
         response.ValueKind.Should().Be(
             expectedShape == JsonResponseShape.Array
                 ? JsonValueKind.Array

@@ -16,16 +16,20 @@ public sealed class ImageCreationApiTests(
     [Fact]
     public async Task GivenImage_WhenMemberReadsImages_ThenImageIsReturned()
     {
+        // Arrange
         var image = await AsUser().CreateImageAsync("Golden Corset Discovery");
 
+        // Act
         var images = await AsUser(ApiTestUsers.Eva).GetImagesAsync();
 
+        // Assert
         images.Should().ContainSingle(candidate => candidate.Id == image.Id);
     }
 
     [Fact]
     public async Task GivenImageMetadata_WhenImageIsCreated_ThenAllMetadataCanBeRetrieved()
     {
+        // Arrange
         const string customFieldKey = "lighting_setup";
         var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.CherryPoppins.Name).Build());
@@ -58,8 +62,10 @@ public sealed class ImageCreationApiTests(
             .AsOrganized()
             .Build();
 
+        // Act
         var image = await AsUser().CreateImageAsync(request);
 
+        // Assert
         var imageAfter = await AsUser().GetImageByIdAsync(image.Id);
         var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Image, image.Id);
         imageAfter.Title.Should().Be(request.Title);

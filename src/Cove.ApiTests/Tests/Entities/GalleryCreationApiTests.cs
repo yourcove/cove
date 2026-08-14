@@ -16,16 +16,20 @@ public sealed class GalleryCreationApiTests(
     [Fact]
     public async Task GivenGallery_WhenMemberReadsGalleries_ThenGalleryIsReturned()
     {
+        // Arrange
         var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle("Wardrobe Vault Stills").Build());
 
+        // Act
         var galleries = await AsUser(ApiTestUsers.Eva).GetGalleriesAsync();
 
+        // Assert
         galleries.Should().ContainSingle(candidate => candidate.Id == gallery.Id);
     }
 
     [Fact]
     public async Task GivenGalleryMetadata_WhenGalleryIsCreated_ThenAllMetadataCanBeRetrieved()
     {
+        // Arrange
         const string customFieldKey = "contact_sheet";
         var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build());
@@ -54,8 +58,10 @@ public sealed class GalleryCreationApiTests(
             .AsOrganized()
             .Build();
 
+        // Act
         var gallery = await AsUser().CreateGalleryAsync(request);
 
+        // Assert
         var galleryAfter = await AsUser().GetGalleryByIdAsync(gallery.Id);
         var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Gallery, gallery.Id);
         galleryAfter.Title.Should().Be(request.Title);

@@ -14,12 +14,14 @@ public sealed class ApiTestLaneHarnessTests
     [Fact]
     public async Task GivenTwoLanes_WhenHostsStart_ThenHostStartupOverlaps()
     {
+        // Arrange
         var starts = new[]
         {
             CoveApiServer.StartAsync(),
             CoveApiServer.StartAsync(),
         };
 
+        // Act & Assert
         try
         {
             var servers = await Task.WhenAll(starts);

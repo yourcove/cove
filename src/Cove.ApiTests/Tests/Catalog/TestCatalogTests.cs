@@ -7,6 +7,7 @@ public sealed class TestCatalogTests
     [Fact]
     public void PerformersContainCompleteInUniverseRoster()
     {
+        // Arrange
         (string Name, string Slug)[] expected =
         [
             ("Cherry Poppins", "cherry-poppins"), ("Velvet Thunder", "velvet-thunder"),
@@ -23,6 +24,7 @@ public sealed class TestCatalogTests
             ("Elias Grant", "elias-grant"), ("Noor Haddad", "noor-haddad")
         ];
 
+        // Act & Assert
         TestCatalog.Performers.All.Select(performer => (performer.Name, performer.Slug)).Should().Equal(expected);
         TestCatalog.Performers.All.Should().OnlyContain(performer => !string.IsNullOrWhiteSpace(performer.Description));
     }
@@ -30,6 +32,7 @@ public sealed class TestCatalogTests
     [Fact]
     public void StudiosContainCompleteInUniverseOrganizationRoster()
     {
+        // Arrange
         (string Name, string Slug)[] expected =
         [
             ("Barely Dressed Pictures", "barely-dressed-pictures"),
@@ -43,6 +46,7 @@ public sealed class TestCatalogTests
             ("The Long Interview", "the-long-interview")
         ];
 
+        // Act & Assert
         TestCatalog.Studios.All.Select(studio => (studio.Name, studio.Slug)).Should().Equal(expected);
         TestCatalog.Studios.All.Should().OnlyContain(studio => !string.IsNullOrWhiteSpace(studio.Description));
         TestCatalog.Studio.Should().BeSameAs(TestCatalog.Studios.BarelyDressedPictures);

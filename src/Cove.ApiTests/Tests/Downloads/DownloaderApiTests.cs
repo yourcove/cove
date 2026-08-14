@@ -17,11 +17,14 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenRemoteTextFile_WhenDownloaderUrlIsMatched_ThenDirectTextDownloaderIsSelected()
     {
+        // Arrange
         var source = AsDownloadSource().CreateTextFile("matching-example.txt", "Matching content");
 
+        // Act
         var downloaders = await AsUser().GetDownloadersAsync();
         var matches = await AsUser().MatchDownloaderAsync(source.Uri);
 
+        // Assert
         var downloader = downloaders.Should().ContainSingle(candidate => candidate.Id == DirectTextDownloaderId).Which;
         downloader.SupportedEntity.Should().Be("Text");
         var match = matches.Should().ContainSingle(candidate => candidate.DownloaderId == DirectTextDownloaderId).Which;
@@ -36,12 +39,15 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenRemoteTextFile_WhenDownloadCompletes_ThenTextIsImportedAndDuplicateIsDetected()
     {
+        // Arrange
         const string contents = "A deterministic API-test download.";
         var source = AsDownloadSource().CreateTextFile("downloaded-example.txt", contents);
 
+        // Act
         var jobId = await AsUser().StartTextDownloadAsync(DirectTextDownloaderId, source.Uri);
         var job = await AsUser().WaitForTerminalJobAsync(jobId);
 
+        // Assert
         job.Status.Should().Be(JobStatus.Completed);
         source.RequestCount.Should().Be(1);
         var text = (await AsUser().GetTextsAsync()).Should().ContainSingle().Which;
@@ -61,11 +67,14 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenUnavailableRemoteTextFile_WhenDownloadRuns_ThenJobFailsWithoutImport()
     {
+        // Arrange
         var source = AsDownloadSource().CreateFailure("unavailable-example.txt", HttpStatusCode.ServiceUnavailable);
 
+        // Act
         var jobId = await AsUser().StartTextDownloadAsync(DirectTextDownloaderId, source.Uri);
         var job = await AsUser().WaitForTerminalJobAsync(jobId);
 
+        // Assert
         job.Status.Should().Be(JobStatus.Failed);
         job.Error.Should().NotBeNullOrWhiteSpace();
         source.RequestCount.Should().Be(1);
@@ -75,9 +84,11 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenTwoRemoteTextFiles_WhenBatchDownloadCompletes_ThenBothTextsAreImported()
     {
+        // Arrange
         var firstSource = AsDownloadSource().CreateTextFile("batch-first.txt", "First batch document");
         var secondSource = AsDownloadSource().CreateTextFile("batch-second.txt", "Second batch document");
 
+        // Act
         var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
         {
             Items =
@@ -87,6 +98,7 @@ public sealed class DownloaderApiTests(
             ],
         });
 
+        // Assert
         batch.QueuedCount.Should().Be(2);
         batch.Issues.Should().BeEmpty();
         batch.JobId.Should().NotBeNullOrWhiteSpace();
@@ -105,9 +117,11 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenRepeatedRemoteTextUrl_WhenBatchIsPreflighted_ThenOnlyOneItemIsQueued()
     {
+        // Arrange
         var source = AsDownloadSource().CreateTextFile("batch-repeated.txt", "Repeated batch document");
         var trackingVariant = new Uri($"{source.Uri.AbsoluteUri}?utm_source=api-test#duplicate");
 
+        // Act
         var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
         {
             Items =
@@ -117,6 +131,7 @@ public sealed class DownloaderApiTests(
             ],
         });
 
+        // Assert
         batch.QueuedCount.Should().Be(1);
         batch.Issues.Should().ContainSingle(issue =>
             issue.Kind == "skipped"
@@ -132,11 +147,13 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenPreviouslyDownloadedText_WhenBatchIsPreflighted_ThenOnlyNewTextIsImported()
     {
+        // Arrange
         var existingSource = AsDownloadSource().CreateTextFile("batch-existing.txt", "Existing batch document");
         var newSource = AsDownloadSource().CreateTextFile("batch-new.txt", "New batch document");
         var initialJobId = await AsUser().StartTextDownloadAsync(DirectTextDownloaderId, existingSource.Uri);
         (await AsUser().WaitForTerminalJobAsync(initialJobId)).Status.Should().Be(JobStatus.Completed);
 
+        // Act
         var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
         {
             Items =
@@ -146,6 +163,7 @@ public sealed class DownloaderApiTests(
             ],
         });
 
+        // Assert
         batch.QueuedCount.Should().Be(1);
         batch.Issues.Should().ContainSingle(issue =>
             issue.Kind == "skipped"
@@ -165,9 +183,11 @@ public sealed class DownloaderApiTests(
     [Fact]
     public async Task GivenSuccessfulAndUnavailableRemoteTexts_WhenBatchCompletes_ThenFailureIsReportedAndSuccessfulTextIsImported()
     {
+        // Arrange
         var successfulSource = AsDownloadSource().CreateTextFile("batch-success.txt", "Successful mixed batch document");
         var unavailableSource = AsDownloadSource().CreateFailure("batch-unavailable.txt", HttpStatusCode.ServiceUnavailable);
 
+        // Act
         var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
         {
             Items =
@@ -177,6 +197,7 @@ public sealed class DownloaderApiTests(
             ],
         });
 
+        // Assert
         batch.QueuedCount.Should().Be(2);
         batch.Issues.Should().BeEmpty();
         batch.JobId.Should().NotBeNullOrWhiteSpace();

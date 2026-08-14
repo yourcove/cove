@@ -16,10 +16,13 @@ public sealed class StudioCreationApiTests(
     [Fact]
     public async Task GivenStudio_WhenMemberReadsStudios_ThenStudioIsReturned()
     {
+        // Arrange
         var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
 
+        // Act
         var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync();
 
+        // Assert
         studios.Should().ContainSingle(candidate => candidate.Id == studio.Id);
     }
 
@@ -31,8 +34,10 @@ public sealed class StudioCreationApiTests(
     [InlineData(" BARELY DRESSED PICTURES ")]
     public async Task GivenStudio_WhenStudioWithEquivalentNameIsCreated_ThenCreationIsRejected(string duplicateName)
     {
+        // Arrange
         await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
 
+        // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => AsUser().CreateStudioAsync(duplicateName));
 
@@ -43,6 +48,7 @@ public sealed class StudioCreationApiTests(
     [Fact]
     public async Task GivenStudioMetadata_WhenStudioIsCreated_ThenAllMetadataCanBeRetrieved()
     {
+        // Arrange
         const string customFieldKey = "production_style";
         var parent = await AsUser().CreateStudioAsync("Barely Dressed Holdings");
         var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.PlotOptional.Name);
@@ -67,10 +73,12 @@ public sealed class StudioCreationApiTests(
             .AsOrganized()
             .Build();
 
+        // Act
         var studio = await AsUser().CreateStudioAsync(request);
-
         var studioAfter = await AsUser().GetStudioByIdAsync(studio.Id);
         var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id);
+
+        // Assert
         studioAfter.Should().BeEquivalentTo(request, options => options
             .Excluding(dto => dto.Rating)
             .Excluding(dto => dto.TagIds)

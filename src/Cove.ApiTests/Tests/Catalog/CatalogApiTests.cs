@@ -13,11 +13,13 @@ public sealed class CatalogApiTests(
     [Fact]
     public async Task GivenCanonicalMovie_WhenCreatedWithRelationships_ThenVideoReturnsCanonicalCatalogData()
     {
+        // Arrange
         var movie = TestCatalog.Movies.RaidersOfTheLostCorset;
         var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
         var performers = await Task.WhenAll(movie.Cast.Select(CreatePerformerAsync));
         var tags = await Task.WhenAll(movie.Tags.Select(CreateTagAsync));
 
+        // Act
         var created = await AsUser().CreateVideoAsync(
             new VideoBuilder()
                 .WithTitle(movie.Title)
@@ -26,6 +28,7 @@ public sealed class CatalogApiTests(
                 .WithTags(tags)
                 .Build());
 
+        // Assert
         var video = await AsUser().GetVideoByIdAsync(created.Id);
         video.Title.Should().Be(movie.Title);
         video.StudioId.Should().Be(studio.Id);

@@ -9,6 +9,7 @@ public sealed class EndpointCoverageTests
     [Fact]
     public void GivenCurrentControllers_WhenEndpointCoverageIsInspected_ThenEveryControllerHasHappyPathTest()
     {
+        // Arrange
         var currentControllers = typeof(Program).Assembly
             .GetTypes()
             .Where(type => type is { IsAbstract: false, IsPublic: true }
@@ -34,6 +35,7 @@ public sealed class EndpointCoverageTests
             .Order()
             .ToArray();
 
+        // Act & Assert
         ReadEndpointCatalog.All
             .Select(definition => definition.Endpoint)
             .Should().OnlyHaveUniqueItems();
