@@ -4,7 +4,7 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Interactions;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class InteractionEndpointApiTests(

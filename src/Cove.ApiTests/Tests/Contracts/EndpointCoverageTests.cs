@@ -2,7 +2,7 @@ using System.Reflection;
 using Cove.ApiTests.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Contracts;
 
 public sealed class EndpointCoverageTests
 {

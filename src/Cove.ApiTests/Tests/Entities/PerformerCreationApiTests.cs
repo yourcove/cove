@@ -6,7 +6,7 @@ using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Entities;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class PerformerCreationApiTests(

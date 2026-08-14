@@ -2,7 +2,7 @@ using System.Text.Json;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Contracts;
 
 [Collection(ApiTestLane1Collection.Name)]
 public sealed class EndpointReadApiTests(

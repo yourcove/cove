@@ -1,6 +1,6 @@
 using Cove.ApiTests.Infrastructure;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Harness;
 
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class ApiTestLaneHarnessCollection

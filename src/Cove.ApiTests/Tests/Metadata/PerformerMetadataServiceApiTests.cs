@@ -3,7 +3,7 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Metadata;
 
 [Collection(ApiTestLane1Collection.Name)]
 public sealed class PerformerMetadataServiceApiTests(

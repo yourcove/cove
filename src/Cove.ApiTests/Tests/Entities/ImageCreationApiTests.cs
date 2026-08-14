@@ -6,7 +6,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Entities;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class ImageCreationApiTests(

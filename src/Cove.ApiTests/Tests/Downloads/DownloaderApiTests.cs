@@ -5,7 +5,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Downloads;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class DownloaderApiTests(
@@ -160,6 +160,37 @@ public sealed class DownloaderApiTests(
         texts.Should().HaveCount(2);
         texts.SelectMany(text => text.Urls).Should().Contain(existingSource.Uri.AbsoluteUri);
         texts.SelectMany(text => text.Urls).Should().Contain(newSource.Uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task GivenSuccessfulAndUnavailableRemoteTexts_WhenBatchCompletes_ThenFailureIsReportedAndSuccessfulTextIsImported()
+    {
+        var successfulSource = AsDownloadSource().CreateTextFile("batch-success.txt", "Successful mixed batch document");
+        var unavailableSource = AsDownloadSource().CreateFailure("batch-unavailable.txt", HttpStatusCode.ServiceUnavailable);
+
+        var batch = await AsUser().StartDownloaderBatchAsync(new DownloaderBatchStartRequestDto
+        {
+            Items =
+            [
+                CreateTextBatchItem(successfulSource),
+                CreateTextBatchItem(unavailableSource),
+            ],
+        });
+
+        batch.QueuedCount.Should().Be(2);
+        batch.Issues.Should().BeEmpty();
+        batch.JobId.Should().NotBeNullOrWhiteSpace();
+        var job = await AsUser().WaitForTerminalJobAsync(batch.JobId!);
+
+        job.Status.Should().Be(JobStatus.Completed);
+        job.Error.Should().BeNull();
+        job.SubTask.Should().Contain("Downloaded 1 of 2 items");
+        job.SubTask.Should().Contain("Failed 1");
+        successfulSource.RequestCount.Should().Be(1);
+        unavailableSource.RequestCount.Should().Be(1);
+        var text = (await AsUser().GetTextsAsync()).Should().ContainSingle().Which;
+        text.Urls.Should().Contain(successfulSource.Uri.AbsoluteUri);
+        text.Urls.Should().NotContain(unavailableSource.Uri.AbsoluteUri);
     }
 
     private static DownloaderBatchItemDto CreateTextBatchItem(
