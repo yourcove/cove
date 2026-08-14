@@ -24,6 +24,18 @@ public sealed class StudioCreationApiTests(
     }
 
     [Fact]
+    public async Task GivenStudio_WhenStudioWithDuplicateNameIsCreated_ThenCreationIsRejected()
+    {
+        await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => AsUser().CreateStudioAsync(TestCatalog.Studio.Name));
+
+        exception.Message.Should().Contain("409 (Conflict)");
+        exception.Message.Should().Contain("\"code\":\"STUDIO_NAME_CONFLICT\"");
+    }
+
+    [Fact]
     public async Task GivenStudioMetadata_WhenStudioIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         const string customFieldKey = "production_style";

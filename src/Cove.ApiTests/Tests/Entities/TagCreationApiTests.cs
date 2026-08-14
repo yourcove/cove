@@ -23,6 +23,36 @@ public sealed class TagCreationApiTests(
     }
 
     [Fact]
+    public async Task GivenTag_WhenTagWithDuplicateNameIsCreated_ThenConflictIsReturned()
+    {
+        await AsUser().CreateTagAsync(TestCatalog.Tags.DramaticStandoff.Name);
+
+        var action = () => AsUser().CreateTagAsync(TestCatalog.Tags.DramaticStandoff.Name.ToUpperInvariant());
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenTagAlias_WhenTagWithDuplicateAliasIsCreated_ThenConflictIsReturned()
+    {
+        await AsUser().CreateTagAsync(
+            new TagBuilder()
+                .WithName(TestCatalog.Tags.CowboyBoots.Name)
+                .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name)
+                .Build());
+        var request = new TagBuilder()
+            .WithName(TestCatalog.Tags.CandleBudgetExceeded.Name)
+            .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant())
+            .Build();
+
+        var action = () => AsUser().CreateTagAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
     public async Task GivenTagMetadata_WhenTagIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         const string customFieldKey = "wardrobe_department";

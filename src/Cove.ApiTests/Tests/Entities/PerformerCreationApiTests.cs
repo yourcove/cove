@@ -27,6 +27,81 @@ public sealed class PerformerCreationApiTests(
     }
 
     [Fact]
+    public async Task GivenPerformer_WhenPerformerWithDuplicateNameIsCreated_ThenConflictIsReturned()
+    {
+        await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
+                .Build());
+        var request = new PerformerBuilder()
+            .WithName(TestCatalog.Performers.CherryPoppins.Name.ToUpperInvariant())
+            .Build();
+
+        var action = () => AsUser().CreatePerformerAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenPerformer_WhenSameNameWithDistinctDisambiguationIsCreated_ThenBothPerformersExist()
+    {
+        var first = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
+                .Build());
+
+        var second = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
+                .WithDisambiguation("Silent Era")
+                .Build());
+
+        second.Id.Should().NotBe(first.Id);
+        second.Name.Should().Be(first.Name);
+        second.Disambiguation.Should().Be("Silent Era");
+    }
+
+    [Fact]
+    public async Task GivenPerformer_WhenNameAndDisambiguationAreDuplicated_ThenConflictIsReturned()
+    {
+        await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
+                .WithDisambiguation("Silent Era")
+                .Build());
+        var request = new PerformerBuilder()
+            .WithName(TestCatalog.Performers.CherryPoppins.Name.ToUpperInvariant())
+            .WithDisambiguation("SILENT ERA")
+            .Build();
+
+        var action = () => AsUser().CreatePerformerAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenPerformerAlias_WhenAnotherPerformerUsesAlias_ThenBothPerformersExist()
+    {
+        var first = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
+                .WithAlias(TestCatalog.Performers.RandyDandy.Name)
+                .Build());
+
+        var second = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder()
+                .WithName(TestCatalog.Performers.VelvetThunder.Name)
+                .WithAlias(TestCatalog.Performers.RandyDandy.Name)
+                .Build());
+
+        second.Id.Should().NotBe(first.Id);
+        first.Aliases.Should().ContainSingle().Which.Should().Be(TestCatalog.Performers.RandyDandy.Name);
+        second.Aliases.Should().ContainSingle().Which.Should().Be(TestCatalog.Performers.RandyDandy.Name);
+    }
+
+    [Fact]
     public async Task GivenPerformerMetadata_WhenPerformerIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         const string customFieldKey = "stage_persona";
