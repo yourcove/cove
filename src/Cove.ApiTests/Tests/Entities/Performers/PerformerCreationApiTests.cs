@@ -4,31 +4,16 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests.Tests.Entities;
+namespace Cove.ApiTests.Tests.Entities.Performers;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class PerformerCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
-    [Fact]
-    public async Task GivenPerformer_WhenMemberReadsPerformers_ThenPerformerIsReturned()
-    {
-        // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
-                .WithName(TestCatalog.Performers.CherryPoppins.Name)
-                .Build());
-
-        // Act
-        var performers = await AsUser(ApiTestUsers.Eva).GetPerformersAsync();
-
-        // Assert
-        performers.Should().ContainSingle(candidate => candidate.Id == performer.Id);
-    }
-
     [Fact]
     public async Task GivenPerformer_WhenPerformerWithDuplicateNameIsCreated_ThenConflictIsReturned()
     {
@@ -114,6 +99,39 @@ public sealed class PerformerCreationApiTests(
         second.Id.Should().NotBe(first.Id);
         first.Aliases.Should().ContainSingle().Which.Should().Be(TestCatalog.Performers.RandyDandy.Name);
         second.Aliases.Should().ContainSingle().Which.Should().Be(TestCatalog.Performers.RandyDandy.Name);
+    }
+
+    [Fact]
+    public async Task GivenPaddedNameAndDisambiguation_WhenPerformerIsCreated_ThenIdentityIsNormalized()
+    {
+        // Arrange
+        var request = new PerformerBuilder()
+            .WithName($" {TestCatalog.Performers.CherryPoppins.Name} ")
+            .WithDisambiguation(" Silent Era ")
+            .Build();
+
+        // Act
+        var performer = await AsUser().CreatePerformerAsync(request);
+
+        // Assert
+        performer.Name.Should().Be(TestCatalog.Performers.CherryPoppins.Name);
+        performer.Disambiguation.Should().Be("Silent Era");
+    }
+
+    [Fact]
+    public async Task GivenBlankName_WhenPerformerIsCreated_ThenEmptySentinelClaimsIdentity()
+    {
+        // Arrange
+        var performer = await AsUser().CreatePerformerAsync(
+            new PerformerBuilder().WithName(" \t ").Build());
+
+        // Act & Assert
+        performer.Name.Should().Be(EntityNameRules.EmptyCanonicalName);
+
+        var action = () => AsUser().CreatePerformerAsync(
+            new PerformerBuilder().WithName($" {EntityNameRules.EmptyCanonicalName.ToUpperInvariant()} ").Build());
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
     }
 
     [Fact]

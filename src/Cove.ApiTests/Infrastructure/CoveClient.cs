@@ -843,6 +843,30 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<PerformerDto> UpdatePerformerAsync(
+        int performerId,
+        object update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PerformerDto>(
+            HttpMethod.Put,
+            $"/api/performers/{performerId}",
+            update,
+            cancellationToken);
+
+    public async Task DeletePerformerAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/performers/{performerId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
     public Task<IReadOnlyList<MetadataServerPerformerMatchDto>> SearchPerformerMetadataServiceAsync(
         PerformerDto performer,
         string name,
