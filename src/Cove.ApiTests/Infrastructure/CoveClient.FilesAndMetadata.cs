@@ -204,4 +204,4 @@ public sealed partial class CoveClient
     }
 }
 
-public sealed record ApiBinaryContent(byte[] Content, string? MediaType);
+public sealed record ApiBinaryContent(byte[] Content, string? MediaType, string? CacheControl = null);
