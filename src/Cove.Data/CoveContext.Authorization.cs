@@ -19,6 +19,10 @@ public partial class CoveContext
         CurrentPrincipal.Kind == PrincipalKind.System ||
         CurrentPrincipal.Has("*");
 
+    private bool EmbeddingReadAuthorizationFilterBypassed =>
+        AuthorizationFiltersBypassed ||
+        _embeddingReadAuthorizationFilterSuppressionDepth > 0;
+
     internal bool AuthorizationBypassedForReadOptimization => AuthorizationFiltersBypassed;
 
     private string[] CurrentRoleNames => CurrentPrincipal?.Roles.ToArray() ?? [];
@@ -146,7 +150,7 @@ public partial class CoveContext
             AuthorizationFiltersBypassed || CanReadFaces);
 
         modelBuilder.Entity<Embedding>().HasQueryFilter(embedding =>
-            AuthorizationFiltersBypassed || CanReadEmbeddings);
+            EmbeddingReadAuthorizationFilterBypassed || CanReadEmbeddings);
 
         modelBuilder.Entity<AiRun>().HasQueryFilter(run =>
             AuthorizationFiltersBypassed || CanReadAiRuns);
