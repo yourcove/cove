@@ -230,7 +230,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
             return NotFound();
 
         db.GroupItems.Remove(item);
-        await ReindexItemsAsync(groupId, ct);
+        await ReindexItemsAsync(groupId, ct, [item.Id]);
         await db.SaveChangesAsync(ct);
         PublishGroupUpdate(groupId);
         return NoContent();
