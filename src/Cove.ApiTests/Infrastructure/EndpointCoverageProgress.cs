@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 186;
+    public const int ExpectedMappedEndpoints = 195;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 314;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 305;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -28,7 +28,6 @@ public static class EndpointCoverageProgress
         DELETE /api/galleries/bulk
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/galleries/{id:int}
-        DELETE /api/galleries/{id:int}/cover
         DELETE /api/galleries/{id:int}/images
         DELETE /api/groups/bulk
         DELETE /api/groups/{id:int}
@@ -247,7 +246,6 @@ public static class EndpointCoverageProgress
         POST /api/scrape-attempts/{id:guid}/apply
         POST /api/segments/spans/count
         POST /api/segments/spans/search
-        POST /api/segments/{id:int}/image/from-frame
         POST /api/share-links
         POST /api/stash-migration/import
         POST /api/studios
@@ -308,26 +306,19 @@ public static class EndpointCoverageProgress
         PUT /api/extensions/{id}/data/{key}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/galleries/{id:int}
-        PUT /api/galleries/{id:int}/cover
-        PUT /api/galleries/{id:int}/image/back/source
-        PUT /api/galleries/{id:int}/image/source
         PUT /api/groups/reorder
         PUT /api/groups/{id:int}
-        PUT /api/groups/{id:int}/image/front/source
         PUT /api/groups/{id:int}/query
         PUT /api/groups/{id:int}/subgroups/reorder
         PUT /api/images/{id:int}
         PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/performers/{id:int}
-        PUT /api/performers/{id:int}/image/source
         PUT /api/roles/{id:int}
         PUT /api/savedfilters/{id:int}
         PUT /api/studios/{id:int}
-        PUT /api/studios/{id:int}/image/source
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
-        PUT /api/tags/{id:int}/image/source
         PUT /api/users/{id:int}
         PUT /api/videos/{videoid:int}/detections/{id:int}
         PUT /api/videos/{videoid:int}/segments/{id:int}
