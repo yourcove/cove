@@ -66,8 +66,8 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var first = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"A favorite performer {suffix}").AsFavorite().Build());
         var second = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"B favorite performer {suffix}").AsFavorite().Build());
+        var first = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"A favorite performer {suffix}").AsFavorite().Build());
         await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Excluded performer {suffix}").Build());
         await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Unrelated favorite performer {Guid.NewGuid():N}").AsFavorite().Build());
         var request = new FilteredQueryRequest<PerformerFilter>
@@ -143,6 +143,27 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
         retained.Details.Should().Be("Control details");
         retained.Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id);
         retainedEngagement.Rating.Should().Be(17);
+
+        var addedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(new BulkPerformerUpdateDto
+        {
+            Ids = selected.Select(performer => performer.Id).ToList(),
+            TagIds = [originalTag.Id],
+            TagMode = BulkUpdateMode.Add,
+        });
+        var afterAdd = await Task.WhenAll(selected.Select(performer => owner.GetPerformerByIdAsync(performer.Id)));
+        var removedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(new BulkPerformerUpdateDto
+        {
+            Ids = selected.Select(performer => performer.Id).ToList(),
+            TagIds = [replacementTag.Id],
+            TagMode = BulkUpdateMode.Remove,
+        });
+        var afterRemove = await Task.WhenAll(selected.Select(performer => owner.GetPerformerByIdAsync(performer.Id)));
+
+        addedCount.Should().Be(2);
+        afterAdd.Should().AllSatisfy(performer => performer.Tags.Select(tag => tag.Id).Should().BeEquivalentTo([originalTag.Id, replacementTag.Id]));
+        removedCount.Should().Be(2);
+        afterRemove.Should().AllSatisfy(performer => performer.Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id));
+        (await owner.GetPerformerByIdAsync(control.Id)).Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id);
     }
 
     [Fact]
@@ -200,7 +221,8 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
         var focal = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Focal performer {suffix}").Build());
-        var coPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Co performer {suffix}").Build());
+        var frequentCoPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Frequent co performer {suffix}").Build());
+        var rareCoPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Rare co performer {suffix}").Build());
         var unrelated = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Unrelated performer {suffix}").Build());
         var directOnlyGroup = await owner.CreateGroupAsync($"Direct performer relationship group {suffix}");
         var videoOnlyGroup = await owner.CreateGroupAsync($"Video performer relationship group {suffix}");
@@ -209,28 +231,48 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
         await owner.AddPerformerToGroupAsync(focal, dualPathGroup);
         await owner.CreateVideoAsync(new VideoBuilder()
             .WithTitle($"First relationship video {suffix}")
-            .WithPerformers([focal, coPerformer])
+            .WithPerformers([focal, frequentCoPerformer, rareCoPerformer])
             .WithGroup(videoOnlyGroup)
             .Build());
         await owner.CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Second relationship video {suffix}")
-            .WithPerformers([focal, coPerformer])
+            .WithPerformers([focal, frequentCoPerformer])
             .WithGroup(dualPathGroup)
             .Build());
 
-        var groups = await AsUser(ApiTestUsers.Eva).GetPerformerGroupsAsync(focal.Id, page: 1, perPage: 10);
-        var appearsWith = await AsUser(ApiTestUsers.Eva).GetPerformerAppearsWithAsync(focal.Id, page: 1, perPage: 1);
+        var groups = await Task.WhenAll(Enumerable.Range(1, 3).Select(page => AsUser(ApiTestUsers.Eva).GetPerformerGroupsAsync(focal.Id, page, perPage: 1)));
+        var appearsWith = await Task.WhenAll(Enumerable.Range(1, 2).Select(page => AsUser(ApiTestUsers.Eva).GetPerformerAppearsWithAsync(focal.Id, page, perPage: 1)));
+        var reverse = await Task.WhenAll(Enumerable.Range(1, 2).Select(page => AsUser(ApiTestUsers.Eva).GetPerformerAppearsWithAsync(frequentCoPerformer.Id, page, perPage: 1)));
 
-        groups.TotalCount.Should().Be(3);
-        groups.Page.Should().Be(1);
-        groups.PerPage.Should().Be(10);
-        groups.Items.Select(group => group.Id).Should().BeEquivalentTo(
+        groups.Should().AllSatisfy(page =>
+        {
+            page.TotalCount.Should().Be(3);
+            page.PerPage.Should().Be(1);
+            page.Items.Should().ContainSingle();
+        });
+        groups.Select(page => page.Page).Should().Equal(1, 2, 3);
+        var groupIds = groups.SelectMany(page => page.Items).Select(group => group.Id).ToList();
+        groupIds.Should().OnlyHaveUniqueItems();
+        groupIds.Should().BeEquivalentTo(
             [directOnlyGroup.Id, videoOnlyGroup.Id, dualPathGroup.Id]);
-        appearsWith.TotalCount.Should().Be(1);
-        appearsWith.Page.Should().Be(1);
-        appearsWith.PerPage.Should().Be(1);
-        appearsWith.Items.Should().ContainSingle().Which.Id.Should().Be(coPerformer.Id);
-        appearsWith.Items.Should().NotContain(performer => performer.Id == unrelated.Id);
+        appearsWith.Should().AllSatisfy(page =>
+        {
+            page.TotalCount.Should().Be(2);
+            page.PerPage.Should().Be(1);
+            page.Items.Should().ContainSingle();
+        });
+        appearsWith.Select(page => page.Page).Should().Equal(1, 2);
+        appearsWith[0].Items.Single().Id.Should().Be(frequentCoPerformer.Id);
+        appearsWith[1].Items.Single().Id.Should().Be(rareCoPerformer.Id);
+        appearsWith.SelectMany(page => page.Items).Should().NotContain(performer => performer.Id == unrelated.Id);
+        reverse.Should().AllSatisfy(page =>
+        {
+            page.TotalCount.Should().Be(2);
+            page.PerPage.Should().Be(1);
+            page.Items.Should().ContainSingle();
+        });
+        reverse[0].Items.Single().Id.Should().Be(focal.Id);
+        reverse[1].Items.Single().Id.Should().Be(rareCoPerformer.Id);
     }
 
     [Fact]
