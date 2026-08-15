@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 52;
+    public const int ExpectedMappedEndpoints = 59;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 448;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 441;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -28,7 +28,6 @@ public static class EndpointCoverageProgress
         DELETE /api/content-rules/{id:int}
         DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
-        DELETE /api/faces/{id:int}
         DELETE /api/faces/{id:int}/image
         DELETE /api/galleries/bulk
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
@@ -110,9 +109,7 @@ public static class EndpointCoverageProgress
         GET /api/extensions/{id}/dependencies/missing
         GET /api/faces/review/ai-run
         GET /api/faces/review/unlinked
-        GET /api/faces/{id:int}
         GET /api/faces/{id:int}/appearances
-        GET /api/faces/{id:int}/delete-impact
         GET /api/faces/{id:int}/detections
         GET /api/faces/{id:int}/image
         GET /api/faces/{id:int}/similar
@@ -258,13 +255,10 @@ public static class EndpointCoverageProgress
         POST /api/extensions/{id}/disable
         POST /api/extensions/{id}/enable
         POST /api/extensions/{id}/jobs/{jobid}/run
-        POST /api/faces
         POST /api/faces/batch/delete
         POST /api/faces/batch/link-top-suggestion
         POST /api/faces/{id:int}/create-performer
-        POST /api/faces/{id:int}/ignore
         POST /api/faces/{id:int}/image
-        POST /api/faces/{id:int}/link
         POST /api/faces/{id:int}/merge-into
         POST /api/faces/{id:int}/suggestions/decision
         POST /api/files/delete
@@ -430,7 +424,6 @@ public static class EndpointCoverageProgress
         PUT /api/custom-fields/{id:int}
         PUT /api/engagement/{hosttype}/{hostid:int}/rating
         PUT /api/extensions/{id}/data/{key}
-        PUT /api/faces/{id:int}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/galleries/{id:int}
         PUT /api/galleries/{id:int}/cover
