@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 71;
+    public const int ExpectedMappedEndpoints = 78;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 429;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 422;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -131,7 +131,6 @@ public static class EndpointCoverageProgress
         GET /api/images/{imageid:int}/detections/{id:int}
         GET /api/jobs/backup/latest
         GET /api/jobs/history
-        GET /api/jobs/{jobid}
         GET /api/performers/{id:int}
         GET /api/performers/{id:int}/appears-with
         GET /api/performers/{id:int}/groups
@@ -169,7 +168,6 @@ public static class EndpointCoverageProgress
         GET /api/studios/{id:int}/image
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/config
-        GET /api/system/downloaders
         GET /api/system/ffmpeg-capabilities
         GET /api/system/log-level
         GET /api/system/scrapers
@@ -183,7 +181,6 @@ public static class EndpointCoverageProgress
         GET /api/tags/{id:int}/segments
         GET /api/texts/{id:int}
         GET /api/texts/{id:int}/content
-        GET /api/texts/{id:int}/file
         GET /api/texts/{id:int}/history
         GET /api/texts/{id:int}/image
         GET /api/users/{id:int}
@@ -338,10 +335,6 @@ public static class EndpointCoverageProgress
         POST /api/studios/{id:int}/metadata-server/import
         POST /api/studios/{id:int}/metadata-server/submit-draft
         POST /api/system/config/ui
-        POST /api/system/downloaders/download
-        POST /api/system/downloaders/download-batch
-        POST /api/system/downloaders/match
-        POST /api/system/downloaders/preflight
         POST /api/system/maintenance/recompute-derived-counts
         POST /api/system/metadata-servers/validate
         POST /api/system/scrapers/match-url
