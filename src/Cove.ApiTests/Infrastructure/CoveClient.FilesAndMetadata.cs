@@ -52,6 +52,16 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => StartMetadataJobAsync("/api/metadata/import", options, cancellationToken);
 
+    public Task<string> StartMetadataIdentifyAsync(
+        IdentifyOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/identify", options, cancellationToken);
+
+    public Task<string> StartMetadataFingerprintSyncAsync(
+        SyncFingerprintsOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/sync-fingerprints", options, cancellationToken);
+
     public Task<CustomFieldDefinitionDto> CreateCustomFieldDefinitionAsync(
         CustomFieldDefinitionCreateDto definition,
         CancellationToken cancellationToken = default)
