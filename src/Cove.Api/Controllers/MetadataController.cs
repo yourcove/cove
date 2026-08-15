@@ -313,70 +313,74 @@ public class MetadataController(
 
             // An import can touch several entity kinds. Keep all staged saves atomic so a later
             // identity conflict or malformed relationship cannot leave an unretryable partial job.
-            await using var transaction = await dbCtx.Database.BeginTransactionAsync(ct);
-
-            // Import tags first (no dependencies)
-            if (importTags.Count > 0)
+            await dbCtx.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
             {
-                progress.Report(0.1, "Importing tags...");
-                var normalizedNames = importTags
-                    .Select(tag => TagNameRules.NormalizeCanonicalName(tag.Name))
-                    .ToArray();
-                var tagLookup = await RelationNameResolver.ResolveTagsAsync(dbCtx, normalizedNames, ct);
-                foreach (var tag in importTags)
+                dbCtx.ChangeTracker.Clear();
+                await using var transaction = await dbCtx.Database.BeginTransactionAsync(ct);
+
+                // Import tags first (no dependencies)
+                if (importTags.Count > 0)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var normalizedName = TagNameRules.NormalizeCanonicalName(tag.Name);
-                    tagLookup.TryGetValue(normalizedName, out var existing);
-                    if (existing != null)
+                    progress.Report(0.1, "Importing tags...");
+                    var normalizedNames = importTags
+                        .Select(tag => TagNameRules.NormalizeCanonicalName(tag.Name))
+                        .ToArray();
+                    var tagLookup = await RelationNameResolver.ResolveTagsAsync(dbCtx, normalizedNames, ct);
+                    foreach (var tag in importTags)
                     {
-                        if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; }
+                        ct.ThrowIfCancellationRequested();
+                        var normalizedName = TagNameRules.NormalizeCanonicalName(tag.Name);
+                        tagLookup.TryGetValue(normalizedName, out var existing);
+                        if (existing != null)
+                        {
+                            if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; }
+                        }
+                        else
+                        {
+                            var created = new Tag { Name = normalizedName, Description = tag.Description, Favorite = tag.Favorite };
+                            dbCtx.Tags.Add(created);
+                            tagLookup[normalizedName] = created;
+                        }
                     }
-                    else
-                    {
-                        var created = new Tag { Name = normalizedName, Description = tag.Description, Favorite = tag.Favorite };
-                        dbCtx.Tags.Add(created);
-                        tagLookup[normalizedName] = created;
-                    }
+                    await dbCtx.SaveChangesAsync(ct);
                 }
-                await dbCtx.SaveChangesAsync(ct);
-            }
 
-            // Import studios (may reference parent studios)
-            if (importStudios.Count > 0)
-            {
-                progress.Report(0.3, "Importing studios...");
-                await ImportStudiosAsync(dbCtx, importStudios, overwrite, ct);
-            }
-
-            // Import performers
-            if (importPerformers.Count > 0)
-            {
-                progress.Report(0.5, "Importing performers...");
-                await ImportPerformersAsync(dbCtx, importPerformers, overwrite, ct);
-            }
-
-            // Import groups
-            if (importGroups.Count > 0)
-            {
-                progress.Report(0.7, "Importing groups...");
-                foreach (var group in importGroups)
+                // Import studios (may reference parent studios)
+                if (importStudios.Count > 0)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Groups.FirstOrDefaultAsync(g => g.Name == group.Name, ct);
-                    if (existing != null)
-                    {
-                        if (overwrite) { existing.Director = group.Director; existing.Synopsis = group.Synopsis; }
-                    }
-                    else
-                    {
-                        dbCtx.Groups.Add(new Group { Name = group.Name, Director = group.Director, Synopsis = group.Synopsis, Duration = group.Duration });
-                    }
+                    progress.Report(0.3, "Importing studios...");
+                    await ImportStudiosAsync(dbCtx, importStudios, overwrite, ct);
                 }
-                await dbCtx.SaveChangesAsync(ct);
-            }
 
-            await transaction.CommitAsync(ct);
+                // Import performers
+                if (importPerformers.Count > 0)
+                {
+                    progress.Report(0.5, "Importing performers...");
+                    await ImportPerformersAsync(dbCtx, importPerformers, overwrite, ct);
+                }
+
+                // Import groups
+                if (importGroups.Count > 0)
+                {
+                    progress.Report(0.7, "Importing groups...");
+                    foreach (var group in importGroups)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var existing = await dbCtx.Groups.FirstOrDefaultAsync(g => g.Name == group.Name, ct);
+                        if (existing != null)
+                        {
+                            if (overwrite) { existing.Director = group.Director; existing.Synopsis = group.Synopsis; }
+                        }
+                        else
+                        {
+                            dbCtx.Groups.Add(new Group { Name = group.Name, Director = group.Director, Synopsis = group.Synopsis, Duration = group.Duration });
+                        }
+                    }
+                    await dbCtx.SaveChangesAsync(ct);
+                }
+
+                await transaction.CommitAsync(ct);
+            });
 
             progress.Report(1.0, "Import completed");
             logger.LogInformation("Metadata import completed from: {Path}", filePath);
