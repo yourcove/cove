@@ -28,6 +28,10 @@ public sealed class InteractionEndpointApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("PUT", "/api/engagement/{hostType}/{hostId:int}/rating")]
+    [CoversEndpoint("GET", "/api/engagement/{hostType}/{hostId:int}/ratings")]
+    [CoversEndpoint("POST", "/api/me/bookmarks")]
+    [CoversEndpoint("POST", "/api/me/bookmarks/batch")]
     public async Task GivenPerformer_WhenMembersInteractWithPerformer_ThenEachMemberHasOwnEngagement()
     {
         // Arrange
@@ -133,6 +137,7 @@ public sealed class InteractionEndpointApiTests(
 
     [Fact]
     [CoversEndpoint("POST", "/api/playback/intervals")]
+    [CoversEndpoint("GET", "/api/videos/{id:int}/history")]
     public async Task GivenVideo_WhenPlaybackIsRecorded_ThenHistoryContainsSession()
     {
         // Arrange

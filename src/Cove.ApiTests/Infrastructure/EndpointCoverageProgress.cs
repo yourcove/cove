@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 85;
+    public const int ExpectedMappedEndpoints = 93;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 415;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 407;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -92,7 +92,6 @@ public static class EndpointCoverageProgress
         GET /api/content-rules/overrides
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
-        GET /api/engagement/{hosttype}/{hostid:int}/ratings
         GET /api/extensions/assets/{extensionid}/{**path}
         GET /api/extensions/bundles/ui.css
         GET /api/extensions/bundles/ui.mjs
@@ -116,7 +115,6 @@ public static class EndpointCoverageProgress
         GET /api/galleries/{id:int}/cover
         GET /api/galleries/{id:int}/image
         GET /api/galleries/{id:int}/image/back
-        GET /api/galleries/{id:int}/like-count
         GET /api/groups/dynamic-sources
         GET /api/groups/{groupid:int}/items/page
         GET /api/groups/{groupid:int}/playback-manifest
@@ -186,7 +184,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/wall
         GET /api/videos/with-compilations
         GET /api/videos/{id:int}
-        GET /api/videos/{id:int}/history
         GET /api/videos/{id:int}/image
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{id:int}/ratings
@@ -274,7 +271,6 @@ public static class EndpointCoverageProgress
         POST /api/images/aggregate
         POST /api/images/bulk
         POST /api/images/find
-        POST /api/images/{id:int}/like
         POST /api/images/{id:int}/like/historical
         POST /api/images/{id:int}/like/reset
         POST /api/images/{id:int}/rescan
@@ -284,8 +280,6 @@ public static class EndpointCoverageProgress
         POST /api/jobs/generate-thumbnails
         POST /api/jobs/generate-video-phashes
         POST /api/jobs/scan
-        POST /api/me/bookmarks
-        POST /api/me/bookmarks/batch
         POST /api/metadata/export
         POST /api/metadata/identify
         POST /api/metadata/import
@@ -382,7 +376,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/cover/from-frame
         POST /api/videos/{id:int}/generate-screenshot
         POST /api/videos/{id:int}/image
-        POST /api/videos/{id:int}/like
         POST /api/videos/{id:int}/like/historical
         POST /api/videos/{id:int}/like/reset
         POST /api/videos/{id:int}/metadata-server/import
@@ -398,7 +391,6 @@ public static class EndpointCoverageProgress
         PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
         PUT /api/custom-fields/{id:int}
-        PUT /api/engagement/{hosttype}/{hostid:int}/rating
         PUT /api/extensions/{id}/data/{key}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/galleries/{id:int}
