@@ -36,6 +36,8 @@ Keep each test easy to scan: arrange the required state, perform the action, and
 - Await API work that intentionally continues in the background. Use an isolated host for extension scenarios that start workers outside Cove's job lifecycle.
 - Add focused builders, client methods, and assertion extensions when they improve readability; keep raw HTTP mechanics out of individual tests.
 
+`CoveClient` is split into partial files by API ownership so parallel coverage slices can extend separate files with minimal conflicts. Keep shared HTTP transport in `CoveClient.cs`; put user, read-catalog, downloader, and job methods in `CoveClient.System.cs`; entity methods in the matching performer, studio, media, or video file; group, detection, and segment methods in `CoveClient.Relationships.cs`; engagement, bookmark, like-mutation, and playback methods in `CoveClient.Interactions.cs`; tag and tag-group methods in `CoveClient.Tags.cs`; and file, migration, custom-field, scraping, streaming, and external-metadata methods in `CoveClient.FilesAndMetadata.cs`.
+
 ```csharp
 [Fact]
 public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
