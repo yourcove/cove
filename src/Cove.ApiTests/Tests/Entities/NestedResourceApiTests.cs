@@ -1,4 +1,3 @@
-using Cove.Api.Controllers;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Entities;
@@ -12,7 +11,8 @@ public sealed class NestedResourceApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
-    [CoversEndpoints(typeof(GroupItemsController))]
+    [CoversEndpoint("POST", "/api/groups/{groupId:int}/items")]
+    [CoversEndpoint("GET", "/api/groups/{groupId:int}/items")]
     public async Task GivenGroupAndVideo_WhenVideoIsAdded_ThenGroupContainsVideoItem()
     {
         // Arrange
@@ -31,7 +31,8 @@ public sealed class NestedResourceApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(ImageDetectionsController))]
+    [CoversEndpoint("POST", "/api/images/{imageId:int}/detections")]
+    [CoversEndpoint("GET", "/api/images/{imageId:int}/detections")]
     public async Task GivenImage_WhenDetectionIsCreated_ThenImageContainsDetection()
     {
         // Arrange
@@ -49,7 +50,8 @@ public sealed class NestedResourceApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(VideoDetectionsController))]
+    [CoversEndpoint("POST", "/api/videos/{videoId:int}/detections")]
+    [CoversEndpoint("GET", "/api/videos/{videoId:int}/detections")]
     public async Task GivenVideo_WhenDetectionIsCreated_ThenVideoContainsDetection()
     {
         // Arrange
@@ -67,7 +69,8 @@ public sealed class NestedResourceApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(VideoSegmentsController))]
+    [CoversEndpoint("POST", "/api/videos/{videoId:int}/segments")]
+    [CoversEndpoint("GET", "/api/videos/{videoId:int}/segments")]
     public async Task GivenVideo_WhenSegmentIsCreated_ThenVideoContainsSegment()
     {
         // Arrange

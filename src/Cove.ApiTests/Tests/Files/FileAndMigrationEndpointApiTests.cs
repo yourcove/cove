@@ -1,4 +1,3 @@
-using Cove.Api.Controllers;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
@@ -14,7 +13,8 @@ public sealed class FileAndMigrationEndpointApiTests(
     private const string OnePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XhZ8AAAAAElFTkSuQmCC";
 
     [Fact]
-    [CoversEndpoints(typeof(EntityImageController))]
+    [CoversEndpoint("POST", "/api/performers/{id:int}/image")]
+    [CoversEndpoint("GET", "/api/performers/{id:int}/image")]
     public async Task GivenPerformer_WhenImageIsUploaded_ThenImageCanBeRead()
     {
         // Arrange
@@ -34,7 +34,7 @@ public sealed class FileAndMigrationEndpointApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(FileOpsController))]
+    [CoversEndpoint("GET", "/api/files/browse")]
     public async Task GivenLibraryFile_WhenDirectoryIsBrowsed_ThenFileIsListed()
     {
         // Arrange
@@ -48,7 +48,7 @@ public sealed class FileAndMigrationEndpointApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(StashMigrationController))]
+    [CoversEndpoint("POST", "/api/stash-migration/preview")]
     public async Task GivenEmptyStashDatabase_WhenMigrationIsPreviewed_ThenPreviewIsValidAndEmpty()
     {
         // Arrange

@@ -11,7 +11,7 @@ Put every behavior test class in `ApiTestLane1Collection` or `ApiTestLane2Collec
 
 Tests live under `Tests/` and are grouped by behavior: `Catalog`, `Contracts`, `Downloads`, `Entities`, `Extensions`, `Files`, `Interactions`, and `Metadata`. Harness mechanics belong in `Tests/Harness`. Namespaces mirror the directory structure; reusable support belongs in `Assertions`, `Builders`, `ExampleData`, or `Infrastructure`.
 
-`EndpointCoverageTests` requires each controller group to have a read-catalog entry or a non-skipped `[CoversEndpoints]` happy-path test. This guards controller-group coverage; it does not replace focused behavioral tests.
+`EndpointCoverageTests` inventories every attributed controller action as a normalized `VERB /route-template` identifier. A public action must be mapped by the active read-catalog theory or a non-skipped `[CoversEndpoint]` behavioral test, remain in the checked-in temporary backlog, or have a reviewed exception with a technical reason. When a test starts exercising a backlog endpoint, add the exact attribute, remove the matching backlog entry, and update both expected progress counts; do not use a controller-wide marker.
 
 ## Test conventions
 
