@@ -7,6 +7,14 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<IReadOnlyList<ScraperSummaryDto>> GetScrapersAsync(CancellationToken cancellationToken = default) => SendAsync<IReadOnlyList<ScraperSummaryDto>>(HttpMethod.Get, WithCacheNonce("/api/system/scrapers"), null, cancellationToken);
+    public Task<IReadOnlyList<ScraperSummaryDto>> ReloadScrapersAsync(CancellationToken cancellationToken = default) => SendAsync<IReadOnlyList<ScraperSummaryDto>>(HttpMethod.Post, "/api/system/scrapers/reload", new { }, cancellationToken);
+    public Task<IReadOnlyList<ScraperSummaryDto>> MatchScrapersAsync(ScraperMatchUrlRequest request, CancellationToken cancellationToken = default) => SendAsync<IReadOnlyList<ScraperSummaryDto>>(HttpMethod.Post, "/api/system/scrapers/match-url", request, cancellationToken);
+    public Task<JsonElement> ScrapeUrlAsync(ScrapeUrlRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-url", request, cancellationToken);
+    public Task<JsonElement> ScrapeUrlAutoAsync(ScraperMatchUrlRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-url-auto", request, cancellationToken);
+    public Task<JsonElement> ScrapeNameAsync(ScrapeNameRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-name", request, cancellationToken);
+    public Task<JsonElement> ScrapeFragmentAsync(ScrapeFragmentRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-fragment", request, cancellationToken);
+    public Task<MetadataServerValidationResultDto> ValidateMetadataServerAsync(MetadataServerDto metadataServer, CancellationToken cancellationToken = default) => SendAsync<MetadataServerValidationResultDto>(HttpMethod.Post, "/api/system/metadata-servers/validate", metadataServer, cancellationToken);
     public Task<UserDto> CreateUserAsync(
         CreateUserRequest user,
         CancellationToken cancellationToken = default)

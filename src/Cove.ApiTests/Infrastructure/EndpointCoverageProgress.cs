@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 161;
+    public const int ExpectedMappedEndpoints = 167;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 339;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 333;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -139,7 +139,6 @@ public static class EndpointCoverageProgress
         GET /api/system/config
         GET /api/system/ffmpeg-capabilities
         GET /api/system/log-level
-        GET /api/system/scrapers
         GET /api/system/stats
         GET /api/system/ui-assets/{filename}
         GET /api/tags/segment-titles
@@ -277,13 +276,8 @@ public static class EndpointCoverageProgress
         POST /api/studios/{id:int}/metadata-server/submit-draft
         POST /api/system/config/ui
         POST /api/system/maintenance/recompute-derived-counts
-        POST /api/system/metadata-servers/validate
-        POST /api/system/scrapers/match-url
-        POST /api/system/scrapers/reload
         POST /api/system/scrapers/scrape-fragment
         POST /api/system/scrapers/scrape-name
-        POST /api/system/scrapers/scrape-url
-        POST /api/system/scrapers/scrape-url-auto
         POST /api/system/shutdown
         POST /api/system/ui/favicon
         POST /api/system/ui/logo
