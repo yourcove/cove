@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -15,6 +16,62 @@ public sealed partial class CoveClient
     public Task<JsonElement> ScrapeNameAsync(ScrapeNameRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-name", request, cancellationToken);
     public Task<JsonElement> ScrapeFragmentAsync(ScrapeFragmentRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-fragment", request, cancellationToken);
     public Task<MetadataServerValidationResultDto> ValidateMetadataServerAsync(MetadataServerDto metadataServer, CancellationToken cancellationToken = default) => SendAsync<MetadataServerValidationResultDto>(HttpMethod.Post, "/api/system/metadata-servers/validate", metadataServer, cancellationToken);
+
+    public Task<CoveConfigDto> GetSystemConfigAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<CoveConfigDto>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/system/config"),
+            payload: null,
+            cancellationToken);
+
+    public Task<StatsDto> GetSystemStatsAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<StatsDto>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/system/stats"),
+            payload: null,
+            cancellationToken);
+
+    public Task<SystemLogLevelStatus> GetSystemLogLevelAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<SystemLogLevelStatus>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/system/log-level"),
+            payload: null,
+            cancellationToken);
+
+    public Task<SystemLogLevelStatus> SetSystemLogLevelAsync(
+        string level,
+        CancellationToken cancellationToken = default)
+        => SendAsync<SystemLogLevelStatus>(
+            HttpMethod.Patch,
+            "/api/system/log-level",
+            new { level },
+            cancellationToken);
+
+    public Task<RecomputeDerivedCountsResult> RecomputeDerivedCountsAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<RecomputeDerivedCountsResult>(
+            HttpMethod.Post,
+            "/api/system/maintenance/recompute-derived-counts",
+            payload: null,
+            cancellationToken);
+
+    public Task<SystemUiAssetUploadResult> UploadFaviconAsync(
+        byte[] content,
+        string fileName,
+        string mediaType = "image/png",
+        CancellationToken cancellationToken = default)
+        => UploadSystemUiAssetAsync("/api/system/ui/favicon", content, fileName, mediaType, cancellationToken);
+
+    public Task<SystemUiAssetUploadResult> UploadLogoAsync(
+        byte[] content,
+        string fileName,
+        string mediaType = "image/png",
+        CancellationToken cancellationToken = default)
+        => UploadSystemUiAssetAsync("/api/system/ui/logo", content, fileName, mediaType, cancellationToken);
+
     public Task<UserDto> CreateUserAsync(
         CreateUserRequest user,
         CancellationToken cancellationToken = default)
@@ -129,7 +186,29 @@ public sealed partial class CoveClient
                 + $"subtask: {lastJob?.SubTask ?? "unavailable"}.");
         }
     }
+
+    private async Task<SystemUiAssetUploadResult> UploadSystemUiAssetAsync(
+        string requestUri,
+        byte[] content,
+        string fileName,
+        string mediaType,
+        CancellationToken cancellationToken)
+    {
+        using var form = new MultipartFormDataContent();
+        using var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+        form.Add(file, "file", fileName);
+        using var response = await _client.PostAsync(requestUri, form, cancellationToken);
+        return await ApiResponse.ReadAsync<SystemUiAssetUploadResult>(response, $"POST {requestUri}", cancellationToken);
+    }
 }
+
+public sealed record SystemLogLevelStatus(
+    string Level,
+    string ConfiguredLevel,
+    DateTimeOffset? TraceExpiresAt);
+
+public sealed record SystemUiAssetUploadResult(string Path, string FileName);
 
 public sealed record DownloaderBatchStartResponse(
     string? JobId,

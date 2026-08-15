@@ -137,6 +137,33 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task SetStoredStudioVideoCountsAsync(
+        int studioWithVideoId,
+        int studioWithoutVideoId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public studio DTOs calculate their visible counts from source relationships, but list
+        // ordering intentionally uses this stored rollup. Bypass SaveChanges maintenance to seed
+        // only the stale state that the maintenance endpoint is intended to repair.
+        var cleared = await db.Studios
+            .Where(studio => studio.Id == studioWithVideoId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(studio => studio.VideoCount, 0),
+                cancellationToken);
+        var inflated = await db.Studios
+            .Where(studio => studio.Id == studioWithoutVideoId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(studio => studio.VideoCount, 2),
+                cancellationToken);
+        if (cleared != 1 || inflated != 1)
+            throw new InvalidOperationException("The API test could not seed the expected stale studio rollups.");
+    }
+
     public async Task<int> CreateFaceAppearanceAsync(
         int faceId,
         FaceAppearanceHostType hostType,

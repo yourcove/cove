@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 205;
+    public const int ExpectedMappedEndpoints = 213;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 295;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 287;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -121,11 +121,7 @@ public static class EndpointCoverageProgress
         GET /api/stream/video/{videoid:int}/vtt/thumbs
         GET /api/studios/{id:int}
         GET /api/studios/{id:int}/metadata-server/search
-        GET /api/system/config
         GET /api/system/ffmpeg-capabilities
-        GET /api/system/log-level
-        GET /api/system/stats
-        GET /api/system/ui-assets/{filename}
         GET /api/tags/segment-titles
         GET /api/tags/{id:int}/metadata-server/search
         GET /api/tags/{id:int}/segments
@@ -142,7 +138,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/{videoid:int}/segments/{id:int}
         GET /api/videos/{videoid:int}/spans/{spankey}
         HEAD /api/stream/video/{videoid:int}/preview
-        PATCH /api/system/log-level
         POST /api/ai-data/purge
         POST /api/apitokens
         POST /api/audios/from-file
@@ -248,12 +243,9 @@ public static class EndpointCoverageProgress
         POST /api/studios/{id:int}/metadata-server/import
         POST /api/studios/{id:int}/metadata-server/submit-draft
         POST /api/system/config/ui
-        POST /api/system/maintenance/recompute-derived-counts
         POST /api/system/scrapers/scrape-fragment
         POST /api/system/scrapers/scrape-name
         POST /api/system/shutdown
-        POST /api/system/ui/favicon
-        POST /api/system/ui/logo
         POST /api/tagapplications
         POST /api/tags/bulk
         POST /api/tags/find
