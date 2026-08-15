@@ -789,6 +789,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
 
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.PerformersWrite)]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkPerformerUpdateDto dto, CancellationToken ct)
     {
         var performers = await db.Performers
