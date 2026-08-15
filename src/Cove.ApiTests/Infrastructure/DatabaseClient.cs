@@ -46,4 +46,5 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
         return appearance.Id;
     }
+
 }

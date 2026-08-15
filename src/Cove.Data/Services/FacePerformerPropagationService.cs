@@ -36,6 +36,15 @@ public sealed class FacePerformerPropagationService(CoveContext db, IFieldProven
     }
 
     public async Task ReconcileHostAsync(FaceAppearanceHostType hostType, int hostId, CancellationToken cancellationToken = default)
+        => await ReconcileHostCoreAsync(hostType, hostId, cancellationToken);
+
+    public async Task ReconcileHostUnscopedAsync(FaceAppearanceHostType hostType, int hostId, CancellationToken cancellationToken = default)
+    {
+        using var authorizationScope = _db.SuppressAuthorizationFilters();
+        await ReconcileHostCoreAsync(hostType, hostId, cancellationToken);
+    }
+
+    private async Task ReconcileHostCoreAsync(FaceAppearanceHostType hostType, int hostId, CancellationToken cancellationToken)
     {
         var kind = hostType == FaceAppearanceHostType.Video ? FaceHostKind.Video : FaceHostKind.Image;
 
@@ -44,7 +53,7 @@ public sealed class FacePerformerPropagationService(CoveContext db, IFieldProven
             .AsNoTracking()
             .Where(appearance => appearance.HostType == hostType && appearance.HostId == hostId)
             .Join(
-                _db.Faces.AsNoTracking().Where(face => face.PerformerId != null),
+                _db.Faces.AsNoTracking().Where(face => face.PerformerId != null && face.MergedIntoFaceId == null),
                 appearance => appearance.FaceId,
                 face => face.Id,
                 (appearance, face) => new

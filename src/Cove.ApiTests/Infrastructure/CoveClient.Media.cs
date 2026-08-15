@@ -4,6 +4,18 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public async Task<IReadOnlyList<ImageDto>> GetImagesByPerformerAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<ImageDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/images?performerIds={performerId}&perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
     public Task<ImageDto> CreateImageAsync(
         string title,
         CancellationToken cancellationToken = default)
