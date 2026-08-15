@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using System.Numerics;
 using Microsoft.AspNetCore.Mvc;
@@ -1517,53 +1518,103 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     // ===== Merge =====
 
     [HttpPost("merge")]
-    [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosWrite, Permissions.VideosDelete)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "TargetId")]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "SourceIds")]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, ActionArgumentName = "dto", PropertyName = "SourceIds")]
     public async Task<ActionResult<VideoDto>> MergeVideos([FromBody] VideoMergeDto dto, CancellationToken ct)
     {
-        var target = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
-        if (target == null) return NotFound("Target video not found");
-
-        var sources = await db.Videos
-            .Include(s => s.Files)
-            .Include(s => s.VideoTags)
-            .Include(s => s.VideoPerformers)
-            .Include(s => s.VideoGalleries)
-            .Include(s => s.Urls)
-            .Where(s => dto.SourceIds.Contains(s.Id) && s.Id != target.Id)
-            .OrderBy(s => s.Id)
-            .ToListAsync(ct);
-
-        var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
-        var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
-
-        foreach (var source in sources)
+        var requestedIds = dto.SourceIds
+            .Where(id => id > 0 && id != dto.TargetId)
+            .Append(dto.TargetId)
+            .Distinct()
+            .ToArray();
+        var targetFound = false;
+        int[] mergedSourceIds = [];
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
         {
-            // Move files to target
-            foreach (var f in source.Files) f.VideoId = target.Id;
-            // Merge tags
-            foreach (var st in source.VideoTags.Where(st => !existingTagIds.Contains(st.TagId)))
-                target.VideoTags.Add(new VideoTag { TagId = st.TagId, VideoId = target.Id });
-            // Merge performers
-            foreach (var sp in source.VideoPerformers.Where(sp => !existingPerfIds.Contains(sp.PerformerId)))
-                target.VideoPerformers.Add(new VideoPerformer { PerformerId = sp.PerformerId, VideoId = target.Id });
-            // Delete source
-            if (tagProvenanceService != null)
-                await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
-            db.Videos.Remove(source);
-        }
+            targetFound = false;
+            mergedSourceIds = [];
+            db.ChangeTracker.Clear();
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                : null;
+            var visibleIds = await db.Videos
+                .AsNoTracking()
+                .Where(video => requestedIds.Contains(video.Id))
+                .Select(video => video.Id)
+                .ToArrayAsync(ct);
+            if (!visibleIds.Contains(dto.TargetId))
+                return;
 
-        await db.SaveChangesAsync(ct);
-        if (sources.Count > 0)
-        {
-            PublishVideoEvent(EventType.VideoUpdated, target.Id);
+            using var authorizationFilterSuppression = db.SuppressAuthorizationFilters();
+            var videos = await db.Videos
+                .Include(video => video.Files)
+                .Include(video => video.VideoTags)
+                .Include(video => video.VideoPerformers)
+                .Include(video => video.VideoGalleries)
+                .Include(video => video.Urls)
+                .Where(video => visibleIds.Contains(video.Id))
+                .OrderBy(video => video.Id)
+                .ToListAsync(ct);
+            var target = videos.SingleOrDefault(video => video.Id == dto.TargetId);
+            if (target == null)
+                return;
+
+            targetFound = true;
+            var sources = videos.Where(video => video.Id != target.Id).ToArray();
+            var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
+            var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
+            var existingGalleryIds = target.VideoGalleries.Select(videoGallery => videoGallery.GalleryId).ToHashSet();
+            var existingUrls = target.Urls.Select(videoUrl => videoUrl.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             foreach (var source in sources)
-                PublishVideoEvent(EventType.VideoDeleted, source.Id);
+            {
+                foreach (var file in source.Files)
+                    file.VideoId = target.Id;
+                foreach (var videoTag in source.VideoTags)
+                {
+                    if (existingTagIds.Add(videoTag.TagId))
+                        target.VideoTags.Add(new VideoTag { TagId = videoTag.TagId, VideoId = target.Id });
+                }
+                foreach (var videoPerformer in source.VideoPerformers)
+                {
+                    if (existingPerfIds.Add(videoPerformer.PerformerId))
+                        target.VideoPerformers.Add(new VideoPerformer { PerformerId = videoPerformer.PerformerId, VideoId = target.Id });
+                }
+                foreach (var videoGallery in source.VideoGalleries)
+                {
+                    if (existingGalleryIds.Add(videoGallery.GalleryId))
+                        target.VideoGalleries.Add(new VideoGallery { GalleryId = videoGallery.GalleryId, VideoId = target.Id });
+                }
+                foreach (var videoUrl in source.Urls)
+                {
+                    if (existingUrls.Add(videoUrl.Url))
+                        target.Urls.Add(new VideoUrl { Url = videoUrl.Url, VideoId = target.Id });
+                }
+                if (tagProvenanceService != null)
+                    await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
+                db.Videos.Remove(source);
+            }
+
+            await db.SaveChangesAsync(ct);
+            if (transaction != null)
+                await transaction.CommitAsync(ct);
+            mergedSourceIds = sources.Select(source => source.Id).ToArray();
+        });
+
+        if (!targetFound)
+            return NotFound("Target video not found");
+        db.ChangeTracker.Clear();
+        if (mergedSourceIds.Length > 0)
+        {
+            PublishVideoEvent(EventType.VideoUpdated, dto.TargetId);
+            foreach (var sourceId in mergedSourceIds)
+                PublishVideoEvent(EventType.VideoDeleted, sourceId);
         }
 
-        var result = await videoRepo.GetByIdWithRelationsAsync(target.Id, ct);
-        var engagement = (await engagementService.GetVideoSnapshotsAsync([target.Id], ct)).GetValueOrDefault(target.Id);
+        var result = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
+        var engagement = (await engagementService.GetVideoSnapshotsAsync([dto.TargetId], ct)).GetValueOrDefault(dto.TargetId);
         return Ok(await MapToDtoWithProvenanceAsync(result!, engagement, HasUserScopedEngagement, ct));
     }
 
