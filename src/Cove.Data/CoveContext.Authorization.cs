@@ -337,11 +337,38 @@ public partial class CoveContext
                         ? (!RequiresPerformerReadScopeEvaluation
                             ? CanReadPerformers
                             : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadPerformers, CanReadPerformersByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Performer, item.HostId))
-                        : item.HostType == "group"
-                            ? (!RequiresGroupReadScopeEvaluation
-                                ? CanReadGroups
-                                : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGroups, CanReadGroupsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Group, item.HostId))
-                            : false)
+                        : item.HostType == "studio"
+                            ? (!RequiresStudioReadScopeEvaluation
+                                ? CanReadStudios
+                                : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadStudios, CanReadStudiosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Studio, item.HostId))
+                            : item.HostType == "tag"
+                                ? (!RequiresTagReadScopeEvaluation
+                                    ? CanReadTags
+                                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadTags, CanReadTagsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Tag, item.HostId))
+                                : item.HostType == "gallery"
+                                    ? (!RequiresGalleryReadScopeEvaluation
+                                        ? CanReadGalleries
+                                        : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGalleries, CanReadGalleriesByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Gallery, item.HostId))
+                                    : item.HostType == "face"
+                                        ? CanReadFaces
+                                        : item.HostType == "segment"
+                                            ? (!RequiresSegmentReadScopeEvaluation
+                                                ? CanReadSegments
+                                                : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Segment, item.HostId))
+                                              && Segments.Any(segment =>
+                                                  segment.Id == item.HostId
+                                                  && (segment.HostType == SegmentHostType.Video
+                                                      ? Videos.Any(video => video.Id == segment.HostId)
+                                                      : segment.HostType == SegmentHostType.Audio
+                                                          ? Audios.Any(audio => audio.Id == segment.HostId)
+                                                          : segment.HostType == SegmentHostType.Image
+                                                              ? Images.Any(image => image.Id == segment.HostId)
+                                                              : false))
+                                            : item.HostType == "group"
+                                                ? (!RequiresGroupReadScopeEvaluation
+                                                    ? CanReadGroups
+                                                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGroups, CanReadGroupsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Group, item.HostId))
+                                                : false)
                 && (!RequiresGroupReadScopeEvaluation
                     ? CanReadGroups
                     : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadGroups, CanReadGroupsByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Group, item.GroupId)));
