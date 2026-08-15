@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 221;
+    public const int ExpectedMappedEndpoints = 229;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 279;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 271;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -53,7 +53,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{id:int}/play
         DELETE /api/videos/{id:int}/rating
         DELETE /api/videos/{videoid:int}/detections/{id:int}
-        DELETE /api/videos/{videoid:int}/segments/{id:int}
         GET /api/ai-runs/{id:int}
         GET /api/audios/{id:int}/history
         GET /api/audios/{id:int}/stream
@@ -131,9 +130,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{id:int}/ratings
         GET /api/videos/{videoid:int}/detections/{id:int}
-        GET /api/videos/{videoid:int}/segments/spans
-        GET /api/videos/{videoid:int}/segments/{id:int}
-        GET /api/videos/{videoid:int}/spans/{spankey}
         HEAD /api/stream/video/{videoid:int}/preview
         POST /api/ai-data/purge
         POST /api/apitokens
@@ -223,8 +219,6 @@ public static class EndpointCoverageProgress
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
-        POST /api/segments/spans/count
-        POST /api/segments/spans/search
         POST /api/share-links
         POST /api/stash-migration/import
         POST /api/studios
@@ -274,7 +268,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rating
         POST /api/videos/{id:int}/rescan
-        POST /api/videos/{videoid:int}/segments/spans/query
         PUT /api/auth/me/ui-preferences
         PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
@@ -295,6 +288,5 @@ public static class EndpointCoverageProgress
         PUT /api/system/config/ui/{key}
         PUT /api/users/{id:int}
         PUT /api/videos/{videoid:int}/detections/{id:int}
-        PUT /api/videos/{videoid:int}/segments/{id:int}
         """;
 }
