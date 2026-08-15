@@ -29,6 +29,8 @@ public class SystemController(
     RuntimeLogLevelManager runtimeLogLevelManager,
     ILogger<SystemController> logger) : ControllerBase
 {
+    private const string RedactedPath = "[redacted]";
+
     private static readonly Dictionary<string, string> UiAssetContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         [".ico"] = "image/x-icon",
@@ -240,7 +242,52 @@ public class SystemController(
     [RequiresPermission(Permissions.SystemRead)]
     public ActionResult<CoveConfigDto> GetConfig()
     {
-        return Ok(configService.GetConfig());
+        var config = configService.GetConfig();
+        if (principalAccessor.Current?.Has(Permissions.SystemSettingsWrite) != true)
+        {
+            var canReadLibraryPaths = principalAccessor.Current?.Has(Permissions.LibraryScan) == true;
+            config = RedactSensitiveConfig(config, canReadLibraryPaths);
+        }
+        return Ok(config);
+    }
+
+    private static CoveConfigDto RedactSensitiveConfig(CoveConfigDto config, bool canReadLibraryPaths)
+    {
+        return config with
+        {
+            CovePaths = config.CovePaths
+                .Select(path => path with { Path = canReadLibraryPaths ? path.Path : RedactedPath })
+                .ToList(),
+            GeneratedPath = null,
+            CachePath = null,
+            DownloaderPathOverrides = config.DownloaderPathOverrides
+                .Select(path => path with { Path = string.Empty })
+                .ToList(),
+            FfmpegPath = null,
+            FfprobePath = null,
+            FfmpegInputArgs = null,
+            FfmpegOutputArgs = null,
+            ExcludePatterns = [],
+            ExcludeImagePatterns = [],
+            ExcludeGalleryPatterns = [],
+            Interface = config.Interface with { HandyKey = null },
+            Ui = config.Ui with { CustomLocalesPath = null },
+            Security = config.Security with
+            {
+                Username = null,
+                KnownProxies = [],
+                TrustedHosts = [],
+                NewPassword = null,
+            },
+            Scraping = config.Scraping with
+            {
+                ScraperDirectories = [],
+                MetadataServers = config.Scraping.MetadataServers
+                    .Select(server => server with { ApiKey = string.Empty })
+                    .ToList(),
+            },
+            PluginConfigurations = [],
+        };
     }
 
     [HttpPut("config")]
