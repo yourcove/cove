@@ -108,6 +108,35 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task AttachGalleryFileAsync(
+        int galleryId,
+        long size,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public gallery creation cannot provide deterministic archive metrics. Seed only the
+        // file row required to verify the aggregate endpoint's filtered file-size total.
+        var now = DateTime.UtcNow;
+        var folder = new Folder
+        {
+            Path = $"/api-tests/gallery-aggregate/{Guid.NewGuid():N}",
+            ModTime = now,
+        };
+        db.GalleryFiles.Add(new GalleryFile
+        {
+            GalleryId = galleryId,
+            Basename = "aggregate-source.zip",
+            ParentFolder = folder,
+            Size = size,
+            ModTime = now,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<int> CreateFaceAppearanceAsync(
         int faceId,
         FaceAppearanceHostType hostType,

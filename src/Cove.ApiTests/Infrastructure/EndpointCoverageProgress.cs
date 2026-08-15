@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 195;
+    public const int ExpectedMappedEndpoints = 205;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 305;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 295;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -25,10 +25,7 @@ public static class EndpointCoverageProgress
         DELETE /api/content-rules/{id:int}
         DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
-        DELETE /api/galleries/bulk
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
-        DELETE /api/galleries/{id:int}
-        DELETE /api/galleries/{id:int}/images
         DELETE /api/groups/bulk
         DELETE /api/groups/{id:int}
         DELETE /api/groups/{id:int}/subgroups/{subgroupid:int}
@@ -84,7 +81,6 @@ public static class EndpointCoverageProgress
         GET /api/extensions/{id}/dependencies/missing
         GET /api/faces/review/ai-run
         GET /api/faces/{id:int}/suggestions
-        GET /api/galleries/{id:int}
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
         GET /api/groups/dynamic-sources
@@ -195,12 +191,7 @@ public static class EndpointCoverageProgress
         POST /api/files/folders/{id:int}/reveal
         POST /api/files/move
         POST /api/files/{id:int}/reveal
-        POST /api/galleries
-        POST /api/galleries/aggregate
-        POST /api/galleries/bulk
-        POST /api/galleries/find
         POST /api/galleries/{id:int}/chapters
-        POST /api/galleries/{id:int}/images
         POST /api/galleries/{id:int}/rescan
         POST /api/groups
         POST /api/groups/bulk
@@ -305,7 +296,6 @@ public static class EndpointCoverageProgress
         PUT /api/custom-fields/{id:int}
         PUT /api/extensions/{id}/data/{key}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
-        PUT /api/galleries/{id:int}
         PUT /api/groups/reorder
         PUT /api/groups/{id:int}
         PUT /api/groups/{id:int}/query

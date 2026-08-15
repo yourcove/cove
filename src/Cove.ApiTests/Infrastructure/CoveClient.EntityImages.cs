@@ -48,7 +48,15 @@ public sealed partial class CoveClient
     public Task SetGalleryCoverAsync(GalleryDto gallery, ImageDto image, CancellationToken cancellationToken = default) => SendForSuccessAsync(HttpMethod.Put, $"/api/galleries/{gallery.Id}/cover", new GallerySetCoverDto(image.Id), cancellationToken);
     public Task ResetGalleryCoverAsync(GalleryDto gallery, CancellationToken cancellationToken = default) => DeleteEntityImageAsync($"/api/galleries/{gallery.Id}/cover", cancellationToken);
     public Task<ApiBinaryContent> GetGalleryCoverAsync(GalleryDto gallery, CancellationToken cancellationToken = default) => GetEntityImageFollowingRedirectAsync($"/api/galleries/{gallery.Id}/cover", cancellationToken);
-    public Task AddGalleryImagesAsync(GalleryDto gallery, IReadOnlyList<ImageDto> images, CancellationToken cancellationToken = default) => SendForSuccessAsync(HttpMethod.Post, $"/api/galleries/{gallery.Id}/images", new GalleryAddImagesDto(images.Select(image => image.Id).ToList()), cancellationToken);
+    public async Task<int> AddGalleryImagesAsync(GalleryDto gallery, IReadOnlyList<ImageDto> images, CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/galleries/{gallery.Id}/images",
+            new GalleryAddImagesDto(images.Select(image => image.Id).ToList()),
+            cancellationToken);
+        return response.GetProperty("added").GetInt32();
+    }
 
     private async Task UploadEntityImageAsync(string requestUri, byte[] image, string mediaType, CancellationToken cancellationToken)
     {
