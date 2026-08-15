@@ -85,7 +85,7 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         metadataServerUri!.IsLoopback.Should().BeTrue();
 
         var memberConfig = await eva.GetSystemConfigAsync();
-        AssertSensitiveConfigurationIsRedacted(memberConfig);
+        AssertSensitiveConfigurationIsRedacted(memberConfig, config);
 
         var baseline = await eva.GetSystemStatsAsync();
         await owner.CreateVideoAsync(new VideoBuilder().WithTitle($"System stats video {Guid.NewGuid():N}").Build());
@@ -260,15 +260,25 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(expectedBytes);
     }
 
-    private static void AssertSensitiveConfigurationIsRedacted(CoveConfigDto config)
+    private static void AssertSensitiveConfigurationIsRedacted(CoveConfigDto config, CoveConfigDto fullConfig)
     {
+        config.Scraping.MetadataServers.Count.Should().Be(fullConfig.Scraping.MetadataServers.Count);
         config.Scraping.MetadataServers.All(server => string.IsNullOrEmpty(server.ApiKey)).Should().BeTrue();
+        config.Scraping.MetadataServers
+            .Select(server => (server.Endpoint, server.Name, server.MaxRequestsPerMinute))
+            .SequenceEqual(fullConfig.Scraping.MetadataServers.Select(server => (server.Endpoint, server.Name, server.MaxRequestsPerMinute)))
+            .Should().BeTrue();
         string.IsNullOrEmpty(config.Interface.HandyKey).Should().BeTrue();
         config.PluginConfigurations.Count.Should().Be(0);
-        config.CovePaths.Count.Should().Be(0);
+        config.CovePaths.Count.Should().Be(fullConfig.CovePaths.Count);
+        config.CovePaths
+            .Select(path => (path.Path, path.ExcludeVideo, path.ExcludeImage, path.ExcludeAudio, path.ExcludeText))
+            .SequenceEqual(fullConfig.CovePaths.Select(path => (path.Path, path.ExcludeVideo, path.ExcludeImage, path.ExcludeAudio, path.ExcludeText)))
+            .Should().BeTrue();
         string.IsNullOrEmpty(config.GeneratedPath).Should().BeTrue();
         string.IsNullOrEmpty(config.CachePath).Should().BeTrue();
-        config.DownloaderPathOverrides.Count.Should().Be(0);
+        config.DownloaderPathOverrides.Count.Should().Be(fullConfig.DownloaderPathOverrides.Count);
+        config.DownloaderPathOverrides.All(path => string.IsNullOrEmpty(path.Path)).Should().BeTrue();
         string.IsNullOrEmpty(config.FfmpegPath).Should().BeTrue();
         string.IsNullOrEmpty(config.FfprobePath).Should().BeTrue();
         string.IsNullOrEmpty(config.FfmpegInputArgs).Should().BeTrue();
@@ -281,5 +291,8 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         (config.Security.KnownProxies?.Count ?? 0).Should().Be(0);
         (config.Security.TrustedHosts?.Count ?? 0).Should().Be(0);
         config.Scraping.ScraperDirectories.Count.Should().Be(0);
+        config.Security.Enabled.Should().Be(fullConfig.Security.Enabled);
+        config.VideoExtensions.SequenceEqual(fullConfig.VideoExtensions).Should().BeTrue();
+        string.Equals(config.Ui.Title, fullConfig.Ui.Title, StringComparison.Ordinal).Should().BeTrue();
     }
 }
