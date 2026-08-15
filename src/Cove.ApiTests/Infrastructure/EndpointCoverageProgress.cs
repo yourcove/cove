@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 213;
+    public const int ExpectedMappedEndpoints = 221;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 287;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 279;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -29,8 +29,6 @@ public static class EndpointCoverageProgress
         DELETE /api/groups/bulk
         DELETE /api/groups/{id:int}
         DELETE /api/groups/{id:int}/subgroups/{subgroupid:int}
-        DELETE /api/images/bulk
-        DELETE /api/images/{id:int}
         DELETE /api/images/{id:int}/like
         DELETE /api/images/{id:int}/like/history
         DELETE /api/images/{imageid:int}/detections/{id:int}
@@ -87,7 +85,6 @@ public static class EndpointCoverageProgress
         GET /api/groups/{id:int}
         GET /api/groups/{id:int}/containinggroups
         GET /api/groups/{id:int}/subgroups
-        GET /api/images/{id:int}
         GET /api/images/{id:int}/history
         GET /api/images/{imageid:int}/detections/{id:int}
         GET /api/jobs/backup/latest
@@ -194,10 +191,6 @@ public static class EndpointCoverageProgress
         POST /api/groups/{groupid:int}/items/from-spans
         POST /api/groups/{id:int}/snapshot
         POST /api/groups/{id:int}/subgroups
-        POST /api/images
-        POST /api/images/aggregate
-        POST /api/images/bulk
-        POST /api/images/find
         POST /api/images/{id:int}/like/historical
         POST /api/images/{id:int}/like/reset
         POST /api/images/{id:int}/rescan
@@ -292,7 +285,6 @@ public static class EndpointCoverageProgress
         PUT /api/groups/{id:int}
         PUT /api/groups/{id:int}/query
         PUT /api/groups/{id:int}/subgroups/reorder
-        PUT /api/images/{id:int}
         PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/performers/{id:int}

@@ -137,6 +137,38 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task AttachImageFileAsync(
+        int imageId,
+        long size,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public image creation cannot supply deterministic probe metrics. Seed only the file row
+        // needed to verify the aggregate endpoint's filtered file-size total.
+        var now = DateTime.UtcNow;
+        var folder = new Folder
+        {
+            Path = $"/api-tests/image-aggregate/{Guid.NewGuid():N}",
+            ModTime = now,
+        };
+        db.ImageFiles.Add(new ImageFile
+        {
+            ImageId = imageId,
+            Basename = "aggregate-source.png",
+            ParentFolder = folder,
+            Size = size,
+            ModTime = now,
+            Format = "png",
+            Width = 20,
+            Height = 10,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task SetStoredStudioVideoCountsAsync(
         int studioWithVideoId,
         int studioWithoutVideoId,
