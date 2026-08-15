@@ -27,6 +27,8 @@ public sealed class VideoCreationApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("GET", "/api/videos/{id:int}")]
     public async Task GivenVideoMetadata_WhenVideoIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         // Arrange

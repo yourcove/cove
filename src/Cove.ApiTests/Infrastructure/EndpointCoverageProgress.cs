@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 93;
+    public const int ExpectedMappedEndpoints = 101;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 407;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 399;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -72,7 +72,6 @@ public static class EndpointCoverageProgress
         DELETE /api/texts/{id:int}/like/history
         DELETE /api/users/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
-        DELETE /api/videos/{id:int}
         DELETE /api/videos/{id:int}/image
         DELETE /api/videos/{id:int}/like
         DELETE /api/videos/{id:int}/like/history
@@ -183,7 +182,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/duplicates
         GET /api/videos/wall
         GET /api/videos/with-compilations
-        GET /api/videos/{id:int}
         GET /api/videos/{id:int}/image
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{id:int}/ratings
@@ -363,11 +361,6 @@ public static class EndpointCoverageProgress
         POST /api/users/{id:int}/password
         POST /api/users/{id:int}/roles
         POST /api/users/{id:int}/unlock
-        POST /api/videos
-        POST /api/videos/aggregate
-        POST /api/videos/bulk
-        POST /api/videos/destroy
-        POST /api/videos/find
         POST /api/videos/from-file
         POST /api/videos/merge
         POST /api/videos/metadata-server/find-by-ids
@@ -421,7 +414,6 @@ public static class EndpointCoverageProgress
         PUT /api/tags/{id:int}/image/source
         PUT /api/texts/{id:int}
         PUT /api/users/{id:int}
-        PUT /api/videos/{id:int}
         PUT /api/videos/{videoid:int}/detections/{id:int}
         PUT /api/videos/{videoid:int}/segments/{id:int}
         """;

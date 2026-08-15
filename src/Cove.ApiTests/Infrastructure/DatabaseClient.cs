@@ -33,6 +33,38 @@ public sealed class DatabaseClient
                 cancellationToken);
     }
 
+    public async Task AttachVideoFileAsync(
+        int videoId,
+        double duration,
+        long size,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public video creation cannot supply deterministic probe metrics. Seed only the file row
+        // needed to verify the aggregate endpoint's derived duration and file-size totals.
+        var now = DateTime.UtcNow;
+        var folder = new Folder
+        {
+            Path = $"/api-tests/video-aggregate/{Guid.NewGuid():N}",
+            ModTime = now,
+        };
+        db.VideoFiles.Add(new VideoFile
+        {
+            VideoId = videoId,
+            Basename = "aggregate-source.mp4",
+            ParentFolder = folder,
+            Size = size,
+            ModTime = now,
+            Format = "mp4",
+            Duration = duration,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<int> CreateFaceAppearanceAsync(
         int faceId,
         FaceAppearanceHostType hostType,
