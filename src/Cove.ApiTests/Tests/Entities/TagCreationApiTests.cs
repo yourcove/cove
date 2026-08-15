@@ -172,6 +172,8 @@ public sealed class TagCreationApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/tags")]
+    [CoversEndpoint("GET", "/api/tags/{id:int}")]
     public async Task GivenTagMetadata_WhenTagIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         // Arrange

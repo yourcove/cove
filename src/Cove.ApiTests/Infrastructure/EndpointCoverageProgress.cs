@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 78;
+    public const int ExpectedMappedEndpoints = 85;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 422;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 415;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -62,7 +62,6 @@ public static class EndpointCoverageProgress
         DELETE /api/studios/{id:int}/image
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
         DELETE /api/tagapplications/{id:int}
-        DELETE /api/taggroups/{id:int}
         DELETE /api/tags/bulk
         DELETE /api/tags/{id:int}
         DELETE /api/tags/{id:int}/image
@@ -173,9 +172,7 @@ public static class EndpointCoverageProgress
         GET /api/system/scrapers
         GET /api/system/stats
         GET /api/system/ui-assets/{filename}
-        GET /api/taggroups/{id:int}
         GET /api/tags/segment-titles
-        GET /api/tags/{id:int}
         GET /api/tags/{id:int}/image
         GET /api/tags/{id:int}/metadata-server/search
         GET /api/tags/{id:int}/segments
@@ -347,14 +344,12 @@ public static class EndpointCoverageProgress
         POST /api/system/ui/favicon
         POST /api/system/ui/logo
         POST /api/tagapplications
-        POST /api/taggroups
-        POST /api/tags
         POST /api/tags/bulk
         POST /api/tags/find
         POST /api/tags/graph
-        POST /api/tags/merge
         POST /api/tags/metadata-server/batch-tag
         POST /api/tags/metadata-server/find-by-ids
+        POST /api/tags/merge
         POST /api/tags/{id:int}/image
         POST /api/tags/{id:int}/metadata-server/import
         POST /api/tags/{id:int}/metadata-server/submit-draft
@@ -431,8 +426,6 @@ public static class EndpointCoverageProgress
         PUT /api/studios/{id:int}/image/source
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
-        PUT /api/taggroups/{id:int}
-        PUT /api/tags/{id:int}
         PUT /api/tags/{id:int}/image/source
         PUT /api/texts/{id:int}
         PUT /api/users/{id:int}
