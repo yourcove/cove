@@ -203,9 +203,11 @@ public partial class CoveContext
         modelBuilder.Entity<VideoPlayHistory>().HasQueryFilter(entry =>
             AuthorizationFiltersBypassed
                 ? true
-                : !RequiresVideoReadScopeEvaluation
-                    ? CanReadVideos
-                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, entry.VideoId));
+                : CurrentUserId != null
+                    && entry.UserId == CurrentUserId
+                    && (!RequiresVideoReadScopeEvaluation
+                        ? CanReadVideos
+                        : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, entry.VideoId)));
 
         modelBuilder.Entity<PerformerUrl>().HasQueryFilter(link =>
             AuthorizationFiltersBypassed

@@ -272,14 +272,16 @@ public class DynamicGroupsAndBookmarksTests
         await using var scope = CreateContext();
         var context = scope.Context;
         var audio = new Audio { Title = "User cleanup audio" };
+        var video = new Video { Title = "User cleanup video" };
         var user = new User { Id = 17, Username = "cleanup-user", PasswordHash = "test" };
-        context.AddRange(audio, user);
+        context.AddRange(audio, video, user);
         await context.SaveChangesAsync();
         context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = user.Id, HostType = AffinityHostType.Audio, HostId = audio.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 12 });
         context.UserBookmarks.Add(new UserBookmark { UserId = user.Id, HostType = AffinityHostType.Audio, HostId = audio.Id, CreatedAt = DateTime.UtcNow });
         context.Interactions.Add(new Interaction { UserId = user.Id, HostType = InteractionHostType.Audio, HostId = audio.Id, Kind = InteractionKind.PageVisit });
         context.PlaybackSessions.Add(new PlaybackSession { UserId = user.Id, HostType = InteractionHostType.Audio, HostId = audio.Id, SessionId = Guid.NewGuid() });
         context.Ratings.Add(new Rating { UserId = user.Id, HostType = RatingHostType.Audio, HostId = audio.Id, Aspect = "overall", Value = 80 });
+        context.Set<VideoPlayHistory>().Add(new VideoPlayHistory { UserId = user.Id, VideoId = video.Id, PlayedAt = DateTime.UtcNow });
         await context.SaveChangesAsync();
 
         context.Users.Remove(user);
@@ -290,6 +292,7 @@ public class DynamicGroupsAndBookmarksTests
         Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync());
         Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync());
         Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.Set<VideoPlayHistory>().IgnoreQueryFilters().ToListAsync());
     }
 
     [Fact]

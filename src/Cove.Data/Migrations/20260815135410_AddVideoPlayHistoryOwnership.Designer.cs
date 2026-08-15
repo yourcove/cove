@@ -5,6 +5,7 @@ using System.Text.Json;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,9 +16,11 @@ using Pgvector;
 namespace Cove.Data.Migrations
 {
     [DbContext(typeof(CoveContext))]
-    partial class CoveContextModelSnapshot : ModelSnapshot
+    [Migration("20260815135410_AddVideoPlayHistoryOwnership")]
+    partial class AddVideoPlayHistoryOwnership
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2461,6 +2464,10 @@ namespace Cove.Data.Migrations
                     b.Property<int?>("HeightCm")
                         .HasColumnType("integer");
 
+                    b.Property<string>("IdentityKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("ImageBlobId")
                         .HasColumnType("text");
 
@@ -2470,10 +2477,6 @@ namespace Cove.Data.Migrations
                         .HasDefaultValue(0);
 
                     b.Property<string>("ImageOverrideBlobId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("IdentityKey")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Measurements")

@@ -1,3 +1,5 @@
+using Cove.Core.Entities.Auth;
+
 namespace Cove.Core.Entities;
 
 public class Video : BaseEntity
@@ -99,7 +101,8 @@ public class VideoPlayHistory
 {
     public int Id { get; set; }
     public int VideoId { get; set; }
+    public int? UserId { get; set; }
     public DateTime PlayedAt { get; set; }
     public Video? Video { get; set; }
+    public User? User { get; set; }
 }
-

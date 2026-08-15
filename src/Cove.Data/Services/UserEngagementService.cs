@@ -41,6 +41,8 @@ public sealed partial class UserEngagementService(
         int SessionIdleTimeoutSec,
         int DwellPositiveSec);
 
+    private readonly record struct VideoPlayHistoryScope(bool IsEnabled, int? UserId, bool IncludeLegacy);
+
     public async Task<UserEngagementSnapshot?> GetSnapshotAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken = default)
     {
         if (!await EntityExistsAsync(hostType, hostId, cancellationToken))
@@ -350,6 +352,7 @@ public sealed partial class UserEngagementService(
         if (video is null)
             return null;
 
+        var playHistoryScope = GetVideoPlayHistoryScope();
         var now = DateTime.UtcNow;
         var affinity = await GetOrCreateVideoAffinityAsync(videoId, cancellationToken);
         if (affinity != null)
@@ -358,7 +361,15 @@ public sealed partial class UserEngagementService(
             affinity.LastConsumedAt = now;
         }
 
-        db.Set<VideoPlayHistory>().Add(new VideoPlayHistory { VideoId = videoId, PlayedAt = now });
+        if (playHistoryScope.IsEnabled)
+        {
+            db.Set<VideoPlayHistory>().Add(new VideoPlayHistory
+            {
+                VideoId = videoId,
+                UserId = playHistoryScope.UserId,
+                PlayedAt = now,
+            });
+        }
         await db.SaveChangesAsync(cancellationToken);
 
         return await BuildVideoSnapshotAsync(videoId, video, affinity, cancellationToken);
@@ -370,6 +381,7 @@ public sealed partial class UserEngagementService(
         if (video is null)
             return null;
 
+        var playHistoryScope = GetVideoPlayHistoryScope();
         var affinity = await GetOrCreateVideoAffinityAsync(videoId, cancellationToken, createIfMissing: false);
         if (affinity != null)
         {
@@ -390,9 +402,9 @@ public sealed partial class UserEngagementService(
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        // Remove the most recent global play history entry for this video
-        var lastPlayHistory = await db.Set<VideoPlayHistory>()
-            .Where(h => h.VideoId == videoId)
+        // Remove the most recent play history entry in the current principal's scope. Privileged
+        // owners can also maintain ownerless legacy rows; ordinary users cannot access them.
+        var lastPlayHistory = await GetVideoPlayHistoryQuery(videoId, playHistoryScope)
             .OrderByDescending(h => h.PlayedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (lastPlayHistory != null)
@@ -408,6 +420,7 @@ public sealed partial class UserEngagementService(
         if (video is null)
             return null;
 
+        var playHistoryScope = GetVideoPlayHistoryScope();
         var affinity = await GetOrCreateVideoAffinityAsync(videoId, cancellationToken);
         if (affinity != null)
         {
@@ -423,8 +436,7 @@ public sealed partial class UserEngagementService(
             db.PlaybackSessions.RemoveRange(playbackSessions);
         }
 
-        var allPlayHistory = await db.Set<VideoPlayHistory>()
-            .Where(h => h.VideoId == videoId)
+        var allPlayHistory = await GetVideoPlayHistoryQuery(videoId, playHistoryScope)
             .ToListAsync(cancellationToken);
         db.Set<VideoPlayHistory>().RemoveRange(allPlayHistory);
         await db.SaveChangesAsync(cancellationToken);
@@ -1029,6 +1041,9 @@ public sealed partial class UserEngagementService(
         await db.Set<PlaybackInterval>().Where(i => i.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.PlaybackSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.UserSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        var playHistoryScope = GetVideoPlayHistoryScope();
+        await ApplyVideoPlayHistoryScope(db.Set<VideoPlayHistory>().IgnoreQueryFilters(), playHistoryScope)
+            .ExecuteDeleteAsync(cancellationToken);
         // continued below: clear watch-derived affinity metrics (ratings/likes/favorites kept)
 
         // Clear watch-derived metrics on every affinity row. Ratings/likes/favorites/interactions are kept.
@@ -1059,6 +1074,9 @@ public sealed partial class UserEngagementService(
         await db.Set<PlaybackInterval>().Where(i => i.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.PlaybackSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
         await db.UserSessions.Where(s => s.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        var playHistoryScope = GetVideoPlayHistoryScope();
+        await ApplyVideoPlayHistoryScope(db.Set<VideoPlayHistory>().IgnoreQueryFilters(), playHistoryScope)
+            .ExecuteDeleteAsync(cancellationToken);
 
         // Delete every behavioral interaction except the explicit LikeCount ("orgasm count") events.
         await db.Interactions
@@ -1152,17 +1170,17 @@ public sealed partial class UserEngagementService(
         var interactionHostType = ToInteractionHostType(hostType);
 
         var userId = principalAccessor.Current?.UserId;
+        var playHistoryScope = GetVideoPlayHistoryScope();
         if (!userId.HasValue)
         {
-            var playHistory = hostType == AffinityHostType.Video
-                ? await db.Set<VideoPlayHistory>()
-                    .Where(history => history.VideoId == hostId)
+            var playHistory = hostType == AffinityHostType.Video && playHistoryScope.IsEnabled
+                ? await GetVideoPlayHistoryQuery(hostId, playHistoryScope)
                     .OrderByDescending(history => history.PlayedAt)
                     .Select(history => history.PlayedAt.ToString("o"))
                     .ToListAsync(cancellationToken)
                 : new List<string>();
-            // Anonymous callers have no per-user like history; the legacy global (Stash-imported) like log
-            // was removed, so only play history is available here.
+            // Ownerless system mode can retain legacy play history, but anonymous and share-link callers
+            // have no engagement-history scope and receive empty lists.
             var events = playHistory
                 .Select(date => new InteractionEventDto("playStart", date))
                 .ToList();
@@ -1180,8 +1198,7 @@ public sealed partial class UserEngagementService(
             .ToListAsync(cancellationToken);
 
         var playHistoryForUser = hostType == AffinityHostType.Video
-            ? await db.Set<VideoPlayHistory>()
-                .Where(history => history.VideoId == hostId)
+            ? await GetVideoPlayHistoryQuery(hostId, playHistoryScope)
                 .OrderByDescending(history => history.PlayedAt)
                 .Select(history => history.PlayedAt.ToString("o"))
                 .ToListAsync(cancellationToken)
@@ -1207,6 +1224,33 @@ public sealed partial class UserEngagementService(
 
     private Task<UserEntityAffinity?> GetOrCreateVideoAffinityAsync(int videoId, CancellationToken cancellationToken, bool createIfMissing = true)
         => GetOrCreateAffinityAsync(AffinityHostType.Video, videoId, cancellationToken, createIfMissing);
+
+    private VideoPlayHistoryScope GetVideoPlayHistoryScope()
+    {
+        var principal = principalAccessor.Current;
+        if (principal?.UserId is int userId)
+            return new VideoPlayHistoryScope(true, userId, principal.Has("*"));
+        if (principal?.Kind == PrincipalKind.System)
+            return new VideoPlayHistoryScope(true, null, true);
+        return default;
+    }
+
+    private IQueryable<VideoPlayHistory> GetVideoPlayHistoryQuery(int videoId, VideoPlayHistoryScope scope)
+    {
+        var query = db.Set<VideoPlayHistory>().Where(history => history.VideoId == videoId);
+        return ApplyVideoPlayHistoryScope(query, scope);
+    }
+
+    private static IQueryable<VideoPlayHistory> ApplyVideoPlayHistoryScope(
+        IQueryable<VideoPlayHistory> query,
+        VideoPlayHistoryScope scope)
+    {
+        if (!scope.IsEnabled)
+            return query.Where(_ => false);
+        if (scope.IncludeLegacy && scope.UserId.HasValue)
+            return query.Where(history => history.UserId == scope.UserId.Value || history.UserId == null);
+        return query.Where(history => history.UserId == scope.UserId);
+    }
 
     private async Task<UserEntityAffinity?> GetOrCreateAffinityAsync(AffinityHostType hostType, int hostId, CancellationToken cancellationToken, bool createIfMissing = true)
     {

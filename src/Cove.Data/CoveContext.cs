@@ -184,7 +184,15 @@ public partial class CoveContext : DbContext
             entity.ToTable("tag_aliases");
             entity.Property(alias => alias.NamespaceKey).IsRequired();
         });
-        modelBuilder.Entity<VideoPlayHistory>().ToTable("video_play_history");
+        modelBuilder.Entity<VideoPlayHistory>(entity =>
+        {
+            entity.ToTable("video_play_history");
+            entity.HasIndex(history => new { history.UserId, history.VideoId, history.PlayedAt });
+            entity.HasOne(history => history.User)
+                .WithMany()
+                .HasForeignKey(history => history.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<VideoFile>()
             .HasMany(v => v.Captions)
