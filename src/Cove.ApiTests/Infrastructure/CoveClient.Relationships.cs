@@ -23,6 +23,17 @@ public sealed partial class CoveClient
                 TagIds: []),
             cancellationToken);
 
+    public async Task<IReadOnlyList<GroupDto>> GetGroupsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<GroupDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/groups?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,
         GroupDto group,
