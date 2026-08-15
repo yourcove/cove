@@ -12,6 +12,27 @@ public sealed class DatabaseClient
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
 
+    public async Task<IReadOnlyDictionary<string, string>> GetFileFingerprintsAsync(
+        int fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Non-video API DTOs do not expose fingerprints, so this read-only assertion helper is the
+        // narrow verification escape hatch for public generate jobs.
+        return await db.Set<FileFingerprint>()
+            .AsNoTracking()
+            .Where(fingerprint => fingerprint.FileId == fileId)
+            .ToDictionaryAsync(
+                fingerprint => fingerprint.Type,
+                fingerprint => fingerprint.Value,
+                StringComparer.OrdinalIgnoreCase,
+                cancellationToken);
+    }
+
     public async Task<int> CreateFaceAppearanceAsync(
         int faceId,
         FaceAppearanceHostType hostType,

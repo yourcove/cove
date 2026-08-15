@@ -15,25 +15,41 @@ public sealed class ApiTestFileSystem
         "galleries",
     ];
 
-    internal ApiTestFileSystem(string libraryPath)
+    internal ApiTestFileSystem(string libraryPath, string generatedPath)
     {
         LibraryPath = libraryPath;
+        GeneratedPath = generatedPath;
     }
 
     public string LibraryPath { get; }
 
+    public string GeneratedPath { get; }
+
     internal void Reset()
     {
-        foreach (var file in Directory.EnumerateFiles(LibraryPath))
-            File.Delete(file);
-        foreach (var directory in Directory.EnumerateDirectories(LibraryPath))
-            Directory.Delete(directory, recursive: true);
+        ResetDirectory(LibraryPath);
+
+        // Generated artifacts are mutable test state too. Clear them between cases so a live-id
+        // artifact from one database generation cannot look orphaned after the next database reset.
+        ResetDirectory(GeneratedPath);
     }
 
     public string CreateTextFile(string contents)
     {
         var path = Path.Combine(LibraryPath, $"api-test-{Guid.NewGuid():N}.txt");
         File.WriteAllText(path, contents);
+        return path;
+    }
+
+    public string CreateGeneratedFile(string relativePath, byte[] contents)
+    {
+        var path = Path.GetFullPath(Path.Combine(GeneratedPath, relativePath));
+        var relative = Path.GetRelativePath(GeneratedPath, path);
+        if (relative == ".." || relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(relativePath), "Generated test files must stay under the generated root.");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, contents);
         return path;
     }
 
@@ -53,5 +69,14 @@ public sealed class ApiTestFileSystem
         }
 
         return path;
+    }
+
+    private static void ResetDirectory(string path)
+    {
+        Directory.CreateDirectory(path);
+        foreach (var file in Directory.EnumerateFiles(path))
+            File.Delete(file);
+        foreach (var directory in Directory.EnumerateDirectories(path))
+            Directory.Delete(directory, recursive: true);
     }
 }
