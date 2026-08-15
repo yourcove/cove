@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 275;
+    public const int ExpectedMappedEndpoints = 285;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 229;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 219;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -55,18 +55,13 @@ public static class EndpointCoverageProgress
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
         GET /api/extensions/assets/{extensionid}/{**path}
-        GET /api/extensions/bundles/ui.css
-        GET /api/extensions/bundles/ui.mjs
-        GET /api/extensions/categories
         GET /api/extensions/dependencies/validate
-        GET /api/extensions/manifest
         GET /api/extensions/registry/categories
         GET /api/extensions/registry/search
         GET /api/extensions/registry/updates
         GET /api/extensions/registry/{extensionid}
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/extensions/{id}/data
-        GET /api/extensions/{id}/dependencies/missing
         GET /api/faces/capabilities
         GET /api/faces/review/ai-run
         GET /api/faces/{id:int}/host-tracks
@@ -145,12 +140,7 @@ public static class EndpointCoverageProgress
         POST /api/engagement/batch
         POST /api/engagement/interactions
         POST /api/engagement/wipe-all
-        POST /api/extensions/install-from-url
-        POST /api/extensions/install-from-zip
         POST /api/extensions/registry/install
-        POST /api/extensions/registry/uninstall
-        POST /api/extensions/{id}/disable
-        POST /api/extensions/{id}/enable
         POST /api/extensions/{id}/jobs/{jobid}/run
         POST /api/faces/batch/link-top-suggestion
         POST /api/faces/{id:int}/not-present
