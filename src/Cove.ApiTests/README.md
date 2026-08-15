@@ -66,6 +66,15 @@ To collect production-assembly coverage:
 ```sh
 dotnet tool restore
 dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage.config --output artifacts/coverage/api-tests.cobertura.xml --output-format cobertura dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal
+node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
+```
+
+The coverage check deduplicates compiler-generated async and aggregate records by normalized controller source filename and line. It prints aggregate and per-controller line and branch diagnostics, highlights the largest uncovered controller files, enforces the checked-in API-test line-coverage baseline, and reports progress toward the 90% controller line target. When intentionally raising the ratchet after adding tests, update `controller-coverage-baseline.json` with the newly measured covered and total line counts; never lower it to accommodate a regression.
+
+Run the coverage tool's synthetic Cobertura tests with:
+
+```sh
+node --test scripts/check-api-controller-coverage.test.mjs
 ```
 
 Run `dotnet restore src/Cove.slnx` first when dependencies have not been restored.

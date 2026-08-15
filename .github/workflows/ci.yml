@@ -60,11 +60,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
       - name: Restore
         run: dotnet restore src/Cove.slnx
 
       - name: Restore tools
         run: dotnet tool restore
+
+      - name: Test controller coverage tooling
+        run: node --test scripts/check-api-controller-coverage.test.mjs
 
       - name: Test (Fluent API)
         run: >-
@@ -75,11 +82,8 @@ jobs:
           dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
           -c Release --no-restore --verbosity normal
 
-      - name: Verify backend coverage
-        run: >-
-          grep --extended-regexp --quiet
-          '<class line-rate="(1|0\.[0-9]*[1-9][0-9]*)"[^>]* name="Cove\.Api\.Controllers\.'
-          artifacts/coverage/api-tests.cobertura.xml
+      - name: Verify API controller coverage
+        run: node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
 
       - name: Upload backend coverage
         if: always()
