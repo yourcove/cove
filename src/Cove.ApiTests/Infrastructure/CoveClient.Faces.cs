@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using System.Text.Json;
 using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -139,6 +141,104 @@ public sealed partial class CoveClient
             WithCacheNonce($"/api/faces/{faceId}/delete-impact"),
             payload: null,
             cancellationToken);
+
+    public Task<IReadOnlyList<FaceDto>> GetUnlinkedFaceReviewAsync(
+        int take = 24,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/review/unlinked?take={take}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<PaginatedResponse<FaceSimilarDto>> GetSimilarFacesAsync(
+        int faceId,
+        string kindFamily,
+        string? query = null,
+        int page = 1,
+        int perPage = 18,
+        int candidateCount = 80,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/faces/{faceId}/similar?kindFamily={Uri.EscapeDataString(kindFamily)}&page={page}&perPage={perPage}&k={candidateCount}";
+        if (!string.IsNullOrWhiteSpace(query))
+            requestUri += $"&q={Uri.EscapeDataString(query)}";
+
+        return SendAsync<PaginatedResponse<FaceSimilarDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(requestUri),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<FaceBatchOperationResultDto> BatchDeleteFacesAsync(
+        IReadOnlyList<int> faceIds,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceBatchOperationResultDto>(
+            HttpMethod.Post,
+            "/api/faces/batch/delete",
+            new FaceBatchDeleteDto(faceIds),
+            cancellationToken);
+
+    public Task<FaceDto> RecordFaceSuggestionDecisionAsync(
+        int faceId,
+        FaceSuggestionDecisionDto decision,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceDto>(
+            HttpMethod.Post,
+            $"/api/faces/{faceId}/suggestions/decision",
+            decision,
+            cancellationToken);
+
+    public async Task UploadFaceImageAsync(
+        FaceDto face,
+        byte[] image,
+        CancellationToken cancellationToken = default)
+    {
+        using var content = new MultipartFormDataContent();
+        using var imageContent = new ByteArrayContent(image);
+        imageContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        content.Add(imageContent, "file", "face.png");
+
+        var requestUri = $"/api/faces/{face.Id}/image";
+        using var response = await _client.PostAsync(requestUri, content, cancellationToken);
+        _ = await ApiResponse.ReadAsync<JsonElement>(
+            response,
+            $"POST {requestUri}",
+            cancellationToken);
+    }
+
+    public async Task<ApiBinaryContent> GetFaceImageAsync(
+        FaceDto face,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = WithCacheNonce($"/api/faces/{face.Id}/image");
+        using var response = await _client.GetAsync(requestUri, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"GET {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return new ApiBinaryContent(
+            await response.Content.ReadAsByteArrayAsync(cancellationToken),
+            response.Content.Headers.ContentType?.MediaType);
+    }
+
+    public async Task DeleteFaceImageAsync(
+        FaceDto face,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/faces/{face.Id}/image";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
 
     public async Task DeleteFaceAsync(
         int faceId,

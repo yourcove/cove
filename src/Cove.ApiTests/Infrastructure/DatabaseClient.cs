@@ -1,6 +1,7 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using Pgvector.EntityFrameworkCore;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -98,6 +99,37 @@ public sealed class DatabaseClient
         db.FaceAppearances.Add(appearance);
         await db.SaveChangesAsync(cancellationToken);
         return appearance.Id;
+    }
+
+    public async Task<int> CreateFaceEmbeddingAsync(
+        int faceId,
+        IReadOnlyCollection<float> values,
+        string kindFamily,
+        CancellationToken cancellationToken = default)
+    {
+        if (values.Count == 0)
+            throw new ArgumentException("A face embedding must contain at least one value.", nameof(values));
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var vector = values.ToArray();
+        var embedding = new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = faceId,
+            Kind = kindFamily,
+            KindFamily = kindFamily,
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = vector.Length,
+            Vector = new Vector(vector),
+            SourceKey = "api-test",
+        };
+        db.Embeddings.Add(embedding);
+        await db.SaveChangesAsync(cancellationToken);
+        return embedding.Id;
     }
 
 }

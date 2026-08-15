@@ -10,8 +10,6 @@ public sealed class FileAndMigrationEndpointApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
-    private const string OnePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XhZ8AAAAAElFTkSuQmCC";
-
     [Fact]
     [CoversEndpoint("POST", "/api/performers/{id:int}/image")]
     [CoversEndpoint("GET", "/api/performers/{id:int}/image")]
@@ -22,7 +20,7 @@ public sealed class FileAndMigrationEndpointApiTests(
             new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .Build());
-        var image = Convert.FromBase64String(OnePixelPng);
+        var image = ApiTestImages.OnePixelPng();
 
         // Act
         await AsUser().UploadPerformerImageAsync(performer, image);

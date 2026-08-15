@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 101;
+    public const int ExpectedMappedEndpoints = 108;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 399;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 392;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -28,7 +28,6 @@ public static class EndpointCoverageProgress
         DELETE /api/content-rules/{id:int}
         DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
-        DELETE /api/faces/{id:int}/image
         DELETE /api/galleries/bulk
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/galleries/{id:int}
@@ -105,9 +104,6 @@ public static class EndpointCoverageProgress
         GET /api/extensions/{id}/data
         GET /api/extensions/{id}/dependencies/missing
         GET /api/faces/review/ai-run
-        GET /api/faces/review/unlinked
-        GET /api/faces/{id:int}/image
-        GET /api/faces/{id:int}/similar
         GET /api/faces/{id:int}/suggestions
         GET /api/galleries/{id:int}
         GET /api/galleries/{id:int}/chapters
@@ -238,10 +234,7 @@ public static class EndpointCoverageProgress
         POST /api/extensions/{id}/disable
         POST /api/extensions/{id}/enable
         POST /api/extensions/{id}/jobs/{jobid}/run
-        POST /api/faces/batch/delete
         POST /api/faces/batch/link-top-suggestion
-        POST /api/faces/{id:int}/image
-        POST /api/faces/{id:int}/suggestions/decision
         POST /api/files/delete
         POST /api/files/fingerprints
         POST /api/files/folders/{id:int}/reveal
