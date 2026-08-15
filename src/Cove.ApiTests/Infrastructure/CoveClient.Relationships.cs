@@ -25,6 +25,25 @@ public sealed partial class CoveClient
                 TagIds: []),
             cancellationToken);
 
+    public Task<GroupDto> CreateCompilationAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupDto>(
+            HttpMethod.Post,
+            "/api/groups",
+            new GroupCreateDto(
+                Name: name,
+                Aliases: null,
+                Date: null,
+                Rating: null,
+                StudioId: null,
+                Director: null,
+                Description: null,
+                Urls: [],
+                TagIds: [],
+                ShowInVideoLists: true),
+            cancellationToken);
+
     public async Task<IReadOnlyList<GroupDto>> GetGroupsAsync(
         CancellationToken cancellationToken = default)
     {

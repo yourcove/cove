@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Net.Http.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 
@@ -31,6 +32,81 @@ public sealed partial class CoveClient
         VideoCreateDto video,
         CancellationToken cancellationToken = default)
         => SendAsync<VideoDto>(HttpMethod.Post, "/api/videos", video, cancellationToken);
+
+    public Task<VideoDto> CreateVideoFromFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Post,
+            "/api/videos/from-file",
+            new FileBackedCreateDto(filePath),
+            cancellationToken);
+
+    public Task<IReadOnlyList<VideoDto>> GetVideoWallAsync(
+        string query,
+        int count,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<VideoDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/wall?q={Uri.EscapeDataString(query)}&count={count}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<IReadOnlyList<VideoDto>>> FindDuplicateVideosAsync(
+        string matchType,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<IReadOnlyList<VideoDto>>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/duplicates?matchType={Uri.EscapeDataString(matchType)}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<PaginatedResponse<VideoListEntryDto>> GetVideosWithCompilationsAsync(
+        string title,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<VideoListEntryDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/with-compilations?title={Uri.EscapeDataString(title)}&sort=title&perPage=250"),
+            payload: null,
+            cancellationToken);
+
+    public Task<VideoDto> MergeVideosAsync(
+        VideoDto target,
+        params VideoDto[] sources)
+        => SendAsync<VideoDto>(
+            HttpMethod.Post,
+            "/api/videos/merge",
+            new VideoMergeDto(target.Id, sources.Select(source => source.Id).ToList()),
+            CancellationToken.None);
+
+    public Task AssignVideoFileAsync(
+        VideoDto video,
+        int fileId,
+        CancellationToken cancellationToken = default)
+        => SendForOkAsync(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/assign-file",
+            new VideoAssignFileDto(fileId),
+            cancellationToken);
+
+    private async Task SendForOkAsync(
+        HttpMethod method,
+        string requestUri,
+        object payload,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, requestUri)
+        {
+            Content = JsonContent.Create(payload, options: ApiJson.Options),
+        };
+        using var response = await _client.SendAsync(request, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.OK)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"{method} {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
 
     public Task<VideoDto> GetVideoByIdAsync(
         int videoId,

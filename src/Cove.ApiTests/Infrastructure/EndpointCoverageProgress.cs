@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 229;
+    public const int ExpectedMappedEndpoints = 235;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 275;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 269;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -126,9 +126,6 @@ public static class EndpointCoverageProgress
         GET /api/texts/{id:int}/history
         GET /api/users/{id:int}
         GET /api/users/{id:int}/external-links
-        GET /api/videos/duplicates
-        GET /api/videos/wall
-        GET /api/videos/with-compilations
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{id:int}/ratings
         GET /api/videos/{videoid:int}/detections/{id:int}
@@ -256,11 +253,8 @@ public static class EndpointCoverageProgress
         POST /api/users/{id:int}/password
         POST /api/users/{id:int}/roles
         POST /api/users/{id:int}/unlock
-        POST /api/videos/from-file
-        POST /api/videos/merge
         POST /api/videos/metadata-server/find-by-ids
         POST /api/videos/{id:int}/activity/reset
-        POST /api/videos/{id:int}/assign-file
         POST /api/videos/{id:int}/cover/from-frame
         POST /api/videos/{id:int}/generate-screenshot
         POST /api/videos/{id:int}/like/historical
