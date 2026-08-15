@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 59;
+    public const int ExpectedMappedEndpoints = 66;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 441;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 434;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -109,8 +109,6 @@ public static class EndpointCoverageProgress
         GET /api/extensions/{id}/dependencies/missing
         GET /api/faces/review/ai-run
         GET /api/faces/review/unlinked
-        GET /api/faces/{id:int}/appearances
-        GET /api/faces/{id:int}/detections
         GET /api/faces/{id:int}/image
         GET /api/faces/{id:int}/similar
         GET /api/faces/{id:int}/suggestions
@@ -131,7 +129,6 @@ public static class EndpointCoverageProgress
         GET /api/images/{id:int}
         GET /api/images/{id:int}/history
         GET /api/images/{imageid:int}/detections/{id:int}
-        GET /api/images/{imageid:int}/faces
         GET /api/jobs/backup/latest
         GET /api/jobs/history
         GET /api/jobs/{jobid}
@@ -140,7 +137,6 @@ public static class EndpointCoverageProgress
         GET /api/performers/{id:int}/appears-with
         GET /api/performers/{id:int}/groups
         GET /api/performers/{id:int}/metadata-server/search
-        GET /api/performers/{performerid:int}/faces
         GET /api/plugins/tasks
         GET /api/plugins/{pluginid}/config
         GET /api/roles/permissions
@@ -202,7 +198,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{id:int}/ratings
         GET /api/videos/{videoid:int}/detections/{id:int}
-        GET /api/videos/{videoid:int}/faces
         GET /api/videos/{videoid:int}/segments/spans
         GET /api/videos/{videoid:int}/segments/{id:int}
         GET /api/videos/{videoid:int}/spans/{spankey}
@@ -257,9 +252,7 @@ public static class EndpointCoverageProgress
         POST /api/extensions/{id}/jobs/{jobid}/run
         POST /api/faces/batch/delete
         POST /api/faces/batch/link-top-suggestion
-        POST /api/faces/{id:int}/create-performer
         POST /api/faces/{id:int}/image
-        POST /api/faces/{id:int}/merge-into
         POST /api/faces/{id:int}/suggestions/decision
         POST /api/files/delete
         POST /api/files/fingerprints

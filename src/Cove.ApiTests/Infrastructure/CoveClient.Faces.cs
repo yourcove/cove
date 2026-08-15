@@ -52,25 +52,83 @@ public sealed partial class CoveClient
         VideoDto video,
         FaceDto face,
         CancellationToken cancellationToken = default)
-        => SendAsync<DetectionDto>(
+        => CreateVideoDetectionAsync(
+            video,
+            BuildFaceDetection(face, observedAtSec: 2),
+            cancellationToken);
+
+    public Task<DetectionDto> CreateImageFaceDetectionAsync(
+        ImageDto image,
+        FaceDto face,
+        CancellationToken cancellationToken = default)
+        => CreateImageDetectionAsync(
+            image,
+            BuildFaceDetection(face, observedAtSec: null),
+            cancellationToken);
+
+    public Task<PaginatedResponse<FaceAppearanceDto>> GetFaceAppearancesAsync(
+        int faceId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<FaceAppearanceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/{faceId}/appearances?perPage=250"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<DetectionDto>> GetFaceDetectionsAsync(
+        int faceId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DetectionDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/{faceId}/detections"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<FaceHostFaceDto>> GetVideoFacesAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<FaceHostFaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/faces"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<FaceHostFaceDto>> GetImageFacesAsync(
+        ImageDto image,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<FaceHostFaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/images/{image.Id}/faces"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<FaceDto>> GetPerformerFacesAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/performers/{performerId}/faces"),
+            payload: null,
+            cancellationToken);
+
+    public Task<FaceDto> CreatePerformerFromFaceAsync(
+        int faceId,
+        FaceCreatePerformerDto performer,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceDto>(
             HttpMethod.Post,
-            $"/api/videos/{video.Id}/detections",
-            new DetectionCreateDto(
-                ObservedAtSec: 2,
-                FrameWidth: 100,
-                FrameHeight: 100,
-                Class: "face",
-                Score: 0.95f,
-                X: 0.1f,
-                Y: 0.2f,
-                W: 0.3f,
-                H: 0.4f,
-                Extra: null,
-                RefKind: "face",
-                RefId: face.Id,
-                GroupKey: null,
-                SourceKey: "api-test",
-                SourceRunId: null),
+            $"/api/faces/{faceId}/create-performer",
+            performer,
+            cancellationToken);
+
+    public Task<FaceDto> MergeFaceIntoAsync(
+        int faceId,
+        int targetFaceId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceDto>(
+            HttpMethod.Post,
+            $"/api/faces/{faceId}/merge-into",
+            new FaceMergeDto(targetFaceId),
             cancellationToken);
 
     public Task<FaceDeleteImpactDto> GetFaceDeleteImpactAsync(
@@ -95,4 +153,22 @@ public sealed partial class CoveClient
         throw new InvalidOperationException(
             $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
     }
+
+    private static DetectionCreateDto BuildFaceDetection(FaceDto face, double? observedAtSec)
+        => new(
+            ObservedAtSec: observedAtSec,
+            FrameWidth: 100,
+            FrameHeight: 100,
+            Class: "face",
+            Score: 0.95f,
+            X: 0.1f,
+            Y: 0.2f,
+            W: 0.3f,
+            H: 0.4f,
+            Extra: null,
+            RefKind: "face",
+            RefId: face.Id,
+            GroupKey: null,
+            SourceKey: "api-test",
+            SourceRunId: null);
 }

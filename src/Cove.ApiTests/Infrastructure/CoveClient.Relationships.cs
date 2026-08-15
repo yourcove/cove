@@ -63,6 +63,15 @@ public sealed partial class CoveClient
             observedAtSec: null,
             cancellationToken);
 
+    public Task<DetectionDto> CreateImageDetectionAsync(
+        ImageDto image,
+        DetectionCreateDto detection,
+        CancellationToken cancellationToken = default)
+        => CreateDetectionAsync(
+            $"/api/images/{image.Id}/detections",
+            detection,
+            cancellationToken);
+
     public Task<IReadOnlyList<DetectionDto>> GetImageDetectionsAsync(
         ImageDto image,
         CancellationToken cancellationToken = default)
@@ -80,6 +89,15 @@ public sealed partial class CoveClient
             $"/api/videos/{video.Id}/detections",
             classification,
             observedAtSec: 2,
+            cancellationToken);
+
+    public Task<DetectionDto> CreateVideoDetectionAsync(
+        VideoDto video,
+        DetectionCreateDto detection,
+        CancellationToken cancellationToken = default)
+        => CreateDetectionAsync(
+            $"/api/videos/{video.Id}/detections",
+            detection,
             cancellationToken);
 
     public Task<IReadOnlyList<DetectionDto>> GetVideoDetectionsAsync(
@@ -126,8 +144,7 @@ public sealed partial class CoveClient
         string classification,
         double? observedAtSec,
         CancellationToken cancellationToken)
-        => SendAsync<DetectionDto>(
-            HttpMethod.Post,
+        => CreateDetectionAsync(
             requestUri,
             new DetectionCreateDto(
                 ObservedAtSec: observedAtSec,
@@ -145,5 +162,15 @@ public sealed partial class CoveClient
                 GroupKey: null,
                 SourceKey: "api-test",
                 SourceRunId: null),
+            cancellationToken);
+
+    private Task<DetectionDto> CreateDetectionAsync(
+        string requestUri,
+        DetectionCreateDto detection,
+        CancellationToken cancellationToken)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Post,
+            requestUri,
+            detection,
             cancellationToken);
 }

@@ -8,6 +8,7 @@ Put every behavior test class in `ApiTestLane1Collection` or `ApiTestLane2Collec
 - `AsUser(ApiTestUsers.Eva)` or `AsUser(ApiTestUsers.Anthony)` for standard members.
 - `AsMetadataService()` and `AsDownloadSource()` for deterministic external services.
 - `AsTestFileSystem()` for real filesystem fixtures.
+- `AsDbUser()` only for lifecycle evidence that the public API cannot create or observe.
 
 Tests live under `Tests/` and are grouped by behavior: `Catalog`, `Contracts`, `Downloads`, `Entities`, `Extensions`, `Files`, `Interactions`, and `Metadata`. Harness mechanics belong in `Tests/Harness`. Namespaces mirror the directory structure; reusable support belongs in `Assertions`, `Builders`, `ExampleData`, or `Infrastructure`.
 
