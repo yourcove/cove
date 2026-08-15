@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 118;
+    public const int ExpectedMappedEndpoints = 128;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 382;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 372;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -34,7 +34,6 @@ public static class EndpointCoverageProgress
         DELETE /api/galleries/{id:int}/image/back
         DELETE /api/galleries/{id:int}/images
         DELETE /api/groups/bulk
-        DELETE /api/groups/{groupid:int}/items/{id:int}
         DELETE /api/groups/{id:int}
         DELETE /api/groups/{id:int}/image/back
         DELETE /api/groups/{id:int}/image/front
@@ -108,8 +107,6 @@ public static class EndpointCoverageProgress
         GET /api/galleries/{id:int}/image
         GET /api/galleries/{id:int}/image/back
         GET /api/groups/dynamic-sources
-        GET /api/groups/{groupid:int}/items/page
-        GET /api/groups/{groupid:int}/playback-manifest
         GET /api/groups/{id:int}
         GET /api/groups/{id:int}/containinggroups
         GET /api/groups/{id:int}/image/back
@@ -132,9 +129,6 @@ public static class EndpointCoverageProgress
         GET /api/scrape-attempts/{id:guid}
         GET /api/segment-display-profiles/{id:int}
         GET /api/segment-display-profiles/{profileid:int}/rules
-        GET /api/segments/kinds/distinct
-        GET /api/segments/source-keys/distinct
-        GET /api/segments/{id:int}
         GET /api/segments/{id:int}/image
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/detection/{detectionid:int}/crop
@@ -246,7 +240,6 @@ public static class EndpointCoverageProgress
         POST /api/groups/bulk
         POST /api/groups/find
         POST /api/groups/{groupid:int}/items/from-spans
-        POST /api/groups/{groupid:int}/items/remove-hosts
         POST /api/groups/{id:int}/image/back
         POST /api/groups/{id:int}/image/front
         POST /api/groups/{id:int}/snapshot
@@ -291,7 +284,6 @@ public static class EndpointCoverageProgress
         POST /api/segment-display-profiles/preview
         POST /api/segment-display-profiles/{profileid:int}/rules
         POST /api/segment-display-profiles/{profileid:int}/rules/bulk
-        POST /api/segments/bulk/remove-tag
         POST /api/segments/spans/count
         POST /api/segments/spans/search
         POST /api/segments/{id:int}/image
@@ -374,8 +366,6 @@ public static class EndpointCoverageProgress
         PUT /api/galleries/{id:int}/image/back/source
         PUT /api/galleries/{id:int}/image/source
         PUT /api/groups/reorder
-        PUT /api/groups/{groupid:int}/items/reorder
-        PUT /api/groups/{groupid:int}/items/{id:int}
         PUT /api/groups/{id:int}
         PUT /api/groups/{id:int}/image/front/source
         PUT /api/groups/{id:int}/query
