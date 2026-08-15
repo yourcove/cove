@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 138;
+    public const int ExpectedMappedEndpoints = 150;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 362;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 350;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -30,13 +30,9 @@ public static class EndpointCoverageProgress
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/galleries/{id:int}
         DELETE /api/galleries/{id:int}/cover
-        DELETE /api/galleries/{id:int}/image
-        DELETE /api/galleries/{id:int}/image/back
         DELETE /api/galleries/{id:int}/images
         DELETE /api/groups/bulk
         DELETE /api/groups/{id:int}
-        DELETE /api/groups/{id:int}/image/back
-        DELETE /api/groups/{id:int}/image/front
         DELETE /api/groups/{id:int}/subgroups/{subgroupid:int}
         DELETE /api/images/bulk
         DELETE /api/images/{id:int}
@@ -102,13 +98,9 @@ public static class EndpointCoverageProgress
         GET /api/galleries/{id:int}
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
-        GET /api/galleries/{id:int}/image
-        GET /api/galleries/{id:int}/image/back
         GET /api/groups/dynamic-sources
         GET /api/groups/{id:int}
         GET /api/groups/{id:int}/containinggroups
-        GET /api/groups/{id:int}/image/back
-        GET /api/groups/{id:int}/image/front
         GET /api/groups/{id:int}/subgroups
         GET /api/images/{id:int}
         GET /api/images/{id:int}/history
@@ -228,16 +220,12 @@ public static class EndpointCoverageProgress
         POST /api/galleries/bulk
         POST /api/galleries/find
         POST /api/galleries/{id:int}/chapters
-        POST /api/galleries/{id:int}/image
-        POST /api/galleries/{id:int}/image/back
         POST /api/galleries/{id:int}/images
         POST /api/galleries/{id:int}/rescan
         POST /api/groups
         POST /api/groups/bulk
         POST /api/groups/find
         POST /api/groups/{groupid:int}/items/from-spans
-        POST /api/groups/{id:int}/image/back
-        POST /api/groups/{id:int}/image/front
         POST /api/groups/{id:int}/snapshot
         POST /api/groups/{id:int}/subgroups
         POST /api/images
