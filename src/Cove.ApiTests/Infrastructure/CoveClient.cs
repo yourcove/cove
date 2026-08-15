@@ -478,6 +478,18 @@ public sealed class CoveClient : IDisposable
         return result.Items;
     }
 
+    public async Task<IReadOnlyList<VideoDto>> GetVideosByStudioAsync(
+        int studioId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<VideoDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos?studioId={studioId}&perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,
         GroupDto group,
