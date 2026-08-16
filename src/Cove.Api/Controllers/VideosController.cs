@@ -1716,7 +1716,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [RequiresEntityAccess(EntityKinds.Video, Permissions.LibraryScan)]
     public async Task<IActionResult> Rescan(int id, CancellationToken ct)
     {
-        var video = await db.Videos.Include(s => s.Files).FirstOrDefaultAsync(s => s.Id == id, ct);
+        var video = await db.Videos
+            .Include(video => video.Files)
+            .ThenInclude(file => file.ParentFolder)
+            .FirstOrDefaultAsync(video => video.Id == id, ct);
         if (video == null) return NotFound();
 
         var filePath = video.Files.FirstOrDefault()?.ParentFolder != null 
