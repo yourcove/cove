@@ -217,6 +217,37 @@ public sealed partial class CoveClient
             new { stashDbPath = databasePath },
             cancellationToken);
 
+    public async Task<string> StartStashImportAsync(
+        string databasePath,
+        bool migrateGeneratedContent,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendForExpectedStatusAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/stash-migration/import",
+            new
+            {
+                stashDbPath = databasePath,
+                generatedPath = (string?)null,
+                migrateGeneratedContent,
+                pathMappings = (object?)null,
+            },
+            HttpStatusCode.Accepted,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException("POST /api/stash-migration/import did not return a job id.");
+    }
+
+    public Task<StashImportResult> GetStashImportResultAsync(
+        string jobId,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<StashImportResult>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/stash-migration/import/{Uri.EscapeDataString(jobId)}"),
+            payload: null,
+            HttpStatusCode.OK,
+            cancellationToken);
+
     public async Task<bool> GetVideoPreviewAvailabilityAsync(
         VideoDto video,
         CancellationToken cancellationToken = default)

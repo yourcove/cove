@@ -19,6 +19,112 @@ public sealed class ApiTestFileSystem
         "galleries",
     ];
 
+    private const string ImportableEmptyStashSchema = """
+        CREATE TABLE blobs (checksum TEXT NOT NULL, blob BLOB);
+        CREATE TABLE folders (
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL,
+            parent_folder_id INTEGER,
+            mod_time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE studios (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id INTEGER,
+            details TEXT,
+            rating INTEGER,
+            favorite INTEGER NOT NULL,
+            image_blob TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE tags (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            sort_name TEXT,
+            description TEXT,
+            favorite INTEGER NOT NULL,
+            image_blob TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE performers (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            disambiguation TEXT,
+            gender TEXT,
+            birthdate TEXT,
+            ethnicity TEXT,
+            country TEXT,
+            eye_color TEXT,
+            hair_color TEXT,
+            height INTEGER,
+            weight INTEGER,
+            measurements TEXT,
+            fake_tits TEXT,
+            penis_length REAL,
+            circumcised TEXT,
+            death_date TEXT,
+            tattoos TEXT,
+            piercings TEXT,
+            favorite INTEGER NOT NULL,
+            rating INTEGER,
+            details TEXT,
+            image_blob TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE groups (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            aliases TEXT,
+            duration INTEGER,
+            date TEXT,
+            rating INTEGER,
+            studio_id INTEGER,
+            director TEXT,
+            description TEXT
+        );
+        CREATE TABLE scenes (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            details TEXT,
+            date TEXT,
+            rating INTEGER,
+            studio_id INTEGER,
+            organized INTEGER NOT NULL,
+            code TEXT,
+            director TEXT,
+            resume_time REAL NOT NULL,
+            play_duration REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
+        CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
+        CREATE TABLE files (
+            id INTEGER PRIMARY KEY,
+            basename TEXT NOT NULL,
+            parent_folder_id INTEGER NOT NULL,
+            size INTEGER NOT NULL,
+            mod_time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE video_files (
+            file_id INTEGER PRIMARY KEY,
+            duration REAL NOT NULL,
+            video_codec TEXT NOT NULL,
+            format TEXT NOT NULL,
+            audio_codec TEXT NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            frame_rate REAL NOT NULL,
+            bit_rate INTEGER NOT NULL
+        );
+        CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint);
+        """;
+
     internal ApiTestFileSystem(string libraryPath, string generatedPath)
     {
         LibraryPath = libraryPath;
@@ -271,6 +377,19 @@ public sealed class ApiTestFileSystem
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        return path;
+    }
+
+    public async Task<string> CreateImportableEmptyStashDatabaseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var path = Path.Combine(LibraryPath, $"stash-import-{Guid.NewGuid():N}.sqlite");
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = ImportableEmptyStashSchema;
+        await command.ExecuteNonQueryAsync(cancellationToken);
         return path;
     }
 

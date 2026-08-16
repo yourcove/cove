@@ -1,6 +1,7 @@
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
+using Cove.Core.Interfaces;
 using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Files;
@@ -68,5 +69,60 @@ public sealed class FileAndMigrationEndpointApiTests(
             preview.Images,
             preview.Galleries,
         }.Should().OnlyContain(count => count == 0);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/stash-migration/import")]
+    [CoversEndpoint("GET", "/api/stash-migration/import/{jobid}")]
+    public async Task GivenImportableEmptyStashDatabase_WhenImportRuns_ThenJobResultAndExistingStateAreExact()
+    {
+        var databasePath = await AsTestFileSystem().CreateImportableEmptyStashDatabaseAsync();
+        var control = await AsUser().CreateVideoAsync($"Stash import control {Guid.NewGuid():N}");
+        var historyBefore = (await AsUser().GetJobHistoryAsync()).Select(job => job.Id).ToArray();
+
+        var forbidden = () => AsUser(ApiTestUsers.Eva).StartStashImportAsync(
+            databasePath,
+            migrateGeneratedContent: false);
+        var invalid = () => AsUser().StartStashImportAsync(
+            string.Empty,
+            migrateGeneratedContent: false);
+        await forbidden.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 403 (Forbidden)*");
+        await invalid.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 400 (BadRequest)*");
+        (await AsUser().GetJobHistoryAsync()).Select(job => job.Id).Should().Equal(historyBefore);
+        (await AsUser().GetVideoByIdAsync(control.Id)).Title.Should().Be(control.Title);
+
+        var jobId = await AsUser().StartStashImportAsync(
+            databasePath,
+            migrateGeneratedContent: false);
+        var completed = await AsUser().WaitForTerminalJobAsync(jobId);
+        completed.Id.Should().Be(jobId);
+        completed.Type.Should().Be("stash-import");
+        completed.Status.Should().Be(JobStatus.Completed);
+        completed.Progress.Should().Be(1);
+        completed.Error.Should().BeNull();
+
+        var forbiddenResult = () => AsUser(ApiTestUsers.Eva).GetStashImportResultAsync(jobId);
+        var missingResult = () => AsUser().GetStashImportResultAsync($"missing-{Guid.NewGuid():N}");
+        await forbiddenResult.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 403 (Forbidden)*");
+        await missingResult.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 404 (NotFound)*");
+
+        var result = await AsUser().GetStashImportResultAsync(jobId);
+        new[]
+        {
+            result.Videos,
+            result.Performers,
+            result.Tags,
+            result.Studios,
+            result.Groups,
+            result.Images,
+            result.Galleries,
+        }.Should().OnlyContain(count => count == 0);
+        (await AsUser().GetVideoByIdAsync(control.Id)).Title.Should().Be(control.Title);
+        (await AsUser().GetJobHistoryAsync()).Select(job => job.Id)
+            .Should().Equal([jobId, .. historyBefore]);
     }
 }
