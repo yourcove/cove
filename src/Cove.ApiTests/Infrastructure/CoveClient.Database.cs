@@ -23,6 +23,16 @@ public sealed partial class CoveClient
             HttpStatusCode.OK,
             cancellationToken);
 
+    public Task<RestoreBackupResultDto> RestoreDatabaseAsync(
+        string backupPath,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<RestoreBackupResultDto>(
+            HttpMethod.Post,
+            "/api/database/restore",
+            new RestoreBackupRequestDto(backupPath),
+            HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<DatabaseOperationMessage> OptimizeDatabaseAsync(
         CancellationToken cancellationToken = default)
         => SendForExpectedStatusAsync<DatabaseOperationMessage>(
