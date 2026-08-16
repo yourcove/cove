@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 457;
+    public const int ExpectedMappedEndpoints = 462;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 47;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 42;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -29,7 +29,6 @@ public static class EndpointCoverageProgress
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/faces/capabilities
         GET /api/faces/{id:int}/host-tracks
-        GET /api/jobs/backup/latest
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
@@ -39,11 +38,8 @@ public static class EndpointCoverageProgress
         POST /api/auth/external/links/preview
         POST /api/auth/external/redeem
         POST /api/auth/setup-token-redeem
-        POST /api/database/backup
         POST /api/database/config/backup
         POST /api/database/config/restore
-        POST /api/database/migrate
-        POST /api/database/optimize
         POST /api/database/restore
         POST /api/database/wipe
         POST /api/extensions/registry/install
@@ -51,7 +47,6 @@ public static class EndpointCoverageProgress
         POST /api/faces/{id:int}/split
         POST /api/files/folders/{id:int}/reveal
         POST /api/files/{id:int}/reveal
-        POST /api/jobs/backup
         POST /api/stash-migration/import
         POST /api/system/config/ui
         POST /api/system/shutdown
