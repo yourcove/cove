@@ -57,6 +57,15 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<FfmpegCapabilitiesResponse> GetFfmpegCapabilitiesAsync(
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<FfmpegCapabilitiesResponse>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/system/ffmpeg-capabilities"),
+            payload: null,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<SystemLogLevelStatus> SetSystemLogLevelAsync(
         string level,
         CancellationToken cancellationToken = default)
@@ -246,6 +255,13 @@ public sealed record SystemLogLevelStatus(
     string Level,
     string ConfiguredLevel,
     DateTimeOffset? TraceExpiresAt);
+
+public sealed record FfmpegCapabilitiesResponse(
+    bool FfmpegFound,
+    string? FfmpegPath,
+    IReadOnlyList<string> Accelerators,
+    IReadOnlyList<string> Decoders,
+    DateTime ProbedAtUtc);
 
 public sealed record SystemUiAssetUploadResult(string Path, string FileName);
 
