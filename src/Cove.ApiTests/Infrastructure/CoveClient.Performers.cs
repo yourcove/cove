@@ -17,6 +17,39 @@ public sealed partial class CoveClient
             System.Net.HttpStatusCode.OK,
             cancellationToken);
 
+    public Task<PerformerDto> ScrapePerformerUrlAsync(
+        int performerId,
+        PerformerScrapeUrlRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/scrape-url",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<PerformerDto> ScrapePerformerAsync(
+        int performerId,
+        PerformerScrapeRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/scrape",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<PerformerScrapePreviewDto> PreviewPerformerScrapeAsync(
+        int performerId,
+        PerformerScrapeRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerScrapePreviewDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/scrape-preview",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<PerformerDto> CreatePerformerAsync(
         PerformerCreateDto performer,
         CancellationToken cancellationToken = default)
