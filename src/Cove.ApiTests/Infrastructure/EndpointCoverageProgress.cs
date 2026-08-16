@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 479;
+    public const int ExpectedMappedEndpoints = 480;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 25;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 24;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -29,7 +29,6 @@ public static class EndpointCoverageProgress
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
-        POST /api/database/wipe
         POST /api/extensions/registry/install
         POST /api/faces/{id:int}/not-present
         POST /api/faces/{id:int}/split
