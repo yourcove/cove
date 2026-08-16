@@ -33,6 +33,25 @@ public sealed partial class CoveClient
             HttpStatusCode.OK,
             cancellationToken);
 
+    public Task<ConfigBackupResultDto> BackupConfigAsync(
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ConfigBackupResultDto>(
+            HttpMethod.Post,
+            "/api/database/config/backup",
+            payload: null,
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<RestoreConfigResponse> RestoreConfigAsync(
+        string backupPath,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<RestoreConfigResponse>(
+            HttpMethod.Post,
+            "/api/database/config/restore",
+            new RestoreBackupRequestDto(backupPath),
+            HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<DatabaseOperationMessage> OptimizeDatabaseAsync(
         CancellationToken cancellationToken = default)
         => SendForExpectedStatusAsync<DatabaseOperationMessage>(
@@ -59,3 +78,5 @@ public sealed partial class CoveClient
 public sealed record DatabaseOperationMessage(string Message);
 
 public sealed record LatestBackupResponse(string Path);
+
+public sealed record RestoreConfigResponse(string Message, string BackupPath);
