@@ -41,6 +41,16 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<CoveConfigDto> SaveSystemConfigAsync(
+        CoveConfigDto config,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<CoveConfigDto>(
+            HttpMethod.Put,
+            "/api/system/config",
+            config,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<StatsDto> GetSystemStatsAsync(
         CancellationToken cancellationToken = default)
         => SendAsync<StatsDto>(
