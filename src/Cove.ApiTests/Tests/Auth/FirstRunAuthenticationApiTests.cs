@@ -96,6 +96,35 @@ public sealed class FirstRunAuthenticationApiTests
         after.GetProperty("hasSetupToken").GetBoolean().Should().BeFalse();
     }
 
+    [Fact]
+    [CoversEndpoint("POST", "/api/system/shutdown")]
+    public async Task GivenBootstrappedOwner_WhenShutdownIsRequested_ThenAnonymousCallIsDeniedAndTheHostExits()
+    {
+        await using var server = await CoveApiServer.StartAsync();
+        using var browser = new HttpClient { BaseAddress = server.BaseAddress };
+        var username = $"shutdown-owner-{Guid.NewGuid():N}";
+        var login = await PostForJsonAsync(
+            browser,
+            "/api/auth/bootstrap-owner",
+            new { username, password = ApiTestUsers.Password },
+            HttpStatusCode.OK);
+
+        (await PostForStatusAsync(server.BaseAddress, "/api/system/shutdown"))
+            .Should().Be(HttpStatusCode.Unauthorized);
+        (await GetBootstrapStatusAsync(browser)).GetProperty("ownerExists").GetBoolean()
+            .Should().BeTrue();
+
+        var result = await PostAuthenticatedForJsonAsync(
+            server.BaseAddress,
+            login.GetProperty("token").GetString()!,
+            "/api/system/shutdown",
+            HttpStatusCode.OK);
+        result.GetProperty("message").GetString().Should().Be("Shutdown requested.");
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await server.WaitForExitAsync(timeout.Token);
+    }
+
     private static async Task<JsonElement> GetBootstrapStatusAsync(
         HttpClient browser,
         CancellationToken cancellationToken = default)
@@ -121,6 +150,32 @@ public sealed class FirstRunAuthenticationApiTests
             body,
             ApiJson.Options,
             cancellationToken);
+        response.StatusCode.Should().Be(expectedStatus);
+        return await response.Content.ReadFromJsonAsync<JsonElement>(
+            ApiJson.Options,
+            cancellationToken);
+    }
+
+    private static async Task<HttpStatusCode> PostForStatusAsync(
+        Uri baseAddress,
+        string route,
+        CancellationToken cancellationToken = default)
+    {
+        using var client = new HttpClient { BaseAddress = baseAddress };
+        using var response = await client.PostAsync(route, content: null, cancellationToken);
+        return response.StatusCode;
+    }
+
+    private static async Task<JsonElement> PostAuthenticatedForJsonAsync(
+        Uri baseAddress,
+        string accessToken,
+        string route,
+        HttpStatusCode expectedStatus,
+        CancellationToken cancellationToken = default)
+    {
+        using var client = new HttpClient { BaseAddress = baseAddress };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var response = await client.PostAsync(route, content: null, cancellationToken);
         response.StatusCode.Should().Be(expectedStatus);
         return await response.Content.ReadFromJsonAsync<JsonElement>(
             ApiJson.Options,
