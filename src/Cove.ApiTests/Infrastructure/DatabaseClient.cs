@@ -1,6 +1,10 @@
 using System.Text.Json;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Data;
+using Cove.Data.Auth;
+using Cove.Data.Services;
+using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -13,6 +17,31 @@ public sealed class DatabaseClient
 
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
+
+    internal async Task<string> CreateSetupTokenAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Setup tokens are normally issued outside the public API before the first owner exists.
+        // Seed only that deployment-provisioning input so the anonymous redemption route can be
+        // exercised against an otherwise untouched, pre-owner API host.
+        var (token, tokenHash) = TokenService.NewOpaqueToken();
+        var now = DateTime.UtcNow;
+        db.UserInviteTokens.Add(new UserInviteToken
+        {
+            TokenHash = tokenHash,
+            Purpose = "setup",
+            ExpiresAt = now.AddHours(1),
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return token;
+    }
 
     public async Task<IReadOnlyDictionary<string, string>> GetFileFingerprintsAsync(
         int fileId,
