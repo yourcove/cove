@@ -17,6 +17,9 @@ public sealed class PerformerScraperApiTests(
     private const string ScraperId = "api-test.performer";
 
     [Fact]
+    [CoversEndpoint("POST", "/api/system/scrapers/scrape-name")]
+    [CoversEndpoint("POST", "/api/system/scrapers/scrape-fragment")]
+    [CoversEndpoint("POST", "/api/performers/{id:int}/scrape-preview")]
     public async Task GivenDeterministicPerformerProvider_WhenSystemNameFragmentAndPreviewRun_ThenResultsAndPermissionsAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
@@ -96,6 +99,8 @@ public sealed class PerformerScraperApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/performers/{id:int}/scrape-url")]
+    [CoversEndpoint("POST", "/api/performers/{id:int}/scrape")]
     public async Task GivenPerformerScrapeInputs_WhenMemberAppliesUrlAndNameResults_ThenMetadataAuthorizationAndControlsAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
