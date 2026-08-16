@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 433;
+    public const int ExpectedMappedEndpoints = 437;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 71;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 67;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -17,10 +17,8 @@ public static class EndpointCoverageProgress
     public static IReadOnlyList<EndpointCoverageException> Exceptions { get; } = [];
 
     private const string TemporaryUnmappedEndpointText = """
-        DELETE /api/apitokens/{id:guid}
         DELETE /api/auth/external/links/{linkid:int}
         DELETE /api/jobs/{jobid}
-        DELETE /api/share-links/{id:guid}
         DELETE /api/tags/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
@@ -38,7 +36,6 @@ public static class EndpointCoverageProgress
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
         GET /api/system/ffmpeg-capabilities
-        POST /api/apitokens
         POST /api/auth/bootstrap-owner
         POST /api/auth/external/links/cancel
         POST /api/auth/external/links/confirm
@@ -72,7 +69,6 @@ public static class EndpointCoverageProgress
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
-        POST /api/share-links
         POST /api/stash-migration/import
         POST /api/system/config/ui
         POST /api/system/scrapers/scrape-fragment
