@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 437;
+    public const int ExpectedMappedEndpoints = 442;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 67;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 62;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -31,7 +31,6 @@ public static class EndpointCoverageProgress
         GET /api/faces/{id:int}/host-tracks
         GET /api/jobs/backup/latest
         GET /api/jobs/history
-        GET /api/scrape-attempts/{id:guid}
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
@@ -62,13 +61,9 @@ public static class EndpointCoverageProgress
         POST /api/jobs/generate-video-phashes
         POST /api/jobs/scan
         POST /api/performers/merge
-        POST /api/performers/{id:int}/apply-scraped
         POST /api/performers/{id:int}/scrape
         POST /api/performers/{id:int}/scrape-preview
         POST /api/performers/{id:int}/scrape-url
-        POST /api/scrape-attempts
-        POST /api/scrape-attempts/resolve-relations
-        POST /api/scrape-attempts/{id:guid}/apply
         POST /api/stash-migration/import
         POST /api/system/config/ui
         POST /api/system/scrapers/scrape-fragment

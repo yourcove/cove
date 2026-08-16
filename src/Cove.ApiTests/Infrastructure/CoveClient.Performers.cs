@@ -6,6 +6,17 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<PerformerDto> ApplyScrapedPerformerAsync(
+        int performerId,
+        PerformerApplyScrapedRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/apply-scraped",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<PerformerDto> CreatePerformerAsync(
         PerformerCreateDto performer,
         CancellationToken cancellationToken = default)
