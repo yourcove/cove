@@ -51,6 +51,27 @@ public sealed partial class CoveClient
             System.Net.HttpStatusCode.OK,
             cancellationToken);
 
+    public Task<SystemUiConfigResult> ConfigureSystemUiAsync(
+        IReadOnlyDictionary<string, object?> input,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<SystemUiConfigResult>(
+            HttpMethod.Post,
+            "/api/system/config/ui",
+            input,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<SystemUiSettingResult> ConfigureSystemUiSettingAsync(
+        string key,
+        object? value,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<SystemUiSettingResult>(
+            HttpMethod.Put,
+            $"/api/system/config/ui/{Uri.EscapeDataString(key)}",
+            value,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<StatsDto> GetSystemStatsAsync(
         CancellationToken cancellationToken = default)
         => SendAsync<StatsDto>(
@@ -260,6 +281,10 @@ public sealed partial class CoveClient
         return await ApiResponse.ReadAsync<SystemUiAssetUploadResult>(response, $"POST {requestUri}", cancellationToken);
     }
 }
+
+public sealed record SystemUiConfigResult(bool Success);
+
+public sealed record SystemUiSettingResult(string Key, JsonElement Value, bool Success);
 
 public sealed record SystemLogLevelStatus(
     string Level,
