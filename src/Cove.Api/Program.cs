@@ -264,6 +264,7 @@ try
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
     builder.Services.AddSingleton(coveCfgInstance);
+    builder.Services.AddSingleton<IFileManagerLauncher, FileManagerLauncher>();
 
     // Database - EF Core + PostgreSQL
     var pgSection = coveConfig.GetSection("Postgres");

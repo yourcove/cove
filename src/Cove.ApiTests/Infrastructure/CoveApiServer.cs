@@ -22,6 +22,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private readonly MetadataServiceSimulator _metadataService;
     private readonly DownloadSourceSimulator _downloadSource;
     private readonly ExtensionRegistrySimulator _extensionRegistry;
+    private readonly ApiTestFileManagerRecorder _fileManagerRecorder;
     private readonly Process _process;
     private readonly string _dataRoot;
     private readonly string _faceSuggestionPlanPath;
@@ -34,6 +35,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         MetadataServiceSimulator metadataService,
         DownloadSourceSimulator downloadSource,
         ExtensionRegistrySimulator extensionRegistry,
+        ApiTestFileManagerRecorder fileManagerRecorder,
         Process process,
         Uri baseAddress,
         string dataRoot,
@@ -46,6 +48,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _metadataService = metadataService;
         _downloadSource = downloadSource;
         _extensionRegistry = extensionRegistry;
+        _fileManagerRecorder = fileManagerRecorder;
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
@@ -59,6 +62,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public MetadataServiceSimulator MetadataService => _metadataService;
     public DownloadSourceSimulator DownloadSource => _downloadSource;
     public ExtensionRegistrySimulator ExtensionRegistry => _extensionRegistry;
+    public ApiTestFileManagerRecorder FileManagerRecorder => _fileManagerRecorder;
     public ApiTestFileSystem FileSystem { get; }
     public DatabaseClient DbUser => new(_database.ConnectionString);
     internal long ProcessStartedTimestamp { get; private init; }
@@ -74,6 +78,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
         var libraryPath = Path.Combine(dataRoot, "library");
         var faceSuggestionPlanPath = Path.Combine(dataRoot, "face-suggestion-plan.json");
+        ApiTestFileManagerRecorder? fileManagerRecorder = null;
         var resetToken = Convert.ToHexString(Guid.NewGuid().ToByteArray());
         var output = new ConcurrentQueue<string>();
 
@@ -81,6 +86,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         {
             Directory.CreateDirectory(dataRoot);
             Directory.CreateDirectory(libraryPath);
+            fileManagerRecorder = ApiTestFileManagerRecorder.Create(dataRoot);
             InstallFaceSuggestionProvider(dataRoot);
             await WriteFaceSuggestionPlanAsync(
                 faceSuggestionPlanPath,
@@ -95,6 +101,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 database.ConnectionString,
                 metadataService.Endpoint,
                 extensionRegistry.Endpoint,
+                fileManagerRecorder,
                 libraryPath,
                 faceSuggestionPlanPath,
                 resetToken,
@@ -110,6 +117,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 metadataService,
                 downloadSource,
                 extensionRegistry,
+                fileManagerRecorder,
                 process,
                 baseAddress,
                 dataRoot,
@@ -215,6 +223,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _metadataService.Reset();
         _downloadSource.Reset();
         _extensionRegistry.Reset();
+        _fileManagerRecorder.Reset();
         FileSystem.Reset();
         var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
         try
@@ -397,6 +406,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         string connectionString,
         Uri metadataServiceEndpoint,
         Uri extensionRegistryEndpoint,
+        ApiTestFileManagerRecorder fileManagerRecorder,
         string libraryPath,
         string faceSuggestionPlanPath,
         string resetToken,
@@ -424,6 +434,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__CovePaths__0__Path"] = libraryPath;
         startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
         startInfo.Environment["COVE__ExtensionRegistryBaseUrl"] = extensionRegistryEndpoint.AbsoluteUri;
+        fileManagerRecorder.Configure(startInfo);
         startInfo.Environment["COVE__ApiTestFaceSuggestions__PlanPath"] = faceSuggestionPlanPath;
         startInfo.Environment[
             "COVE__PluginConfigurations__com.cove.api-test-face-provider__apiTestBaseline"] = "preserved";

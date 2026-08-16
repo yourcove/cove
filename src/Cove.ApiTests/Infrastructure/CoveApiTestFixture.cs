@@ -25,6 +25,11 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
             .ExtensionRegistry;
 
+    internal ApiTestFileManagerRecorder FileManagerRecorder
+        => (_server
+            ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
+            .FileManagerRecorder;
+
     internal ApiTestFileSystem FileSystem
         => (_server
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))

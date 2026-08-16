@@ -42,6 +42,9 @@ public abstract class ApiTest : IAsyncLifetime
     protected ExtensionRegistrySimulator AsExtensionRegistry()
         => _fixture.ExtensionRegistry;
 
+    protected ApiTestFileManagerRecorder AsFileManagerRecorder()
+        => _fixture.FileManagerRecorder;
+
     protected ApiTestFileSystem AsTestFileSystem()
         => _fixture.FileSystem;
 

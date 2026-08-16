@@ -64,6 +64,21 @@ public sealed class DatabaseClient
                 cancellationToken);
     }
 
+    public async Task<int> GetFileParentFolderIdAsync(
+        int fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        return await db.Set<BaseFileEntity>()
+            .AsNoTracking()
+            .Where(file => file.Id == fileId)
+            .Select(file => file.ParentFolderId)
+            .SingleAsync(cancellationToken);
+    }
+
     public async Task AttachVideoFileAsync(
         int videoId,
         double duration,
