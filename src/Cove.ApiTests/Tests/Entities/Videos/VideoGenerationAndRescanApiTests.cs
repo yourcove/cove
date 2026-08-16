@@ -14,6 +14,9 @@ public sealed class VideoGenerationAndRescanApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/generate-screenshot")]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/cover/from-frame")]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/rescan")]
     public async Task GivenDecodableVideo_WhenFramesAndRescanAreRequested_ThenGeneratedCoverAndFileMetricsPersist()
     {
         var ffmpegCapabilities = await AsUser().GetFfmpegCapabilitiesAsync();
