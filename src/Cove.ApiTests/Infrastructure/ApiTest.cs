@@ -39,6 +39,9 @@ public abstract class ApiTest : IAsyncLifetime
     protected DownloadSourceSimulator AsDownloadSource()
         => _fixture.DownloadSource;
 
+    protected ExtensionRegistrySimulator AsExtensionRegistry()
+        => _fixture.ExtensionRegistry;
+
     protected ApiTestFileSystem AsTestFileSystem()
         => _fixture.FileSystem;
 

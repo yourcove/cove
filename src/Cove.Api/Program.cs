@@ -395,7 +395,10 @@ try
         var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
         var http = httpFactory.CreateClient("ExtensionRegistry");
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Cove/1.0");
-        return new GitHubExtensionRegistry(http, coveVersion: extensionContext.CoveVersion);
+        return new GitHubExtensionRegistry(
+            http,
+            coveVersion: extensionContext.CoveVersion,
+            registryBaseUrl: coveConfig.GetValue<string>("ExtensionRegistryBaseUrl"));
     });
     builder.Services.AddHttpClient("ExtensionRegistry");
     builder.Services.AddHostedService<ExtensionEventBridge>();

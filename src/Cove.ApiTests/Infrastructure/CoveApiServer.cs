@@ -21,6 +21,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private readonly PostgreSqlTestDatabase _database;
     private readonly MetadataServiceSimulator _metadataService;
     private readonly DownloadSourceSimulator _downloadSource;
+    private readonly ExtensionRegistrySimulator _extensionRegistry;
     private readonly Process _process;
     private readonly string _dataRoot;
     private readonly string _faceSuggestionPlanPath;
@@ -32,6 +33,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         PostgreSqlTestDatabase database,
         MetadataServiceSimulator metadataService,
         DownloadSourceSimulator downloadSource,
+        ExtensionRegistrySimulator extensionRegistry,
         Process process,
         Uri baseAddress,
         string dataRoot,
@@ -43,6 +45,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _database = database;
         _metadataService = metadataService;
         _downloadSource = downloadSource;
+        _extensionRegistry = extensionRegistry;
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
@@ -55,6 +58,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public Uri BaseAddress { get; }
     public MetadataServiceSimulator MetadataService => _metadataService;
     public DownloadSourceSimulator DownloadSource => _downloadSource;
+    public ExtensionRegistrySimulator ExtensionRegistry => _extensionRegistry;
     public ApiTestFileSystem FileSystem { get; }
     public DatabaseClient DbUser => new(_database.ConnectionString);
     internal long ProcessStartedTimestamp { get; private init; }
@@ -65,6 +69,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         PostgreSqlTestDatabase? database = null;
         MetadataServiceSimulator? metadataService = null;
         DownloadSourceSimulator? downloadSource = null;
+        ExtensionRegistrySimulator? extensionRegistry = null;
         Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
         var libraryPath = Path.Combine(dataRoot, "library");
@@ -83,11 +88,13 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 cancellationToken);
             metadataService = await MetadataServiceSimulator.StartAsync(cancellationToken);
             downloadSource = await DownloadSourceSimulator.StartAsync(cancellationToken);
+            extensionRegistry = await ExtensionRegistrySimulator.StartAsync(cancellationToken);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
             process = StartApiProcess(
                 dataRoot,
                 database.ConnectionString,
                 metadataService.Endpoint,
+                extensionRegistry.Endpoint,
                 libraryPath,
                 faceSuggestionPlanPath,
                 resetToken,
@@ -98,7 +105,18 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             using var startupClient = new HttpClient { BaseAddress = baseAddress };
             await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            return new CoveApiServer(database, metadataService, downloadSource, process, baseAddress, dataRoot, libraryPath, faceSuggestionPlanPath, resetToken, output)
+            return new CoveApiServer(
+                database,
+                metadataService,
+                downloadSource,
+                extensionRegistry,
+                process,
+                baseAddress,
+                dataRoot,
+                libraryPath,
+                faceSuggestionPlanPath,
+                resetToken,
+                output)
             {
                 ProcessStartedTimestamp = processStartedTimestamp,
                 ReadyTimestamp = Stopwatch.GetTimestamp(),
@@ -156,6 +174,18 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                     ? exception
                     : new AggregateException(cleanupError, exception);
             }
+
+            try
+            {
+                if (extensionRegistry is not null)
+                    await extensionRegistry.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                cleanupError = cleanupError is null
+                    ? exception
+                    : new AggregateException(cleanupError, exception);
+            }
             finally
             {
                 TryDeleteDataRoot(dataRoot);
@@ -184,6 +214,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         }
         _metadataService.Reset();
         _downloadSource.Reset();
+        _extensionRegistry.Reset();
         FileSystem.Reset();
         var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
         try
@@ -334,6 +365,17 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 ? exception
                 : new AggregateException(cleanupError, exception);
         }
+
+        try
+        {
+            await _extensionRegistry.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            cleanupError = cleanupError is null
+                ? exception
+                : new AggregateException(cleanupError, exception);
+        }
         finally
         {
             TryDeleteDataRoot(_dataRoot);
@@ -354,6 +396,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         string dataRoot,
         string connectionString,
         Uri metadataServiceEndpoint,
+        Uri extensionRegistryEndpoint,
         string libraryPath,
         string faceSuggestionPlanPath,
         string resetToken,
@@ -380,6 +423,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__CachePath"] = Path.Combine(dataRoot, "cache");
         startInfo.Environment["COVE__CovePaths__0__Path"] = libraryPath;
         startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
+        startInfo.Environment["COVE__ExtensionRegistryBaseUrl"] = extensionRegistryEndpoint.AbsoluteUri;
         startInfo.Environment["COVE__ApiTestFaceSuggestions__PlanPath"] = faceSuggestionPlanPath;
         startInfo.Environment[
             "COVE__PluginConfigurations__com.cove.api-test-face-provider__apiTestBaseline"] = "preserved";
