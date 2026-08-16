@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 468;
+    public const int ExpectedMappedEndpoints = 470;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 36;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 34;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -44,7 +44,6 @@ public static class EndpointCoverageProgress
         POST /api/files/folders/{id:int}/reveal
         POST /api/files/{id:int}/reveal
         POST /api/stash-migration/import
-        POST /api/system/config/ui
         POST /api/system/shutdown
         POST /api/tags/merge
         POST /api/videos/{id:int}/cover/from-frame
@@ -52,6 +51,5 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rescan
-        PUT /api/system/config/ui/{key}
         """;
 }

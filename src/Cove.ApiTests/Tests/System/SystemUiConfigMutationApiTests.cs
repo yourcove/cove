@@ -13,6 +13,8 @@ public sealed class SystemUiConfigMutationApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("POST", "/api/system/config/ui")]
+    [CoversEndpoint("PUT", "/api/system/config/ui/{key}")]
     public async Task GivenTaskLocalUiConfiguration_WhenOwnerMergesAndSetsValues_ThenChangesPersistWithoutReplacingOtherValues()
     {
         var original = await AsUser().GetSystemConfigAsync();
