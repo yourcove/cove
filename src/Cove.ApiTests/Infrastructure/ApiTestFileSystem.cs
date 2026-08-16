@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 
@@ -68,6 +69,26 @@ public sealed class ApiTestFileSystem
         var path = ResolveLibraryChildPath(relativePath, nameof(relativePath));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, contents);
+        return path;
+    }
+
+    public string CreateGalleryArchive(string fileName, string imageFileName, byte[] imageContents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(imageFileName);
+        ArgumentNullException.ThrowIfNull(imageContents);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal)
+            || !string.Equals(Path.GetExtension(fileName), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "Gallery test archives must use a leaf .zip filename under the library root.");
+        if (!string.Equals(Path.GetFileName(imageFileName), imageFileName, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(imageFileName), "Gallery archive entries must use a leaf filename.");
+
+        var path = Path.Combine(LibraryPath, fileName);
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        var entry = archive.CreateEntry(imageFileName, CompressionLevel.NoCompression);
+        entry.LastWriteTime = DateTimeOffset.UtcNow.AddMinutes(-1);
+        using var entryStream = entry.Open();
+        entryStream.Write(imageContents);
         return path;
     }
 

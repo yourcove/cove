@@ -67,6 +67,20 @@ public sealed partial class CoveClient
             update,
             cancellationToken);
 
+    public async Task<string> RescanGalleryAsync(
+        int galleryId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendForExpectedStatusAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/galleries/{galleryId}/rescan",
+            payload: null,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST /api/galleries/{galleryId}/rescan did not return a job id.");
+    }
+
     public Task<PaginatedResponse<GalleryDto>> FindGalleriesAsync(
         FilteredQueryRequest<GalleryFilter> request,
         CancellationToken cancellationToken = default)
