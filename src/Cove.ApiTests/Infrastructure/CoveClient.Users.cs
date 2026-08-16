@@ -64,6 +64,28 @@ public sealed partial class CoveClient
             null,
             cancellationToken);
 
+    public Task RemoveUserExternalLinkAsync(
+        int userId,
+        int linkId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/users/{userId}/external-links/{linkId}",
+            new { },
+            cancellationToken);
+
+    public async Task<HttpStatusCode> TryRemoveUserExternalLinkStatusAsync(
+        int userId,
+        int linkId,
+        CancellationToken cancellationToken = default)
+    {
+        using var client = CreateHttpClient();
+        using var response = await client.DeleteAsync(
+            $"/api/users/{userId}/external-links/{linkId}",
+            cancellationToken);
+        return response.StatusCode;
+    }
+
     public async Task<bool> TryLoginAsync(
         string username,
         string password,

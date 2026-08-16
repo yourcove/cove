@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 470;
+    public const int ExpectedMappedEndpoints = 476;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 34;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 28;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -17,9 +17,7 @@ public static class EndpointCoverageProgress
     public static IReadOnlyList<EndpointCoverageException> Exceptions { get; } = [];
 
     private const string TemporaryUnmappedEndpointText = """
-        DELETE /api/auth/external/links/{linkid:int}
         DELETE /api/tags/{id:int}
-        DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
         GET /api/extensions/registry/categories
         GET /api/extensions/registry/search
@@ -32,10 +30,6 @@ public static class EndpointCoverageProgress
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
         POST /api/auth/bootstrap-owner
-        POST /api/auth/external/links/cancel
-        POST /api/auth/external/links/confirm
-        POST /api/auth/external/links/preview
-        POST /api/auth/external/redeem
         POST /api/auth/setup-token-redeem
         POST /api/database/wipe
         POST /api/extensions/registry/install

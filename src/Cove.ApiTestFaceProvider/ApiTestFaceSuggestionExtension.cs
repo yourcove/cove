@@ -1,8 +1,12 @@
 using System.Text.Json;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Cove.Sdk;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,8 +16,10 @@ namespace Cove.ApiTestFaceProvider;
 /// A deliberately small runtime extension used only by API tests. Its plan is owned by the
 /// corresponding test host, rather than static state, so the two API-test lanes cannot affect each other.
 /// </summary>
-public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefulExtension, IJobExtension, IScraperProvider
+public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefulExtension, IJobExtension, IScraperProvider, IApiExtension
 {
+    public const string ExtensionId = "com.cove.api-test-face-provider";
+    public const string ExternalIdentityProviderId = "api-test.external";
     public const string PerformerScraperId = "api-test.performer";
     public const string RecordParametersJobId = "record-parameters";
     public const string JobParametersStoreKey = "api-test.job.parameters";
@@ -116,6 +122,43 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
     public void SetStore(IExtensionStore store)
         => _store = store ?? throw new ArgumentNullException(nameof(store));
 
+    public void MapEndpoints(IEndpointRouteBuilder endpoints)
+    {
+        var prefix = $"/api/plugins/{Id}/api-test-auth";
+
+        endpoints.MapPost(
+                $"{prefix}/links/prepare",
+                async (
+                    HttpContext context,
+                    IExtensionIdentityLinkService links,
+                    ApiTestExternalIdentityRequest request,
+                    CancellationToken ct) => Results.Ok(await links.PrepareDirectLinkAsync(
+                    context,
+                    BuildExternalIdentity(request),
+                    ct)))
+            .AllowWithoutCovePermission();
+
+        endpoints.MapPost(
+                $"{prefix}/login/begin",
+                (HttpContext context, IExtensionLoginSessionService sessions) =>
+                    Results.Ok(new ApiTestExternalLoginBrowser(
+                        sessions.BeginBrowserSession(context))))
+            .AllowCoveAnonymous();
+
+        endpoints.MapPost(
+                $"{prefix}/login/complete",
+                async (
+                    HttpContext context,
+                    IExtensionLoginSessionService sessions,
+                    ApiTestExternalLoginCompletionRequest request,
+                    CancellationToken ct) => Results.Ok(await sessions.CompleteAsync(
+                    context,
+                    request.BrowserBinding,
+                    BuildExternalIdentity(request.Identity),
+                    ct)))
+            .AllowCoveAnonymous();
+    }
+
     public async Task RunJobAsync(
         string jobId,
         IReadOnlyDictionary<string, string>? parameters,
@@ -170,6 +213,15 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
             Aliases = ["API Test Scraped Alias"],
             TagNames = ["API Test Scraped Tag"],
         };
+
+    private static ExtensionIdentityAssertion BuildExternalIdentity(
+        ApiTestExternalIdentityRequest request) => new(
+        ExtensionId,
+        ExternalIdentityProviderId,
+        request.Subject,
+        "api-test",
+        request.ProviderLabel,
+        request.AccountLabel);
 }
 
 public sealed class ApiTestDependencyExtension : CoveExtensionBase
@@ -184,6 +236,17 @@ public sealed class ApiTestDependencyExtension : CoveExtensionBase
     {
     }
 }
+
+public sealed record ApiTestExternalIdentityRequest(
+    string Subject,
+    string ProviderLabel,
+    string? AccountLabel);
+
+public sealed record ApiTestExternalLoginBrowser(string BrowserBinding);
+
+public sealed record ApiTestExternalLoginCompletionRequest(
+    string BrowserBinding,
+    ApiTestExternalIdentityRequest Identity);
 
 internal sealed class PlannedFaceSuggester(IConfiguration configuration) : IFaceSuggester
 {
