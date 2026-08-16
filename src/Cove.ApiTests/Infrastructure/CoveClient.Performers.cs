@@ -22,6 +22,17 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => SendAsync<PerformerDto>(HttpMethod.Post, "/api/performers", performer, cancellationToken);
 
+    public Task<PerformerDto> MergePerformersAsync(
+        int targetId,
+        IReadOnlyCollection<int> sourceIds,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            "/api/performers/merge",
+            new PerformerMergeDto(targetId, sourceIds.ToList()),
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<PerformerDto> GetPerformerByIdAsync(
         int performerId,
         CancellationToken cancellationToken = default)
