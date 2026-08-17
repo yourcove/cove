@@ -741,7 +741,7 @@ public class SegmentCoreControllerTests
         Assert.Equal(11, detailDto.Intervals[0].StartSec);
         Assert.Equal(12, detailDto.Intervals[0].EndSec);
 
-        var groupController = new GroupItemsController(context, spanResolver);
+        var groupController = CreateGroupItemsController(context, spanResolver);
         var createFromSpansResult = await groupController.CreateFromSpans(group.Id, new GroupItemsFromSpansDto([
             new GroupItemSpanInputDto(derivedSpan.SpanKey, video.Id, null, null, null, null)
         ]), CancellationToken.None);
@@ -789,7 +789,7 @@ public class SegmentCoreControllerTests
         await context.SaveChangesAsync();
 
         var spanResolver = new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
-        var controller = new GroupItemsController(context, spanResolver);
+        var controller = CreateGroupItemsController(context, spanResolver);
         var derivedQuery = new SegmentSpanDerivedQueryDto(
             "intersection",
             [
@@ -1973,7 +1973,7 @@ public class SegmentCoreControllerTests
         context.Videos.AddRange(videoA, videoB);
         await context.SaveChangesAsync();
 
-        var controller = new GroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+        var controller = CreateGroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
 
         var createVideoResult = await controller.Create(group.Id, new GroupItemCreateDto(
             0,
@@ -2054,7 +2054,7 @@ public class SegmentCoreControllerTests
         context.Segments.Add(segment);
         await context.SaveChangesAsync();
 
-        var controller = new GroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
+        var controller = CreateGroupItemsController(context, new SegmentSpanResolver(context, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions())));
 
         var createAudioResult = await controller.Create(group.Id, new GroupItemCreateDto(
             0,
@@ -2206,7 +2206,7 @@ public class SegmentCoreControllerTests
         var resolved = await spanResolver.ResolveVideoAsync(video.Id, profile.Id, CancellationToken.None);
         var span = Assert.Single(resolved.Spans);
 
-        var controller = new GroupItemsController(context, spanResolver);
+        var controller = CreateGroupItemsController(context, spanResolver);
         var createFromSpansResult = await controller.CreateFromSpans(group.Id, new GroupItemsFromSpansDto([
             new GroupItemSpanInputDto(span.SpanKey, video.Id, null, null, null, profile.Id)
         ]), CancellationToken.None);
@@ -2238,6 +2238,28 @@ public class SegmentCoreControllerTests
         var context = new SegmentCoreTestContext(options);
         await context.Database.EnsureCreatedAsync();
         return new TestContextScope(context, connection);
+    }
+
+    private static GroupItemsController CreateGroupItemsController(CoveContext context, SegmentSpanResolver spanResolver)
+    {
+        var principalAccessor = new CurrentPrincipalAccessor();
+        principalAccessor.Set(CreatePrincipal(1));
+        return new GroupItemsController(context, spanResolver, new AllowAllAuthorizationService(), principalAccessor);
+    }
+
+    private sealed class AllowAllAuthorizationService : IAuthorizationService
+    {
+        public AuthorizationResult Authorize(CovePrincipal? principal, string permission, EntityRef? entity = null)
+            => AuthorizationResult.Allow();
+
+        public Task<AuthorizationResult> AuthorizeAsync(CovePrincipal? principal, string permission, EntityRef? entity, CancellationToken ct)
+            => Task.FromResult(AuthorizationResult.Allow());
+
+        public void Require(CovePrincipal? principal, string permission, EntityRef? entity = null)
+        {
+        }
+
+        public bool Has(CovePrincipal? principal, string permission) => true;
     }
 
     private static ServiceProvider CreateSegmentControllerServiceProvider(SqliteConnection connection)

@@ -103,7 +103,8 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         if (gallery.ImageBlobId != null)
             return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/galleries/{id}/image", max, v)));
 
-        if (gallery.CoverImageId.HasValue)
+        if (gallery.CoverImageId.HasValue
+            && await db.Images.AsNoTracking().AnyAsync(image => image.Id == gallery.CoverImageId.Value, ct))
             return Redirect(QueryCredentials.Preserve(Request, WithQuery($"/api/stream/image/{gallery.CoverImageId.Value}/thumbnail", max, v)));
 
         var firstImageId = await db.Set<ImageGallery>()
@@ -128,6 +129,10 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
     [HttpPost]
     [RequiresPermission(Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "PerformerIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GalleryDto>> Create([FromBody] GalleryCreateDto dto, CancellationToken ct)
     {
         var gallery = new Gallery
@@ -158,6 +163,10 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "PerformerIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GalleryDto>> Update(int id, [FromBody] GalleryUpdateDto dto, CancellationToken ct)
     {
         var gallery = await galleryRepo.GetByIdWithRelationsAsync(id, ct);
@@ -268,16 +277,21 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Gallery, gallery.Id, cancellationToken)).ToList();
+        var visibleCoverImageId = gallery.CoverImageId.HasValue
+            && await db.Images.AsNoTracking().AnyAsync(image => image.Id == gallery.CoverImageId.Value, cancellationToken)
+                ? gallery.CoverImageId
+                : null;
         return MapToDto(
             gallery,
             customFieldValues,
             GetRelationshipCount(relationshipCounts.ImageCounts, gallery.Id),
             GetRelationshipCount(relationshipCounts.VideoCounts, gallery.Id),
             provenanceLookup,
-            fieldProvenance);
+            fieldProvenance,
+            visibleCoverImageId: visibleCoverImageId);
     }
 
-    private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null, string? displayName = null) => new(
+    private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null, string? displayName = null, int? visibleCoverImageId = null) => new(
         g.Id, g.Title, g.Code, g.Date?.ToString("yyyy-MM-dd"), g.Details, g.Photographer,
         g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
@@ -291,8 +305,8 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             f.Fingerprints?.Select(fp => new FingerprintDto(fp.Type, fp.Value)).ToList() ?? [])).ToList() ?? [],
         customFieldValues,
         g.CreatedAt.ToString("o"), g.UpdatedAt.ToString("o"),
-        ResolveCoverPath(g, imageCount, videoCount),
-        g.CoverImageId,
+        ResolveCoverPath(g, imageCount, videoCount, visibleCoverImageId),
+        visibleCoverImageId,
         g.BackImageBlobId != null ? EntityImageUrls.GalleryBackCover(ControllerContext.HttpContext, g.Id, g.UpdatedAt) : null,
         fieldProvenance,
         displayName ?? ResolveGalleryDisplayName(g)
@@ -325,11 +339,11 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     }
 
     /// <summary>Resolve cover image URL through the unified gallery cover endpoint.</summary>
-    private string? ResolveCoverPath(Gallery g, int? imageCount = null, int? videoCount = null)
+    private string? ResolveCoverPath(Gallery g, int? imageCount = null, int? videoCount = null, int? visibleCoverImageId = null)
     {
         var resolvedImageCount = imageCount ?? g.ImageCount;
         var resolvedVideoCount = videoCount ?? g.VideoCount;
-        if (g.ImageBlobId != null || g.CoverImageId != null || resolvedImageCount > 0 || resolvedVideoCount > 0) return EntityImageUrls.GalleryCover(ControllerContext.HttpContext, g.Id, g.UpdatedAt);
+        if (g.ImageBlobId != null || visibleCoverImageId != null || resolvedImageCount > 0 || resolvedVideoCount > 0) return EntityImageUrls.GalleryCover(ControllerContext.HttpContext, g.Id, g.UpdatedAt);
         return null;
     }
 
@@ -348,12 +362,17 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         var customFieldValues = await _customFields.GetValuesAsync(CustomFieldEntityTypes.Gallery, ids, ct);
         var relationshipCounts = await GetRelationshipCountsAsync(ids, ct);
         var displayNames = await GetDisplayNameFallbacksAsync(ids, ct);
+        var requestedCoverIds = items.Where(item => item.CoverImageId.HasValue).Select(item => item.CoverImageId!.Value).Distinct().ToArray();
+        var visibleCoverIds = requestedCoverIds.Length == 0
+            ? []
+            : (await db.Images.AsNoTracking().Where(image => requestedCoverIds.Contains(image.Id)).Select(image => image.Id).ToListAsync(ct)).ToHashSet();
         return items.Select(g => MapToDto(
             g,
             GetCustomFields(customFieldValues, g.Id),
             GetRelationshipCount(relationshipCounts.ImageCounts, g.Id),
             GetRelationshipCount(relationshipCounts.VideoCounts, g.Id),
-            displayName: displayNames.GetValueOrDefault(g.Id))).ToList();
+            displayName: displayNames.GetValueOrDefault(g.Id),
+            visibleCoverImageId: g.CoverImageId.HasValue && visibleCoverIds.Contains(g.CoverImageId.Value) ? g.CoverImageId : null)).ToList();
     }
 
     private async Task<GalleryRelationshipCounts> GetRelationshipCountsAsync(IReadOnlyCollection<int> galleryIds, CancellationToken ct)
@@ -445,6 +464,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [HttpPost("{id:int}/images")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> AddImages(int id, [FromBody] GalleryAddImagesDto dto, CancellationToken ct)
     {
         var gallery = await db.Galleries.Include(g => g.ImageGalleries).FirstOrDefaultAsync(g => g.Id == id, ct);
@@ -464,6 +484,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [HttpDelete("{id:int}/images")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> RemoveImages(int id, [FromBody] GalleryRemoveImagesDto dto, CancellationToken ct)
     {
         var toRemove = await db.Set<ImageGallery>()
@@ -547,6 +568,9 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "PerformerIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkGalleryUpdateDto dto, CancellationToken ct)
     {
         var galleries = await db.Galleries

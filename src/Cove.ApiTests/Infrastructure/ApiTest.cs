@@ -54,6 +54,13 @@ public abstract class ApiTest : IAsyncLifetime
         return client;
     }
 
+    protected CoveClient AsAnonymous()
+    {
+        var client = new CoveClient("anonymous", ApiUri, _ => { });
+        _credentialClients.Add(client);
+        return client;
+    }
+
     protected DatabaseClient AsDbUser()
         => _fixture.DbUser;
 

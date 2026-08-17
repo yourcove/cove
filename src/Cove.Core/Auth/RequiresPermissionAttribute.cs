@@ -8,6 +8,13 @@ public enum PermissionMode
     Any,
 }
 
+public enum EntityAccessDeniedBehavior
+{
+    Default,
+    NotFound,
+    Forbidden,
+}
+
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = true)]
 public sealed class RequiresPermissionAttribute : Attribute
 {
@@ -44,6 +51,7 @@ public sealed class RequiresEntityAccessAttribute : Attribute
     public string? RouteValueName { get; init; } = "id";
     public string? ActionArgumentName { get; init; }
     public string? PropertyName { get; init; }
+    public EntityAccessDeniedBehavior DeniedBehavior { get; init; }
 
     public RequiresEntityAccessAttribute(string entityKind, string permission)
     {

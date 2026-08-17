@@ -307,6 +307,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     [HttpPost]
     [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<AudioDto>> Create([FromBody] AudioCreateDto dto, CancellationToken ct)
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
@@ -370,6 +372,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.AudiosWrite)]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<AudioDto>> Update(int id, [FromBody] AudioUpdateDto dto, CancellationToken ct)
     {
         var audio = await db.Audios

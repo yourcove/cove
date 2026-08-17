@@ -268,6 +268,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     [HttpPost]
     [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "Groups.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<VideoDto>> Create([FromBody] VideoCreateDto dto, CancellationToken ct)
     {
         Video? parentVideo = null;
@@ -347,6 +349,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.VideosWrite)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "Groups.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<VideoDto>> Update(int id, [FromBody] VideoUpdateDto dto, CancellationToken ct)
     {
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
@@ -1362,6 +1366,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.VideosWrite)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkVideoUpdateDto dto, CancellationToken ct)
     {
         var videos = await db.Videos

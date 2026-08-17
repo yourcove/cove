@@ -86,6 +86,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
 
     [HttpPost]
     [RequiresPermission(Permissions.ImagesWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<ImageDto>> Create([FromBody] ImageCreateDto dto, CancellationToken ct)
     {
         var image = new Image
@@ -130,6 +132,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<ImageDto>> Update(int id, [FromBody] ImageUpdateDto dto, CancellationToken ct)
     {
         var image = await imageRepo.GetByIdWithRelationsAsync(id, ct);
@@ -431,6 +435,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GalleryIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkImageUpdateDto dto, CancellationToken ct)
     {
         var images = await db.Images
