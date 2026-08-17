@@ -37,6 +37,7 @@ public class MetadataController(
 
     [HttpPost("scan")]
     [RequiresPermission(Permissions.LibraryScan)]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> StartScan([FromBody] ScanOptionsDto? opts)
     {
         var enableAllGenerators = opts?.ScanGenerators == true;
@@ -190,7 +191,11 @@ public class MetadataController(
 
     [HttpPost("generate")]
     [RequiresPermission(Permissions.JobsRun)]
+    [RequiresUnscopedEntityAccess("write")]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "opts", PropertyName = "VideoIds")]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite, ActionArgumentName = "opts", PropertyName = "ImageIds")]
+    [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite, ActionArgumentName = "opts", PropertyName = "AudioIds")]
+    [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite, ActionArgumentName = "opts", PropertyName = "TextIds")]
     public ActionResult<object> StartGenerate([FromBody] GenerateOptionsDto? opts)
     {
         var options = opts ?? new GenerateOptionsDto();
@@ -207,6 +212,7 @@ public class MetadataController(
 
     [HttpPost("clean")]
     [RequiresPermission(Permissions.LibraryClean)]
+    [RequiresUnscopedEntityAccess("delete")]
     public ActionResult<object> StartClean([FromBody] CleanOptionsDto? opts)
     {
         // Delegate to the zip-aware CleanService. The previous inline implementation flat-listed
@@ -618,6 +624,7 @@ public class MetadataController(
 
     [HttpPost("identify")]
     [RequiresPermission(Permissions.LibraryIdentify)]
+    [RequiresUnscopedEntityAccess("write", ActionArgumentName = "opts", PropertyName = "VideoIds")]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "opts", PropertyName = "VideoIds")]
     public ActionResult<object> StartIdentify([FromBody] IdentifyOptionsDto? opts)
     {
@@ -1089,6 +1096,7 @@ public class MetadataController(
 
     [HttpPost("sync-fingerprints")]
     [RequiresPermission(Permissions.LibraryScan)]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> SyncFingerprints([FromBody] SyncFingerprintsOptionsDto? opts)
     {
         var sourceUrl = opts?.SourceUrl ?? "http://localhost:3000/graphql";

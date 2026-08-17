@@ -71,6 +71,9 @@ public sealed class AuthorizationService : IAuthorizationService
 
     private static string VerbFor(string permission)
     {
+        if (string.Equals(permission, Permissions.LibraryScan, StringComparison.OrdinalIgnoreCase))
+            return "write";
+
         var dot = permission.IndexOf('.');
         if (dot < 0) return "all";
 

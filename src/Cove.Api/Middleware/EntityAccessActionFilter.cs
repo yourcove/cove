@@ -4,9 +4,11 @@ using System.Reflection;
 using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
+using Cove.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.EntityFrameworkCore;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
 
 namespace Cove.Api.Middleware;
@@ -16,15 +18,18 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
     private readonly ICurrentPrincipalAccessor _principalAccessor;
     private readonly IAuthorizationService _authz;
     private readonly IAuditService _audit;
+    private readonly CoveContext _db;
 
     public EntityAccessActionFilter(
         ICurrentPrincipalAccessor principalAccessor,
         IAuthorizationService authz,
-        IAuditService audit)
+        IAuditService audit,
+        CoveContext db)
     {
         _principalAccessor = principalAccessor;
         _authz = authz;
         _audit = audit;
+        _db = db;
     }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
@@ -39,7 +44,11 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
         if (requirements.Count == 0)
             requirements = cad.ControllerTypeInfo.GetCustomAttributes(true).OfType<RequiresEntityAccessAttribute>().ToList();
 
-        if (requirements.Count == 0)
+        var unscopedRequirements = cad.MethodInfo.GetCustomAttributes(true).OfType<RequiresUnscopedEntityAccessAttribute>().ToList();
+        if (unscopedRequirements.Count == 0)
+            unscopedRequirements = cad.ControllerTypeInfo.GetCustomAttributes(true).OfType<RequiresUnscopedEntityAccessAttribute>().ToList();
+
+        if (requirements.Count == 0 && unscopedRequirements.Count == 0)
         {
             await next();
             return;
@@ -55,6 +64,45 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
             })
             { StatusCode = StatusCodes.Status401Unauthorized };
             return;
+        }
+
+        if (!principal.Has(Permissions.All))
+        {
+            foreach (var requirement in unscopedRequirements)
+            {
+                var selection = !string.IsNullOrWhiteSpace(requirement.ActionArgumentName)
+                    && context.ActionArguments.TryGetValue(requirement.ActionArgumentName, out var argument)
+                        ? ExtractValues(argument, requirement.PropertyName).ToList()
+                        : [];
+                if (!string.IsNullOrWhiteSpace(requirement.ActionArgumentName) && selection.Count > 0)
+                    continue;
+
+                var roleNames = principal.Roles.ToArray();
+                var hasDenies = await _db.RoleContentRules.AsNoTracking().AnyAsync(rule =>
+                        rule.Role != null && roleNames.Contains(rule.Role.Name)
+                        && rule.Effect == "deny"
+                        && (rule.AppliesTo == requirement.AppliesTo || rule.AppliesTo == "all"),
+                        context.HttpContext.RequestAborted)
+                    || await _db.RoleEntityOverrides.AsNoTracking().AnyAsync(overrideItem =>
+                        overrideItem.Role != null && roleNames.Contains(overrideItem.Role.Name)
+                        && overrideItem.Effect == "deny"
+                        && (overrideItem.AppliesTo == requirement.AppliesTo || overrideItem.AppliesTo == "all"),
+                        context.HttpContext.RequestAborted);
+                if (!hasDenies)
+                    continue;
+
+                context.Result = new ObjectResult(new
+                {
+                    code = "FORBIDDEN",
+                    message = $"Global library mutations require unrestricted {requirement.AppliesTo} access.",
+                })
+                { StatusCode = StatusCodes.Status403Forbidden };
+                await _audit.LogAsync(AuditActions.PermissionDeny, AuditOutcomes.Deny, principal,
+                    "endpoint", cad.DisplayName,
+                    new { reason = "scoped_global_library_mutation", appliesTo = requirement.AppliesTo,
+                        path = context.HttpContext.Request.Path.ToString() });
+                return;
+            }
         }
 
         foreach (var requirement in requirements)

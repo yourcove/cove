@@ -59,3 +59,11 @@ public sealed class RequiresEntityAccessAttribute : Attribute
         Permission = permission;
     }
 }
+
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = true)]
+public sealed class RequiresUnscopedEntityAccessAttribute(string appliesTo) : Attribute
+{
+    public string AppliesTo { get; } = appliesTo;
+    public string? ActionArgumentName { get; init; }
+    public string? PropertyName { get; init; }
+}
