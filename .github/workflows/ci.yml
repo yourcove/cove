@@ -136,7 +136,10 @@ jobs:
         run: dotnet tool restore
 
       - name: Test controller coverage tooling
-        run: node --test scripts/check-api-controller-coverage.test.mjs
+        run: >-
+          node --test
+          scripts/check-api-controller-coverage.test.mjs
+          scripts/prepare-coverage-gutters.test.mjs
 
       - name: Test (Fluent API)
         run: >-

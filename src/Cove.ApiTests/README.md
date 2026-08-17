@@ -72,12 +72,23 @@ dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage
 node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
 ```
 
-The coverage check deduplicates compiler-generated async and aggregate records by normalized controller source filename and line. It prints aggregate and per-controller line and branch diagnostics, highlights the largest uncovered controller files, enforces the checked-in API-test line-coverage baseline, and reports progress toward the 90% controller line target. When intentionally raising the ratchet after adding tests, update `controller-coverage-baseline.json` with the newly measured covered and total line counts; never lower it to accommodate a regression.
-
-Run the coverage tool's synthetic Cobertura tests with:
+To collect coverage from every .NET test assembly in one instrumentation session and generate a Coverage Gutters-compatible report:
 
 ```sh
-node --test scripts/check-api-controller-coverage.test.mjs
+source gitignored/dev/agent.env
+scripts/collect-backend-coverage
+```
+
+The command runs the exact Release solution build followed by `Cove.ApiTests`, `Cove.Tests`, and `Cove.PerformanceTests` sequentially from those compiled outputs. Performance tests use explicit `COVE_PERF_PG_*` settings when present and otherwise use the generated devbox PostgreSQL sidecar. It writes the authoritative report to `artifacts/coverage/all-dotnet-tests-single-session.cobertura.xml`, derives `artifacts/coverage/all-dotnet-tests-single-session.coverage-gutters.xml` without modifying the raw report, and prints the controller coverage analysis. The single collection session preserves subprocess and branch coverage that can be lost when separately generated Cobertura reports are merged.
+
+The VS Code workspace recommends Coverage Gutters and watches the compatible report automatically after the extension is installed. After collecting fresh coverage, use **Coverage Gutters: Display Coverage** if the gutters are not already visible.
+
+The coverage check deduplicates compiler-generated async and aggregate records by normalized controller source filename and line. It prints aggregate and per-controller line and branch diagnostics, highlights the largest uncovered controller files, enforces the checked-in API-test line-coverage baseline, and reports progress toward the 90% controller line target. When intentionally raising the ratchet after adding tests, update `controller-coverage-baseline.json` with the newly measured covered and total line counts; never lower it to accommodate a regression.
+
+Run the coverage tools' synthetic Cobertura tests with:
+
+```sh
+node --test scripts/check-api-controller-coverage.test.mjs scripts/prepare-coverage-gutters.test.mjs
 ```
 
 Run `dotnet restore src/Cove.slnx` first when dependencies have not been restored.
