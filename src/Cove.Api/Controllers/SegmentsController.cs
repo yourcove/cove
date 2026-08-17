@@ -294,6 +294,7 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<SegmentRecordDto>> GetById(int id, CancellationToken cancellationToken)
     {
         var item = await (

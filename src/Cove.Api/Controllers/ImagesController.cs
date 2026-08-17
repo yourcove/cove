@@ -75,6 +75,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<ImageDto>> GetById(int id, CancellationToken ct)
     {

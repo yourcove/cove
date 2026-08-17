@@ -169,6 +169,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<AudioDto>> GetById(int id, CancellationToken ct)
     {
         var audio = await db.Audios.AsNoTracking()
@@ -188,6 +189,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpGet("{id:int}/stream")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StreamRead)]
     public async Task<IActionResult> Stream(int id, CancellationToken ct)
     {

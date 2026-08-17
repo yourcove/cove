@@ -63,6 +63,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<StudioDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {

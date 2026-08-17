@@ -195,6 +195,7 @@ public class ShareLinkConfiguration : IEntityTypeConfiguration<ShareLink>
         builder.Property(s => s.TokenHash).IsRequired().HasMaxLength(128);
         builder.Property(s => s.EntityKind).IsRequired().HasMaxLength(64);
         builder.Property(s => s.EntityIds).HasColumnType("jsonb");
+        builder.Property(s => s.ContainedEntityIds).HasColumnType("jsonb");
         builder.Property(s => s.PasswordHash).HasMaxLength(500);
 
         builder.HasIndex(s => s.TokenHash).IsUnique();

@@ -1,0 +1,185 @@
+using System.Net;
+using Cove.ApiTests.Builders;
+using Cove.ApiTests.Infrastructure;
+using Cove.Core.Auth;
+using Cove.Core.DTOs;
+using Cove.Core.Entities;
+using Cove.Core.Interfaces;
+using Xunit.Abstractions;
+
+namespace Cove.ApiTests.Tests.Auth;
+
+[Collection(ApiTestLane1Collection.Name)]
+public sealed class AccessArtifactScopeApiTests(
+    ITestOutputHelper output,
+    CoveApiTestFixture fixture) : ApiTest(output, fixture)
+{
+    [Fact]
+    public async Task GivenLimitedUserApiTokens_WhenScopesAndLifecyclesAreExercised_ThenTokensNeverExpandOrBypassContentRules()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var hiddenTag = await owner.CreateTagAsync($"Token-hidden tag {suffix}");
+        var visible = await owner.CreateVideoAsync($"Token-visible video {suffix}");
+        var hidden = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Token-hidden video {suffix}")
+            .WithTags([hiddenTag])
+            .Build());
+        var roleName = $"Scoped token role {suffix}";
+        var role = await owner.CreateRoleAsync(new CreateRoleRequest(
+            roleName,
+            "Creates tokens constrained by user and content permissions.",
+            [Permissions.ApiTokensWrite, Permissions.VideosRead]));
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"));
+
+        var username = $"scoped-token-{suffix}";
+        const string password = "Scoped token password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]));
+        using var userSession = await owner.CreateAuthSessionAsync(username, password);
+
+        var escalation = () => userSession.Client.CreateApiTokenAsync(
+            $"Forbidden escalation {suffix}",
+            [Permissions.VideosRead, Permissions.UsersRead],
+            DateTime.UtcNow.AddHours(1));
+        await escalation.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
+        var blankScope = () => userSession.Client.CreateApiTokenAsync(
+            $"Blank scope {suffix}", ["", "   "], DateTime.UtcNow.AddHours(1));
+        await blankScope.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
+        (await userSession.Client.GetApiTokensAsync()).Should().BeEmpty();
+
+        var issued = await userSession.Client.CreateApiTokenAsync(
+            $"Scoped token {suffix}", [Permissions.VideosRead], DateTime.UtcNow.AddHours(1));
+        var tokenUser = AsUser(issued);
+        await tokenUser.AssertResponseAsync($"/api/videos/{visible.Id}");
+        await tokenUser.AssertResponseAsync($"/api/videos/{hidden.Id}", HttpStatusCode.NotFound);
+        await tokenUser.AssertResponseAsync("/api/videos/2147483647", HttpStatusCode.NotFound);
+        await tokenUser.AssertResponseAsync("/api/users", HttpStatusCode.Forbidden);
+
+        await userSession.Client.RevokeApiTokenAsync(issued.Id);
+        await tokenUser.AssertResponseAsync($"/api/videos/{visible.Id}", HttpStatusCode.Unauthorized);
+        await tokenUser.AssertResponseAsync("/api/videos/2147483647", HttpStatusCode.Unauthorized);
+
+        var expired = await userSession.Client.CreateApiTokenAsync(
+            $"Expired token {suffix}", [Permissions.VideosRead], DateTime.UtcNow.AddMinutes(-1));
+        var expiredUser = AsUser(expired);
+        await expiredUser.AssertResponseAsync($"/api/videos/{visible.Id}", HttpStatusCode.Unauthorized);
+        await expiredUser.AssertResponseAsync("/api/videos/2147483647", HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GivenShareLinks_WhenViewingAndNonViewingRoutesAreRequested_ThenOnlyTheViewingBundleIsAvailable()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var target = await owner.CreateVideoAsync($"Shared target video {suffix}");
+        var unrelated = await owner.CreateVideoAsync($"Unrelated shared video {suffix}");
+        await owner.UploadVideoImageAsync(target, ApiTestImages.OnePixelPng());
+        const string password = "Scoped share password 123!";
+        var share = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(
+            EntityKinds.Video, [target.Id.ToString()], DateTime.UtcNow.AddHours(1), password));
+        var viewer = AsShareLink(share, password);
+
+        await viewer.AssertResponseAsync($"/api/videos/{target.Id}");
+        await viewer.AssertResponseAsync($"/api/videos/{target.Id}/image");
+        await viewer.AssertResponseAsync($"/api/videos/{unrelated.Id}", HttpStatusCode.NotFound);
+        await viewer.AssertResponseAsync("/api/videos/2147483647", HttpStatusCode.NotFound);
+        await viewer.AssertResponseAsync($"/api/videos/{target.Id}/history", HttpStatusCode.Forbidden);
+        await viewer.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{target.Id}/like", HttpStatusCode.Forbidden);
+        await viewer.AssertResponseAsync("/api/search/global?q=shared", HttpStatusCode.Forbidden);
+        await viewer.AssertResponseAsync(
+            HttpMethod.Post,
+            "/api/videos/aggregate",
+            HttpStatusCode.Forbidden,
+            new FilteredQueryRequest<VideoFilter> { Ids = [target.Id] });
+        await viewer.AssertResponseAsync("/api/users", HttpStatusCode.Forbidden);
+
+        var group = await owner.CreateGroupAsync($"Shared group {suffix}");
+        await owner.CreateGroupItemAsync(group.Id, new GroupItemCreateDto(
+            0, GroupItemKind.Video, target.Id, EntityKinds.Video, target.Id,
+            null, null, null, null, null, null));
+        var groupShare = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(
+            EntityKinds.Group, [group.Id.ToString()]));
+        var groupViewer = AsShareLink(groupShare);
+        (await groupViewer.GetGroupItemsPageAsync(group.Id, page: 1, perPage: 25)).Should().Match<PaginatedResponse<GroupItemDto>>(
+            page => page.TotalCount == 1 && page.Items.Count == 1 && page.Items[0].HostId == target.Id);
+        (await groupViewer.GetGroupPlaybackManifestAsync(group.Id)).Items.Should()
+            .ContainSingle(item => item.HostType == EntityKinds.Video && item.HostId == target.Id);
+
+        var hiddenTag = await owner.CreateTagAsync($"Share-hidden tag {suffix}");
+        var hiddenChild = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Share-hidden child {suffix}")
+            .WithTags([hiddenTag])
+            .Build());
+        await owner.CreateGroupItemAsync(group.Id, new GroupItemCreateDto(
+            1, GroupItemKind.Video, hiddenChild.Id, EntityKinds.Video, hiddenChild.Id,
+            null, null, null, null, null, null));
+        await owner.CreateGroupItemAsync(group.Id, new GroupItemCreateDto(
+            2, GroupItemKind.VideoRange, unrelated.Id, EntityKinds.Video, unrelated.Id,
+            1, 2, null, null, null, null));
+        var sharerRoleName = $"Limited sharer {suffix}";
+        var sharerRole = await owner.CreateRoleAsync(new CreateRoleRequest(
+            sharerRoleName,
+            "Shares containers without expanding hidden children.",
+            [Permissions.ShareLinksWrite, Permissions.GroupsRead, Permissions.VideosRead]));
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            sharerRole.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"));
+        var sharerUsername = $"limited-sharer-{suffix}";
+        const string sharerPassword = "Limited sharer password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(sharerUsername, sharerPassword, Roles: [sharerRoleName]));
+        using var sharerSession = await owner.CreateAuthSessionAsync(sharerUsername, sharerPassword);
+        var limitedGroupShare = await sharerSession.Client.CreateShareLinkAsync(new CreateShareLinkRequest(
+            EntityKinds.Group, [group.Id.ToString()]));
+        var limitedViewer = AsShareLink(limitedGroupShare);
+        var limitedPage = await limitedViewer.GetGroupItemsPageAsync(group.Id, page: 1, perPage: 25);
+        limitedPage.Items.Should().ContainSingle(item => item.HostId == target.Id);
+        await limitedViewer.AssertResponseAsync($"/api/videos/{hiddenChild.Id}", HttpStatusCode.NotFound);
+        await limitedViewer.AssertResponseAsync($"/api/videos/{unrelated.Id}", HttpStatusCode.NotFound);
+
+        var audio = await owner.CreateAudioAsync($"Shared audio {suffix}");
+        var text = await owner.CreateTextAsync($"Shared text {suffix}");
+        var audioShare = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(EntityKinds.Audio, [audio.Id.ToString()]));
+        var textShare = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(EntityKinds.Text, [text.Id.ToString()]));
+        await AsShareLink(audioShare).AssertResponseAsync($"/api/audios/{audio.Id}");
+        await AsShareLink(textShare).AssertResponseAsync($"/api/texts/{text.Id}");
+
+        var performer = await owner.CreatePerformerAsync(
+            new PerformerBuilder().WithName($"Shared performer {suffix}").Build());
+        var tag = await owner.CreateTagAsync($"Shared tag {suffix}");
+        var studio = await owner.CreateStudioAsync($"Shared studio {suffix}");
+        var performerShare = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(EntityKinds.Performer, [performer.Id.ToString()]));
+        var tagShare = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(EntityKinds.Tag, [tag.Id.ToString()]));
+        var studioShare = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(EntityKinds.Studio, [studio.Id.ToString()]));
+        await AsShareLink(performerShare).AssertResponseAsync($"/api/performers/{performer.Id}");
+        await AsShareLink(tagShare).AssertResponseAsync($"/api/tags/{tag.Id}");
+        await AsShareLink(studioShare).AssertResponseAsync($"/api/studios/{studio.Id}");
+
+        await owner.AssertResponseAsync(
+            HttpMethod.Post,
+            "/api/share-links",
+            HttpStatusCode.Forbidden,
+            new CreateShareLinkRequest(EntityKinds.Segment, ["1"]));
+        var dynamicGroup = await owner.CreateGroupAsync($"Dynamic shared group {suffix}");
+        await owner.UpdateGroupQueryAsync(dynamicGroup.Id, new GroupQueryUpdateDto(
+            "filter", "{\"entityTypes\":[\"video\"],\"findFilters\":{}}"));
+        await owner.AssertResponseAsync(
+            HttpMethod.Post,
+            "/api/share-links",
+            HttpStatusCode.Forbidden,
+            new CreateShareLinkRequest(EntityKinds.Group, [dynamicGroup.Id.ToString()]));
+
+        await AsShareLink(share).AssertResponseAsync($"/api/videos/{target.Id}", HttpStatusCode.Unauthorized);
+        await AsShareLink(share, "wrong password").AssertResponseAsync("/api/videos/2147483647", HttpStatusCode.Unauthorized);
+        var expired = await owner.CreateShareLinkAsync(new CreateShareLinkRequest(
+            EntityKinds.Video, [target.Id.ToString()], DateTime.UtcNow.AddMinutes(-1)));
+        await AsShareLink(expired).AssertResponseAsync($"/api/videos/{target.Id}", HttpStatusCode.Unauthorized);
+        await owner.RevokeShareLinkAsync(share.Id);
+        await viewer.AssertResponseAsync($"/api/videos/{target.Id}", HttpStatusCode.Unauthorized);
+
+        var audits = (await owner.GetAuditEventsAsync(AuditActions.ShareLinkAccess)).Items;
+        audits.Should().Contain(audit => audit.TargetId == groupShare.Id.ToString() && audit.Outcome == AuditOutcomes.Success);
+        audits.Should().OnlyContain(audit =>
+            !(audit.Detail ?? string.Empty).Contains(share.PlaintextToken, StringComparison.Ordinal)
+            && !(audit.Detail ?? string.Empty).Contains(password, StringComparison.Ordinal));
+    }
+}

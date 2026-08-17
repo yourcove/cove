@@ -735,6 +735,10 @@ namespace Cove.Data.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ContainedEntityIds")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("EntityIds")
                         .IsRequired()
                         .HasColumnType("jsonb");

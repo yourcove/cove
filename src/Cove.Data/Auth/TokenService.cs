@@ -593,11 +593,26 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
 
     public async Task<ApiTokenIssued> CreateApiTokenAsync(int userId, string name, IEnumerable<string>? scope, DateTime? expiresAt, CovePrincipal? actor, CancellationToken ct = default)
     {
+        var requestedScope = scope?.ToList();
+        var scopeList = requestedScope?
+            .Where(permission => !string.IsNullOrWhiteSpace(permission))
+            .Select(permission => permission.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (requestedScope is not null && scopeList is { Count: 0 })
+            throw new ForbiddenException("API token scopes cannot be empty or blank.");
+        if (scopeList is { Count: > 0 }
+            && (actor is null
+                || scopeList.Any(permission => !_registry.IsKnown(permission)
+                    || (!actor.Has(permission) && !actor.HasReadGrant(permission)))))
+        {
+            throw new ForbiddenException("API token scopes must be known permissions already held by the current user.");
+        }
+
         var (plain, hash) = NewBCryptToken();
         var id = Guid.NewGuid();
         var prefix = plain[..4];
         var raw = $"cove_pat_{id:N}_{plain}";
-        var scopeList = scope?.ToList();
         var entity = new ApiToken
         {
             Id = id,

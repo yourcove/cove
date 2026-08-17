@@ -17,6 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StreamRead)]
+[AllowShareLinkAccess]
 public class StreamController(IStreamService streamService, IThumbnailService thumbnailService, ITranscodeService transcodeService, CoveContext db) : ControllerBase
 {
     // Portrait-style headroom around a detection box. Long-standing default for face covers; callers
@@ -565,4 +566,3 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         _ => "1920x1080"
     };
 }
-

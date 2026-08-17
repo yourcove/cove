@@ -74,6 +74,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<GalleryDto>> GetById(int id, CancellationToken ct)
     {
@@ -92,6 +93,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     }
 
     [HttpGet("{id:int}/cover")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<IActionResult> GetCover(int id, [FromQuery] int? max, [FromQuery] string? v, CancellationToken ct)
     {
@@ -478,9 +480,13 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     // ===== Chapters =====
 
     [HttpGet("{id:int}/chapters")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<List<GalleryChapterDto>>> GetChapters(int id, CancellationToken ct)
     {
+        if (!await db.Galleries.AnyAsync(gallery => gallery.Id == id, ct))
+            return NotFound();
+
         var chapters = await db.GalleryChapters
             .Where(c => c.GalleryId == id)
             .OrderBy(c => c.ImageIndex)
