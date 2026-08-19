@@ -58,6 +58,20 @@ import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { videoEditClearFields } from "../utils/videoEditClearFields";
 import { LikeHistorySection } from "../components/LikeHistorySection";
 
+function directorVideosRoute(director: string) {
+  return {
+    page: "videos",
+    listObjectFilter: {
+      directorCriterion: { value: director, modifier: "EQUALS" },
+    },
+  };
+}
+
+function directorVideosLinkProps(director: string, onNavigate: (route: ReturnType<typeof directorVideosRoute>) => void) {
+  const route = directorVideosRoute(director);
+  return createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
+}
+
 const GenerateDialog = lazy(() => import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })));
 const DetailMergeDialog = lazy(() => import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })));
 const IdentifyDialog = lazy(() => import("../components/IdentifyDialog").then((module) => ({ default: module.IdentifyDialog })));
@@ -589,13 +603,12 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           {video.code ? <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="code"><span>Code {video.code}</span></FieldProvenanceHover> : null}
           {video.director ? (
             <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="director">
-              <button
-                type="button"
-                onClick={() => onNavigate({ page: "videos", query: video.director })}
+              <a
+                {...directorVideosLinkProps(video.director, onNavigate)}
                 className="hover:text-foreground"
               >
                 Director {video.director}
-              </button>
+              </a>
             </FieldProvenanceHover>
           ) : null}
         </div>
@@ -1065,9 +1078,9 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
             <dt className="text-muted pr-3">Director</dt>
             <dd>
               <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="director">
-                <button onClick={() => onNavigate({ page: "videos", query: video.director })} className="text-accent hover:underline">
+                <a {...directorVideosLinkProps(video.director, onNavigate)} className="text-accent hover:underline">
                   {video.director}
-                </button>
+                </a>
               </FieldProvenanceHover>
             </dd>
           </>
