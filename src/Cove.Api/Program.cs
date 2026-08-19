@@ -208,6 +208,7 @@ try
     var isIntegrationTest = builder.Environment.IsEnvironment("IntegrationTest");
     var isIntegrationStartupTest = builder.Environment.IsEnvironment("IntegrationStartup");
     var isTestHarness = isIntegrationTest || isIntegrationStartupTest;
+    var integrationStartupReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
     var runtimeLogLevelManager = new RuntimeLogLevelManager(
         ParseSerilogLogLevel(builder.Configuration.GetValue<string>("Cove:LogLevel")),
@@ -275,7 +276,7 @@ try
         connectionString = $"Host=127.0.0.1;Port={pgPort};Database={pgDb};Username=postgres;Trust Server Certificate=true;Minimum Pool Size=2;Maximum Pool Size=100;Timeout=15;Command Timeout=30";
     }
     coveCfgInstance.DatabaseConnectionString = connectionString;
-    builder.Services.AddCoveData(connectionString);
+    builder.Services.AddCoveData(connectionString, runBackgroundMaterializers: !isIntegrationStartupTest);
 
     // Event bus (singleton for cross-service communication)
     builder.Services.AddSingleton<IEventBus, EventBus>();
@@ -483,11 +484,16 @@ try
     builder.Services.AddOutputCache(options =>
     {
         options.AddBasePolicy(b => b.NoCache());
-        options.AddPolicy("ShortCache", b => b
-            .AddPolicy<Cove.Api.Middleware.AuthAwareOutputCachePolicy>()
-            .Expire(TimeSpan.FromSeconds(1))
-            .SetVaryByHeader("Authorization", "Cookie", "X-Share-Token", "X-Share-Password")
-            .SetLocking(false), true);
+        options.AddPolicy("ShortCache", b =>
+        {
+            b.AddPolicy<Cove.Api.Middleware.AuthAwareOutputCachePolicy>()
+                .Expire(TimeSpan.FromSeconds(1))
+                .SetVaryByHeader("Authorization", "Cookie", "X-Share-Token", "X-Share-Password")
+                .SetLocking(false);
+
+            if (isIntegrationStartupTest)
+                b.Tag("api-test-state");
+        }, true);
     });
 
     // In-memory cache for POST query results
@@ -511,7 +517,7 @@ try
             return System.Threading.RateLimiting.RateLimitPartition.GetSlidingWindowLimiter(key, _ =>
                 new System.Threading.RateLimiting.SlidingWindowRateLimiterOptions
                 {
-                    PermitLimit = 10,
+                    PermitLimit = isIntegrationStartupTest ? int.MaxValue : 10,
                     Window = TimeSpan.FromSeconds(15),
                     SegmentsPerWindow = 3,
                     QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst,
@@ -611,6 +617,93 @@ try
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     }).AllowAnonymous();
+
+    if (isIntegrationStartupTest)
+    {
+        app.MapGet("/health/startup", () => integrationStartupReady.Task.IsCompletedSuccessfully
+            ? Results.Ok(new { status = "ready" })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable)).AllowAnonymous();
+
+        app.MapPost("/health/test-reset", async (
+            HttpContext httpContext,
+            JobService jobs,
+            Cove.Data.Auth.AuditService audit,
+            Cove.Data.Services.SegmentSpanCacheRegistry segmentCache,
+            Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache,
+            Microsoft.AspNetCore.OutputCaching.IOutputCacheStore outputCache,
+            Cove.Data.Auth.BootstrapAuthService auth,
+            IServiceScopeFactory scopeFactory,
+            CancellationToken cancellationToken) =>
+        {
+            var expectedToken = builder.Configuration["Cove:IntegrationTestResetToken"];
+            if (string.IsNullOrWhiteSpace(expectedToken)
+                || !httpContext.Request.Headers.TryGetValue("X-Cove-Test-Reset-Token", out var suppliedToken)
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(expectedToken),
+                    System.Text.Encoding.UTF8.GetBytes(suppliedToken.ToString())))
+            {
+                return Results.NotFound();
+            }
+
+            await jobs.CancelAllAndWaitAsync(cancellationToken);
+            await audit.FlushAsync(cancellationToken);
+
+            await using (var scope = scopeFactory.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                await db.Database.ExecuteSqlRawAsync("""
+                    DO $reset$
+                    DECLARE
+                        table_list text;
+                    BEGIN
+                        SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
+                        INTO table_list
+                        FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename <> '__EFMigrationsHistory';
+
+                        IF table_list IS NOT NULL THEN
+                            EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
+                        END IF;
+                    END
+                    $reset$;
+                    """, cancellationToken);
+            }
+
+            segmentCache.InvalidateAll();
+            if (memoryCache is Microsoft.Extensions.Caching.Memory.MemoryCache concreteMemoryCache)
+                concreteMemoryCache.Compact(1);
+            await outputCache.EvictByTagAsync("api-test-state", cancellationToken);
+            await auth.RefreshPermissionCatalogAsync(cancellationToken);
+
+            await using (var scope = scopeFactory.CreateAsyncScope())
+            {
+                await scope.ServiceProvider
+                    .GetRequiredService<DynamicGroupResolver>()
+                    .EnsureBuiltInGroupsAsync(cancellationToken);
+            }
+
+            return Results.NoContent();
+        }).AllowAnonymous();
+
+        app.MapPost("/health/test-shutdown", (
+            HttpContext httpContext,
+            IHostApplicationLifetime lifetime) =>
+        {
+            var expectedToken = builder.Configuration["Cove:IntegrationTestResetToken"];
+            if (string.IsNullOrWhiteSpace(expectedToken)
+                || !httpContext.Request.Headers.TryGetValue("X-Cove-Test-Reset-Token", out var suppliedToken)
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(expectedToken),
+                    System.Text.Encoding.UTF8.GetBytes(suppliedToken.ToString())))
+            {
+                return Results.NotFound();
+            }
+
+            lifetime.StopApplication();
+            return Results.Accepted();
+        }).AllowAnonymous();
+    }
 
     app.MapControllers();
     app.MapHub<JobHub>("/hubs/jobs");
@@ -836,10 +929,10 @@ try
         coveCfgInstance.Postgres.Managed,
         coveCfgInstance.Auth.Enabled,
         runtimeLogLevelManager.LevelSwitch.MinimumLevel);
+    app.Lifetime.ApplicationStopping.Register(() =>
+        extensionManager.ShutdownAllAsync().GetAwaiter().GetResult());
+    integrationStartupReady.TrySetResult();
     await app.WaitForShutdownAsync();
-
-    // Graceful shutdown for extensions
-    await extensionManager.ShutdownAllAsync();
 }
 catch (Exception ex)
 {

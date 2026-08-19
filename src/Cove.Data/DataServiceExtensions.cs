@@ -14,7 +14,10 @@ namespace Cove.Data;
 
 public static class DataServiceExtensions
 {
-    public static IServiceCollection AddCoveData(this IServiceCollection services, string connectionString)
+    public static IServiceCollection AddCoveData(
+        this IServiceCollection services,
+        string connectionString,
+        bool runBackgroundMaterializers = true)
     {
         // Segment span projection services are part of the data layer and share this host cache.
         // Register it here so AddCoveData remains a complete composition unit outside Cove.Api.
@@ -108,7 +111,8 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
         // FaceTopSuggestionCache, which could not scale past its entry cap.)
         services.AddScoped<FaceTopSuggestionService>();
         services.AddScoped<IFaceTopSuggestionMaintenance>(sp => sp.GetRequiredService<FaceTopSuggestionService>());
-        services.AddHostedService<FaceTopSuggestionMaterializerService>();
+        if (runBackgroundMaterializers)
+            services.AddHostedService<FaceTopSuggestionMaterializerService>();
 
         // Auth / RBAC services
         services.AddSingleton<IPermissionRegistry, PermissionRegistry>();
