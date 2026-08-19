@@ -1,0 +1,72 @@
+using System.Text.Json;
+using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
+using Cove.ApiTests.Infrastructure;
+using Cove.Core.DTOs;
+using Cove.Core.Entities;
+using Xunit.Abstractions;
+
+namespace Cove.ApiTests;
+
+[Collection(ApiTestLane1Collection.Name)]
+public sealed class StudioCreationApiTests(
+    ITestOutputHelper output,
+    CoveApiTestFixture fixture) : ApiTest(output, fixture)
+{
+    [Fact]
+    public async Task GivenStudio_WhenMemberReadsStudios_ThenStudioIsReturned()
+    {
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+
+        var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync();
+
+        studios.Should().ContainSingle(candidate => candidate.Id == studio.Id);
+    }
+
+    [Fact]
+    public async Task GivenStudioMetadata_WhenStudioIsCreated_ThenAllMetadataCanBeRetrieved()
+    {
+        const string customFieldKey = "production_style";
+        var parent = await AsUser().CreateStudioAsync("Barely Dressed Holdings");
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.PlotOptional.Name);
+        await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = customFieldKey,
+            Label = "Production style",
+            Type = "text",
+            EntityTypes = ["studio"]
+        });
+        var request = new StudioBuilder()
+            .WithName(TestCatalog.Studio.Name)
+            .WithParent(parent)
+            .WithRating(84)
+            .WithDetails(TestCatalog.Studio.Description)
+            .WithUrl("https://barely-dressed.example")
+            .WithAlias("BDP")
+            .WithTag(tag)
+            .WithRemoteId("https://metadata.example/graphql", "studio-barely-dressed")
+            .WithCustomField(customFieldKey, "Camp adventure")
+            .AsFavorite()
+            .AsOrganized()
+            .Build();
+
+        var studio = await AsUser().CreateStudioAsync(request);
+
+        var studioAfter = await AsUser().GetStudioByIdAsync(studio.Id);
+        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id);
+        studioAfter.Name.Should().Be(request.Name);
+        studioAfter.ParentId.Should().Be(parent.Id);
+        studioAfter.ParentName.Should().Be(parent.Name);
+        studioAfter.Favorite.Should().BeTrue();
+        studioAfter.Details.Should().Be(request.Details);
+        studioAfter.Organized.Should().BeTrue();
+        studioAfter.Urls.Should().Equal(request.Urls!);
+        studioAfter.Aliases.Should().Equal(request.Aliases!);
+        studioAfter.Tags.Should().ContainSingle(candidate => candidate.Id == tag.Id);
+        studioAfter.RemoteIds.Should().Equal(request.RemoteIds!);
+        studioAfter.CustomFields.Should().ContainKey(customFieldKey)
+            .WhoseValue.Should().BeOfType<JsonElement>()
+            .Which.GetString().Should().Be("Camp adventure");
+        engagement.Rating.Should().Be(request.Rating);
+    }
+}

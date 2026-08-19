@@ -6,7 +6,7 @@ public abstract class ApiTest : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
     private readonly CoveApiTestFixture _fixture;
-    private ApiUser? _user;
+    private IReadOnlyDictionary<string, CoveClient>? _users;
 
     protected ApiTest(
         ITestOutputHelper output,
@@ -19,18 +19,27 @@ public abstract class ApiTest : IAsyncLifetime
     protected Uri ApiUri
         => _fixture.BaseAddress;
 
-    protected ApiUser AsUser()
-        => _user
-            ?? throw new InvalidOperationException("The API test user has not been initialized.");
+    protected CoveClient AsUser(string username = ApiTestUsers.Owner)
+    {
+        if (_users == null)
+            throw new InvalidOperationException("The API test users have not been initialized.");
+        return _users.TryGetValue(username, out var user)
+            ? user
+            : throw new InvalidOperationException(
+                $"API test user '{username}' is not provisioned. Available users: {string.Join(", ", _users.Keys)}.");
+    }
 
     protected MetadataServiceSimulator AsMetadataService()
         => _fixture.MetadataService;
+
+    protected ApiTestFileSystem AsTestFileSystem()
+        => _fixture.FileSystem;
 
     public async Task InitializeAsync()
     {
         try
         {
-            _user = await _fixture.ResetAsync();
+            _users = await _fixture.ResetAsync();
             _output.WriteLine($"Cove API listening at {ApiUri}");
             _output.WriteLine($"Pause at a breakpoint to call: curl {new Uri(ApiUri, "/health")}");
         }
@@ -43,8 +52,10 @@ public abstract class ApiTest : IAsyncLifetime
 
     public Task DisposeAsync()
     {
-        _user?.Dispose();
-        _user = null;
+        if (_users != null)
+            foreach (var user in _users.Values)
+                user.Dispose();
+        _users = null;
         return Task.CompletedTask;
     }
 }

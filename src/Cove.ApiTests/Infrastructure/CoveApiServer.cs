@@ -1,8 +1,11 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using Cove.ApiTests.ExampleData;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
+using Cove.Core.Auth;
+using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -25,6 +28,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         Process process,
         Uri baseAddress,
         string dataRoot,
+        string libraryPath,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -33,12 +37,14 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
+        FileSystem = new ApiTestFileSystem(libraryPath);
         _resetToken = resetToken;
         _output = output;
     }
 
     public Uri BaseAddress { get; }
     public MetadataServiceSimulator MetadataService => _metadataService;
+    public ApiTestFileSystem FileSystem { get; }
     internal long ProcessStartedTimestamp { get; private init; }
     internal long ReadyTimestamp { get; private init; }
 
@@ -48,18 +54,21 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         MetadataServiceSimulator? metadataService = null;
         Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
+        var libraryPath = Path.Combine(dataRoot, "library");
         var resetToken = Convert.ToHexString(Guid.NewGuid().ToByteArray());
         var output = new ConcurrentQueue<string>();
 
         try
         {
             Directory.CreateDirectory(dataRoot);
+            Directory.CreateDirectory(libraryPath);
             metadataService = await MetadataServiceSimulator.StartAsync(cancellationToken);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
             process = StartApiProcess(
                 dataRoot,
                 database.ConnectionString,
                 metadataService.Endpoint,
+                libraryPath,
                 resetToken,
                 output);
             var processStartedTimestamp = Stopwatch.GetTimestamp();
@@ -68,7 +77,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             using var startupClient = new HttpClient { BaseAddress = baseAddress };
             await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            return new CoveApiServer(database, metadataService, process, baseAddress, dataRoot, resetToken, output)
+            return new CoveApiServer(database, metadataService, process, baseAddress, dataRoot, libraryPath, resetToken, output)
             {
                 ProcessStartedTimestamp = processStartedTimestamp,
                 ReadyTimestamp = Stopwatch.GetTimestamp(),
@@ -125,7 +134,8 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         }
     }
 
-    public async Task<ApiUser> ResetAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<string, CoveClient>> ResetAsync(
+        CancellationToken cancellationToken = default)
     {
         _metadataService.Reset();
         using var client = CreateLifecycleClient();
@@ -136,18 +146,42 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             throw new InvalidOperationException(
                 $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
         }
-        return await CreateOwnerAsync(cancellationToken);
+        FileSystem.Reset();
+        var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var owner = await CreateOwnerAsync(cancellationToken);
+            users.Add(owner.Username, owner);
+            foreach (var (username, displayName) in new[]
+            {
+                (ApiTestUsers.Eva, "Eva"),
+                (ApiTestUsers.Anthony, "Anthony"),
+            })
+            {
+                await owner.CreateUserAsync(new CreateUserRequest(
+                    username,
+                    ApiTestUsers.Password,
+                    DisplayName: displayName,
+                    Roles: [BuiltinRoles.Member]), cancellationToken);
+                var member = await LoginAsync(username, ApiTestUsers.Password, cancellationToken);
+                users.Add(member.Username, member);
+            }
+            return users;
+        }
+        catch
+        {
+            foreach (var user in users.Values)
+                user.Dispose();
+            throw;
+        }
     }
 
-    private async Task<ApiUser> CreateOwnerAsync(CancellationToken cancellationToken)
+    private async Task<CoveClient> CreateOwnerAsync(CancellationToken cancellationToken)
     {
-        const string username = "api-test-owner";
-        const string password = "api-test-password-4b93f6f2";
-
         using var client = new HttpClient { BaseAddress = BaseAddress };
         using var response = await client.PostAsJsonAsync(
             "/api/auth/bootstrap-owner",
-            new { username, password },
+            new { username = ApiTestUsers.Owner, password = ApiTestUsers.Password },
             ApiJson.Options,
             cancellationToken);
         var login = await ApiResponse.ReadAsync<AuthenticationResponse>(
@@ -158,7 +192,27 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(login.Token))
             throw new InvalidOperationException("The owner bootstrap response did not contain an access token.");
 
-        return new ApiUser(BaseAddress, login.Token);
+        return new CoveClient(ApiTestUsers.Owner, BaseAddress, login.Token);
+    }
+
+    private async Task<CoveClient> LoginAsync(
+        string username,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient { BaseAddress = BaseAddress };
+        using var response = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new { username, password },
+            ApiJson.Options,
+            cancellationToken);
+        var login = await ApiResponse.ReadAsync<AuthenticationResponse>(
+            response,
+            "POST /api/auth/login",
+            cancellationToken);
+        if (string.IsNullOrWhiteSpace(login.Token))
+            throw new InvalidOperationException($"The login response for '{username}' did not contain an access token.");
+        return new CoveClient(username, BaseAddress, login.Token);
     }
 
     public async ValueTask DisposeAsync()
@@ -243,6 +297,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         string dataRoot,
         string connectionString,
         Uri metadataServiceEndpoint,
+        string libraryPath,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -265,6 +320,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__Auth__JwtSecret"] = "cove-fluent-api-tests-only-jwt-secret-4b93f6f2";
         startInfo.Environment["COVE__BackupPath"] = Path.Combine(dataRoot, "backups");
         startInfo.Environment["COVE__CachePath"] = Path.Combine(dataRoot, "cache");
+        startInfo.Environment["COVE__CovePaths__0__Path"] = libraryPath;
         startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
         startInfo.Environment["COVE__GeneratedPath"] = Path.Combine(dataRoot, "generated");
         startInfo.Environment["COVE__IntegrationTestResetToken"] = resetToken;
@@ -272,7 +328,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__Postgres__Managed"] = "false";
         startInfo.Environment["COVE__Scraping__MetadataServers__0__ApiKey"] = MetadataServiceSimulator.ApiKey;
         startInfo.Environment["COVE__Scraping__MetadataServers__0__Endpoint"] = metadataServiceEndpoint.AbsoluteUri;
-        startInfo.Environment["COVE__Scraping__MetadataServers__0__Name"] = "API test metadata service";
+        startInfo.Environment["COVE__Scraping__MetadataServers__0__Name"] = TestCatalog.MetadataServices.PulpMovieDb.Name;
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The Cove API test process could not be started.");

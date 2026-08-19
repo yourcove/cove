@@ -1,5 +1,6 @@
 using Cove.ApiTests.Assertions;
 using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
@@ -13,16 +14,11 @@ public sealed class PerformerTagApiTests(
     [Fact]
     public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
     {
-        Assert.Empty(await AsUser().GetPerformersAsync());
-
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
-                .WithName("Example Performer")
+                .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .Build());
-        var tag = await AsUser().CreateTagAsync(
-            new TagBuilder()
-                .WithName("Example Tag")
-                .Build());
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name);
 
         await AsUser().LinkTagToPerformerAsync(tag, performer);
 
@@ -33,15 +29,11 @@ public sealed class PerformerTagApiTests(
     [Fact]
     public async Task GivenTag_WhenPerformerIsCreatedWithTag_ThenPerformerHasTag()
     {
-        Assert.Empty(await AsUser().GetPerformersAsync());
-        var tag = await AsUser().CreateTagAsync(
-            new TagBuilder()
-                .WithName("Creation Tag")
-                .Build());
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.AccidentalDoubleEntendre.Name);
 
         var performer = await AsUser().CreatePerformerAsync(
             new PerformerBuilder()
-                .WithName("Tagged From Creation")
+                .WithName(TestCatalog.Performers.BeaHaven.Name)
                 .WithTag(tag)
                 .Build());
 

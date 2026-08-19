@@ -63,8 +63,31 @@ jobs:
       - name: Restore
         run: dotnet restore src/Cove.slnx
 
+      - name: Restore tools
+        run: dotnet tool restore
+
       - name: Test (Fluent API)
-        run: dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal
+        run: >-
+          dotnet tool run dotnet-coverage -- collect
+          --settings src/Cove.ApiTests/coverage.config
+          --output artifacts/coverage/api-tests.cobertura.xml
+          --output-format cobertura
+          dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
+          -c Release --no-restore --verbosity normal
+
+      - name: Verify backend coverage
+        run: >-
+          grep --extended-regexp --quiet
+          '<class line-rate="(1|0\.[0-9]*[1-9][0-9]*)"[^>]* name="Cove\.Api\.Controllers\.'
+          artifacts/coverage/api-tests.cobertura.xml
+
+      - name: Upload backend coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-test-backend-coverage
+          path: artifacts/coverage/api-tests.cobertura.xml
+          if-no-files-found: error
 
   performance:
     runs-on: ubuntu-latest

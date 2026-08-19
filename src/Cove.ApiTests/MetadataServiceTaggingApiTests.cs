@@ -1,4 +1,5 @@
 using Cove.ApiTests.Builders;
+using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
@@ -17,18 +18,18 @@ public sealed class MetadataServiceTaggingApiTests(
                 .WithTitle("Metadata scene")
                 .WithTag("Metadata tag")
                 .Build());
-        var video = await AsUser().CreateVideoAsync("Local video");
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
         var taggedVideo = await AsUser().ImportVideoFromMetadataServiceAsync(video, metadataScene);
-        var scrapedTag = Assert.Single(taggedVideo.Tags);
-        Assert.True(scrapedTag.CanRemove);
-        Assert.Contains(
-            scrapedTag.Provenance ?? [],
+        taggedVideo.Tags.Should().ContainSingle();
+        var scrapedTag = taggedVideo.Tags.Single();
+        scrapedTag.CanRemove.Should().BeTrue();
+        scrapedTag.Provenance.Should().Contain(
             provenance => provenance.SourceKey == $"metadata:{metadataScene.Endpoint.AbsoluteUri}");
 
         await AsUser().RemoveTagFromVideoAsync(taggedVideo, scrapedTag);
 
         var videoAfter = await AsUser().GetVideoByIdAsync(video.Id);
-        Assert.DoesNotContain(videoAfter.Tags, tag => tag.Id == scrapedTag.Id);
-        Assert.True(await AsUser().TagExistsAsync(scrapedTag.Id));
+        videoAfter.Tags.Should().NotContain(tag => tag.Id == scrapedTag.Id);
+        (await AsUser().TagExistsAsync(scrapedTag.Id)).Should().BeTrue();
     }
 }
