@@ -7,6 +7,7 @@ import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared
 import { StringListEditor } from "../components/StringListEditor";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
 import { EntityReferenceMultiSelector, EntityReferenceSelector } from "../components/EntityReferenceSelector";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 interface Props {
   studio: Studio;
@@ -40,6 +41,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   }, [studio]);
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: StudioUpdate) => studios.update(studio.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["studio", studio.id] });
@@ -47,6 +49,10 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
       onClose();
     },
   });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
@@ -69,7 +75,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   };
 
   return (
-    <EditModal title={`Edit Studio: ${studio.name}`} open={open} onClose={onClose}>
+    <EditModal title={`Edit Studio: ${studio.name}`} open={open} onClose={handleClose}>
       <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Name *" fieldProvenance={studio.fieldProvenance} fieldKey="name">
@@ -105,8 +111,13 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
         <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="studio" />
       </Field>
   </div>
+      {mutation.error ? (
+        <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">
+          {getApiValidationFailureDetail(mutation.error)}
+        </div>
+      ) : null}
       <div className="flex justify-end gap-3 mt-4">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
         <SaveButton loading={mutation.isPending} onClick={handleSave} />
       </div>
     </EditModal>
