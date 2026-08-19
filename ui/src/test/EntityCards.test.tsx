@@ -508,6 +508,40 @@ describe("DetailsTab performers", () => {
 
 });
 
+describe("DetailsTab director", () => {
+  it("navigates to videos with an exact director filter", () => {
+    const onNavigate = vi.fn();
+    const video = {
+      ...baseVideo,
+      director: "Alex Example",
+      remoteIds: [],
+      urls: [],
+      customFields: undefined,
+    };
+
+    renderWithQueryClient(<DetailsTab video={video as any} onNavigate={onNavigate} />);
+
+    const directorLink = screen.getByRole("link", { name: "Alex Example" });
+    expect(directorLink).toHaveAttribute(
+      "href",
+      "/videos?filters=%7B%22directorCriterion%22%3A%7B%22value%22%3A%22Alex+Example%22%2C%22modifier%22%3A%22EQUALS%22%7D%7D",
+    );
+
+    fireEvent.click(directorLink);
+
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: "videos",
+      listObjectFilter: {
+        directorCriterion: { value: "Alex Example", modifier: "EQUALS" },
+      },
+    });
+
+    onNavigate.mockClear();
+    fireEvent.click(directorLink, { ctrlKey: true });
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+});
+
 describe("DetailsTab tag hover", () => {
   it("renders supplied static media without fetching tag details", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
