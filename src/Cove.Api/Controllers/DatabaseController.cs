@@ -146,12 +146,69 @@ public class DatabaseController(
         var connStr = BuildMaintenanceConnectionString();
         await using var conn = new NpgsqlConnection(connStr);
         await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "VACUUM ANALYZE";
-        await cmd.ExecuteNonQueryAsync(ct);
-        logger.LogInformation("Database optimized (VACUUM ANALYZE)");
+
+        var relationCount = await OptimizeRelationsAsync(conn, ct);
+
+        logger.LogInformation("Database optimized (VACUUM ANALYZE) for {RelationCount} relation(s)", relationCount);
         return Ok(new { message = "Database optimized" });
     }
+
+    internal static async Task<int> OptimizeRelationsAsync(NpgsqlConnection conn, CancellationToken ct = default)
+    {
+        var relations = new List<DatabaseRelation>();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            WITH database_owner AS (
+                SELECT database.datdba
+                FROM pg_catalog.pg_database database
+                WHERE database.datname = current_database()
+            )
+            SELECT namespace.nspname, relation.relname
+            FROM pg_catalog.pg_class relation
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+            CROSS JOIN database_owner
+            WHERE relation.relkind IN ('r', 'p', 'm')
+              AND namespace.nspname NOT LIKE 'pg\_%' ESCAPE '\'
+              AND namespace.nspname <> 'information_schema'
+              AND (
+                  pg_catalog.pg_has_role(current_user, relation.relowner, 'USAGE')
+                  OR pg_catalog.pg_has_role(current_user, database_owner.datdba, 'USAGE')
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM pg_catalog.pg_inherits inheritance
+                  JOIN pg_catalog.pg_class parent ON parent.oid = inheritance.inhparent
+                  WHERE inheritance.inhrelid = relation.oid
+                    AND parent.relkind IN ('r', 'p')
+                    AND (
+                        pg_catalog.pg_has_role(current_user, parent.relowner, 'USAGE')
+                        OR pg_catalog.pg_has_role(current_user, database_owner.datdba, 'USAGE')
+                    )
+              )
+            ORDER BY namespace.nspname, relation.relname
+            """;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+                relations.Add(new DatabaseRelation(reader.GetString(0), reader.GetString(1)));
+        }
+
+        if (relations.Count > 0)
+        {
+            cmd.CommandText = BuildVacuumAnalyzeCommand(relations);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        return relations.Count;
+    }
+
+    internal static string BuildVacuumAnalyzeCommand(IReadOnlyList<DatabaseRelation> relations)
+        => $"VACUUM ANALYZE {string.Join(", ", relations.Select(relation => $"{QuoteIdentifier(relation.Schema)}.{QuoteIdentifier(relation.Name)}"))}";
+
+    private static string QuoteIdentifier(string identifier)
+        => $"\"{identifier.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
+
+    internal readonly record struct DatabaseRelation(string Schema, string Name);
 
     [HttpPost("wipe")]
     [RequiresPermission(Permissions.SystemWipe)]

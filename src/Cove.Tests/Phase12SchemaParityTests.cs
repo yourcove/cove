@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -254,6 +255,137 @@ public sealed class Phase12SchemaParityTests
         {
             await DropDatabaseAsync(environment.AdminConnectionString, databaseName);
         }
+    }
+
+    [Fact]
+    public async Task OptimizeDatabase_AsDatabaseOwner_VacuumsApplicationTablesWithoutSystemCatalogWarnings()
+    {
+        var managedRoot = ResolveManagedPostgresRoot();
+        if (managedRoot == null)
+        {
+            var devConnectionString = Environment.GetEnvironmentVariable("COVE_DEV_SOURCE_DATABASE_URL");
+            if (!string.IsNullOrWhiteSpace(devConnectionString))
+                await AssertOptimizeDatabaseAsync(devConnectionString);
+            return;
+        }
+
+        var databaseName = $"database_optimize_{Guid.NewGuid():N}";
+        var roleName = $"database_optimize_owner_{Guid.NewGuid():N}";
+        await using var environment = await CreateEnvironmentAsync(managedRoot);
+        await CreateDatabaseAsync(environment.AdminConnectionString, databaseName);
+        await CreateRoleAsync(environment.AdminConnectionString, roleName);
+
+        try
+        {
+            await using (var setup = CreateContext(environment.Port, databaseName))
+            {
+                await setup.Database.MigrateAsync();
+                await setup.Database.ExecuteSqlRawAsync("CREATE TABLE optimize_probe (id integer PRIMARY KEY, value text NOT NULL) WITH (autovacuum_enabled = false)");
+                await setup.Database.ExecuteSqlRawAsync("INSERT INTO optimize_probe SELECT value, value::text FROM generate_series(1, 100) value");
+            }
+
+            await using (var ownerConnection = new NpgsqlConnection(BuildConnectionString(environment.Port, databaseName)))
+            {
+                await ownerConnection.OpenAsync();
+                await using var alterOwner = ownerConnection.CreateCommand();
+                alterOwner.CommandText = $"ALTER DATABASE {QuoteIdentifier(databaseName)} OWNER TO {QuoteIdentifier(roleName)}";
+                await alterOwner.ExecuteNonQueryAsync();
+            }
+
+            await using var connection = new NpgsqlConnection(BuildConnectionString(environment.Port, databaseName));
+            await connection.OpenAsync();
+            await using (var setRole = connection.CreateCommand())
+            {
+                setRole.CommandText = $"SET ROLE {QuoteIdentifier(roleName)}";
+                await setRole.ExecuteNonQueryAsync();
+            }
+
+            var notices = new List<PostgresNotice>();
+            connection.Notice += (_, args) => notices.Add(args.Notice);
+
+            await using (var before = connection.CreateCommand())
+            {
+                before.CommandText = "SELECT last_analyze IS NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'optimize_probe'";
+                Assert.Equal(true, await before.ExecuteScalarAsync());
+            }
+
+            var relationCount = await DatabaseController.OptimizeRelationsAsync(connection);
+
+            Assert.True(relationCount > 0);
+            Assert.DoesNotContain(notices, notice =>
+                notice.MessageText.Contains("permission denied to vacuum", StringComparison.OrdinalIgnoreCase));
+
+            await using var verify = connection.CreateCommand();
+            verify.CommandText = "SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'optimize_probe'";
+            Assert.Equal(true, await verify.ExecuteScalarAsync());
+        }
+        finally
+        {
+            await DropDatabaseAsync(environment.AdminConnectionString, databaseName);
+            await DropRoleAsync(environment.AdminConnectionString, roleName);
+        }
+    }
+
+    private static async Task AssertOptimizeDatabaseAsync(string connectionString)
+    {
+        var probeName = $"optimize_probe_{Guid.NewGuid():N}";
+        await using var connection = new NpgsqlConnection(NormalizeConnectionString(connectionString));
+        await connection.OpenAsync();
+
+        try
+        {
+            await using (var setup = connection.CreateCommand())
+            {
+                setup.CommandText = $"CREATE TABLE public.{QuoteIdentifier(probeName)} (id integer PRIMARY KEY, value text NOT NULL) WITH (autovacuum_enabled = false); INSERT INTO public.{QuoteIdentifier(probeName)} SELECT value, value::text FROM generate_series(1, 100) value";
+                await setup.ExecuteNonQueryAsync();
+            }
+
+            await using (var before = connection.CreateCommand())
+            {
+                before.CommandText = "SELECT last_analyze IS NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = @probe_name";
+                before.Parameters.AddWithValue("probe_name", probeName);
+                Assert.Equal(true, await before.ExecuteScalarAsync());
+            }
+
+            var notices = new List<PostgresNotice>();
+            connection.Notice += (_, args) => notices.Add(args.Notice);
+
+            var relationCount = await DatabaseController.OptimizeRelationsAsync(connection);
+
+            Assert.True(relationCount > 0);
+            Assert.DoesNotContain(notices, notice =>
+                notice.MessageText.Contains("permission denied to vacuum", StringComparison.OrdinalIgnoreCase));
+
+            await using var verify = connection.CreateCommand();
+            verify.CommandText = "SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = @probe_name";
+            verify.Parameters.AddWithValue("probe_name", probeName);
+            Assert.Equal(true, await verify.ExecuteScalarAsync());
+        }
+        finally
+        {
+            await using var cleanup = connection.CreateCommand();
+            cleanup.CommandText = $"DROP TABLE IF EXISTS public.{QuoteIdentifier(probeName)}";
+            await cleanup.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static string NormalizeConnectionString(string connectionString)
+    {
+        if (!Uri.TryCreate(connectionString, UriKind.Absolute, out var uri)
+            || uri.Scheme is not "postgres" and not "postgresql")
+        {
+            return connectionString;
+        }
+
+        var userInfo = uri.UserInfo.Split(':', 2);
+        return new NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = uri.Port,
+            Database = uri.AbsolutePath.TrimStart('/'),
+            Username = Uri.UnescapeDataString(userInfo[0]),
+            Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : null,
+        }.ConnectionString;
     }
 
     [Fact]
