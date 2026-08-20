@@ -61,6 +61,12 @@ public sealed class StaticGroupItemsAndTaggedSegmentsApiTests(
         updated.Notes.Should().Be("Edited notes");
         remaining.Items.Select(item => item.Id).Should().Equal(alphaItem.Id, betaItem.Id);
         remaining.Items.Select(item => item.OrderIndex).Should().Equal(0, 1);
+        var persisted = remaining.Items.Single(item => item.Id == alphaItem.Id);
+        persisted.Kind.Should().Be(GroupItemKind.VideoRange);
+        persisted.StartSec.Should().Be(3);
+        persisted.EndSec.Should().Be(8);
+        persisted.Title.Should().Be("Edited range");
+        persisted.Notes.Should().Be("Edited notes");
 
         var missingDelete = () => AsUser(ApiTestUsers.Eva).DeleteGroupItemAsync(group.Id, gammaItem.Id);
         await missingDelete.Should().ThrowAsync<InvalidOperationException>()

@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 128;
+    public const int ExpectedMappedEndpoints = 138;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 372;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 362;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -61,8 +61,6 @@ public static class EndpointCoverageProgress
         DELETE /api/tags/bulk
         DELETE /api/tags/{id:int}
         DELETE /api/tags/{id:int}/image
-        DELETE /api/texts/bulk
-        DELETE /api/texts/{id:int}
         DELETE /api/texts/{id:int}/image
         DELETE /api/texts/{id:int}/like
         DELETE /api/texts/{id:int}/like/history
@@ -160,8 +158,6 @@ public static class EndpointCoverageProgress
         GET /api/tags/{id:int}/image
         GET /api/tags/{id:int}/metadata-server/search
         GET /api/tags/{id:int}/segments
-        GET /api/texts/{id:int}
-        GET /api/texts/{id:int}/content
         GET /api/texts/{id:int}/history
         GET /api/texts/{id:int}/image
         GET /api/users/{id:int}
@@ -321,11 +317,6 @@ public static class EndpointCoverageProgress
         POST /api/tags/{id:int}/image
         POST /api/tags/{id:int}/metadata-server/import
         POST /api/tags/{id:int}/metadata-server/submit-draft
-        POST /api/texts
-        POST /api/texts/aggregate
-        POST /api/texts/bulk
-        POST /api/texts/find
-        POST /api/texts/from-file
         POST /api/texts/{id:int}/image
         POST /api/texts/{id:int}/like
         POST /api/texts/{id:int}/like/historical
@@ -385,7 +376,6 @@ public static class EndpointCoverageProgress
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
         PUT /api/tags/{id:int}/image/source
-        PUT /api/texts/{id:int}
         PUT /api/users/{id:int}
         PUT /api/videos/{videoid:int}/detections/{id:int}
         PUT /api/videos/{videoid:int}/segments/{id:int}
