@@ -16,6 +16,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
 
     private readonly PostgreSqlTestDatabase _database;
     private readonly MetadataServiceSimulator _metadataService;
+    private readonly DownloadSourceSimulator _downloadSource;
     private readonly Process _process;
     private readonly string _dataRoot;
     private readonly string _resetToken;
@@ -25,6 +26,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private CoveApiServer(
         PostgreSqlTestDatabase database,
         MetadataServiceSimulator metadataService,
+        DownloadSourceSimulator downloadSource,
         Process process,
         Uri baseAddress,
         string dataRoot,
@@ -34,6 +36,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     {
         _database = database;
         _metadataService = metadataService;
+        _downloadSource = downloadSource;
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
@@ -44,6 +47,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
 
     public Uri BaseAddress { get; }
     public MetadataServiceSimulator MetadataService => _metadataService;
+    public DownloadSourceSimulator DownloadSource => _downloadSource;
     public ApiTestFileSystem FileSystem { get; }
     internal long ProcessStartedTimestamp { get; private init; }
     internal long ReadyTimestamp { get; private init; }
@@ -52,6 +56,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     {
         PostgreSqlTestDatabase? database = null;
         MetadataServiceSimulator? metadataService = null;
+        DownloadSourceSimulator? downloadSource = null;
         Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
         var libraryPath = Path.Combine(dataRoot, "library");
@@ -63,6 +68,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             Directory.CreateDirectory(dataRoot);
             Directory.CreateDirectory(libraryPath);
             metadataService = await MetadataServiceSimulator.StartAsync(cancellationToken);
+            downloadSource = await DownloadSourceSimulator.StartAsync(cancellationToken);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
             process = StartApiProcess(
                 dataRoot,
@@ -77,7 +83,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             using var startupClient = new HttpClient { BaseAddress = baseAddress };
             await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            return new CoveApiServer(database, metadataService, process, baseAddress, dataRoot, libraryPath, resetToken, output)
+            return new CoveApiServer(database, metadataService, downloadSource, process, baseAddress, dataRoot, libraryPath, resetToken, output)
             {
                 ProcessStartedTimestamp = processStartedTimestamp,
                 ReadyTimestamp = Stopwatch.GetTimestamp(),
@@ -123,6 +129,18 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                     ? exception
                     : new AggregateException(cleanupError, exception);
             }
+
+            try
+            {
+                if (downloadSource is not null)
+                    await downloadSource.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                cleanupError = cleanupError is null
+                    ? exception
+                    : new AggregateException(cleanupError, exception);
+            }
             finally
             {
                 TryDeleteDataRoot(dataRoot);
@@ -137,7 +155,6 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public async Task<IReadOnlyDictionary<string, CoveClient>> ResetAsync(
         CancellationToken cancellationToken = default)
     {
-        _metadataService.Reset();
         using var client = CreateLifecycleClient();
         using var response = await client.PostAsync("/health/test-reset", content: null, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -146,6 +163,8 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             throw new InvalidOperationException(
                 $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
         }
+        _metadataService.Reset();
+        _downloadSource.Reset();
         FileSystem.Reset();
         var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
         try
@@ -270,6 +289,17 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         try
         {
             await _metadataService.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            cleanupError = cleanupError is null
+                ? exception
+                : new AggregateException(cleanupError, exception);
+        }
+
+        try
+        {
+            await _downloadSource.DisposeAsync();
         }
         catch (Exception exception)
         {

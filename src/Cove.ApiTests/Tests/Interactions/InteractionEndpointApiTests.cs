@@ -4,7 +4,7 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Interactions;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class InteractionEndpointApiTests(
@@ -15,10 +15,13 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(EntityEngagementController))]
     public async Task GivenVideo_WhenFavoriteIsSet_ThenEngagementIsFavorite()
     {
+        // Arrange
         var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheFastAndTheFlirtatious.Title);
 
+        // Act
         var updated = await AsUser().SetVideoFavoriteAsync(video, isFavorite: true);
 
+        // Assert
         updated.IsFavorite.Should().BeTrue();
         var engagement = await AsUser().GetVideoEngagementAsync(video);
         engagement.IsFavorite.Should().BeTrue();
@@ -132,11 +135,14 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(PlaybackController))]
     public async Task GivenVideo_WhenPlaybackIsRecorded_ThenHistoryContainsSession()
     {
+        // Arrange
         var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
         var sessionId = Guid.NewGuid();
 
+        // Act
         await AsUser().RecordVideoPlaybackAsync(video, sessionId);
 
+        // Assert
         var history = await AsUser().GetVideoHistoryAsync(video);
         history.Sessions.Should().NotBeNull();
         history.Sessions!.Should().ContainSingle(session => session.SessionId == sessionId);
@@ -147,10 +153,13 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(ScrapeAttemptsController))]
     public async Task GivenVideoWithoutScrapes_WhenScrapeAttemptsAreRead_ThenAttemptListIsEmpty()
     {
+        // Arrange
         var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.HotSinglesInYourDatabase.Title);
 
+        // Act
         var attempts = await AsUser().GetVideoScrapeAttemptsAsync(video);
 
+        // Assert
         attempts.Should().BeEmpty();
     }
 
@@ -158,10 +167,13 @@ public sealed class InteractionEndpointApiTests(
     [CoversEndpoints(typeof(StreamController))]
     public async Task GivenVideoWithoutPreview_WhenPreviewStatusIsRead_ThenPreviewIsUnavailable()
     {
+        // Arrange
         var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.NoShirtNoShoesNoAlibi.Title);
 
+        // Act
         var available = await AsUser().GetVideoPreviewAvailabilityAsync(video);
 
+        // Assert
         available.Should().BeFalse();
     }
 }

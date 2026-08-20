@@ -3,7 +3,7 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Interactions;
 
 [Collection(ApiTestLane1Collection.Name)]
 public sealed class RelationshipLikeRollupApiTests(
@@ -13,6 +13,7 @@ public sealed class RelationshipLikeRollupApiTests(
     [Fact]
     public async Task GivenVideoWithPerformers_WhenMembersLikeVideo_ThenEachPerformerShowsMemberVideoLikes()
     {
+        // Arrange
         var movie = TestCatalog.Movies.RaidersOfTheLostCorset;
         var performers = await Task.WhenAll(movie.Cast.Select(performer =>
             AsUser().CreatePerformerAsync(
@@ -29,10 +30,12 @@ public sealed class RelationshipLikeRollupApiTests(
                 .WithPerformers(performers)
                 .Build());
 
+        // Act
         await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
         await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
         await AsUser(ApiTestUsers.Anthony).IncrementVideoLikeAsync(video);
 
+        // Assert
         foreach (var performer in performers)
         {
             (await AsUser(ApiTestUsers.Eva).GetPerformerByIdAsync(performer.Id)).LikeCount.Should().Be(2);
@@ -45,6 +48,7 @@ public sealed class RelationshipLikeRollupApiTests(
     [Fact]
     public async Task GivenGalleryWithMedia_WhenMembersLikeMedia_ThenGalleryShowsMemberMediaLikes()
     {
+        // Arrange
         var gallery = await AsUser().CreateGalleryAsync(
             new GalleryBuilder()
                 .WithTitle("Wardrobe Vault Stills")
@@ -64,11 +68,13 @@ public sealed class RelationshipLikeRollupApiTests(
                 .WithGallery(gallery)
                 .Build());
 
+        // Act
         await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
         await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(video);
         await AsUser(ApiTestUsers.Eva).IncrementImageLikeAsync(image);
         await AsUser(ApiTestUsers.Anthony).IncrementImageLikeAsync(image);
 
+        // Assert
         (await AsUser(ApiTestUsers.Eva).GetGalleryLikeCountAsync(gallery)).Should().Be(3);
         (await AsUser(ApiTestUsers.Anthony).GetGalleryLikeCountAsync(gallery)).Should().Be(1);
         (await AsUser().GetGalleryLikeCountAsync(gallery)).Should().Be(0);

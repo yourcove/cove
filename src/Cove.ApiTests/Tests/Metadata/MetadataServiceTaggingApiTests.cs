@@ -3,7 +3,7 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Metadata;
 
 [Collection(ApiTestLane2Collection.Name)]
 public sealed class MetadataServiceTaggingApiTests(
@@ -13,6 +13,7 @@ public sealed class MetadataServiceTaggingApiTests(
     [Fact]
     public async Task GivenMetadataServiceTag_WhenTagIsRemoved_ThenVideoNoLongerHasTag()
     {
+        // Arrange
         var metadataScene = AsMetadataService().CreateScene(
             new MetadataServiceSceneBuilder()
                 .WithTitle("Metadata scene")
@@ -26,8 +27,10 @@ public sealed class MetadataServiceTaggingApiTests(
         scrapedTag.Provenance.Should().Contain(
             provenance => provenance.SourceKey == $"metadata:{metadataScene.Endpoint.AbsoluteUri}");
 
+        // Act
         await AsUser().RemoveTagFromVideoAsync(taggedVideo, scrapedTag);
 
+        // Assert
         var videoAfter = await AsUser().GetVideoByIdAsync(video.Id);
         videoAfter.Tags.Should().NotContain(tag => tag.Id == scrapedTag.Id);
         (await AsUser().TagExistsAsync(scrapedTag.Id)).Should().BeTrue();

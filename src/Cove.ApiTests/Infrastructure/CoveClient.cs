@@ -5,6 +5,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -43,6 +44,132 @@ public sealed class CoveClient : IDisposable
             WithCacheNonce(definition.RequestUri),
             payload: null,
             cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DownloaderDescriptorDto>> GetDownloadersAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DownloaderDescriptorDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/system/downloaders"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<DownloaderMatchDto>> MatchDownloaderAsync(
+        Uri uri,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DownloaderMatchDto>>(
+            HttpMethod.Post,
+            "/api/system/downloaders/match",
+            new DownloaderMatchRequestDto(uri.AbsoluteUri),
+            cancellationToken);
+
+    public Task<DownloaderPreflightResponseDto> PreflightDownloadAsync(
+        Uri uri,
+        string entity,
+        int? entityId = null,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DownloaderPreflightResponseDto>(
+            HttpMethod.Post,
+            "/api/system/downloaders/preflight",
+            new DownloaderPreflightRequestDto
+            {
+                Url = uri.AbsoluteUri,
+                Entity = entity,
+                EntityId = entityId,
+            },
+            cancellationToken);
+
+    public async Task<string> StartTextDownloadAsync(
+        string downloaderId,
+        Uri uri,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/system/downloaders/download",
+            new DownloaderStartRequestDto
+            {
+                DownloaderId = downloaderId,
+                Url = uri.AbsoluteUri,
+                Entity = "Text",
+            },
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException("The downloader response did not contain a job id.");
+    }
+
+    public Task<DownloaderBatchStartResponse> StartDownloaderBatchAsync(
+        DownloaderBatchStartRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DownloaderBatchStartResponse>(
+            HttpMethod.Post,
+            "/api/system/downloaders/download-batch",
+            request,
+            cancellationToken);
+
+    public Task<JobInfo> GetJobAsync(
+        string jobId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<JobInfo>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/jobs/{Uri.EscapeDataString(jobId)}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<JobInfo> WaitForTerminalJobAsync(
+        string jobId,
+        CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        JobInfo? lastJob = null;
+        try
+        {
+            while (true)
+            {
+                lastJob = await GetJobAsync(jobId, timeout.Token);
+                if (lastJob.Status is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled)
+                    return lastJob;
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Job '{jobId}' did not reach a terminal state within 30 seconds. "
+                + $"Last status: {lastJob?.Status.ToString() ?? "unavailable"}; "
+                + $"progress: {lastJob?.Progress.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unavailable"}; "
+                + $"subtask: {lastJob?.SubTask ?? "unavailable"}.");
+        }
+    }
+
+    public async Task<IReadOnlyList<TextDocumentDto>> GetTextsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<TextDocumentDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/texts?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
+    public async Task<ApiBinaryContent> GetTextFileAsync(
+        TextDocumentDto text,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = WithCacheNonce($"/api/texts/{text.Id}/file");
+        using var response = await _client.GetAsync(requestUri, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"GET {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return new ApiBinaryContent(
+            await response.Content.ReadAsByteArrayAsync(cancellationToken),
+            response.Content.Headers.ContentType?.MediaType);
     }
 
     public Task<PerformerDto> CreatePerformerAsync(
@@ -289,12 +416,39 @@ public sealed class CoveClient : IDisposable
             payload: null,
             cancellationToken);
 
+    public Task<VideoDto> UpdateVideoAsync(
+        int videoId,
+        object update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoDto>(
+            HttpMethod.Put,
+            $"/api/videos/{videoId}",
+            update,
+            cancellationToken);
+
+    public Task<BulkUpdateResult> BulkUpdateVideosAsync(
+        BulkVideoUpdateDto update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<BulkUpdateResult>(HttpMethod.Post, "/api/videos/bulk", update, cancellationToken);
+
     public async Task<IReadOnlyList<VideoDto>> GetVideosAsync(
         CancellationToken cancellationToken = default)
     {
         var result = await SendAsync<PaginatedResponse<VideoDto>>(
             HttpMethod.Get,
             WithCacheNonce("/api/videos?perPage=250"),
+            payload: null,
+            cancellationToken);
+        return result.Items;
+    }
+
+    public async Task<IReadOnlyList<VideoDto>> GetVideosByPerformerAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync<PaginatedResponse<VideoDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos?performerIds={performerId}&perPage=250"),
             payload: null,
             cancellationToken);
         return result.Items;
@@ -596,6 +750,47 @@ public sealed class CoveClient : IDisposable
         CancellationToken cancellationToken = default)
         => SendAsync<TagGroupDto>(HttpMethod.Post, "/api/taggroups", tagGroup, cancellationToken);
 
+    public Task<IReadOnlyList<TagGroupDto>> GetTagGroupsAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<TagGroupDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/taggroups"),
+            payload: null,
+            cancellationToken);
+
+    public Task<TagGroupDto> GetTagGroupByIdAsync(
+        int tagGroupId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagGroupDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/taggroups/{tagGroupId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<TagGroupDto> UpdateTagGroupAsync(
+        int tagGroupId,
+        TagGroupUpdateDto tagGroup,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagGroupDto>(
+            HttpMethod.Put,
+            $"/api/taggroups/{tagGroupId}",
+            tagGroup,
+            cancellationToken);
+
+    public async Task DeleteTagGroupAsync(
+        int tagGroupId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/taggroups/{tagGroupId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
     public Task<TagDetailDto> CreateTagAsync(
         string name,
         CancellationToken cancellationToken = default)
@@ -617,6 +812,16 @@ public sealed class CoveClient : IDisposable
             HttpMethod.Get,
             WithCacheNonce($"/api/tags/{tagId}"),
             payload: null,
+            cancellationToken);
+
+    public Task<TagDetailDto> UpdateTagAsync(
+        int tagId,
+        TagUpdateDto tag,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagDetailDto>(
+            HttpMethod.Put,
+            $"/api/tags/{tagId}",
+            tag,
             cancellationToken);
 
     public async Task<IReadOnlyList<TagListDto>> GetTagsAsync(
@@ -664,6 +869,30 @@ public sealed class CoveClient : IDisposable
             $"/api/performers/{performerId}?apiTestNonce={Guid.NewGuid():N}",
             payload: null,
             cancellationToken);
+
+    public Task<PerformerDto> UpdatePerformerAsync(
+        int performerId,
+        object update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PerformerDto>(
+            HttpMethod.Put,
+            $"/api/performers/{performerId}",
+            update,
+            cancellationToken);
+
+    public async Task DeletePerformerAsync(
+        int performerId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/performers/{performerId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
 
     public Task<IReadOnlyList<MetadataServerPerformerMatchDto>> SearchPerformerMetadataServiceAsync(
         PerformerDto performer,
@@ -794,5 +1023,10 @@ public sealed class CoveClient : IDisposable
             cancellationToken);
     }
 }
+
+public sealed record DownloaderBatchStartResponse(
+    string? JobId,
+    int QueuedCount,
+    IReadOnlyList<DownloaderBatchStartIssueDto> Issues);
 
 public sealed record ApiBinaryContent(byte[] Content, string? MediaType);

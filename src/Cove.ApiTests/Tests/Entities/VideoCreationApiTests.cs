@@ -6,7 +6,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Entities;
 
 [Collection(ApiTestLane1Collection.Name)]
 public sealed class VideoCreationApiTests(
@@ -16,16 +16,20 @@ public sealed class VideoCreationApiTests(
     [Fact]
     public async Task GivenVideo_WhenMemberReadsVideos_ThenVideoIsReturned()
     {
+        // Arrange
         var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
 
+        // Act
         var videos = await AsUser(ApiTestUsers.Eva).GetVideosAsync();
 
+        // Assert
         videos.Should().ContainSingle(candidate => candidate.Id == video.Id);
     }
 
     [Fact]
     public async Task GivenVideoMetadata_WhenVideoIsCreated_ThenAllMetadataCanBeRetrieved()
     {
+        // Arrange
         const string customFieldKey = "prop_budget";
         var movie = TestCatalog.Movies.RaidersOfTheLostCorset;
         var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
@@ -60,8 +64,10 @@ public sealed class VideoCreationApiTests(
             .AsVr()
             .Build();
 
+        // Act
         var video = await AsUser().CreateVideoAsync(request);
 
+        // Assert
         var videoAfter = await AsUser().GetVideoByIdAsync(video.Id);
         var engagement = await AsUser().GetVideoEngagementAsync(videoAfter);
         videoAfter.Title.Should().Be(request.Title);

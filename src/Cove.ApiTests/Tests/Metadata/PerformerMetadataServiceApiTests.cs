@@ -3,7 +3,7 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests;
+namespace Cove.ApiTests.Tests.Metadata;
 
 [Collection(ApiTestLane1Collection.Name)]
 public sealed class PerformerMetadataServiceApiTests(
@@ -13,6 +13,7 @@ public sealed class PerformerMetadataServiceApiTests(
     [Fact]
     public async Task GivenPulpMovieDbPerformer_WhenCherryPoppinsIsSearchedByName_ThenMetadataCanBeImported()
     {
+        // Arrange
         const string performerProfileUrl = "https://pulpmoviedb.example/performers/cherry-poppins";
         var catalogPerformer = TestCatalog.Performers.CherryPoppins;
         var pulpMovieDb = TestCatalog.MetadataServices.PulpMovieDb;
@@ -37,6 +38,7 @@ public sealed class PerformerMetadataServiceApiTests(
                 .WithName(catalogPerformer.Name)
                 .Build());
 
+        // Act & Assert
         var matches = await AsUser().SearchPerformerMetadataServiceAsync(
             performer,
             catalogPerformer.Name,

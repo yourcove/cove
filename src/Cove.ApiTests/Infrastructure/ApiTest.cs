@@ -32,6 +32,9 @@ public abstract class ApiTest : IAsyncLifetime
     protected MetadataServiceSimulator AsMetadataService()
         => _fixture.MetadataService;
 
+    protected DownloadSourceSimulator AsDownloadSource()
+        => _fixture.DownloadSource;
+
     protected ApiTestFileSystem AsTestFileSystem()
         => _fixture.FileSystem;
 

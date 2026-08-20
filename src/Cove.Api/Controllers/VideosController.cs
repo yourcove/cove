@@ -297,7 +297,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.TagIds?.Count > 0)
             video.VideoTags = dto.TagIds.Select(id => new VideoTag { TagId = id }).ToList();
         if (dto.PerformerIds?.Count > 0)
-            video.VideoPerformers = dto.PerformerIds.Select(id => new VideoPerformer { PerformerId = id }).ToList();
+            video.VideoPerformers = dto.PerformerIds.Distinct().Select(id => new VideoPerformer { PerformerId = id }).ToList();
         if (dto.GalleryIds?.Count > 0)
             video.VideoGalleries = dto.GalleryIds.Select(id => new VideoGallery { GalleryId = id }).ToList();
         if (dto.Groups?.Count > 0)
@@ -391,7 +391,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.PerformerIds != null)
         {
             video.VideoPerformers.Clear();
-            video.VideoPerformers = dto.PerformerIds.Select(pid => new VideoPerformer { PerformerId = pid, VideoId = id }).ToList();
+            video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = id }).ToList();
         }
         if (dto.GalleryIds != null)
         {
@@ -1415,12 +1415,12 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Set)
             {
                 video.VideoPerformers.Clear();
-                video.VideoPerformers = dto.PerformerIds.Select(pid => new VideoPerformer { PerformerId = pid, VideoId = video.Id }).ToList();
+                video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = video.Id }).ToList();
             }
             else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Add)
             {
                 var existing = video.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
-                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)))
+                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)).Distinct())
                     video.VideoPerformers.Add(new VideoPerformer { PerformerId = pid, VideoId = video.Id });
             }
             else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)
