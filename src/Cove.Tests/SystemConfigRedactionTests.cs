@@ -69,6 +69,11 @@ public sealed class SystemConfigRedactionTests
         Assert.Equal("/private/library", scanner.CovePaths.Single().Path);
         Assert.True(string.IsNullOrEmpty(scanner.Scraping.MetadataServers.Single().ApiKey));
 
+        principals.Set(CreatePrincipal(Permissions.SystemRead, Permissions.FilesRead));
+        var fileReader = GetConfig(controller);
+        Assert.Equal("/private/library", fileReader.CovePaths.Single().Path);
+        Assert.True(string.IsNullOrEmpty(fileReader.Scraping.MetadataServers.Single().ApiKey));
+
         principals.Set(CreatePrincipal(Permissions.SystemSettingsWrite));
         var writable = GetConfig(controller);
         Assert.False(string.IsNullOrEmpty(writable.Scraping.MetadataServers.Single().ApiKey));
