@@ -10,17 +10,15 @@ import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { ImageIcon, Trash2, Loader2, Edit, FolderOpen, Play, Search, ThumbsUp, Eye, Heart } from "lucide-react";
 import { IMAGE_CRITERIA } from "../components/FilterDialog";
-import { BulkEditDialog, IMAGE_BULK_FIELDS } from "../components/BulkEditDialog";
 import { ImageTile } from "../components/EntityCards";
+import { ImageSelectionActions } from "../components/ImageSelectionActions";
 import type { LightboxImage } from "../components/Lightbox";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
+import { canReadEntity, canWriteEntity } from "../auth/visibility";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { useWallColumns } from "../hooks/useWallColumns";
-import { ExtensionSelectionActions } from "../components/ExtensionSelectionActions";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
 import { WallMediaCard } from "../components/WallMediaCard";
 import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, FeedTagChips, getFeedMediaStyle } from "../components/FeedCardFrame";
@@ -71,7 +69,6 @@ export function ImagesPage({ onNavigate }: Props) {
     allowInfinitePageSize: true,
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [wallColumnCount, setWallColumnCount] = useState(6);
   const lastPagedFilterRef = useRef<Pick<FindFilter, "page" | "perPage">>({ page: defaultState.filter.page ?? 1, perPage: defaultState.filter.perPage });
@@ -80,7 +77,6 @@ export function ImagesPage({ onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const canWriteImage = canWriteEntity("image", hasPermission);
-  const canDeleteImage = canDeleteEntity("image", hasPermission);
   const canEngageImage = canReadEntity("image", hasPermission) && (user?.kind === "user" || user?.kind === "system");
 
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
@@ -208,7 +204,6 @@ export function ImagesPage({ onNavigate }: Props) {
     enabled: selectedIdList.length > 0,
   });
   const selectedVisibleImages = useMemo(() => items.filter((item) => selectedIds.has(item.id)), [items, selectedIds]);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const toLightboxImage = useCallback(
     (img: Image): LightboxImage => ({
@@ -249,24 +244,6 @@ export function ImagesPage({ onNavigate }: Props) {
       setSelectAllMatchingPending(false);
     }
   }, [listData, selectIds]);
-
-  const bulkDeleteMut = useMutation<void, Error, DeleteEntityOptions | undefined>({
-    meta: { suppressGlobalError: true },
-    mutationFn: async (options) => {
-      await images.bulkDelete([...selectedIds], options);
-    },
-    onSuccess: () => { setShowDeleteConfirm(false); selectNone(); queryClient.invalidateQueries({ queryKey: ["images"] }); },
-  });
-
-  const bulkEditMut = useMutation({
-    mutationFn: (values: Record<string, unknown>) =>
-      images.bulkUpdate({ ids: [...selectedIds], ...values } as any),
-    onSuccess: () => {
-      setShowBulkEdit(false);
-      selectNone();
-      queryClient.invalidateQueries({ queryKey: ["images"] });
-    },
-  });
 
   return (
     <>
@@ -312,51 +289,13 @@ export function ImagesPage({ onNavigate }: Props) {
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={
-        <>
-          {selectedVisibleImages.length > 1 ? (
-            <button
-              onClick={playSelectedImages}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10"
-            >
-              <Play className="w-3 h-3" />
-              Play
-            </button>
-          ) : null}
-          {canWriteImage && (
-            <button
-              onClick={() => setShowBulkEdit(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10"
-            >
-              <Edit className="w-3 h-3" />
-              Edit
-            </button>
-          )}
-          <ExtensionSelectionActions entityType="image" selectedIds={selectedIds} />
-          {canDeleteImage && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={bulkDeleteMut.isPending}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
-            >
-              {bulkDeleteMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-              Delete
-            </button>
-          )}
-        </>
+        <ImageSelectionActions
+          selectedIds={selectedIds as Set<number>}
+          onSelectNone={selectNone}
+          onPlay={playSelectedImages}
+        />
       }
     >
-      <ConfirmDialog
-        open={showDeleteConfirm}
-        title={`Delete ${selectedIds.size} image${selectedIds.size === 1 ? "" : "s"}`}
-        message={`Delete ${selectedIds.size} selected image${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
-        confirmLabel={bulkDeleteMut.isPending ? "Deleting..." : "Delete"}
-        onConfirm={(options) => bulkDeleteMut.mutate(options)}
-        onCancel={() => { bulkDeleteMut.reset(); setShowDeleteConfirm(false); }}
-        isPending={bulkDeleteMut.isPending}
-        errorMessage={bulkDeleteMut.error?.message ?? null}
-        showDeleteFile
-        showDeleteGenerated
-      />
       {displayMode === "feed" ? (
         <div className="mx-auto w-full max-w-[64rem] px-3 sm:px-4">
           <VirtualizedInfiniteList
@@ -464,15 +403,6 @@ export function ImagesPage({ onNavigate }: Props) {
         </div>
       )}
     </ListPage>
-    <BulkEditDialog
-      open={showBulkEdit}
-      onClose={() => setShowBulkEdit(false)}
-      title="Edit Images"
-      selectedCount={selectedIds.size}
-      fields={IMAGE_BULK_FIELDS}
-      onApply={(values) => bulkEditMut.mutate(values)}
-      isPending={bulkEditMut.isPending}
-    />
     <Suspense fallback={null}>
       {imageLightbox.lightboxProps.open ? (
         <Lightbox

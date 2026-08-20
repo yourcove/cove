@@ -2,12 +2,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { entityImages, faces, images, playback, fileOps, galleries } from "../api/client";
 import { formatDate, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
-import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, ImageOff, Layers, Link as LinkIcon, Loader2, Maximize, MoreVertical, RefreshCw, Search, Sparkles, ThumbsUp, Trash2, UserRound, UserX } from "lucide-react";
+import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, ImageOff, Layers, Link as LinkIcon, Loader2, Maximize, MoreVertical, RefreshCw, Scissors, Search, Sparkles, ThumbsUp, Trash2, UserRound, UserX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailSkeleton } from "../components/DetailSkeleton";
+import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { ListLoadError } from "../components/ListLoadError";
+import { useFaceCapabilities } from "../hooks/useFaceCapabilities";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
@@ -75,6 +77,8 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   const canEngageImage = canReadEntity("image", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canReadFaces = canReadEntity("face", hasPermission);
   const canWriteFaces = canWriteEntity("face", hasPermission);
+  // Needs a provider extension registering an IFaceOccurrenceEditor; hidden when none is installed.
+  const { canEditOccurrences } = useFaceCapabilities(canWriteFaces);
   const canReadFiles = hasPermission("files.read");
   const canReadStudios = canReadEntity("studio", hasPermission);
   const canReadPerformers = canReadEntity("performer", hasPermission);
@@ -114,6 +118,9 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       queryClient.invalidateQueries({ queryKey: ["face"] });
     },
   });
+  // Separating two people tangled into one face, one appearance at a time rather than rejecting the
+  // whole image (see FaceSplitDialog).
+  const [splitFace, setSplitFace] = useState<FaceHostFace | null>(null);
   const deleteMut = useMutation({
     mutationFn: () => images.delete(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["images"] }); goBack(); },
@@ -542,21 +549,34 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
                       <div className="text-[11px] text-secondary">{formatImageFaceSummary(face)}</div>
                     </div>
                   </a>
-                  {canWriteFaces ? (
-                    <button
-                      type="button"
-                      title="This face is not actually present in this image"
-                      aria-label="Mark face not present in this image"
-                      disabled={isMarking}
-                      onClick={() => {
-                        if (window.confirm(`Mark "${title}" as NOT present in this image?\n\nIts occurrence here (and other media that matches it) will be split off into the correct face.`)) {
-                          markFaceNotPresentMut.mutate(face.id);
-                        }
-                      }}
-                      className="absolute right-1 top-1 rounded-md bg-surface/80 p-1 text-muted opacity-0 transition-opacity hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-100 group-hover:opacity-100"
-                    >
-                      {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
-                    </button>
+                  {canWriteFaces && canEditOccurrences ? (
+                    <div className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}>
+                      {face.hostTrackCount > 1 ? (
+                        <button
+                          type="button"
+                          title={`Detected as ${face.hostTrackCount} separate appearances — separate a different person out of this face`}
+                          aria-label="Separate people in this face"
+                          onClick={() => setSplitFace(face)}
+                          className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-accent"
+                        >
+                          <Scissors className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        title="This face is not actually present in this image"
+                        aria-label="Mark face not present in this image"
+                        disabled={isMarking}
+                        onClick={() => {
+                          if (window.confirm(`Mark "${title}" as NOT present in this image?\n\nIts occurrence here (and other media that matches it) will be split off into the correct face.`)) {
+                            markFaceNotPresentMut.mutate(face.id);
+                          }
+                        }}
+                        className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-red-300 disabled:cursor-not-allowed"
+                      >
+                        {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
                   ) : null}
                 </div>
               );
@@ -660,6 +680,20 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       <ConfirmDialog open={confirmDelete} title="Delete Image" message={`Delete "${displayTitle}"? This cannot be undone.`} onConfirm={() => deleteMut.mutate()} onCancel={() => setConfirmDelete(false)} />
 
       <GenerateDialog open={showGenerate} onClose={() => setShowGenerate(false)} imageIds={[id]} />
+
+      <FaceSplitDialog
+        open={splitFace != null}
+        faceId={splitFace?.id ?? null}
+        faceTitle={splitFace ? (splitFace.performerName?.trim() || splitFace.label?.trim() || `Face #${splitFace.id}`) : ""}
+        hostType="image"
+        hostId={Number(id)}
+        onClose={() => setSplitFace(null)}
+        onSplit={() => {
+          queryClient.invalidateQueries({ queryKey: ["image", id, "faces"] });
+          queryClient.invalidateQueries({ queryKey: ["face"] });
+        }}
+        onMarkNotPresent={canWriteFaces && canEditOccurrences && splitFace ? () => markFaceNotPresentMut.mutate(splitFace.id) : undefined}
+      />
 
       <Lightbox
         images={lightboxImages}

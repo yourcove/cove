@@ -6,10 +6,11 @@ import {
   Check, ChevronLeft, ChevronRight, ChevronDown, MoreVertical,
   Gauge, Clapperboard, FolderOpen, Layers, Clock, List,
   RefreshCw, Camera, Image, Merge, ExternalLink, Download, X, Sparkles, Volume2, Filter,
-  UserX, Loader2,
+  UserX, Loader2, Scissors,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { IsoDateInput } from "../components/IsoDateInput";
 import type { Detection, Face, MetadataServer, PerformerSummary, ResolvedSpan, Video, VideoUpdate, Segment, TagApplication, TagProvenance } from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
@@ -35,6 +36,7 @@ import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../components/RemoteIdsEditor";
 import { serverAwareFetch } from "../state/serverAvailability";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { useFaceCapabilities } from "../hooks/useFaceCapabilities";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
@@ -204,6 +206,9 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const canReadGalleries = canReadEntity("gallery", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
   const canWriteFaces = canWriteEntity("face", hasPermission);
+  // Correcting face occurrences needs a provider extension; without one the host has nothing to defer
+  // to, so the actions are hidden rather than offered and then failing.
+  const { canEditOccurrences } = useFaceCapabilities(canWriteFaces);
   const canReadSegments = canReadEntity("segment", hasPermission);
   const canWriteSegments = hasPermission("segments.write");
   const canWriteTags = hasPermission("tags.write");
@@ -382,16 +387,28 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
 
   const videoFaces = useMemo(() => {
     const countsByFaceId = new Map<number, number>();
+    // Detections carry the track (group key) they came from, so the number of distinct group keys is
+    // how many separate appearances the face has in this video — and whether it can be split at all.
+    const trackKeysByFaceId = new Map<number, Set<string>>();
     for (const detection of detections) {
       if (detection.refId != null && detection.refKind?.toLowerCase() === "face") {
         countsByFaceId.set(detection.refId, (countsByFaceId.get(detection.refId) ?? 0) + 1);
+        if (detection.groupKey) {
+          const keys = trackKeysByFaceId.get(detection.refId) ?? new Set<string>();
+          keys.add(detection.groupKey.split(":span-")[0]);
+          trackKeysByFaceId.set(detection.refId, keys);
+        }
       }
     }
 
     return videoFaceQueries
       .map((query) => query.data)
       .filter((face): face is Face => face != null)
-      .map((face) => ({ face, detectionCount: countsByFaceId.get(face.id) ?? 0 }))
+      .map((face) => ({
+        face,
+        detectionCount: countsByFaceId.get(face.id) ?? 0,
+        trackCount: trackKeysByFaceId.get(face.id)?.size ?? 0,
+      }))
       .sort((left, right) => right.detectionCount - left.detectionCount || left.face.id - right.face.id);
   }, [detections, videoFaceQueries]);
 
@@ -410,6 +427,16 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       queryClient.invalidateQueries({ queryKey: ["face"] });
     },
   });
+
+  // Separating two people tangled into one face touches the same rows as not-present, one track at a
+  // time rather than the whole video, so it needs the same refresh.
+  const [splitFace, setSplitFace] = useState<Face | null>(null);
+  const refreshAfterFaceEdit = () => {
+    queryClient.invalidateQueries({ queryKey: ["video", id, "detections"] });
+    queryClient.invalidateQueries({ queryKey: ["video", id, "segments"] });
+    queryClient.invalidateQueries({ queryKey: ["video", id] });
+    queryClient.invalidateQueries({ queryKey: ["face"] });
+  };
 
   // "This detection is wrong": drop the AI's host-level applications for one tag so the wrongly-derived
   // chip falls off this video. Refresh the video (effective tags) and tag lists/counts.
@@ -687,8 +714,9 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         metadataServers={config?.scraping?.metadataServers}
         onNavigate={onNavigate}
         videoFaces={videoFaces}
-        onMarkFaceNotPresent={canWriteFaces ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
+        onMarkFaceNotPresent={canWriteFaces && canEditOccurrences ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
         markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
+        onSplitFace={canWriteFaces && canEditOccurrences ? (face) => setSplitFace(face) : undefined}
         onRequestReportTag={requestReportTag}
       />
     </>
@@ -916,6 +944,16 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           setReportTag(null);
         }}
       />
+      <FaceSplitDialog
+        open={splitFace != null}
+        faceId={splitFace?.id ?? null}
+        faceTitle={splitFace ? (splitFace.label?.trim() || splitFace.performerName || `Face #${splitFace.id}`) : ""}
+        hostType="video"
+        hostId={Number(id)}
+        onClose={() => setSplitFace(null)}
+        onSplit={refreshAfterFaceEdit}
+        onMarkNotPresent={canWriteFaces && canEditOccurrences && splitFace ? () => markFaceNotPresentMut.mutate(splitFace.id) : undefined}
+      />
       <MediaDetailLayout
         title={<FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="title">{videoTitle}</FieldProvenanceHover>}
         headerImage={videoHeaderImage}
@@ -1044,7 +1082,7 @@ function describeTagEvidence(tag: { effectiveDurationSec?: number | null; effect
 }
 
 // Details Tab Content
-export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; metadataServers?: MetadataServer[]; videoFaces?: Array<{ face: Face; detectionCount: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onRequestReportTag?: (tag: any) => void }) {
+export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onSplitFace, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; metadataServers?: MetadataServer[]; videoFaces?: Array<{ face: Face; detectionCount: number; trackCount?: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onSplitFace?: (face: Face) => void; onRequestReportTag?: (tag: any) => void }) {
   const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", video?.performers?.map((p) => p.id) ?? []);
   return (
     <div className="space-y-4">
@@ -1172,9 +1210,12 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
         <div>
           <h6 className="mb-2 text-sm text-muted">Faces in this video</h6>
           <div className="flex flex-wrap gap-2">
-            {videoFaces.map(({ face, detectionCount }) => {
+            {videoFaces.map(({ face, detectionCount, trackCount = 0 }) => {
               const title = face.label?.trim() || face.performerName || `Face #${face.id}`;
               const isMarking = markingFaceId === face.id;
+              // Only offer the split where there is something to split: the face has to have been
+              // detected as more than one separate run in this video.
+              const canSplit = !!onSplitFace && trackCount > 1;
               return (
                 <div
                   key={face.id}
@@ -1201,21 +1242,36 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                       </div>
                     </div>
                   </button>
-                  {onMarkFaceNotPresent ? (
-                    <button
-                      type="button"
-                      title="This face is not actually present in this video"
-                      aria-label="Mark face not present in this video"
-                      disabled={isMarking}
-                      onClick={() => {
-                        if (window.confirm(`Mark "${title}" as NOT present in this video?\n\nIts occurrences here (and other videos that match them) will be split off into the correct face.`)) {
-                          onMarkFaceNotPresent(face.id);
-                        }
-                      }}
-                      className="absolute right-1 top-1 rounded-md bg-surface/80 p-1 text-muted opacity-0 transition-opacity hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-100 group-hover:opacity-100"
-                    >
-                      {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
-                    </button>
+                  {onMarkFaceNotPresent || canSplit ? (
+                    <div className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}>
+                      {canSplit ? (
+                        <button
+                          type="button"
+                          title={`Detected as ${trackCount} separate appearances — separate a different person out of this face`}
+                          aria-label="Separate people in this face"
+                          onClick={() => onSplitFace(face)}
+                          className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-accent"
+                        >
+                          <Scissors className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      {onMarkFaceNotPresent ? (
+                        <button
+                          type="button"
+                          title="This face is not actually present in this video"
+                          aria-label="Mark face not present in this video"
+                          disabled={isMarking}
+                          onClick={() => {
+                            if (window.confirm(`Mark "${title}" as NOT present in this video?\n\nIts occurrences here (and other videos that match them) will be split off into the correct face.`)) {
+                              onMarkFaceNotPresent(face.id);
+                            }
+                          }}
+                          className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-red-300 disabled:cursor-not-allowed"
+                        >
+                          {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               );

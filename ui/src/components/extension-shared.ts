@@ -104,13 +104,21 @@ export type { DisplayMode, ListPageProps } from "./ListPage";
 export { RelatedEntityListView, getRelatedEntityDisplayModes } from "./RelatedEntityListView";
 export { FilterButton, FilterDialog, VIDEO_CRITERIA } from "./FilterDialog";
 export type { CriterionDefinition, FilterDialogCustomSection } from "./FilterDialog";
-export { BulkEditDialog } from "./BulkEditDialog";
+export { BulkEditDialog, VIDEO_BULK_FIELDS, PERFORMER_BULK_FIELDS } from "./BulkEditDialog";
+// The complete set of bulk actions for a video multi-selection (download / edit / identify / merge / play /
+// extension-contributed / delete), dialogs included. Extension list pages render this so their selection bar is
+// the SAME one the native videos page shows, and stays in step as actions are added.
+export { VideoSelectionActions } from "./VideoSelectionActions";
+export type { VideoSelectionActionsProps } from "./VideoSelectionActions";
+export { ImageSelectionActions } from "./ImageSelectionActions";
+export type { ImageSelectionActionsProps } from "./ImageSelectionActions";
 export { getDefaultFilter } from "./SavedFilterMenu";
 export { Pager } from "./Pager";
 export { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
 
 // ─── Hooks ────────────────────────────────────────────────────────────────
-export { useMultiSelect } from "../hooks/useMultiSelect";
+export { useMultiSelect, toggleOptionsFromEvent, withOrderedToggle } from "../hooks/useMultiSelect";
+export type { MultiSelectToggleOptions, MultiSelectToggleHandler, BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 export { useKeySequence } from "../hooks/useKeySequence";
 export { useListUrlState } from "../hooks/useListUrlState";
 

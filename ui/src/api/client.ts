@@ -31,7 +31,7 @@ import type {
   SegmentDisplayRule, SegmentDisplayRuleCreate, SegmentDisplayRuleUpdate,
   SegmentSpanQueryRequest, SegmentSpanSearchRequest, SegmentSpanSearchResponse, SegmentSpanCountResponse,
   Detection, DetectionCreate, DetectionUpdate,
-  Face, FaceAppearance, FaceAppearancesResponse, FaceCreate, FaceUpdate, FaceLink, FaceBatchLinkTopSuggestionRequest, FaceBatchDeleteRequest, FaceBatchOperationResult, FaceCreatePerformer, FaceHostFace, FaceMerge, FaceIgnore, FaceDeleteImpact, FaceNotPresentResult, FaceSimilar, FaceSuggestion,
+  Face, FaceAppearance, FaceAppearancesResponse, FaceCreate, FaceUpdate, FaceLink, FaceBatchLinkTopSuggestionRequest, FaceBatchDeleteRequest, FaceBatchOperationResult, FaceCreatePerformer, FaceCapabilities, FaceHostFace, FaceHostTrack, FaceMerge, FaceIgnore, FaceDeleteImpact, FaceNotPresentResult, FaceSimilar, FaceSplitResult, FaceSuggestion,
   EntityEngagement, EntityFavorite, EntityEngagementBatchRequest, EntityRatings,
   EngagementInteraction, EngagementInteractionWrite,
   VideoHistory,
@@ -617,7 +617,7 @@ export const faces: {
   reviewUnlinked: (take?: number) => Promise<Face[]>;
   reviewAiRun: (opts: { startedAt: string; completedAt: string; take?: number }) => Promise<Face[]>;
   detections: (id: number) => Promise<Detection[]>;
-  detectionCropUrl: (detectionId: number, max?: number) => string;
+  detectionCropUrl: (detectionId: number, max?: number, context?: number) => string;
   deleteImpact: (id: number) => Promise<FaceDeleteImpact>;
   create: (data: FaceCreate) => Promise<Face>;
   update: (id: number, data: FaceUpdate) => Promise<Face>;
@@ -632,6 +632,9 @@ export const faces: {
   suggestions: (id: number, maxResults?: number) => Promise<FaceSuggestion[]>;
   recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) => Promise<Face>;
   markNotPresent: (id: number, data: { hostType: "video" | "image"; hostId: number }) => Promise<FaceNotPresentResult>;
+  hostTracks: (id: number, opts: { hostType: "video" | "image"; hostId: number }) => Promise<FaceHostTrack[]>;
+  split: (id: number, data: { hostType: "video" | "image"; hostId: number; groupKeys: string[] }) => Promise<FaceSplitResult>;
+  capabilities: () => Promise<FaceCapabilities>;
 } = {
   list: (opts?: FaceListOptions) =>
     request<PaginatedResponse<Face>>(`/faces${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, {
@@ -681,7 +684,10 @@ export const faces: {
   reviewAiRun: (opts: { startedAt: string; completedAt: string; take?: number }) =>
     request<Face[]>(`/faces/review/ai-run${buildQuery(undefined, { startedAt: opts.startedAt, completedAt: opts.completedAt, take: opts.take })}`),
   detections: (id: number) => request<Detection[]>(`/faces/${id}/detections`),
-  detectionCropUrl: (detectionId: number, max?: number) => buildMediaUrl(`/stream/detection/${detectionId}/crop`, undefined, max),
+  // `context` scales how much frame surrounds the detection box (server default 1.8, a portrait
+  // crop). Pass a value near 1 when the point is to tell adjacent detections apart.
+  detectionCropUrl: (detectionId: number, max?: number, context?: number) =>
+    buildMediaUrl(`/stream/detection/${detectionId}/crop`, undefined, max, { context }),
   deleteImpact: (id: number) => request<FaceDeleteImpact>(`/faces/${id}/delete-impact`),
   create: (data: FaceCreate) => request<Face>("/faces", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: FaceUpdate) => request<Face>(`/faces/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -701,8 +707,19 @@ export const faces: {
   recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) =>
     request<Face>(`/faces/${id}/suggestions/decision`, { method: "POST", body: JSON.stringify(data) }),
   // Handled by the AI.Faces extension (ext endpoint), which owns the face-embedding split logic.
+  // Occurrence editing is served by Cove itself and fulfilled by whichever extension registers an
+  // IFaceOccurrenceEditor, so these are plain host routes — no extension id appears here. When nothing
+  // provides the capability they answer 501, and faces.capabilities() lets the UI hide the actions.
   markNotPresent: (id: number, data: { hostType: "video" | "image"; hostId: number }) =>
-    request<FaceNotPresentResult>(`/ext/ai-faces/faces/${id}/not-present`, { method: "POST", body: JSON.stringify(data) }),
+    request<FaceNotPresentResult>(`/faces/${id}/not-present`, { method: "POST", body: JSON.stringify(data) }),
+  // The face's separate tracked appearances on one host, and the finer-grained counterpart to
+  // markNotPresent: it moves only the named appearances, so two performers tangled inside one video can
+  // be pulled apart without rejecting the face from the whole video.
+  hostTracks: (id: number, opts: { hostType: "video" | "image"; hostId: number }) =>
+    request<FaceHostTrack[]>(`/faces/${id}/host-tracks${buildQuery(undefined, { hostType: opts.hostType, hostId: opts.hostId })}`),
+  split: (id: number, data: { hostType: "video" | "image"; hostId: number; groupKeys: string[] }) =>
+    request<FaceSplitResult>(`/faces/${id}/split`, { method: "POST", body: JSON.stringify(data) }),
+  capabilities: () => request<FaceCapabilities>("/faces/capabilities"),
 };
 
 export const entityEngagement = {

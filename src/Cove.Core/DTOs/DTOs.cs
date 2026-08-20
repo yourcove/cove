@@ -995,7 +995,58 @@ public record FaceHostFaceDto(
     int ImageCount,
     double? FirstSeenAtSec,
     double? LastSeenAtSec,
-    float? TopConfidence);
+    float? TopConfidence,
+    // How many separate appearances (tracked face runs) this face has on THIS host, as opposed to the
+    // library-wide AppearanceCount above. More than one means the face was detected as several distinct
+    // runs here, which is what makes a within-host split meaningful.
+    int HostTrackCount = 1);
+
+/// <summary>
+/// One tracked appearance of a face on a single host, as reported by an <c>IFaceOccurrenceEditor</c>.
+/// <paramref name="GroupKey"/> identifies it for a split; <paramref name="RepresentativeDetectionId"/>
+/// is its best detection, renderable through the existing detection-crop stream route.
+/// </summary>
+public record FaceHostTrackDto(
+    string GroupKey,
+    double? FirstSeenSeconds,
+    double? LastSeenSeconds,
+    int SampleCount,
+    int DetectionCount,
+    double? RepresentativeFrameSeconds,
+    float? TopConfidence,
+    int? RepresentativeDetectionId,
+    // Which person the provider believes this appearance belongs to, among those sharing the face on
+    // this host. 0 is the most-represented. Lets a caller offer a split rather than ask for one.
+    int SuggestedGroup = 0);
+
+public record FaceSplitDto(string HostType, int HostId, IReadOnlyList<string> GroupKeys);
+
+public record FaceOccurrenceHostDto(string HostType, int HostId);
+
+public record FaceOccurrenceSplitResultDto(
+    bool FaceFound,
+    bool HostHadFace,
+    bool GroupKeysMatched,
+    bool WouldEmptyFace,
+    int MovedAppearanceCount,
+    int MovedDetectionCount,
+    int MovedSegmentCount,
+    int MovedEmbeddingCount,
+    int TargetFaceId,
+    bool CreatedNewFace,
+    bool MergedIntoExistingFace);
+
+public record FaceNotPresentResultDto(
+    bool FaceFound,
+    bool HostHadFace,
+    int MovedHostCount,
+    int? TargetFaceId,
+    bool CreatedNewFace,
+    bool MergedIntoTarget,
+    bool SourceFaceEmptied);
+
+/// <summary>What the installed face providers can do, so the UI shows only actions that will work.</summary>
+public record FaceCapabilitiesDto(bool CanEditOccurrences, bool CanSuggest);
 
 public record FaceMergeDto(int TargetFaceId);
 

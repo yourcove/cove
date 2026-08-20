@@ -13,25 +13,23 @@ import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHand
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { CustomFieldsEditor, formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
-import { BulkEditDialog, VIDEO_BULK_FIELDS } from "../components/BulkEditDialog";
 import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../components/EditModal";
-import { Film, Eye, Trash2, Loader2, Edit, Merge, Search, Play, Pause, Download, Layers, Maximize2, Minimize2, Volume2, VolumeX, ThumbsUp, Heart, Shuffle } from "lucide-react";
+import { Film, Eye, Loader2, Search, Play, Pause, Layers, Maximize2, Minimize2, Volume2, VolumeX, ThumbsUp, Heart, Shuffle } from "lucide-react";
 import { useVideoQueue } from "../state/VideoQueueContext";
+import { VideoSelectionActions } from "../components/VideoSelectionActions";
 import { VideoCard } from "../components/EntityCards";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
+import { canReadEntity, canWriteEntity } from "../auth/visibility";
 import { StringListEditor } from "../components/StringListEditor";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { useWallColumns } from "../hooks/useWallColumns";
 import { useAppConfig } from "../state/AppConfigContext";
 import { StudioSelector } from "../components/StudioSelector";
-import { ExtensionSelectionActions } from "../components/ExtensionSelectionActions";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { WallMediaCard, type WallMediaVideoControlsState } from "../components/WallMediaCard";
 import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, getFeedMediaStyle } from "../components/FeedCardFrame";
 import { BookmarkButton } from "../components/BookmarkButton";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
 import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
 import { useFileBackedCreatePreferences } from "../hooks/useFileBackedCreatePreferences";
@@ -39,15 +37,6 @@ import { VirtualizedInfiniteList } from "../components/VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { RelatedEntityListRow } from "../components/RelatedEntityListView";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
-import {
-  formatBatchDownloadSummary,
-  getBatchDownloadOptionsStorageKey,
-  getUndownloadedSelectionItems,
-  loadStoredBatchDownloadOptions,
-  queueBatchDownloads,
-  saveStoredBatchDownloadOptions,
-  type BatchDownloadOptions,
-} from "../utils/batchDownloads";
 import { fetchAllMatchingIds } from "../utils/selectAllMatching";
 import { resolveQueryLoadState } from "../utils/queryLoadState";
 import { useVideoQueueNavigation } from "../hooks/useVideoQueueNavigation";
@@ -57,9 +46,6 @@ import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFi
 import { VIDEO_MULTI_SORT_KEYS } from "../components/entityMultiSortKeys";
 
 const VideoDownloadDialog = lazy(() => import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })));
-const BatchDownloadOptionsDialog = lazy(() => import("../components/BatchDownloadOptionsDialog").then((module) => ({ default: module.BatchDownloadOptionsDialog })));
-const MergeDialog = lazy(() => import("../components/MergeDialog").then((module) => ({ default: module.MergeDialog })));
-const IdentifyDialog = lazy(() => import("../components/IdentifyDialog").then((module) => ({ default: module.IdentifyDialog })));
 const QuickViewDialog = lazy(() => import("../components/QuickViewDialog").then((module) => ({ default: module.QuickViewDialog })));
 
 const SEARCH_MODE_OPTIONS = [
@@ -122,10 +108,6 @@ export function VideosPage({ onNavigate }: Props) {
     allowInfinitePageSize: true,
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [showMerge, setShowMerge] = useState(false);
-  const [showIdentify, setShowIdentify] = useState(false);
-  const [showBatchDownloadOptions, setShowBatchDownloadOptions] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [wallColumnCount, setWallColumnCount] = useState(5);
@@ -148,10 +130,7 @@ export function VideosPage({ onNavigate }: Props) {
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
   const canWriteVideo = canWriteEntity("video", hasPermission);
-  const canDeleteVideo = canDeleteEntity("video", hasPermission);
   const canEngageVideo = canReadEntity("video", hasPermission) && (user?.kind === "user" || user?.kind === "system");
-  const canIdentifyVideo = hasPermission("library.identify") && canWriteVideo;
-  const canDownloadVideo = hasPermission("jobs.run") && canWriteVideo;
   const feedVideoSource = config?.ui.feedVideoSource ?? "preview";
   const feedVideoSound = config?.ui.feedVideoSound ?? false;
   const defaultFeedVideoSound = feedVideoSound && !isMobileViewer;
@@ -525,22 +504,12 @@ export function VideosPage({ onNavigate }: Props) {
   const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter: backendObjectFilter, searchMode }), [backendObjectFilter, infiniteFilterKey, searchMode]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
-  const selectedVideo = selectedIds.size === 1 ? items.find((video) => selectedIds.has(video.id)) : undefined;
-  const selectedDownloadTargets = useMemo(() => getUndownloadedSelectionItems(items, selectedIds), [items, selectedIds]);
-  const canDownloadSelectedVideo = canDownloadVideo && selectedDownloadTargets.length > 0;
-  const batchDownloadStorageKey = getBatchDownloadOptionsStorageKey("page-videos");
-  const [batchDownloadOptions, setBatchDownloadOptions] = useState<BatchDownloadOptions>(() => loadStoredBatchDownloadOptions(batchDownloadStorageKey));
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
   const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
     queryKey: ["videos", "aggregate", "selection", selectedIdList],
     queryFn: () => videos.aggregate({ objectFilter: { ids: selectedIdList } }),
     enabled: selectedIdList.length > 0,
   });
-
-  useEffect(() => {
-    setBatchDownloadOptions(loadStoredBatchDownloadOptions(batchDownloadStorageKey));
-  }, [batchDownloadStorageKey]);
 
   const queryVideoQueuePage = useCallback((nextFilter: FindFilter) => {
     if (visualSearchActive) {
@@ -561,23 +530,6 @@ export function VideosPage({ onNavigate }: Props) {
     queryPage: queryVideoQueuePage,
     onNavigate,
   });
-
-  const handlePlaySelected = useCallback(() => {
-    const selectedVideos = items.filter((video) => selectedIds.has(video.id));
-    const ids = selectedVideos.map((video) => video.id);
-    if (ids.length === 0) {
-      return;
-    }
-
-    setQueue(ids, ids[0], selectedVideos.map((video) => ({
-      id: video.id,
-      title: video.title || video.files[0]?.basename || `Video ${video.id}`,
-      subtitle: video.studioName || video.date || undefined,
-      imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-    })), { autoplay: continuePlaylistDefault });
-    selectNone();
-    onNavigate({ page: "video", id: ids[0] });
-  }, [continuePlaylistDefault, items, onNavigate, selectNone, selectedIds, setQueue]);
 
   const playRandomMutation = useMutation({
     mutationFn: async () => {
@@ -633,46 +585,6 @@ export function VideosPage({ onNavigate }: Props) {
     setFilter(withSeededRandomSort(filter, next));
   }, [filter, setFilter]);
 
-  // Bulk delete
-  const bulkDeleteMut = useMutation({
-    mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) => videos.bulkDelete([...selectedIds], options),
-    onSuccess: () => {
-      setShowDeleteConfirm(false);
-      selectNone();
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
-    },
-  });
-
-  // Bulk edit
-  const bulkEditMut = useMutation({
-    mutationFn: (values: Record<string, unknown>) =>
-      videos.bulkUpdate({
-        ids: [...selectedIds],
-        ...values,
-      } as any),
-    onSuccess: () => {
-      setShowBulkEdit(false);
-      selectNone();
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
-    },
-  });
-
-  const batchDownloadMut = useMutation({
-    meta: { suppressGlobalError: true },
-    mutationFn: async (options: BatchDownloadOptions) => queueBatchDownloads("Video", selectedDownloadTargets, options),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
-      window.alert(formatBatchDownloadSummary("video", result));
-      selectNone();
-    },
-    onError: (error: Error) => {
-      window.alert(error.message || "Failed to queue the selected downloads.");
-    },
-  });
-
   const verticalOverlayTop = verticalFullscreen ? 12 : Math.max(12, verticalViewerTop + 12);
   const verticalAutoScrollTop = verticalFullscreen
     ? (isMobileViewer ? "64%" : "50%")
@@ -690,22 +602,6 @@ export function VideosPage({ onNavigate }: Props) {
           video={downloadTarget !== "new" ? downloadTarget : undefined}
           onClose={() => setDownloadTarget(null)}
           onNavigate={onNavigate}
-        />
-      ) : null}
-      {showBatchDownloadOptions ? (
-        <BatchDownloadOptionsDialog
-          open={showBatchDownloadOptions}
-          entity="Video"
-          itemCount={selectedDownloadTargets.length}
-          initialOptions={batchDownloadOptions}
-          isPending={batchDownloadMut.isPending}
-          onClose={() => setShowBatchDownloadOptions(false)}
-          onConfirm={(options) => {
-            setBatchDownloadOptions(options);
-            saveStoredBatchDownloadOptions(batchDownloadStorageKey, options);
-            setShowBatchDownloadOptions(false);
-            batchDownloadMut.mutate(options);
-          }}
         />
       ) : null}
     </Suspense>
@@ -768,82 +664,15 @@ export function VideosPage({ onNavigate }: Props) {
       onSelectNone={selectNone}
       onInvertSelection={invertSelection}
       selectionActions={
-        <>
-          {canDownloadSelectedVideo && (
-            <button
-              onClick={() => {
-                if (selectedDownloadTargets.length > 1 || !selectedVideo) {
-                  setShowBatchDownloadOptions(true);
-                  return;
-                }
-
-                setDownloadTarget(selectedVideo);
-              }}
-              disabled={batchDownloadMut.isPending}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20 disabled:opacity-60"
-            >
-              {batchDownloadMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-              Download
-            </button>
-          )}
-          {canWriteVideo && (
-            <button
-              onClick={() => setShowBulkEdit(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10"
-            >
-              <Edit className="w-3 h-3" />
-              Edit
-            </button>
-          )}
-          {canIdentifyVideo && (
-            <button
-              onClick={() => setShowIdentify(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10"
-            >
-              <Search className="w-3 h-3" />
-              Identify
-            </button>
-          )}
-          {canWriteVideo && selectedIds.size >= 2 && (
-            <button
-              onClick={() => setShowMerge(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
-            >
-              <Merge className="w-3 h-3" />
-              Merge
-            </button>
-          )}
-          <button
-            onClick={handlePlaySelected}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-green-400 hover:text-green-300 hover:bg-green-900/20"
-          >
-            <Play className="w-3 h-3" />
-            Play
-          </button>
-          <ExtensionSelectionActions entityType="video" selectedIds={selectedIds} />
-          {canDeleteVideo && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={bulkDeleteMut.isPending}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
-            >
-              {bulkDeleteMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-              Delete
-            </button>
-          )}
-        </>
+        <VideoSelectionActions
+          items={items}
+          selectedIds={selectedIds as Set<number>}
+          onSelectNone={selectNone}
+          onNavigate={onNavigate}
+          storageKey="page-videos"
+        />
       }
     >
-      <ConfirmDialog
-        open={showDeleteConfirm}
-        title={`Delete ${selectedIds.size} video${selectedIds.size === 1 ? "" : "s"}`}
-        message={`Delete ${selectedIds.size} selected video${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
-        confirmLabel={bulkDeleteMut.isPending ? "Deleting..." : "Delete"}
-        onConfirm={(options) => bulkDeleteMut.mutate(options)}
-        onCancel={() => setShowDeleteConfirm(false)}
-        showDeleteFile
-        showDeleteGenerated
-      />
       {displayMode === "vertical" && (
         <>
           <button
@@ -1062,34 +891,7 @@ export function VideosPage({ onNavigate }: Props) {
       )}
     </ListPage>
 
-    {/* Bulk Edit Dialog */}
-    <BulkEditDialog
-      open={showBulkEdit}
-      onClose={() => setShowBulkEdit(false)}
-      title="Edit Videos"
-      selectedCount={selectedIds.size}
-      fields={VIDEO_BULK_FIELDS}
-      onApply={(values) => bulkEditMut.mutate(values)}
-      isPending={bulkEditMut.isPending}
-    />
     <Suspense fallback={null}>
-      {showMerge ? (
-        <MergeDialog
-          open={showMerge}
-          onClose={() => { setShowMerge(false); selectNone(); }}
-          entityType="video"
-          items={items.filter((s) => selectedIds.has(s.id)).map((s) => ({ id: s.id, name: s.title || s.files[0]?.basename || `Video ${s.id}` }))}
-          onMerge={videos.merge}
-          queryKey="videos"
-        />
-      ) : null}
-      {showIdentify ? (
-        <IdentifyDialog
-          open={showIdentify}
-          onClose={() => { setShowIdentify(false); selectNone(); }}
-          videoIds={[...selectedIds]}
-        />
-      ) : null}
       {quickViewId !== null ? (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       ) : null}

@@ -1428,6 +1428,8 @@ export interface FaceHostFace {
   firstSeenAtSec?: number;
   lastSeenAtSec?: number;
   topConfidence?: number;
+  /** Separate tracked appearances of this face on this host. More than one means it can be split. */
+  hostTrackCount: number;
 }
 
 export interface FaceCreate {
@@ -1510,6 +1512,49 @@ export interface FaceNotPresentResult {
   createdNewFace: boolean;
   mergedIntoTarget: boolean;
   sourceFaceEmptied: boolean;
+}
+
+/**
+ * What the installed face providers can do. Occurrence editing needs an extension registering an
+ * IFaceOccurrenceEditor; with none installed the related actions are hidden rather than failing.
+ */
+export interface FaceCapabilities {
+  canEditOccurrences: boolean;
+  canSuggest: boolean;
+}
+
+/**
+ * One tracked appearance of a face within a single video or image — the unit the split action moves.
+ * Supplied by whichever extension owns the face-track evidence.
+ */
+export interface FaceHostTrack {
+  groupKey: string;
+  firstSeenSeconds?: number;
+  lastSeenSeconds?: number;
+  sampleCount: number;
+  detectionCount: number;
+  representativeFrameSeconds?: number;
+  topConfidence?: number;
+  /** Best detection of this track; render through faces.detectionCropUrl for a thumbnail. */
+  representativeDetectionId?: number;
+  representativeBoundingBox?: number[];
+  representativeDetectionSeconds?: number;
+  /** Which person the provider thinks this is, among those sharing the face here. 0 = most-represented. */
+  suggestedGroup: number;
+}
+
+export interface FaceSplitResult {
+  faceFound: boolean;
+  hostHadFace: boolean;
+  groupKeysMatched: boolean;
+  wouldEmptyFace: boolean;
+  movedAppearanceCount: number;
+  movedDetectionCount: number;
+  movedSegmentCount: number;
+  movedEmbeddingCount: number;
+  targetFaceId: number;
+  createdNewFace: boolean;
+  mergedIntoExistingFace: boolean;
 }
 
 export interface AiFaceCoverRepairRequest {

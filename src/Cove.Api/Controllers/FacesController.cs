@@ -60,6 +60,104 @@ public class FacesController(
             .Distinct()
             .ToArray();
 
+    // The provider that owns per-track face evidence, if one is installed. Occurrence editing is
+    // meaningless without it, so the endpoints below report it as unimplemented rather than guessing.
+    private IFaceOccurrenceEditor? ActiveOccurrenceEditor()
+        => (serviceExchange?.GetAll<IFaceOccurrenceEditor>() ?? []).FirstOrDefault();
+
+    private static string? NormalizeOccurrenceHostType(string? hostType)
+        => hostType?.Trim().ToLowerInvariant() switch
+        {
+            "video" or "videos" => "video",
+            "image" or "images" => "image",
+            _ => null,
+        };
+
+    [HttpGet("capabilities")]
+    public ActionResult<FaceCapabilitiesDto> GetCapabilities()
+        => Ok(new FaceCapabilitiesDto(
+            CanEditOccurrences: ActiveOccurrenceEditor() is not null,
+            CanSuggest: ActiveSuggesters().Count > 0));
+
+    /// <summary>The face's separate tracked appearances on one host, for the occurrence-split UI.</summary>
+    [HttpGet("{id:int}/host-tracks")]
+    public async Task<ActionResult<IReadOnlyList<FaceHostTrackDto>>> GetHostTracks(
+        int id,
+        [FromQuery] string? hostType,
+        [FromQuery] int hostId,
+        CancellationToken cancellationToken)
+    {
+        var editor = ActiveOccurrenceEditor();
+        if (editor is null)
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = "No installed extension provides face occurrence editing." });
+
+        var normalizedHostType = NormalizeOccurrenceHostType(hostType);
+        if (normalizedHostType is null || hostId <= 0)
+            return BadRequest(new { error = "A hostType of 'video' or 'image' and a positive hostId are required." });
+
+        if (!await db.Faces.AnyAsync(face => face.Id == id, cancellationToken))
+            return NotFound();
+
+        return Ok(await editor.GetHostTracksAsync(id, normalizedHostType, hostId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Moves selected appearances of a face on one host onto another face. The finer-grained counterpart
+    /// to <see cref="MarkNotPresent"/>, which can only reject a face from a whole host.
+    /// </summary>
+    [HttpPost("{id:int}/split")]
+    [RequiresPermission(Permissions.FacesWrite)]
+    public async Task<ActionResult<FaceOccurrenceSplitResultDto>> Split(
+        int id,
+        [FromBody] FaceSplitDto request,
+        CancellationToken cancellationToken)
+    {
+        var editor = ActiveOccurrenceEditor();
+        if (editor is null)
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = "No installed extension provides face occurrence editing." });
+
+        var normalizedHostType = NormalizeOccurrenceHostType(request?.HostType);
+        if (normalizedHostType is null || request is null || request.HostId <= 0 || request.GroupKeys is not { Count: > 0 })
+            return BadRequest(new { error = "A hostType of 'video' or 'image', a positive hostId, and at least one groupKey are required." });
+
+        var result = await editor.SplitAsync(id, normalizedHostType, request.HostId, request.GroupKeys, cancellationToken);
+        if (!result.FaceFound)
+            return NotFound(new { error = "Face was not found." });
+        if (!result.HostHadFace)
+            return BadRequest(new { error = "That face is not present on the specified host." });
+        if (!result.GroupKeysMatched)
+            return BadRequest(new { error = "None of the supplied appearances belong to that face on that host." });
+        if (result.WouldEmptyFace)
+            return BadRequest(new { error = "Separating every appearance would leave the face empty here — mark it not present instead." });
+
+        return Ok(result);
+    }
+
+    /// <summary>Records that a face is not really present on a host and re-homes its occurrences there.</summary>
+    [HttpPost("{id:int}/not-present")]
+    [RequiresPermission(Permissions.FacesWrite)]
+    public async Task<ActionResult<FaceNotPresentResultDto>> MarkNotPresent(
+        int id,
+        [FromBody] FaceOccurrenceHostDto request,
+        CancellationToken cancellationToken)
+    {
+        var editor = ActiveOccurrenceEditor();
+        if (editor is null)
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = "No installed extension provides face occurrence editing." });
+
+        var normalizedHostType = NormalizeOccurrenceHostType(request?.HostType);
+        if (normalizedHostType is null || request is null || request.HostId <= 0)
+            return BadRequest(new { error = "A hostType of 'video' or 'image' and a positive hostId are required." });
+
+        var result = await editor.MarkNotPresentAsync(id, normalizedHostType, request.HostId, cancellationToken);
+        if (!result.FaceFound)
+            return NotFound(new { error = "Face was not found." });
+        if (!result.HostHadFace)
+            return BadRequest(new { error = "That face is not present on the specified host." });
+
+        return Ok(result);
+    }
+
     [HttpGet]
     public async Task<ActionResult<PaginatedResponse<FaceDto>>> List(
         [FromQuery] string? q = null,
@@ -1253,7 +1351,8 @@ public class FacesController(
                     hasCounts ? counts.ImageCount : face.ImageCount,
                     MinOrNull(group.Select(appearance => appearance.FirstSeenAtSec)),
                     MaxOrNull(group.Select(appearance => appearance.LastSeenAtSec)),
-                    MaxFloatOrNull(group.Select(appearance => appearance.TopConfidence)));
+                    MaxFloatOrNull(group.Select(appearance => appearance.TopConfidence)),
+                    group.Count());
             })
             .OrderByDescending(face => face.TopConfidence ?? 0)
             .ThenBy(face => face.Id)

@@ -60,6 +60,22 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   customFieldKey?: string;
   customFieldType?: string;
   modifiers?: CriterionModifier[];
+  /**
+   * Modifier to start on when the criterion has no value yet. Needed whenever `modifiers` omits the editor's
+   * built-in default, which would otherwise leave the Match control with nothing selected and let the user save a
+   * criterion whose modifier isn't even offered. Honored by the number editor.
+   */
+  defaultModifier?: CriterionModifier;
+  /**
+   * Bounds and granularity for a numeric criterion. `step` sizes the input's increments; declaring BOTH `min` and
+   * `max` additionally marks the value as living on a known range, which the number editor shows as a slider —
+   * the useful question about a bounded value being "where on its range" rather than "which exact number".
+   */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Short note under a numeric editor explaining what its scale means (e.g. where the neutral point is). */
+  hint?: string;
   options?: { value: string; label: string }[];
   multiSelectOptions?: boolean;
   hierarchyToggleLabel?: string;
@@ -1328,6 +1344,11 @@ function CriterionEditor({
           onChange={onChange}
           type={type}
           modifiers={modifiers}
+          defaultModifier={criterion.defaultModifier}
+          min={criterion.min}
+          max={criterion.max}
+          step={criterion.step}
+          hint={criterion.hint}
           auxiliaryToggleLabel={criterion.auxiliaryToggleLabel}
           auxiliaryToggleChecked={auxiliaryToggleChecked}
           onAuxiliaryToggleChange={onAuxiliaryToggleChange}
@@ -1393,6 +1414,11 @@ export function NumberEditor({
   onChange,
   type,
   modifiers,
+  defaultModifier,
+  min,
+  max,
+  step,
+  hint,
   auxiliaryToggleLabel,
   auxiliaryToggleChecked,
   onAuxiliaryToggleChange,
@@ -1401,17 +1427,55 @@ export function NumberEditor({
   onChange: (v: unknown) => void;
   type: CriterionType;
   modifiers: CriterionModifier[];
+  defaultModifier?: CriterionModifier;
+  min?: number;
+  max?: number;
+  step?: number;
+  hint?: string;
   auxiliaryToggleLabel?: string;
   auxiliaryToggleChecked?: boolean;
   onAuxiliaryToggleChange?: (checked: boolean) => void;
 }) {
-  const modifier = value?.modifier ?? "EQUALS";
+  // A criterion that narrows `modifiers` must be able to start on one it actually offers — otherwise the Match
+  // control shows nothing selected and the saved criterion carries a modifier that isn't in the list.
+  const modifier = value?.modifier ?? defaultModifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
+  // Both bounds known ⇒ the value lives on a range, so offer a slider alongside the box.
+  const bounded = min != null && max != null && max > min;
+  const sliderStep = step ?? (bounded ? Math.max((max! - min!) / 100, 0.001) : undefined);
+  const fallback = bounded ? (min! + max!) / 2 : 0;
 
   const update = (patch: Partial<IntCriterion>) => {
-    onChange({ modifier, ...value, ...patch });
+    onChange({ modifier, ...(bounded ? { value: value?.value ?? fallback } : {}), ...value, ...patch });
   };
+
+  const numberInput = (current: number | undefined, onPick: (v: number | undefined) => void, label: string) => (
+    <div className={bounded ? "flex items-center gap-3" : undefined}>
+      {bounded && (
+        <input
+          aria-label={`${label} slider`}
+          type="range"
+          min={min}
+          max={max}
+          step={sliderStep}
+          value={current ?? fallback}
+          onChange={(e) => onPick(Number(e.target.value))}
+          className="h-2 flex-1 accent-accent"
+        />
+      )}
+      <input
+        aria-label={label}
+        type="number"
+        min={min}
+        max={max}
+        step={sliderStep}
+        value={current ?? ""}
+        onChange={(e) => onPick(e.target.value === "" ? undefined : Number(e.target.value))}
+        className={`min-h-11 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm ${bounded ? "w-24 tabular-nums" : "w-full"}`}
+      />
+    </div>
+  );
 
   return (
     <div className="space-y-2">
@@ -1426,13 +1490,7 @@ export function NumberEditor({
             <LabeledControl label={isBetween ? "Minimum" : "Value"}><CareerLengthInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} /></LabeledControl>
           ) : (
             <LabeledControl label={isBetween ? "Minimum" : "Value"}>
-              <input
-                aria-label={isBetween ? "Minimum" : "Value"}
-                type="number"
-                value={value?.value ?? ""}
-                onChange={(e) => update({ value: e.target.value === "" ? undefined : Number(e.target.value) })}
-                className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
-              />
+              {numberInput(value?.value, (v) => update({ value: v }), isBetween ? "Minimum" : "Value")}
             </LabeledControl>
           )}
           {isBetween && (
@@ -1443,13 +1501,14 @@ export function NumberEditor({
                 <LabeledControl label="Maximum"><CareerLengthInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} /></LabeledControl>
               ) : (
                 <LabeledControl label="Maximum">
-                  <input aria-label="Maximum" type="number" value={value?.value2 ?? ""} onChange={(e) => update({ value2: e.target.value === "" ? undefined : Number(e.target.value) })} className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm" />
+                  {numberInput(value?.value2, (v) => update({ value2: v }), "Maximum")}
                 </LabeledControl>
               )}
             </div>
           )}
         </div>
       )}
+      {hint && <div className="text-xs text-muted">{hint}</div>}
       {auxiliaryToggleLabel && onAuxiliaryToggleChange && (
         <label className="flex min-h-9 items-center gap-2 text-sm text-secondary">
           <input

@@ -19,6 +19,13 @@ namespace Cove.Api.Controllers;
 [RequiresPermission(Permissions.StreamRead)]
 public class StreamController(IStreamService streamService, IThumbnailService thumbnailService, ITranscodeService transcodeService, CoveContext db) : ControllerBase
 {
+    // Portrait-style headroom around a detection box. Long-standing default for face covers; callers
+    // that must distinguish neighbouring detections pass a smaller context (see GetDetectionCrop).
+    private const double DefaultDetectionCropContext = 1.8;
+
+    // At or below this the crop is tight enough that frame alignment matters more than cost.
+    private const double TightDetectionCropContext = 1.5;
+
     [HttpGet("video/{videoId:int}")]
     public async Task<IActionResult> StreamVideo(int videoId, CancellationToken ct)
     {
@@ -169,8 +176,15 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         return File(stream, contentType);
     }
 
+    /// <summary>
+    /// A crop of the frame around a detection. <paramref name="context"/> scales how much surrounding
+    /// frame is included, as a multiple of the detection box: the default 1.8 is a portrait-style crop
+    /// with headroom, suited to cover images. Callers that need to tell adjacent detections apart —
+    /// picking one face out of several in the same shot — should ask for something near 1.0, since the
+    /// extra context readily pulls a neighbouring face into the frame.
+    /// </summary>
     [HttpGet("detection/{detectionId:int}/crop")]
-    public async Task<IActionResult> GetDetectionCrop(int detectionId, [FromQuery] int? max, CancellationToken ct)
+    public async Task<IActionResult> GetDetectionCrop(int detectionId, [FromQuery] int? max, [FromQuery] double? context, CancellationToken ct)
     {
         var detection = await db.VisibleDetections()
             .AsNoTracking()
@@ -179,7 +193,13 @@ public class StreamController(IStreamService streamService, IThumbnailService th
 
         if (detection.HostType == DetectionHostType.Video)
         {
-            if (max.GetValueOrDefault(640) > 640)
+            // Without an exact-timestamp frame the crop falls back to a sprite tile, which is both
+            // low-resolution and sampled at a coarser interval than the detection — so the box no longer
+            // lines up with where the face actually was. A large request needs the resolution; a tight
+            // context needs the alignment, because there is no slack left to absorb the drift.
+            var needsExactFrame = max.GetValueOrDefault(640) > 640
+                || context.GetValueOrDefault(DefaultDetectionCropContext) < TightDetectionCropContext;
+            if (needsExactFrame)
             {
                 await EnsureHighResolutionDetectionFrameAsync(detection, ct);
             }
@@ -188,7 +208,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
             if (result is null) return NotFound();
 
             await using var stream = result.Value.stream;
-            return await BuildDetectionCropResultAsync(detection, stream, max, ct);
+            return await BuildDetectionCropResultAsync(detection, stream, max, context, ct);
         }
 
         if (detection.HostType == DetectionHostType.Image)
@@ -197,7 +217,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
             if (result is null) return NotFound();
 
             await using var stream = result.Value.stream;
-            return await BuildDetectionCropResultAsync(detection, stream, max, ct);
+            return await BuildDetectionCropResultAsync(detection, stream, max, context, ct);
         }
 
         return NotFound();
@@ -433,14 +453,14 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         return video?.ParentVideoId ?? video?.Id;
     }
 
-    private async Task<IActionResult> BuildDetectionCropResultAsync(Detection detection, Stream sourceStream, int? max, CancellationToken ct)
+    private async Task<IActionResult> BuildDetectionCropResultAsync(Detection detection, Stream sourceStream, int? max, double? context, CancellationToken ct)
     {
         try
         {
             using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(sourceStream, ct);
             image.Mutate(static context => context.AutoOrient());
 
-            var cropRect = BuildDetectionCropRectangle(image.Width, image.Height, detection);
+            var cropRect = BuildDetectionCropRectangle(image.Width, image.Height, detection, context);
             if (cropRect is null)
             {
                 return NotFound();
@@ -471,7 +491,7 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         }
     }
 
-    private static Rectangle? BuildDetectionCropRectangle(int imageWidth, int imageHeight, Detection detection)
+    private static Rectangle? BuildDetectionCropRectangle(int imageWidth, int imageHeight, Detection detection, double? context = null)
     {
         if (imageWidth <= 0 || imageHeight <= 0 || detection.W <= 0 || detection.H <= 0)
         {
@@ -511,11 +531,19 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var bottom = Clamp((int)Math.Ceiling(y + height), top + 1, imageHeight);
         var boxWidth = Math.Max(1, right - left);
         var boxHeight = Math.Max(1, bottom - top);
-        var side = (int)Math.Ceiling(Math.Max(boxWidth, boxHeight) * 1.8);
+        var contextScale = Math.Clamp(context ?? DefaultDetectionCropContext, 1.0, 4.0);
+        var side = (int)Math.Ceiling(Math.Max(boxWidth, boxHeight) * contextScale);
         side = Math.Clamp(side, 1, Math.Min(imageWidth, imageHeight));
 
+        // The upward nudge gives a portrait headroom, which only makes sense while there is surrounding
+        // frame to spend on it. Fade it out with the context so a tight crop stays centred on the box
+        // instead of sliding the subject downwards out of view.
+        var headroomFactor = Math.Clamp(
+            (contextScale - 1.0) / (DefaultDetectionCropContext - 1.0),
+            0.0,
+            1.0);
         var centerX = left + boxWidth / 2.0;
-        var centerY = top + boxHeight / 2.0 - boxHeight * 0.1;
+        var centerY = top + boxHeight / 2.0 - boxHeight * 0.1 * headroomFactor;
         var cropLeft = Clamp((int)Math.Round(centerX - side / 2.0), 0, Math.Max(0, imageWidth - side));
         var cropTop = Clamp((int)Math.Round(centerY - side / 2.0), 0, Math.Max(0, imageHeight - side));
 
