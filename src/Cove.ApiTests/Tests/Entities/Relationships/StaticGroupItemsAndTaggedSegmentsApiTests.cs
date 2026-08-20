@@ -21,8 +21,10 @@ public sealed class StaticGroupItemsAndTaggedSegmentsApiTests(
         var group = await AsUser().CreateGroupAsync($"Static item lifecycle {suffix}");
         var alphaVideo = await AsUser().CreateVideoAsync($"Alpha group item {suffix}");
         var betaVideo = await AsUser().CreateVideoAsync($"Beta group item {suffix}");
+        var gammaVideo = await AsUser().CreateVideoAsync($"Gamma group item {suffix}");
         var alphaItem = await AsUser().AddVideoToGroupAsync(alphaVideo, group);
         var betaItem = await AsUser().AddVideoToGroupAsync(betaVideo, group);
+        var gammaItem = await AsUser().AddVideoToGroupAsync(gammaVideo, group);
 
         // Act
         var page = await AsUser(ApiTestUsers.Eva).GetGroupItemsPageAsync(
@@ -42,11 +44,11 @@ public sealed class StaticGroupItemsAndTaggedSegmentsApiTests(
                 EndSec: 8,
                 Title: "  Edited range  ",
                 Notes: "  Edited notes  "));
-        await AsUser(ApiTestUsers.Eva).DeleteGroupItemAsync(group.Id, betaItem.Id);
+        await AsUser(ApiTestUsers.Eva).DeleteGroupItemAsync(group.Id, gammaItem.Id);
         var remaining = await AsUser(ApiTestUsers.Eva).GetGroupItemsPageAsync(group.Id, perPage: 10);
 
         // Assert
-        page.TotalCount.Should().Be(2);
+        page.TotalCount.Should().Be(3);
         page.Page.Should().Be(2);
         page.PerPage.Should().Be(1);
         page.Items.Should().ContainSingle().Which.Id.Should().Be(betaItem.Id);
@@ -57,10 +59,10 @@ public sealed class StaticGroupItemsAndTaggedSegmentsApiTests(
         updated.EndSec.Should().Be(8);
         updated.Title.Should().Be("Edited range");
         updated.Notes.Should().Be("Edited notes");
-        remaining.Items.Should().ContainSingle().Which.Id.Should().Be(alphaItem.Id);
-        remaining.Items.Single().OrderIndex.Should().Be(0);
+        remaining.Items.Select(item => item.Id).Should().Equal(alphaItem.Id, betaItem.Id);
+        remaining.Items.Select(item => item.OrderIndex).Should().Equal(0, 1);
 
-        var missingDelete = () => AsUser(ApiTestUsers.Eva).DeleteGroupItemAsync(group.Id, betaItem.Id);
+        var missingDelete = () => AsUser(ApiTestUsers.Eva).DeleteGroupItemAsync(group.Id, gammaItem.Id);
         await missingDelete.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
     }
