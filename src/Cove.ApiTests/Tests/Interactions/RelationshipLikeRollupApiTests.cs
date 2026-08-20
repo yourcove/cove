@@ -11,6 +11,7 @@ public sealed class RelationshipLikeRollupApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/like")]
     public async Task GivenVideoWithPerformers_WhenMembersLikeVideo_ThenEachPerformerShowsMemberVideoLikes()
     {
         // Arrange
@@ -46,6 +47,8 @@ public sealed class RelationshipLikeRollupApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/images/{id:int}/like")]
+    [CoversEndpoint("GET", "/api/galleries/{id:int}/like-count")]
     public async Task GivenGalleryWithMedia_WhenMembersLikeMedia_ThenGalleryShowsMemberMediaLikes()
     {
         // Arrange

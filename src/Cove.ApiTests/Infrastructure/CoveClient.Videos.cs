@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Cove.Core.DTOs;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -49,10 +51,61 @@ public sealed partial class CoveClient
             update,
             cancellationToken);
 
-    public Task<BulkUpdateResult> BulkUpdateVideosAsync(
+    public async Task<int> BulkUpdateVideosAsync(
         BulkVideoUpdateDto update,
         CancellationToken cancellationToken = default)
-        => SendAsync<BulkUpdateResult>(HttpMethod.Post, "/api/videos/bulk", update, cancellationToken);
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/videos/bulk",
+            update,
+            cancellationToken);
+        return response.GetProperty("updated").GetInt32();
+    }
+
+    public Task<PaginatedResponse<VideoDto>> FindVideosAsync(
+        FilteredQueryRequest<VideoFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<VideoDto>>(
+            HttpMethod.Post,
+            "/api/videos/find",
+            request,
+            cancellationToken);
+
+    public Task<VideoAggregate> AggregateVideosAsync(
+        FilteredQueryRequest<VideoFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoAggregate>(
+            HttpMethod.Post,
+            "/api/videos/aggregate",
+            request,
+            cancellationToken);
+
+    public async Task<int> DestroyVideosAsync(
+        BatchDeleteDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/videos/destroy",
+            request,
+            cancellationToken);
+        return response.GetProperty("deleted").GetInt32();
+    }
+
+    public async Task DeleteVideoAsync(
+        int videoId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/videos/{videoId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
 
     public async Task<IReadOnlyList<VideoDto>> GetVideosAsync(
         CancellationToken cancellationToken = default)

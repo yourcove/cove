@@ -7,6 +7,41 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<IReadOnlyList<LibraryFolderDto>> GetMetadataLibraryFoldersAsync(
+        string? path = null,
+        bool probeChildren = true,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/metadata/library-folders?probeChildren={probeChildren.ToString().ToLowerInvariant()}";
+        if (!string.IsNullOrWhiteSpace(path))
+            requestUri += $"&path={Uri.EscapeDataString(path)}";
+
+        return SendAsync<IReadOnlyList<LibraryFolderDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(requestUri),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<string> StartMetadataScanAsync(
+        ScanOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/scan", options, cancellationToken);
+
+    public Task<string> StartMetadataGenerateAsync(
+        GenerateOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/generate", options, cancellationToken);
+
+    public Task<string> StartMetadataCleanAsync(
+        CleanOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/clean", options, cancellationToken);
+
+    public Task<string> StartMetadataCleanGeneratedAsync(
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/clean-generated", payload: null, cancellationToken);
+
     public Task<CustomFieldDefinitionDto> CreateCustomFieldDefinitionAsync(
         CustomFieldDefinitionCreateDto definition,
         CancellationToken cancellationToken = default)
@@ -143,6 +178,20 @@ public sealed partial class CoveClient
                 PerformerId = match.Id,
             },
             cancellationToken);
+
+    private async Task<string> StartMetadataJobAsync(
+        string requestUri,
+        object? payload,
+        CancellationToken cancellationToken)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            requestUri,
+            payload,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST {requestUri} did not return a job id.");
+    }
 }
 
 public sealed record ApiBinaryContent(byte[] Content, string? MediaType);

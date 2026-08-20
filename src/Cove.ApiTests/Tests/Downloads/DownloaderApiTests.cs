@@ -15,6 +15,8 @@ public sealed class DownloaderApiTests(
     private const string DirectTextDownloaderId = "builtin.direct-file/text";
 
     [Fact]
+    [CoversEndpoint("GET", "/api/system/downloaders")]
+    [CoversEndpoint("POST", "/api/system/downloaders/match")]
     public async Task GivenRemoteTextFile_WhenDownloaderUrlIsMatched_ThenDirectTextDownloaderIsSelected()
     {
         // Arrange
@@ -37,6 +39,10 @@ public sealed class DownloaderApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/system/downloaders/download")]
+    [CoversEndpoint("GET", "/api/jobs/{jobId}")]
+    [CoversEndpoint("GET", "/api/texts/{id:int}/file")]
+    [CoversEndpoint("POST", "/api/system/downloaders/preflight")]
     public async Task GivenRemoteTextFile_WhenDownloadCompletes_ThenTextIsImportedAndDuplicateIsDetected()
     {
         // Arrange
@@ -82,6 +88,7 @@ public sealed class DownloaderApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/system/downloaders/download-batch")]
     public async Task GivenTwoRemoteTextFiles_WhenBatchDownloadCompletes_ThenBothTextsAreImported()
     {
         // Arrange

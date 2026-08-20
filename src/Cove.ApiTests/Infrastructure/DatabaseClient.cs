@@ -1,6 +1,7 @@
 using Cove.Core.Entities;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using Pgvector.EntityFrameworkCore;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -11,6 +12,59 @@ public sealed class DatabaseClient
 
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
+
+    public async Task<IReadOnlyDictionary<string, string>> GetFileFingerprintsAsync(
+        int fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Non-video API DTOs do not expose fingerprints, so this read-only assertion helper is the
+        // narrow verification escape hatch for public generate jobs.
+        return await db.Set<FileFingerprint>()
+            .AsNoTracking()
+            .Where(fingerprint => fingerprint.FileId == fileId)
+            .ToDictionaryAsync(
+                fingerprint => fingerprint.Type,
+                fingerprint => fingerprint.Value,
+                StringComparer.OrdinalIgnoreCase,
+                cancellationToken);
+    }
+
+    public async Task AttachVideoFileAsync(
+        int videoId,
+        double duration,
+        long size,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public video creation cannot supply deterministic probe metrics. Seed only the file row
+        // needed to verify the aggregate endpoint's derived duration and file-size totals.
+        var now = DateTime.UtcNow;
+        var folder = new Folder
+        {
+            Path = $"/api-tests/video-aggregate/{Guid.NewGuid():N}",
+            ModTime = now,
+        };
+        db.VideoFiles.Add(new VideoFile
+        {
+            VideoId = videoId,
+            Basename = "aggregate-source.mp4",
+            ParentFolder = folder,
+            Size = size,
+            ModTime = now,
+            Format = "mp4",
+            Duration = duration,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
 
     public async Task<int> CreateFaceAppearanceAsync(
         int faceId,
@@ -45,6 +99,37 @@ public sealed class DatabaseClient
         db.FaceAppearances.Add(appearance);
         await db.SaveChangesAsync(cancellationToken);
         return appearance.Id;
+    }
+
+    public async Task<int> CreateFaceEmbeddingAsync(
+        int faceId,
+        IReadOnlyCollection<float> values,
+        string kindFamily,
+        CancellationToken cancellationToken = default)
+    {
+        if (values.Count == 0)
+            throw new ArgumentException("A face embedding must contain at least one value.", nameof(values));
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var vector = values.ToArray();
+        var embedding = new Embedding
+        {
+            HostType = EmbeddingHostType.Face,
+            HostId = faceId,
+            Kind = kindFamily,
+            KindFamily = kindFamily,
+            Modality = EmbeddingModality.Face,
+            IsSemantic = true,
+            Dim = vector.Length,
+            Vector = new Vector(vector),
+            SourceKey = "api-test",
+        };
+        db.Embeddings.Add(embedding);
+        await db.SaveChangesAsync(cancellationToken);
+        return embedding.Id;
     }
 
 }

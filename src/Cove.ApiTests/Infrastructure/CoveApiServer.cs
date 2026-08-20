@@ -40,7 +40,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
-        FileSystem = new ApiTestFileSystem(libraryPath);
+        FileSystem = new ApiTestFileSystem(libraryPath, Path.Combine(dataRoot, "generated"));
         _resetToken = resetToken;
         _output = output;
     }

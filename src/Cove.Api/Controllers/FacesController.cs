@@ -1230,29 +1230,43 @@ public class FacesController(
         perPage = Math.Clamp(perPage, 1, 250);
         var candidateCount = Math.Clamp(k, 1, 250);
 
-        var sourceEmbedding = await db.Embeddings
+        // Face similarity is a face-reading feature, so callers do not need broad access to the raw
+        // embeddings API. Establish source-face visibility under the normal face filter first, then
+        // bypass only the embedding permission filter while resolving and ranking internal vectors.
+        var sourceFaceVisible = await db.Faces
             .AsNoTracking()
-            .Where(embedding =>
-                embedding.HostType == EmbeddingHostType.Face &&
-                embedding.HostId == id &&
-                embedding.Modality == EmbeddingModality.Face &&
-                (kindFamily == null || embedding.KindFamily == kindFamily))
-            .OrderByDescending(embedding => embedding.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (sourceEmbedding is null)
+            .AnyAsync(face => face.Id == id && face.MergedIntoFaceId == null, cancellationToken);
+        if (!sourceFaceVisible)
             return Ok(new PaginatedResponse<FaceSimilarDto>(Array.Empty<FaceSimilarDto>(), 0, page, perPage));
 
-        var results = await embeddingService.KnnAsync(
-            sourceEmbedding.Vector,
-            candidateCount + 1,
-            new EmbeddingSearchOptions
-            {
-                HostType = EmbeddingHostType.Face,
-                KindFamily = sourceEmbedding.KindFamily,
-                Modality = EmbeddingModality.Face,
-            },
-            cancellationToken);
+        Embedding? sourceEmbedding;
+        IReadOnlyList<EmbeddingSearchResult> results;
+        using (db.SuppressEmbeddingReadAuthorizationFilter())
+        {
+            sourceEmbedding = await db.Embeddings
+                .AsNoTracking()
+                .Where(embedding =>
+                    embedding.HostType == EmbeddingHostType.Face &&
+                    embedding.HostId == id &&
+                    embedding.Modality == EmbeddingModality.Face &&
+                    (kindFamily == null || embedding.KindFamily == kindFamily))
+                .OrderByDescending(embedding => embedding.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (sourceEmbedding is null)
+                return Ok(new PaginatedResponse<FaceSimilarDto>(Array.Empty<FaceSimilarDto>(), 0, page, perPage));
+
+            results = await embeddingService.KnnAsync(
+                sourceEmbedding.Vector,
+                candidateCount + 1,
+                new EmbeddingSearchOptions
+                {
+                    HostType = EmbeddingHostType.Face,
+                    KindFamily = sourceEmbedding.KindFamily,
+                    Modality = EmbeddingModality.Face,
+                },
+                cancellationToken);
+        }
 
         var faceIds = results
             .Where(result => result.Embedding.HostId != id)
@@ -1511,7 +1525,7 @@ public class FacesController(
     private static List<FaceSimilarDto> ApplySimilarSort(IEnumerable<FaceSimilarDto> items, string? sort, string? direction, int? seed)
     {
         var normalized = (sort ?? string.Empty).Trim().ToLowerInvariant();
-        var ascending = ResolveSortDirection(direction, normalized is "distance" or "label");
+        var ascending = ResolveSortDirection(direction, normalized is "" or "distance" or "label");
 
         return normalized switch
         {

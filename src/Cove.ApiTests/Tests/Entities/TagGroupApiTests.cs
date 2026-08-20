@@ -11,6 +11,8 @@ public sealed class TagGroupApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("POST", "/api/taggroups")]
+    [CoversEndpoint("GET", "/api/taggroups/{id:int}")]
     public async Task GivenTagGroupMetadata_WhenTagGroupIsCreated_ThenMetadataCanBeRetrieved()
     {
         // Arrange
@@ -161,6 +163,7 @@ public sealed class TagGroupApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("PUT", "/api/taggroups/{id:int}")]
     public async Task GivenTagGroup_WhenPartiallyUpdated_ThenOnlySuppliedMetadataChanges()
     {
         // Arrange
@@ -262,6 +265,7 @@ public sealed class TagGroupApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("PUT", "/api/tags/{id:int}")]
     public async Task GivenTagInTagGroup_WhenAssignedToAnotherTagGroup_ThenTagBelongsOnlyToNewGroup()
     {
         // Arrange
@@ -293,6 +297,7 @@ public sealed class TagGroupApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("DELETE", "/api/taggroups/{id:int}")]
     public async Task GivenTagGroupWithTag_WhenDeleted_ThenTagIsPreservedWithoutTagGroup()
     {
         // Arrange

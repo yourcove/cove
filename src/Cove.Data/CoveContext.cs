@@ -29,6 +29,7 @@ public partial class CoveContext : DbContext
     private bool _persistingDerivedCounts;
     private int _tagNameValidationSuppressionDepth;
     private int _authorizationFilterSuppressionDepth;
+    private int _embeddingReadAuthorizationFilterSuppressionDepth;
 
     /// <summary>
     /// Monotonic token that changes whenever the set of loaded data extensions changes. Consumed by
@@ -597,6 +598,17 @@ public partial class CoveContext : DbContext
         return new AuthorizationFilterScope(this);
     }
 
+    /// <summary>
+    /// Temporarily bypasses only the embedding read-permission filter for an internal feature that
+    /// separately authorizes the visible host entities it returns. Face and other entity visibility
+    /// filters remain active while this scope is held.
+    /// </summary>
+    internal IDisposable SuppressEmbeddingReadAuthorizationFilter()
+    {
+        _embeddingReadAuthorizationFilterSuppressionDepth++;
+        return new EmbeddingReadAuthorizationFilterScope(this);
+    }
+
     private void NormalizeAndValidateTagNames()
     {
         var candidates = NormalizeChangedTagNames(normalizeValues: _tagNameValidationSuppressionDepth == 0);
@@ -816,6 +828,18 @@ public partial class CoveContext : DbContext
             var owner = Interlocked.Exchange(ref _context, null);
             if (owner != null)
                 owner._authorizationFilterSuppressionDepth--;
+        }
+    }
+
+    private sealed class EmbeddingReadAuthorizationFilterScope(CoveContext context) : IDisposable
+    {
+        private CoveContext? _context = context;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _context, null);
+            if (owner != null)
+                owner._embeddingReadAuthorizationFilterSuppressionDepth--;
         }
     }
 

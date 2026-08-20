@@ -12,6 +12,7 @@ public sealed class VideoStudioRelationshipApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("PUT", "/api/videos/{id:int}")]
     public async Task GivenUnlinkedStudio_WhenLinkedRemovedAndRelinked_ThenVideoVisibilityTracksRelationship()
     {
         // Arrange
