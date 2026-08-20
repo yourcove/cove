@@ -6,7 +6,7 @@ public static class EndpointCoverageProgress
 {
     public const int ExpectedMappedEndpoints = 229;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 271;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 275;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -76,7 +76,9 @@ public static class EndpointCoverageProgress
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/extensions/{id}/data
         GET /api/extensions/{id}/dependencies/missing
+        GET /api/faces/capabilities
         GET /api/faces/review/ai-run
+        GET /api/faces/{id:int}/host-tracks
         GET /api/faces/{id:int}/suggestions
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
@@ -174,6 +176,8 @@ public static class EndpointCoverageProgress
         POST /api/extensions/{id}/enable
         POST /api/extensions/{id}/jobs/{jobid}/run
         POST /api/faces/batch/link-top-suggestion
+        POST /api/faces/{id:int}/not-present
+        POST /api/faces/{id:int}/split
         POST /api/files/delete
         POST /api/files/fingerprints
         POST /api/files/folders/{id:int}/reveal
