@@ -66,6 +66,48 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task AttachAudioFileAsync(
+        int audioId,
+        double duration,
+        long size,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public audio creation cannot supply deterministic probe metrics. Seed the file row and
+        // the summary columns maintained by ScanAudioProcessor so aggregate API assertions stay exact.
+        var audio = await db.Audios.SingleAsync(item => item.Id == audioId, cancellationToken);
+        var now = DateTime.UtcNow;
+        var folder = new Folder
+        {
+            Path = $"/api-tests/audio-aggregate/{Guid.NewGuid():N}",
+            ModTime = now,
+        };
+        const string basename = "aggregate-source.mp3";
+        db.AudioFiles.Add(new AudioFile
+        {
+            AudioId = audioId,
+            Basename = basename,
+            ParentFolder = folder,
+            Size = size,
+            ModTime = now,
+            Format = "mp3",
+            Duration = duration,
+            AudioCodec = "mp3",
+        });
+        audio.FileCount = 1;
+        audio.MaxDuration = duration;
+        audio.MaxFileSize = size;
+        audio.MaxFileModTime = now;
+        audio.MinPath = BaseFileEntity.ComputePath(folder.Path, basename);
+        audio.MaxPath = audio.MinPath;
+        audio.FileSearchText = audio.MinPath;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<int> CreateFaceAppearanceAsync(
         int faceId,
         FaceAppearanceHostType hostType,

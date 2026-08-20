@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 110;
+    public const int ExpectedMappedEndpoints = 118;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 390;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 382;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -18,8 +18,6 @@ public static class EndpointCoverageProgress
 
     private const string TemporaryUnmappedEndpointText = """
         DELETE /api/apitokens/{id:guid}
-        DELETE /api/audios/bulk
-        DELETE /api/audios/{id:int}
         DELETE /api/audios/{id:int}/image
         DELETE /api/audios/{id:int}/like
         DELETE /api/audios/{id:int}/like/history
@@ -79,7 +77,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{videoid:int}/detections/{id:int}
         DELETE /api/videos/{videoid:int}/segments/{id:int}
         GET /api/ai-runs/{id:int}
-        GET /api/audios/{id:int}
         GET /api/audios/{id:int}/history
         GET /api/audios/{id:int}/image
         GET /api/audios/{id:int}/stream
@@ -189,10 +186,6 @@ public static class EndpointCoverageProgress
         PATCH /api/system/log-level
         POST /api/ai-data/purge
         POST /api/apitokens
-        POST /api/audios
-        POST /api/audios/aggregate
-        POST /api/audios/bulk
-        POST /api/audios/find
         POST /api/audios/from-file
         POST /api/audios/{id:int}/activity/reset
         POST /api/audios/{id:int}/image
@@ -370,7 +363,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/rating
         POST /api/videos/{id:int}/rescan
         POST /api/videos/{videoid:int}/segments/spans/query
-        PUT /api/audios/{id:int}
         PUT /api/auth/me/ui-preferences
         PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
