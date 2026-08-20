@@ -235,7 +235,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
             return NotFound();
 
         var rule = await db.SegmentDisplayRules
-            .Include(item => item.Tag)
             .FirstOrDefaultAsync(item => item.ProfileId == profileId && item.Id == id, ct);
         if (rule is null)
             return NotFound();
@@ -254,7 +253,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         rule.Lane = dto.Lane;
         rule.Priority = dto.Priority;
         rule.UserId = profile.UserId;
-        rule.Tag = null;
 
         BumpProfileVersion(profile);
         await db.SaveChangesAsync(ct);
