@@ -339,6 +339,61 @@ export function EntityReferencePopovers({
   );
 }
 
+function StudioCardOverlay({ studioId, studioName, selecting, onNavigate }: { studioId?: number | null; studioName?: string | null; selecting?: boolean; onNavigate?: (route: any) => void }) {
+  if (!studioId || !studioName || selecting) return null;
+  const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "studio", id: studioId }, onNavigate);
+  return (
+    <div data-studio-overlay className="absolute right-0 top-0 z-[5] p-1">
+      <a {...navigationHandlers} aria-label={studioName} className="block">
+        <img
+          src={entityImages.studioImageUrl(studioId)}
+          alt={studioName}
+          className="h-8 w-auto max-w-[120px] object-contain drop-shadow-md"
+          onError={(event) => {
+            const image = event.currentTarget;
+            image.style.display = "none";
+            const fallback = image.nextElementSibling as HTMLElement | null;
+            if (fallback) fallback.style.display = "";
+          }}
+        />
+        <span className="rounded bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white" style={{ display: "none" }}>{studioName}</span>
+      </a>
+    </div>
+  );
+}
+
+function MediaCardPerformerBadges({ performerItems, onNavigate }: { performerItems: PerformerSummary[]; onNavigate?: (route: any) => void }) {
+  if (performerItems.length === 0) return null;
+  return (
+    <div className="relative z-10 flex flex-wrap items-center gap-1.5 overflow-hidden">
+      {performerItems.slice(0, 4).map((performer) => (
+        <PerformerBadge key={performer.id} performer={performer} navigationHandlers={createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "performer", id: performer.id }, onNavigate)} />
+      ))}
+      {performerItems.length > 4 ? <span className="text-[10px] text-muted">+{performerItems.length - 4}</span> : null}
+    </div>
+  );
+}
+
+function AudioTextCardPopovers({ hostType, hostId, performers: performerItems, tags: tagItems, groups: groupItems, engagement, organized, onNavigate }: { hostType: "audio" | "text"; hostId: number; performers: PerformerSummary[]; tags: TagType[]; groups: GroupSummary[]; engagement?: EntityEngagement; organized?: boolean; onNavigate?: (route: any) => void }) {
+  const likeCount = engagement?.likeCount ?? 0;
+  const hasFavorite = engagement?.isFavorite === true;
+  const hasPopovers = performerItems.length > 0 || tagItems.length > 0 || groupItems.length > 0 || likeCount > 0 || hasFavorite || organized;
+  return (
+    <>
+      <hr className="my-0 border-border/50" />
+      <div className="card-popovers relative z-10 flex min-h-[28px] flex-wrap items-center justify-center gap-1 rounded-b px-2 py-1.5">
+        {!hasPopovers ? <span className="select-none text-[10px] text-muted/30">&nbsp;</span> : null}
+        {performerItems.length > 0 ? <PopoverButton icon={<User className="h-3.5 w-3.5" />} count={performerItems.length} title="Performers" wide preferBelow><PerformerPreviewGrid performers={performerItems} onNavigate={onNavigate} /></PopoverButton> : null}
+        {tagItems.length > 0 ? <PopoverButton icon={<Tag className="h-3.5 w-3.5" />} count={tagItems.length} title="Tags" preferBelow><TagLinkList items={tagItems} onNavigate={onNavigate} /></PopoverButton> : null}
+        {likeCount > 0 ? <LikeCounter count={likeCount} /> : null}
+        {hasFavorite ? <CardFavoriteButton hostType={hostType} hostId={hostId} favorite /> : null}
+        {groupItems.length > 0 ? <PopoverButton icon={<Layers className="h-3.5 w-3.5" />} count={groupItems.length} title="Groups" preferBelow><EntityLinkList items={groupItems.map((group) => ({ id: group.id, label: group.name }))} page="group" onNavigate={onNavigate} /></PopoverButton> : null}
+        {organized ? <span className="p-1 text-muted" title="Organized"><Box className="h-3.5 w-3.5" /></span> : null}
+      </div>
+    </>
+  );
+}
+
 // ===== PopoverButton (shared hover popover) =====
 
 export function PopoverButton({ icon, count, title, children, wide, preferBelow }: { icon: React.ReactNode; count: number; title: string; children?: React.ReactNode; wide?: boolean; preferBelow?: boolean }) {
@@ -844,13 +899,7 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
             className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
           />
         )}
-        {video.studioName && video.studioId && !selecting && (
-          <div className="absolute top-0 right-0 p-1 z-[5]">
-            <img src={entityImages.studioImageUrl(video.studioId)} alt={video.studioName} className="h-8 w-auto max-w-[120px] object-contain drop-shadow-md"
-              onError={(e) => { const el = e.target as HTMLImageElement; el.style.display = "none"; if (el.nextElementSibling) (el.nextElementSibling as HTMLElement).style.display = ""; }} />
-            <span className="text-xs font-medium text-white bg-black/60 px-1.5 py-0.5 rounded" style={{ display: "none" }}>{video.studioName}</span>
-          </div>
-        )}
+        <StudioCardOverlay studioId={video.studioId} studioName={video.studioName} selecting={selecting} onNavigate={onNavigate} />
         {(duration > 0 || resLabel) && (
           <div className="video-specs-overlay absolute bottom-0 right-0 flex items-center gap-0.5 px-1.5 py-1 text-xs text-white z-[5] transition-opacity">
             {file && <span className="bg-black/70 px-1 py-0.5 rounded extra-video-info hidden">{formatFileSize(file.size)}</span>}
@@ -882,16 +931,7 @@ export function VideoCard({ video, engagement, onClick, selected, onSelect, onNa
             {video.studioName && <span className="truncate">{video.studioName}</span>}
           </div>
         </div>
-        {video.performers.length > 0 && (
-          <div className="relative z-10 flex items-center gap-1.5 overflow-hidden flex-wrap">
-            {video.performers.slice(0, 4).map((performer) => {
-              const navigationHandlers = createNestedEntityNavigationHandlers<HTMLAnchorElement>({ page: "performer", id: performer.id }, onNavigate);
-
-              return <PerformerBadge key={performer.id} performer={performer} navigationHandlers={navigationHandlers} />;
-            })}
-            {video.performers.length > 4 && <span className="text-[10px] text-muted">+{video.performers.length - 4}</span>}
-          </div>
-        )}
+        <MediaCardPerformerBadges performerItems={video.performers} onNavigate={onNavigate} />
         {video.details && <p className="text-xs text-secondary line-clamp-2 leading-snug">{video.details}</p>}
       </div>
       <CardExtensionSlot slot="video-card-content" context={{ video }} />
@@ -1737,25 +1777,31 @@ export function AudioTile({ audio, engagement, selected, onSelect, selecting, on
         <audio ref={audioRef} src={audios.streamUrl(audio.id)} preload="none" />
         {(selected !== undefined || selecting) ? <div data-audio-preview-ignore onMouseEnter={stopPreview}><CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /></div> : null}
         {!selecting ? <BookmarkButton hostType="audio" hostId={audio.id} compact deferUntilHover className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100" /> : null}
+        <div data-audio-preview-ignore onMouseEnter={stopPreview}>
+          <StudioCardOverlay studioId={audio.studioId} studioName={audio.studioName} selecting={selecting} onNavigate={onNavigate} />
+        </div>
         {audio.hasVideoFiles ? (
-          <span className="absolute right-1 top-1 z-[5] inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"><MonitorPlay className="h-3 w-3" />Video</span>
+          <span className="absolute bottom-1 left-1 z-[5] inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"><MonitorPlay className="h-3 w-3" />Video</span>
         ) : null}
         {duration ? <span className="absolute bottom-1 right-1 z-[5] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">{duration}</span> : null}
         <RatingBanner rating={engagement?.rating} />
       </div>
-      <div className="card-body flex flex-1 flex-col gap-2 border-t border-border/50 p-2.5">
-        <div className="flex min-h-0 flex-1 flex-col">
-          <h2 className="card-title line-clamp-2 font-semibold text-foreground transition-colors group-hover:text-accent">{title}</h2>
-          {audio.details ? <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted">{audio.details}</p> : null}
-          <div data-audio-preview-ignore className="mt-auto pt-2">
-            <EntityReferencePopovers studio={{ id: audio.studioId, name: audio.studioName }} performers={audio.performers} tags={audio.tags} groups={audio.groups} onNavigate={onNavigate} className="w-full justify-center" />
+      <div className="card-body flex min-h-0 flex-1 flex-col gap-1.5 border-t border-border/50 px-2.5 pb-2 pt-2">
+        <div>
+          <h2 className="card-title line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-accent" title={title}>{title}</h2>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
+            {audio.date ? <span>{audio.date}</span> : null}
+            {audio.studioName ? <span className="truncate">{audio.studioName}</span> : null}
           </div>
         </div>
+        <div data-audio-preview-ignore onMouseEnter={stopPreview}><MediaCardPerformerBadges performerItems={audio.performers} onNavigate={onNavigate} /></div>
+        {audio.details ? <p className="line-clamp-2 text-xs leading-snug text-secondary">{audio.details}</p> : null}
         <div className="flex flex-wrap gap-1.5 text-[11px] text-muted">
           {engagement?.playCount ? <span className="inline-flex items-center gap-1 rounded border border-border/80 px-1.5 py-0.5"><PlayCircle className="h-3 w-3" />{engagement.playCount} play{engagement.playCount === 1 ? "" : "s"}</span> : null}
           {audio.tracks.length > 0 ? <span className="inline-flex items-center gap-1 rounded border border-border/80 px-1.5 py-0.5"><Mic2 className="h-3 w-3" />{audio.tracks.length} track{audio.tracks.length === 1 ? "" : "s"}</span> : null}
         </div>
       </div>
+      <div data-audio-preview-ignore onMouseEnter={stopPreview}><AudioTextCardPopovers hostType="audio" hostId={audio.id} performers={audio.performers} tags={audio.tags} groups={audio.groups} engagement={engagement} organized={audio.organized} onNavigate={onNavigate} /></div>
     </article>
   );
 }
@@ -1793,19 +1839,23 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
         />
         {(selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
         {!selecting ? <BookmarkButton hostType="text" hostId={text.id} compact deferUntilHover className="absolute left-9 top-1 z-10 border-white/20 bg-black/60 text-white opacity-0 shadow transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100" /> : null}
+        <StudioCardOverlay studioId={text.studioId} studioName={text.studioName} selecting={selecting} onNavigate={onNavigate} />
         {text.maxWordCount ? <span className="absolute bottom-1 right-1 z-[5] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">{Intl.NumberFormat().format(text.maxWordCount)} words</span> : null}
         <RatingBanner rating={engagement?.rating} />
       </div>
-      <div className="card-body flex flex-1 flex-col gap-2 border-t border-border/50 p-2.5">
-        <div className="flex min-h-0 flex-1 flex-col">
-          <h2 className="card-title line-clamp-2 font-semibold text-foreground transition-colors group-hover:text-accent">{title}</h2>
-          <p className="mt-1 line-clamp-3 text-xs leading-snug text-muted">{preview}</p>
-          <div className="mt-auto pt-2">
-            <EntityReferencePopovers studio={{ id: text.studioId, name: text.studioName }} performers={text.performers} tags={text.tags} groups={text.groups} onNavigate={onNavigate} className="w-full justify-center" />
+      <div className="card-body flex min-h-0 flex-1 flex-col gap-1.5 border-t border-border/50 px-2.5 pb-2 pt-2">
+        <div>
+          <h2 className="card-title line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-accent" title={title}>{title}</h2>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
+            {text.date ? <span>{text.date}</span> : null}
+            {text.studioName ? <span className="truncate">{text.studioName}</span> : null}
           </div>
         </div>
+        <MediaCardPerformerBadges performerItems={text.performers} onNavigate={onNavigate} />
+        <p className="line-clamp-2 text-xs leading-snug text-secondary">{preview}</p>
         {text.maxPageCount ? <div className="flex flex-wrap gap-1.5 text-[11px] text-muted"><span className="inline-flex items-center gap-1 rounded border border-border/80 px-1.5 py-0.5"><BookOpenText className="h-3 w-3" />{text.maxPageCount} page{text.maxPageCount === 1 ? "" : "s"}</span></div> : null}
       </div>
+      <AudioTextCardPopovers hostType="text" hostId={text.id} performers={text.performers} tags={text.tags} groups={text.groups} engagement={engagement} organized={text.organized} onNavigate={onNavigate} />
     </article>
   );
 }
