@@ -22,6 +22,7 @@ public sealed class EndpointReadApiTests(
 
     [Theory]
     [MemberData(nameof(Endpoints))]
+    [CoversReadEndpointCatalog]
     public async Task GivenFreshLibrary_WhenEndpointIsRead_ThenResponseHasExpectedShape(
         ReadEndpoint endpoint)
     {

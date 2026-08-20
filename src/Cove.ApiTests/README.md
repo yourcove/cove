@@ -1,18 +1,18 @@
 # Fluent API tests
 
-These tests launch the real Cove application as an operating-system process running Kestrel on an operating-system-assigned loopback port. Two parallel test lanes each own a process, isolated environment and data root, and dedicated PostgreSQL database. Tests within a lane are serialized and reuse its process: before every test, a test-environment-only lifecycle endpoint drains queued audit writes and jobs, resets every public table with PostgreSQL `TRUNCATE ... RESTART IDENTITY CASCADE`, clears database-derived host caches, reruns Cove's real auth and built-in-group initialization, and then the harness creates a fresh owner through the public bootstrap endpoint. Tests send requests over HTTP with a real access token; the application is not hosted in the test process and the harness does not replace application services.
+These tests launch the real Cove application as a Kestrel process and exercise it over HTTP with real access tokens. Two parallel test lanes each own an isolated process, data root, PostgreSQL database, metadata-service simulator, download-source simulator, and temporary library folder. Tests within a lane are serialized; before each test, the fixture drains background work, resets public database state and caches, restores required built-in state, and creates the standard owner and member personas.
 
-Put each test class in `ApiTestLane1Collection` or `ApiTestLane2Collection` and derive it from `ApiTest`. Each lane fixture owns its server and database, while `ApiTest.InitializeAsync` resets application state before every test. Distribute classes roughly evenly between the lanes; classes in different lanes run concurrently. `AsUser()` returns the owner-authenticated `CoveClient`, while `AsUser(ApiTestUsers.Eva)` and `AsUser(ApiTestUsers.Anthony)` select the standard member clients. Builders keep arrange code focused on values that matter to the test.
+Put every behavior test class in `ApiTestLane1Collection` or `ApiTestLane2Collection`, derive it from `ApiTest`, and distribute classes roughly evenly between lanes. Use:
 
-Test classes live under `Tests/` and are grouped by the aspect of Cove they exercise: `Catalog`, `Contracts`, `Downloads`, `Entities`, `Extensions`, `Files`, `Interactions`, and `Metadata`. Suite-mechanics tests live in `Tests/Harness`. Test namespaces mirror that directory structure, such as `Cove.ApiTests.Tests.Catalog`. Keep reusable test support in the existing `Assertions`, `Builders`, `ExampleData`, and `Infrastructure` directories rather than alongside behavior classes.
+- `AsUser()` for the owner-authenticated `CoveClient`.
+- `AsUser(ApiTestUsers.Eva)` or `AsUser(ApiTestUsers.Anthony)` for standard members.
+- `AsMetadataService()` and `AsDownloadSource()` for deterministic external services.
+- `AsTestFileSystem()` for real filesystem fixtures.
+- `AsDbUser()` only for lifecycle evidence that the public API cannot create or observe.
 
-`ApiTestLaneHarnessTests` independently starts two isolated hosts and verifies that their process startup intervals overlap. It is kept outside the behavior lanes so focused execution of either behavior class does not depend on unrelated test discovery. Each lane also owns a loopback metadata-service simulator; use `AsMetadataService().CreateScene(new MetadataServiceSceneBuilder()...Build())` to arrange remote records that Cove can import through its real configured metadata-server client. `AsTestFileSystem()` exposes the lane's configured temporary library folder and can create filesystem fixtures, including an empty Stash database, for endpoints that require real files.
+Tests live under `Tests/` and are grouped by behavior: `Catalog`, `Contracts`, `Downloads`, `Entities`, `Extensions`, `Files`, `Interactions`, and `Metadata`. Harness mechanics belong in `Tests/Harness`. Namespaces mirror the directory structure; reusable support belongs in `Assertions`, `Builders`, `ExampleData`, or `Infrastructure`.
 
-Each lane also owns a loopback download-source simulator. Use `AsDownloadSource().CreateTextFile(...)` or `CreateFile(...)` to arrange deterministic remote files, and `CreateFailure(...)` to exercise upstream errors. Downloader tests should call Cove's real built-in downloader through `CoveClient`, wait for the returned job to reach a terminal state, and assert imported entities through the public API. The simulator records request counts and resets only after active jobs have been cancelled and drained.
-
-`EndpointCoverageTests` discovers Cove's controller groups and requires every one to be represented by either the read-endpoint catalog or a non-skipped `[CoversEndpoints]` happy-path test. This is a controller-group completeness guard rather than a claim that every action has full behavioral coverage: destructive maintenance actions, external-provider workflows, and media-processing variants still need focused scenarios when their behavior changes.
-
-The reset contract is the test precondition, so tests should not query a collection only to assert that isolation worked. Assert an empty result only when emptiness is the endpoint behavior under test. A clean test database may still contain deterministic baseline state: the reset endpoint recreates Cove's required built-in state, and the harness then bootstraps the owner, Eva, and Anthony personas. If tests later need shared domain fixtures, add them through an explicit baseline seeder after owner bootstrap and expose their returned DTOs or IDs to tests; prefer a separate seeded collection so the default lanes retain an empty domain baseline.
+`EndpointCoverageTests` inventories every attributed controller action as a normalized `VERB /route-template` identifier. A public action must be mapped by the active read-catalog theory or a non-skipped `[CoversEndpoint]` behavioral test, remain in the checked-in temporary backlog, or have a reviewed exception with a technical reason. When a test starts exercising a backlog endpoint, add the exact attribute, remove the matching backlog entry, and update both expected progress counts; do not use a controller-wide marker.
 
 ## Test conventions
 
@@ -22,58 +22,62 @@ Name tests with concise Given/When/Then clauses:
 GivenPrecondition_WhenAction_ThenOutcome
 ```
 
-- Write each clause in PascalCase and use underscores only to separate the clauses.
-- Keep the Given clause to state that materially affects the behavior. Omit filler such as `AnExisting`, `TheUser`, and setup details that do not change the scenario.
-- Keep the When clause to one action.
-- Describe an observable result in the Then clause, not an implementation detail.
-- Prefer `GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag` over sentence-style names or longer forms such as `GivenAnExistingPerformerAndAnExistingTag_WhenTheUserLinksTheTag_ThenThePerformerShouldContainTheTag`.
+- Use PascalCase and underscores only between clauses.
+- Include only state that materially changes the scenario.
+- Keep `When` focused on one action or coherent state transition, and `Then` on an observable result.
+- Prefer `GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag` over filler such as `GivenAnExistingPerformer...`.
 
-Keep the test body visibly arranged as Given, When, and Then, separated by blank lines. Add comments only when the phases are not already obvious from the code.
+Order tests with the main happy paths first, followed by sad paths and edge cases. Establish that the primary workflow works before covering invalid input, missing entities, conflicts, unusual limits, or other defensive scenarios. This keeps the class centered on the behavior users rely on and makes failures easier to interpret.
 
-- Put API test classes in one of the two lane collections and derive them from `ApiTest` so every test starts from clean PostgreSQL state while expensive hosts are shared and independent classes can run concurrently.
-- Exercise behavior through the fluent `AsUser()` API. Do not seed application entities directly through Entity Framework when the public API can create the required state.
-- Do not mock, replace, or decorate application services. Do not use `ConfigureTestServices` in this project.
-- Assert externally observable API behavior. Direct database queries are reserved for test-host lifecycle checks that cannot be observed through the API.
-- Await API work that intentionally continues in the background. The reset cancels and drains active Cove jobs before truncation; extension lifecycle scenarios that start independent workers should use an isolated host instead of this shared collection.
-- Add focused builders, fluent operations, and assertion extensions when they make the scenario read more clearly; do not expose raw HTTP mechanics in individual tests.
+Keep each test easy to scan: arrange the required state, perform the action, and assert externally observable API behavior. Separate major phases with blank lines; add phase comments only when the structure is not obvious. A state-transition test may use one compact `Act & Assert` block when actions and assertions intentionally alternate.
+
+- Create and read application entities through `CoveClient`; do not seed them through Entity Framework when the public API can express the scenario.
+- Do not mock, replace, decorate, or configure application services in this project.
+- Do not query an empty collection merely to prove fixture isolation. Assert emptiness only when it is the behavior under test.
+- Await API work that intentionally continues in the background. Use an isolated host for extension scenarios that start workers outside Cove's job lifecycle.
+- Add focused builders, client methods, and assertion extensions when they improve readability; keep raw HTTP mechanics out of individual tests.
+
+`CoveClient` is split into partial files by API ownership so parallel coverage slices can extend separate files with minimal conflicts. Keep shared HTTP transport in `CoveClient.cs`; put user, read-catalog, downloader, and job methods in `CoveClient.System.cs`; entity methods in the matching performer, studio, media, or video file; group, detection, and segment methods in `CoveClient.Relationships.cs`; engagement, bookmark, like-mutation, and playback methods in `CoveClient.Interactions.cs`; tag and tag-group methods in `CoveClient.Tags.cs`; and file, migration, custom-field, scraping, streaming, and external-metadata methods in `CoveClient.FilesAndMetadata.cs`.
 
 ```csharp
-[Collection(ApiTestLane1Collection.Name)]
-public sealed class PerformerTagApiTests(
-    ITestOutputHelper output,
-    CoveApiTestFixture fixture) : ApiTest(output, fixture)
+[Fact]
+public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
 {
-    [Fact]
-    public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
-    {
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName("Example Performer").Build());
-        var tag = await AsUser().CreateTagAsync(
-            new TagBuilder().WithName("Example Tag").Build());
+    var performer = await AsUser().CreatePerformerAsync(
+        new PerformerBuilder().WithName("Example Performer").Build());
+    var tag = await AsUser().CreateTagAsync("Example Tag");
 
-        await AsUser().LinkTagToPerformerAsync(tag, performer);
+    await AsUser().LinkTagToPerformerAsync(tag, performer);
 
-        var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
-        performerAfter.ShouldHaveTag(tag);
-    }
+    var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
+    performerAfter.ShouldHaveTag(tag);
 }
 ```
 
-Run the suite with:
+## Running the tests
 
 ```sh
 dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
 ```
 
-Collect production-assembly coverage while the API tests exercise the real API processes with:
+The PostgreSQL account must be able to create and drop databases and install the `vector` extension. Set `COVE_API_TEST_PG_ADMIN_CONNECTION_STRING`, or configure `COVE_API_TEST_PG_HOST`, `COVE_API_TEST_PG_PORT`, `COVE_API_TEST_PG_USER`, `COVE_API_TEST_PG_PASSWORD`, and `COVE_API_TEST_PG_ADMIN_DB`. Host, port, and password fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password.
+
+For authenticated debugging, use the random base URI printed in test output together with `ApiUri`, `AsUser().AccessToken`, or `AsUser().CreateHttpClient()` while the test process is running.
+
+To collect production-assembly coverage:
 
 ```sh
 dotnet tool restore
 dotnet tool run dotnet-coverage -- collect --settings src/Cove.ApiTests/coverage.config --output artifacts/coverage/api-tests.cobertura.xml --output-format cobertura dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj -c Release --no-restore --verbosity normal
+node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
 ```
 
-The report merges production-assembly execution across the API test process tree and excludes the API test harness assembly. Run `dotnet restore src/Cove.slnx` first when dependencies have not been restored.
+The coverage check deduplicates compiler-generated async and aggregate records by normalized controller source filename and line. It prints aggregate and per-controller line and branch diagnostics, highlights the largest uncovered controller files, enforces the checked-in API-test line-coverage baseline, and reports progress toward the 90% controller line target. When intentionally raising the ratchet after adding tests, update `controller-coverage-baseline.json` with the newly measured covered and total line counts; never lower it to accommodate a regression.
 
-The PostgreSQL account must be able to create and drop databases and install the `vector` extension. Set `COVE_API_TEST_PG_ADMIN_CONNECTION_STRING` to an administrative database connection string, or configure `COVE_API_TEST_PG_HOST`, `COVE_API_TEST_PG_PORT`, `COVE_API_TEST_PG_USER`, `COVE_API_TEST_PG_PASSWORD`, and `COVE_API_TEST_PG_ADMIN_DB`. Host, port, and password fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password.
+Run the coverage tool's synthetic Cobertura tests with:
 
-The test output includes the random base URI. Because this is a real listener, pause at a breakpoint while the test is running and call its health endpoint with `curl`. `ApiUri`, `AsUser().AccessToken`, and `AsUser().CreateHttpClient()` are available to inspect or use for authenticated debugging.
+```sh
+node --test scripts/check-api-controller-coverage.test.mjs
+```
+
+Run `dotnet restore src/Cove.slnx` first when dependencies have not been restored.

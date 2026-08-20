@@ -29,6 +29,9 @@ public abstract class ApiTest : IAsyncLifetime
                 $"API test user '{username}' is not provisioned. Available users: {string.Join(", ", _users.Keys)}.");
     }
 
+    protected DatabaseClient AsDbUser()
+        => _fixture.DbUser;
+
     protected MetadataServiceSimulator AsMetadataService()
         => _fixture.MetadataService;
 

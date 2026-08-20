@@ -1,0 +1,129 @@
+using System.Text.Json;
+using Cove.Core.Auth;
+using Cove.Core.DTOs;
+using Cove.Core.Interfaces;
+
+namespace Cove.ApiTests.Infrastructure;
+
+public sealed partial class CoveClient
+{
+    public Task<UserDto> CreateUserAsync(
+        CreateUserRequest user,
+        CancellationToken cancellationToken = default)
+        => SendAsync<UserDto>(HttpMethod.Post, "/api/users", user, cancellationToken);
+
+    public Task<JsonElement> ReadEndpointAsync(
+        ReadEndpoint endpoint,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = ReadEndpointCatalog.Get(endpoint);
+
+        return SendAsync<JsonElement>(
+            HttpMethod.Get,
+            WithCacheNonce(definition.RequestUri),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DownloaderDescriptorDto>> GetDownloadersAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DownloaderDescriptorDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/system/downloaders"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<DownloaderMatchDto>> MatchDownloaderAsync(
+        Uri uri,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DownloaderMatchDto>>(
+            HttpMethod.Post,
+            "/api/system/downloaders/match",
+            new DownloaderMatchRequestDto(uri.AbsoluteUri),
+            cancellationToken);
+
+    public Task<DownloaderPreflightResponseDto> PreflightDownloadAsync(
+        Uri uri,
+        string entity,
+        int? entityId = null,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DownloaderPreflightResponseDto>(
+            HttpMethod.Post,
+            "/api/system/downloaders/preflight",
+            new DownloaderPreflightRequestDto
+            {
+                Url = uri.AbsoluteUri,
+                Entity = entity,
+                EntityId = entityId,
+            },
+            cancellationToken);
+
+    public async Task<string> StartTextDownloadAsync(
+        string downloaderId,
+        Uri uri,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/system/downloaders/download",
+            new DownloaderStartRequestDto
+            {
+                DownloaderId = downloaderId,
+                Url = uri.AbsoluteUri,
+                Entity = "Text",
+            },
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException("The downloader response did not contain a job id.");
+    }
+
+    public Task<DownloaderBatchStartResponse> StartDownloaderBatchAsync(
+        DownloaderBatchStartRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DownloaderBatchStartResponse>(
+            HttpMethod.Post,
+            "/api/system/downloaders/download-batch",
+            request,
+            cancellationToken);
+
+    public Task<JobInfo> GetJobAsync(
+        string jobId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<JobInfo>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/jobs/{Uri.EscapeDataString(jobId)}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<JobInfo> WaitForTerminalJobAsync(
+        string jobId,
+        CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        JobInfo? lastJob = null;
+        try
+        {
+            while (true)
+            {
+                lastJob = await GetJobAsync(jobId, timeout.Token);
+                if (lastJob.Status is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled)
+                    return lastJob;
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Job '{jobId}' did not reach a terminal state within 30 seconds. "
+                + $"Last status: {lastJob?.Status.ToString() ?? "unavailable"}; "
+                + $"progress: {lastJob?.Progress.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unavailable"}; "
+                + $"subtask: {lastJob?.SubTask ?? "unavailable"}.");
+        }
+    }
+}
+
+public sealed record DownloaderBatchStartResponse(
+    string? JobId,
+    int QueuedCount,
+    IReadOnlyList<DownloaderBatchStartIssueDto> Issues);

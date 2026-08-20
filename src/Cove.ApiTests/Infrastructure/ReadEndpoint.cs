@@ -52,7 +52,12 @@ public sealed record ReadEndpointDefinition(
     ReadEndpoint Endpoint,
     Type ControllerType,
     string RequestUri,
-    JsonResponseShape ExpectedShape);
+    JsonResponseShape ExpectedShape)
+{
+    public ApiEndpointId CoveredEndpoint => ApiEndpointId.Create(
+        "GET",
+        RequestUri.Split('?', 2)[0]);
+}
 
 public static class ReadEndpointCatalog
 {

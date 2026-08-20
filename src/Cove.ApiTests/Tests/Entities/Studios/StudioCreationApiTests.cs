@@ -6,26 +6,13 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Xunit.Abstractions;
 
-namespace Cove.ApiTests.Tests.Entities;
+namespace Cove.ApiTests.Tests.Entities.Studios;
 
 [Collection(ApiTestLane1Collection.Name)]
 public sealed class StudioCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
-    [Fact]
-    public async Task GivenStudio_WhenMemberReadsStudios_ThenStudioIsReturned()
-    {
-        // Arrange
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
-
-        // Act
-        var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync();
-
-        // Assert
-        studios.Should().ContainSingle(candidate => candidate.Id == studio.Id);
-    }
-
     [Theory]
     [InlineData("Barely Dressed Pictures")]
     [InlineData("barely dressed pictures")]
@@ -43,6 +30,59 @@ public sealed class StudioCreationApiTests(
 
         exception.Message.Should().Contain("409 (Conflict)");
         exception.Message.Should().Contain("\"code\":\"STUDIO_NAME_CONFLICT\"");
+    }
+
+    [Fact]
+    public async Task GivenBlankName_WhenStudioIsCreated_ThenEmptySentinelClaimsNamespace()
+    {
+        // Arrange
+        var studio = await AsUser().CreateStudioAsync(" \t ");
+
+        // Act & Assert
+        studio.Name.Should().Be(EntityNameRules.EmptyCanonicalName);
+
+        var action = () => AsUser().CreateStudioAsync(
+            $" {EntityNameRules.EmptyCanonicalName.ToUpperInvariant()} ");
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 409 (Conflict)*");
+    }
+
+    [Fact]
+    public async Task GivenPaddedUniqueName_WhenStudioIsCreated_ThenNameIsNormalized()
+    {
+        // Arrange
+        var request = new StudioBuilder()
+            .WithName(" The Lantern Room ")
+            .Build();
+
+        // Act
+        var studio = await AsUser().CreateStudioAsync(request);
+
+        // Assert
+        studio.Name.Should().Be("The Lantern Room");
+    }
+
+    [Fact]
+    public async Task GivenStudioAlias_WhenAnotherStudioUsesAlias_ThenBothStudiosExist()
+    {
+        // Arrange
+        var first = await AsUser().CreateStudioAsync(
+            new StudioBuilder()
+                .WithName(TestCatalog.Studio.Name)
+                .WithAlias("Shared production label")
+                .Build());
+
+        // Act
+        var second = await AsUser().CreateStudioAsync(
+            new StudioBuilder()
+                .WithName("The Lantern Room")
+                .WithAlias("Shared production label")
+                .Build());
+
+        // Assert
+        second.Id.Should().NotBe(first.Id);
+        first.Aliases.Should().Equal("Shared production label");
+        second.Aliases.Should().Equal("Shared production label");
     }
 
     [Fact]

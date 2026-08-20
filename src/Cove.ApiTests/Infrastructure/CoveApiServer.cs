@@ -49,6 +49,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public MetadataServiceSimulator MetadataService => _metadataService;
     public DownloadSourceSimulator DownloadSource => _downloadSource;
     public ApiTestFileSystem FileSystem { get; }
+    public DatabaseClient DbUser => new(_database.ConnectionString);
     internal long ProcessStartedTimestamp { get; private init; }
     internal long ReadyTimestamp { get; private init; }
 

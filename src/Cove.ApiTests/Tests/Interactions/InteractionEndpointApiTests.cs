@@ -1,4 +1,3 @@
-using Cove.Api.Controllers;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
@@ -12,7 +11,8 @@ public sealed class InteractionEndpointApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
-    [CoversEndpoints(typeof(EntityEngagementController))]
+    [CoversEndpoint("PUT", "/api/engagement/{hostType}/{hostId:int}/favorite")]
+    [CoversEndpoint("GET", "/api/engagement/{hostType}/{hostId:int}")]
     public async Task GivenVideo_WhenFavoriteIsSet_ThenEngagementIsFavorite()
     {
         // Arrange
@@ -132,7 +132,7 @@ public sealed class InteractionEndpointApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(PlaybackController))]
+    [CoversEndpoint("POST", "/api/playback/intervals")]
     public async Task GivenVideo_WhenPlaybackIsRecorded_ThenHistoryContainsSession()
     {
         // Arrange
@@ -150,7 +150,7 @@ public sealed class InteractionEndpointApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(ScrapeAttemptsController))]
+    [CoversEndpoint("GET", "/api/scrape-attempts")]
     public async Task GivenVideoWithoutScrapes_WhenScrapeAttemptsAreRead_ThenAttemptListIsEmpty()
     {
         // Arrange
@@ -164,7 +164,7 @@ public sealed class InteractionEndpointApiTests(
     }
 
     [Fact]
-    [CoversEndpoints(typeof(StreamController))]
+    [CoversEndpoint("GET", "/api/stream/video/{videoId:int}/preview/status")]
     public async Task GivenVideoWithoutPreview_WhenPreviewStatusIsRead_ThenPreviewIsUnavailable()
     {
         // Arrange

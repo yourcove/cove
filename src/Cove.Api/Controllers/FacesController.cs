@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Data;
 using System.Linq.Expressions;
 using System.Text.Json;
 using Cove.Core.Auth;
@@ -768,24 +769,39 @@ public class FacesController(
         var skipped = new List<FaceBatchSkippedDto>();
         var failed = new List<FaceBatchFailedDto>();
         var clearedEvidence = new List<ClearedFaceRunEvidence>();
-
-        foreach (var faceId in dto.FaceIds.Distinct())
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            try
-            {
-                var deleted = await DeleteFaceAsync(faceId, cancellationToken, clearedEvidence);
-                if (deleted)
-                    succeeded.Add(faceId);
-                else
-                    skipped.Add(new FaceBatchSkippedDto(faceId, "Face was not found."));
-            }
-            catch (Exception ex)
-            {
-                failed.Add(new FaceBatchFailedDto(faceId, ex.Message));
-            }
-        }
+            db.ChangeTracker.Clear();
+            succeeded.Clear();
+            skipped.Clear();
+            failed.Clear();
+            clearedEvidence.Clear();
+            var propagationHosts = new HashSet<(FaceAppearanceHostType HostType, int HostId)>();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
-        await db.SaveChangesAsync(cancellationToken);
+            foreach (var faceId in dto.FaceIds.Distinct())
+            {
+                try
+                {
+                    var deleted = await DeleteFaceAsync(faceId, cancellationToken, clearedEvidence, propagationHosts);
+                    if (deleted)
+                        succeeded.Add(faceId);
+                    else
+                        skipped.Add(new FaceBatchSkippedDto(faceId, "Face was not found."));
+                }
+                catch (Exception ex)
+                {
+                    failed.Add(new FaceBatchFailedDto(faceId, ex.Message));
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            foreach (var (hostType, hostId) in propagationHosts)
+                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
         await NotifyHostFacesClearedAsync(clearedEvidence, cancellationToken);
         return Ok(new FaceBatchOperationResultDto(succeeded, skipped, failed));
     }
@@ -802,7 +818,6 @@ public class FacesController(
         var face = await db.Faces.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (face is null)
             return NotFound();
-
         if (face.PerformerId.HasValue)
             return ValidationProblem("This face is already linked to a performer.");
 
@@ -889,9 +904,26 @@ public class FacesController(
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var clearedEvidence = new List<ClearedFaceRunEvidence>();
-        if (!await DeleteFaceAsync(id, cancellationToken, clearedEvidence))
+        var deleted = false;
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            clearedEvidence.Clear();
+            var propagationHosts = new HashSet<(FaceAppearanceHostType HostType, int HostId)>();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            deleted = await DeleteFaceAsync(id, cancellationToken, clearedEvidence, propagationHosts);
+            if (!deleted)
+                return;
+
+            await db.SaveChangesAsync(cancellationToken);
+            foreach (var (hostType, hostId) in propagationHosts)
+                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+        if (!deleted)
             return NotFound();
-        await db.SaveChangesAsync(cancellationToken);
         await NotifyHostFacesClearedAsync(clearedEvidence, cancellationToken);
 
         return NoContent();
@@ -1071,32 +1103,87 @@ public class FacesController(
         var face = await db.Faces.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (face is null)
             return NotFound();
+        if (face.MergedIntoFaceId.HasValue)
+            return ValidationProblem("Cannot merge a face that has already been merged.");
 
-        var target = await db.Faces.FirstOrDefaultAsync(item => item.Id == dto.TargetFaceId, cancellationToken);
+        var target = await db.Faces.AsNoTracking().FirstOrDefaultAsync(item => item.Id == dto.TargetFaceId, cancellationToken);
         if (target is null)
             return ValidationProblem($"Target face {dto.TargetFaceId} was not found.");
 
         if (target.MergedIntoFaceId.HasValue)
             return ValidationProblem("Cannot merge into a face that has already been merged.");
 
-        face.MergedIntoFaceId = target.Id;
+        var strategy = db.Database.CreateExecutionStrategy();
         var targetGainedPerformer = false;
-        if (face.PerformerId.HasValue && target.PerformerId == null)
+        await strategy.ExecuteAsync(async () =>
         {
-            target.PerformerId = face.PerformerId;
-            targetGainedPerformer = true;
-        }
-        if (string.IsNullOrWhiteSpace(target.Label) && !string.IsNullOrWhiteSpace(face.Label))
-            target.Label = face.Label;
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
-        // The target just inherited the merged face's performer; propagate it to the target's hosts so
-        // those videos/images get the performer (mirrors a normal link).
-        if (targetGainedPerformer)
-            await facePerformerPropagationService.ApplyLinkChangeAsync(target.Id, null, target.PerformerId, cancellationToken);
+            var workingFace = await db.Faces.FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
+                ?? throw new InvalidOperationException("The source face changed while the merge was being applied.");
+            var workingTarget = await db.Faces.FirstOrDefaultAsync(item => item.Id == dto.TargetFaceId, cancellationToken)
+                ?? throw new InvalidOperationException("The target face changed while the merge was being applied.");
+            if (workingFace.MergedIntoFaceId.HasValue || workingTarget.MergedIntoFaceId.HasValue)
+                throw new InvalidOperationException("A face changed merge state while the merge was being applied.");
 
-        await db.SaveChangesAsync(cancellationToken);
+            var sourceAppearances = await db.FaceAppearances
+                .AsNoTracking()
+                .IgnoreQueryFilters()
+                .Where(appearance => appearance.FaceId == workingFace.Id)
+                .ToListAsync(cancellationToken);
+            var targetHosts = await db.FaceAppearances
+                .AsNoTracking()
+                .IgnoreQueryFilters()
+                .Where(appearance => appearance.FaceId == workingTarget.Id)
+                .Select(appearance => new { appearance.HostType, appearance.HostId })
+                .ToListAsync(cancellationToken);
+            var affectedHosts = sourceAppearances
+                .Select(appearance => (appearance.HostType, appearance.HostId))
+                .Concat(targetHosts.Select(host => (host.HostType, host.HostId)))
+                .Distinct()
+                .ToArray();
+
+            db.FaceAppearances.AddRange(sourceAppearances.Select(appearance => new FaceAppearance
+            {
+                FaceId = workingTarget.Id,
+                HostType = appearance.HostType,
+                HostId = appearance.HostId,
+                FirstSeenAtSec = appearance.FirstSeenAtSec,
+                LastSeenAtSec = appearance.LastSeenAtSec,
+                SampleCount = appearance.SampleCount,
+                RetainedSpatialSampleCount = appearance.RetainedSpatialSampleCount,
+                SegmentCount = appearance.SegmentCount,
+                RepresentativeFrameSec = appearance.RepresentativeFrameSec,
+                TopConfidence = appearance.TopConfidence,
+                GroupKey = appearance.GroupKey,
+                Payload = appearance.Payload is null
+                    ? null
+                    : JsonDocument.Parse(appearance.Payload.RootElement.GetRawText()),
+                SourceKey = appearance.SourceKey,
+                SourceRunId = appearance.SourceRunId,
+            }));
+
+            workingFace.MergedIntoFaceId = workingTarget.Id;
+            targetGainedPerformer = false;
+            if (workingFace.PerformerId.HasValue && workingTarget.PerformerId == null)
+            {
+                workingTarget.PerformerId = workingFace.PerformerId;
+                targetGainedPerformer = true;
+            }
+            if (string.IsNullOrWhiteSpace(workingTarget.Label) && !string.IsNullOrWhiteSpace(workingFace.Label))
+                workingTarget.Label = workingFace.Label;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            foreach (var (hostType, hostId) in affectedHosts)
+                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
         if (targetGainedPerformer)
-            await InvalidateSuggestionForLinkChangeAsync(target.Id, cancellationToken);
+            await InvalidateSuggestionForLinkChangeAsync(dto.TargetFaceId, cancellationToken);
 
         var merged = await db.Faces
             .AsNoTracking()
@@ -1495,7 +1582,11 @@ public class FacesController(
             .ToList();
     }
 
-    private async Task<bool> DeleteFaceAsync(int id, CancellationToken cancellationToken, ICollection<ClearedFaceRunEvidence>? clearedEvidence = null)
+    private async Task<bool> DeleteFaceAsync(
+        int id,
+        CancellationToken cancellationToken,
+        ICollection<ClearedFaceRunEvidence>? clearedEvidence = null,
+        ISet<(FaceAppearanceHostType HostType, int HostId)>? propagationHosts = null)
     {
         var face = await db.Faces.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (face is null)
@@ -1508,8 +1599,28 @@ public class FacesController(
             .Where(detection => detection.RefId == id && detection.RefKind != null && detection.RefKind.ToLower() == "face")
             .ToListAsync(cancellationToken);
         var appearances = await db.FaceAppearances
+            .IgnoreQueryFilters()
             .Where(appearance => appearance.FaceId == id)
             .ToListAsync(cancellationToken);
+        if (propagationHosts is not null)
+        {
+            foreach (var appearance in appearances)
+                propagationHosts.Add((appearance.HostType, appearance.HostId));
+
+            var mergedFaceIds = mergedFaces.Select(item => item.Id).ToArray();
+            if (mergedFaceIds.Length > 0)
+            {
+                var restoredHosts = await db.FaceAppearances
+                    .AsNoTracking()
+                    .IgnoreQueryFilters()
+                    .Where(appearance => mergedFaceIds.Contains(appearance.FaceId))
+                    .Select(appearance => new { appearance.HostType, appearance.HostId })
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+                foreach (var host in restoredHosts)
+                    propagationHosts.Add((host.HostType, host.HostId));
+            }
+        }
         var embeddings = await db.Embeddings
             .Where(embedding => embedding.HostType == EmbeddingHostType.Face && embedding.HostId == id)
             .ToListAsync(cancellationToken);
@@ -1518,8 +1629,6 @@ public class FacesController(
             .ToListAsync(cancellationToken);
         var coverBlobId = face.CoverBlobId;
 
-        await facePerformerPropagationService.ApplyLinkChangeAsync(id, face.PerformerId, null, cancellationToken);
-
         foreach (var participant in ActiveLifecycleParticipants())
         {
             await participant.OnDeletingAsync(face, cancellationToken);
@@ -1527,7 +1636,7 @@ public class FacesController(
 
         foreach (var mergedFace in mergedFaces)
         {
-            mergedFace.MergedIntoFaceId = null;
+            mergedFace.MergedIntoFaceId = face.MergedIntoFaceId;
         }
 
         if (clearedEvidence is not null)
@@ -2357,8 +2466,3 @@ public class FacesController(
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
-
-
-
-
-
