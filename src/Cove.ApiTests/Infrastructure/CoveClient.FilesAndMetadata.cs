@@ -42,6 +42,16 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => StartMetadataJobAsync("/api/metadata/clean-generated", payload: null, cancellationToken);
 
+    public Task<string> StartMetadataExportAsync(
+        ExportOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/export", options, cancellationToken);
+
+    public Task<string> StartMetadataImportAsync(
+        ImportOptionsDto options,
+        CancellationToken cancellationToken = default)
+        => StartMetadataJobAsync("/api/metadata/import", options, cancellationToken);
+
     public Task<CustomFieldDefinitionDto> CreateCustomFieldDefinitionAsync(
         CustomFieldDefinitionCreateDto definition,
         CancellationToken cancellationToken = default)
