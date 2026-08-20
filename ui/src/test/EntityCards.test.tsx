@@ -7,7 +7,7 @@ vi.mock("../components/Rating", () => ({
   RatingBadge: () => null,
 }));
 
-import { GalleryPreviewList, GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
+import { AudioTile, GalleryPreviewList, GalleryTile, GroupTile, ImageTile, PerformerTile, TextTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 
 const videoFile = {
@@ -403,6 +403,92 @@ describe("ImageTile", () => {
     expect(screen.getByRole("tooltip", { name: "Media for Animated Image Tag" })).toContainElement(
       screen.getByRole("img", { name: "Animated Image Tag" }),
     );
+  });
+});
+
+describe.each([
+  {
+    name: "AudioTile",
+    renderTile: (relations: Record<string, unknown> = {}) => render(
+      <AudioTile
+        audio={{ id: 81, title: "Sample Audio", date: "2026-08-20", maxDuration: 90, hasVideoFiles: false, tracks: [], files: [], performers: [], tags: [], groups: [], organized: false, ...relations } as any}
+        onClick={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    ),
+  },
+  {
+    name: "TextTile",
+    renderTile: (relations: Record<string, unknown> = {}) => render(
+      <TextTile
+        text={{ id: 82, title: "Sample Text", date: "2026-08-20", files: [], performers: [], tags: [], groups: [], organized: false, ...relations } as any}
+        onClick={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    ),
+  },
+])("$name video-card parity", ({ renderTile }) => {
+  it("uses the video-card studio overlay and body metadata treatment", () => {
+    const { container } = renderTile({ studioId: 9, studioName: "Studio Nine" });
+
+    const studioLink = screen.getByRole("link", { name: "Studio Nine" });
+    expect(studioLink).toHaveAttribute("href", "/studio/9");
+    expect(studioLink.closest("[data-studio-overlay]")).toHaveClass("absolute", "right-0", "top-0");
+    expect(studioLink.querySelector("img")).toHaveAttribute("src", expect.stringContaining("/api/studios/9/image"));
+    expect(container.querySelector(".card-body")).toHaveTextContent("2026-08-20");
+    expect(container.querySelector(".card-body")).toHaveTextContent("Studio Nine");
+
+    const logo = studioLink.querySelector("img")!;
+    fireEvent.error(logo);
+    expect(logo).toHaveStyle({ display: "none" });
+    expect(studioLink.querySelector("span")).not.toHaveStyle({ display: "none" });
+  });
+
+  it("shows performers directly and repeats relation counts in the standard separated footer", () => {
+    const { container } = renderTile({
+      performers: [{ id: 11, name: "Performer One", imagePath: null }],
+      tags: [{ id: 12, name: "Tag One" }],
+      groups: [{ id: 13, name: "Group One" }],
+    });
+
+    expect(container.querySelector(".performer-badge")).toHaveTextContent("Performer One");
+    expect(screen.getByTitle("Performers")).toHaveTextContent("1");
+    expect(screen.getByTitle("Tags")).toHaveTextContent("1");
+    expect(screen.getByTitle("Groups")).toHaveTextContent("1");
+    expect(container.querySelector(".card-popovers")?.previousElementSibling).toBeInstanceOf(HTMLHRElement);
+  });
+
+  it("keeps the standard empty footer and omits studio space without a studio", () => {
+    const { container } = renderTile();
+
+    expect(container.querySelector("[data-studio-overlay]")).not.toBeInTheDocument();
+    expect(container.querySelector(".card-popovers")).toBeInTheDocument();
+  });
+});
+
+describe("AudioTile nested navigation", () => {
+  it.each([
+    ["studio overlay", (container: HTMLElement) => screen.getByRole("link", { name: "Studio Nine" })],
+    ["performer badge", (container: HTMLElement) => container.querySelector(".performer-badge")!],
+    ["relation footer", (container: HTMLElement) => container.querySelector(".card-popovers")!],
+  ])("does not start hover playback when the pointer moves onto the %s", (_label, getTarget) => {
+    vi.useFakeTimers();
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const { container } = render(
+      <AudioTile
+        audio={{ id: 81, title: "Sample Audio", studioId: 9, studioName: "Studio Nine", maxDuration: 90, hasVideoFiles: false, tracks: [], files: [], performers: [{ id: 11, name: "Performer One", imagePath: null }], tags: [{ id: 12, name: "Tag One" }], groups: [], organized: false } as any}
+        onClick={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseEnter(container.querySelector("article")!);
+    act(() => vi.advanceTimersByTime(500));
+    fireEvent.mouseEnter(getTarget(container));
+    act(() => vi.advanceTimersByTime(1100));
+
+    expect(play).not.toHaveBeenCalled();
   });
 });
 
