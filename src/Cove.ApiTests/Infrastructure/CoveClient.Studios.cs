@@ -36,10 +36,21 @@ public sealed partial class CoveClient
 
     public async Task<IReadOnlyList<StudioDto>> GetStudiosAsync(
         CancellationToken cancellationToken = default)
+        => await GetStudiosAsync(sort: null, direction: null, cancellationToken);
+
+    public async Task<IReadOnlyList<StudioDto>> GetStudiosAsync(
+        string? sort,
+        string? direction,
+        CancellationToken cancellationToken = default)
     {
+        var query = "/api/studios?perPage=250";
+        if (!string.IsNullOrWhiteSpace(sort))
+            query += $"&sort={Uri.EscapeDataString(sort)}";
+        if (!string.IsNullOrWhiteSpace(direction))
+            query += $"&direction={Uri.EscapeDataString(direction)}";
         var result = await SendAsync<PaginatedResponse<StudioDto>>(
             HttpMethod.Get,
-            WithCacheNonce("/api/studios?perPage=250"),
+            WithCacheNonce(query),
             payload: null,
             cancellationToken);
         return result.Items;

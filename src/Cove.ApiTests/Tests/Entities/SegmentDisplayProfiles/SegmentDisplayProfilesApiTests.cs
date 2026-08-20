@@ -62,6 +62,7 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
         var eva = AsUser(ApiTestUsers.Eva);
         var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("Rules profile", null, false));
         var tag = await AsUser().CreateTagAsync($"Display rule tag {Guid.NewGuid():N}");
+        var replacementTag = await AsUser().CreateTagAsync($"Replacement display rule tag {Guid.NewGuid():N}");
         var rich = new SegmentDisplayRuleCreateDto("  detector  ", "  chapter  ", tag.Id, "  category  ", SegmentHostType.Video, true, 0.8f, 2.5, 0.5, false, "  #aabbcc  ", 3, 50);
         var created = await eva.CreateSegmentDisplayRuleAsync(profile.Id, rich);
         created.ShouldMatch(rich, tag.Name, profile.UserId);
@@ -78,10 +79,10 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
         afterBulk.Single(rule => rule.Id == created.Id).ShouldMatch(rich, tag.Name, profile.UserId);
         (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(3);
 
-        var update = new SegmentDisplayRuleUpdateDto("edited", "marker", tag.Id, "category", SegmentHostType.Video, false, 0.9f, 3, 1, true, "#112233", 7, 60);
+        var update = new SegmentDisplayRuleUpdateDto("edited", "marker", replacementTag.Id, "category", SegmentHostType.Video, false, 0.9f, 3, 1, true, "#112233", 7, 60);
         var edited = await eva.UpdateSegmentDisplayRuleAsync(profile.Id, created.Id, update);
-        edited.ShouldMatch(update, tag.Name, profile.UserId);
-        (await eva.GetSegmentDisplayRulesAsync(profile.Id)).Single(rule => rule.Id == created.Id).ShouldMatch(update, tag.Name, profile.UserId);
+        edited.ShouldMatch(update, replacementTag.Name, profile.UserId);
+        (await eva.GetSegmentDisplayRulesAsync(profile.Id)).Single(rule => rule.Id == created.Id).ShouldMatch(update, replacementTag.Name, profile.UserId);
         (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(4);
         await eva.DeleteSegmentDisplayRuleAsync(profile.Id, created.Id);
         (await eva.GetSegmentDisplayRulesAsync(profile.Id)).Should().NotContain(rule => rule.Id == created.Id);

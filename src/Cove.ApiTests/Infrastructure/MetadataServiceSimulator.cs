@@ -128,6 +128,17 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             return;
         }
 
+        if (request.Query.Contains("query Me", StringComparison.Ordinal)
+            && request.Query.Contains("me", StringComparison.Ordinal)
+            && request.Query.Contains("name", StringComparison.Ordinal))
+        {
+            await context.Response.WriteAsJsonAsync(
+                new { data = new { me = new { name = "API test metadata user" } } },
+                ApiJson.Options,
+                context.RequestAborted);
+            return;
+        }
+
         if (request.Query.Contains("query SearchPerformer", StringComparison.Ordinal)
             && request.Query.Contains("searchPerformer(term: $term)", StringComparison.Ordinal))
         {
