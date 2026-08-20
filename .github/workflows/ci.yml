@@ -7,7 +7,70 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.classify.outputs.backend || steps.all.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend || steps.all.outputs.frontend }}
+    steps:
+      - name: Run all checks outside pull requests
+        id: all
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "backend=true" >> "$GITHUB_OUTPUT"
+          echo "frontend=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+
+      - name: Classify pull request changes
+        id: classify
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          backend=false
+          frontend=false
+          changed_paths=$(mktemp)
+          trap 'rm -f "$changed_paths"' EXIT
+
+          git diff --name-only -z --no-renames "$BASE_SHA...$HEAD_SHA" > "$changed_paths"
+
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              ui/*)
+                frontend=true
+                ;;
+              src/*|scripts/*|.config/*|Directory.Build.props|Directory.Build.targets|global.json|NuGet.config)
+                backend=true
+                ;;
+              .github/workflows/ci.yml)
+                backend=true
+                frontend=true
+                ;;
+              docs/*|docs-site/*|.github/workflows/docs-site.yml|*.md)
+                # Documentation does not affect app CI; docs-site has its own workflow.
+                ;;
+              coveicon.ico)
+                backend=true
+                ;;
+              *)
+                # New or shared paths run everything until classified more narrowly.
+                backend=true
+                frontend=true
+                ;;
+            esac
+          done < "$changed_paths"
+
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+
   backend:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +95,8 @@ jobs:
         run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --filter "FullyQualifiedName~Cove.Tests.Integration"
 
   api-tests:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -94,6 +159,8 @@ jobs:
           if-no-files-found: error
 
   performance:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -129,6 +196,8 @@ jobs:
         run: dotnet test src/Cove.PerformanceTests/Cove.PerformanceTests.csproj -c Release --verbosity normal
 
   frontend:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
