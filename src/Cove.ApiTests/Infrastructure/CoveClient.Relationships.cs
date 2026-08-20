@@ -1,3 +1,5 @@
+using System.Net.Http.Json;
+using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 
@@ -64,6 +66,101 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<PaginatedResponse<GroupItemDto>> GetGroupItemsPageAsync(
+        int groupId,
+        int page = 1,
+        int perPage = 40,
+        string? sort = null,
+        string? direction = null,
+        string? query = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new List<string>
+        {
+            $"page={page}",
+            $"perPage={perPage}",
+        };
+        if (!string.IsNullOrWhiteSpace(sort))
+            parameters.Add($"sort={Uri.EscapeDataString(sort)}");
+        if (!string.IsNullOrWhiteSpace(direction))
+            parameters.Add($"direction={Uri.EscapeDataString(direction)}");
+        if (!string.IsNullOrWhiteSpace(query))
+            parameters.Add($"q={Uri.EscapeDataString(query)}");
+
+        return SendAsync<PaginatedResponse<GroupItemDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/groups/{groupId}/items/page?{string.Join('&', parameters)}"),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<GroupItemDto> UpdateGroupItemAsync(
+        int groupId,
+        int itemId,
+        GroupItemUpdateDto update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupItemDto>(
+            HttpMethod.Put,
+            $"/api/groups/{groupId}/items/{itemId}",
+            update,
+            cancellationToken);
+
+    public async Task DeleteGroupItemAsync(
+        int groupId,
+        int itemId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/groups/{groupId}/items/{itemId}";
+        using var response = await _client.DeleteAsync(requestUri, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NoContent)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
+    public async Task<int> RemoveGroupItemHostsAsync(
+        int groupId,
+        GroupItemsRemoveHostsDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/groups/{groupId}/items/remove-hosts",
+            request,
+            cancellationToken);
+        return response.GetProperty("removed").GetInt32();
+    }
+
+    public async Task ReorderGroupItemsAsync(
+        int groupId,
+        GroupItemsReorderDto reorder,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/groups/{groupId}/items/reorder";
+        using var request = new HttpRequestMessage(HttpMethod.Put, requestUri)
+        {
+            Content = JsonContent.Create(reorder, options: ApiJson.Options),
+        };
+        using var response = await _client.SendAsync(request, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.OK)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"PUT {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
+    public Task<GroupPlaybackManifestDto> GetGroupPlaybackManifestAsync(
+        int groupId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupPlaybackManifestDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/groups/{groupId}/playback-manifest"),
+            payload: null,
+            cancellationToken);
+
     public Task<DetectionDto> CreateImageDetectionAsync(
         ImageDto image,
         string classification,
@@ -124,9 +221,8 @@ public sealed partial class CoveClient
         VideoDto video,
         string title,
         CancellationToken cancellationToken = default)
-        => SendAsync<SegmentDto>(
-            HttpMethod.Post,
-            $"/api/videos/{video.Id}/segments",
+        => CreateVideoSegmentAsync(
+            video,
             new SegmentCreateDto(
                 StartSec: 2,
                 EndSec: 5,
@@ -141,12 +237,60 @@ public sealed partial class CoveClient
                 ColorHint: null),
             cancellationToken);
 
+    public Task<SegmentDto> CreateVideoSegmentAsync(
+        VideoDto video,
+        SegmentCreateDto segment,
+        CancellationToken cancellationToken = default)
+        => SendAsync<SegmentDto>(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/segments",
+            segment,
+            cancellationToken);
+
     public Task<IReadOnlyList<SegmentDto>> GetVideoSegmentsAsync(
         VideoDto video,
         CancellationToken cancellationToken = default)
         => SendAsync<IReadOnlyList<SegmentDto>>(
             HttpMethod.Get,
             WithCacheNonce($"/api/videos/{video.Id}/segments"),
+            payload: null,
+            cancellationToken);
+
+    public Task<SegmentRecordDto> GetSegmentByIdAsync(
+        int segmentId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<SegmentRecordDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/segments/{segmentId}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<int> RemoveTagFromSegmentsAsync(
+        int tagId,
+        IReadOnlyList<int>? segmentIds,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/segments/bulk/remove-tag",
+            new { tagId, ids = segmentIds },
+            cancellationToken);
+        return response.GetProperty("count").GetInt32();
+    }
+
+    public Task<IReadOnlyList<SegmentDistinctValueDto>> GetDistinctSegmentSourceKeysAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<SegmentDistinctValueDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/segments/source-keys/distinct"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<SegmentDistinctValueDto>> GetDistinctSegmentKindsAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<SegmentDistinctValueDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/segments/kinds/distinct"),
             payload: null,
             cancellationToken);
 
